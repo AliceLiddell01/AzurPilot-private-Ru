@@ -35,11 +35,11 @@ class AzurLaneDaemon(DaemonBase, OSFleet, PortHandler):
         while 1:
             self.device.screenshot()
 
-            # 战斗执行中，不做额外操作
+            # Во время боя дополнительных действий не выполняем
             if self.is_combat_executing():
                 continue
 
-            # 战斗处理
+            # Обработка боя
             if self.combat_appear():
                 self.combat_preparation()
             try:
@@ -53,14 +53,14 @@ class AzurLaneDaemon(DaemonBase, OSFleet, PortHandler):
             if self.appear_then_click(EXP_INFO_D, interval=2):
                 continue
 
-            # 地图事件处理
+            # Обработка событий карты
             if self.handle_map_event():
                 self._nearest_object_click_timer.clear()
                 continue
             if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50), interval=2):
                 continue
 
-            # 港口维修
+            # Ремонт в порту
             if self.config.OpsiDaemon_RepairShip:
                 if self.appear(PORT_ENTER, offset=(20, 20), interval=30):
                     self.port_enter()
@@ -69,12 +69,12 @@ class AzurLaneDaemon(DaemonBase, OSFleet, PortHandler):
                     self.interval_reset(PORT_ENTER)
                     logger.info('[Daemon-Operation Siren] Ремонт в порту завершён; переместите флот из порта в течение 30 секунд, чтобы избежать повторного ремонта')
 
-            # 自动选择最近敌人
+            # Автоматически выбираем ближайшего врага
             if self.config.OpsiDaemon_SelectEnemy:
                 if self.click_nearest_object():
                     continue
 
-            # 无终止条件，需手动停止
+            # Условия автоматического завершения нет; требуется остановить вручную
 
         return True
 

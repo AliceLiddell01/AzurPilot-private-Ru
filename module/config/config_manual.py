@@ -1,13 +1,13 @@
-"""手动配置定义模块。
+"""Модуль определения параметров ручной конфигурации.
 
-定义非自动生成的硬编码配置项，包括：
-- 服务器信息和资源文件路径
-- UI 按钮的服务器特定偏移量
-- 任务调度的默认优先级逻辑
-- 各功能模块的配置属性访问器
+Определяет автоматически не генерируемые настройки, включая:
+- Сведения о сервере и пути к файлам ресурсов
+- Серверные смещения для UI-кнопок
+- Логику приоритетов планировщика задач по умолчанию
+- Аксессоры свойств конфигурации для различных функциональных модулей
 
-此文件中的配置项需要手动维护，不随 config_updater.py 自动更新。
-配置属性通过 `@property` 装饰器暴露，供 AzurLaneConfig 通过多重继承访问。
+Настройки в этом файле поддерживаются вручную и не обновляются через config_updater.py.
+Свойства конфигурации предоставляются через декоратор `@property` для доступа из AzurLaneConfig через множественное наследование.
 """
 
 try:
@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any
 
-# 此文件定义了手动配置项。
-# 包含了非自动生成的硬编码设置，如资源文件路径、UI 按钮偏移量以及任务调度的默认优先级逻辑。
+# Этот файл определяет вручную поддерживаемые параметры конфигурации.
+# Здесь находятся негенерируемые жёстко заданные настройки: пути ресурсов, смещения UI-кнопок и логика приоритетов планировщика по умолчанию.
 from module.config.deep import deep_get
 from module.config.utils import *
 from module.config.task_priority import get_scheduler_tasks, merge_task_priority
@@ -33,15 +33,15 @@ import module.config.server as server
 
 
 class ManualConfig:
-    """手动配置基类。
+    """Базовый класс ручной конфигурации.
 
-    提供 AzurLaneConfig 中不通过代码生成器创建的配置属性。
-    这些属性包括：
-    - 服务器标识（SERVER）
-    - 任务调度优先级（_DEFAULT_SCHEDULER_PRIORITY）
-    - 各功能模块的配置访问器（如 Research_PresetFilter、Fleet_FleetOrder 等）
+    Предоставляет свойства конфигурации AzurLaneConfig, не создаваемые кодогенератором.
+    К ним относятся:
+    - Идентификатор сервера (SERVER)
+    - Приоритеты планировщика задач (_DEFAULT_SCHEDULER_PRIORITY)
+    - Аксессоры конфигурации для функциональных модулей (Research_PresetFilter, Fleet_FleetOrder и др.)
 
-    通过多重继承被 AzurLaneConfig 组合使用。
+    Используется в составе AzurLaneConfig через множественное наследование.
     """
     if TYPE_CHECKING:
         def cross_get(self, keys: list[str], default: Any = None) -> Any: ...
@@ -438,7 +438,7 @@ class ManualConfig:
     # On minitouch, Screen swipe (200, 200) = Map swipe (382, 442)
     OS_GLOBE_SWIPE_MULTIPLY = (1.91, 2.21)
 
-    # 塞壬装置处理方法
+    # Способ обработки устройств Сирен
     # 'never', 'use_until_destroyed'
     OS_SIREN_DEVICE_USAGE = 'never'
 

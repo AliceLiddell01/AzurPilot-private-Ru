@@ -1,8 +1,8 @@
-"""应用生命周期控制模块。
+"""Модуль управления жизненным циклом приложения.
 
-管理 Android 应用（碧蓝航线）的启动、停止、缓存清除等操作，
-以及 UI 层级结构（hierarchy）的获取和 XPath 元素查询。
-根据控制方法和模拟器类型自动选择 ADB 或 uiautomator2 后端。
+Управляет запуском, остановкой, очисткой кэша приложения Android (Azur Lane),
+а также получением иерархии UI (hierarchy) и запросами элементов через XPath.
+Автоматически выбирает бэкенд ADB или uiautomator2 в зависимости от метода управления и типа эмулятора.
 """
 from lxml import etree
 
@@ -16,29 +16,30 @@ from module.logger import logger
 
 
 class AppControl(Adb, WSA, Uiautomator2):
-    """应用生命周期和 UI 层级管理器。
+    """Диспетчер жизненного цикла приложения и иерархии UI.
 
-    通过多重继承组合 ADB、WSA 和 uiautomator2 后端，根据控制方法
-    自动分发应用的启动、停止、状态查询操作。提供 UI 层级转储和
-    XPath 元素查询功能用于界面状态检测。
+    Объединяет бэкенды ADB, WSA и uiautomator2 через множественное наследование,
+    автоматически направляя операции запуска, остановки и проверки состояния приложения.
+    Предоставляет дамп иерархии UI и запросы элементов по XPath для проверки состояния интерфейса.
 
     Attributes:
-        hierarchy (etree._Element): 最近一次获取的 UI 层级树。
-        _app_u2_family (list[str]): 需要使用 uiautomator2 后端的控制方法列表。
-        _hierarchy_interval (Timer): 层级获取间隔计时器。
+        hierarchy (etree._Element): Дерево последней полученной иерархии UI.
+        _app_u2_family (list[str]): Список методов управления, требующих бэкенд uiautomator2.
+        _hierarchy_interval (Timer): Таймер интервала получения иерархии.
     """
     hierarchy: etree._Element
     _app_u2_family = ['uiautomator2', 'minitouch', 'scrcpy', 'MaaTouch', 'nemu_ipc']
     _hierarchy_interval = Timer(0.1)
 
     def app_current(self) -> str:
-        """获取当前前台运行的应用包名。
+        """Возвращает имя пакета приложения, работающего на переднем плане.
 
-        根据控制方法选择不同的获取方式：WSA 使用 WSA 后端，
-        uiautomator2 家族方法使用 uiautomator2 后端，其他使用 ADB。
+        Выбирает способ получения в зависимости от метода управления:
+        WSA использует бэкенд WSA, семейство uiautomator2 использует бэкенд uiautomator2,
+        остальные используют ADB.
 
         Returns:
-            str: 当前前台应用的包名字符串。
+            str: Строка имени пакета приложения на переднем плане.
         """
         method = self.config.Emulator_ControlMethod
         if self.is_wsa:
@@ -51,23 +52,23 @@ class AppControl(Adb, WSA, Uiautomator2):
         return package
 
     def app_is_running(self) -> bool:
-        """检查目标应用（碧蓝航线）是否正在前台运行。
+        """Проверяет, запущено ли целевое приложение (Azur Lane) на переднем плане.
 
-        通过比较当前前台应用包名与配置中的包名来判断。
+        Определяется путём сравнения имени пакета на переднем плане с именем из конфигурации.
 
         Returns:
-            bool: 应用在前台运行返回 True。
+            bool: True, если приложение работает на переднем плане.
         """
         package = self.app_current()
         logger.debug(f'[Пакет приложения] {package}')
         return package == self.package
 
     def app_start(self):
-        """启动目标应用（碧蓝航线）。
+        """Запускает целевое приложение (Azur Lane).
 
-        根据设备类型和控制方法选择不同的启动方式：
-        WSA 设备指定 display=0，uiautomator2 家族使用 uiautomator2 启动，
-        其他使用 ADB am start。
+        Выбирает метод запуска в зависимости от типа устройства и настроек:
+        устройства WSA указывают display=0, семейство uiautomator2 запускается через uiautomator2,
+        остальные — через ADB am start.
         """
         method = self.config.Emulator_ControlMethod
         logger.info(f'[Устройство — приложение] Запуск приложения: {self.package}')
@@ -79,9 +80,9 @@ class AppControl(Adb, WSA, Uiautomator2):
             self.app_start_adb()
 
     def app_stop(self):
-        """停止目标应用（碧蓝航线）。
+        """Останавливает целевое приложение (Azur Lane).
 
-        根据控制方法选择 uiautomator2 或 ADB am force-stop 方式。
+        В зависимости от метода управления выбирает uiautomator2 или ADB am force-stop.
         """
         method = self.config.Emulator_ControlMethod
         logger.info(f'[Устройство — приложение] Остановка приложения: {self.package}')
@@ -91,9 +92,9 @@ class AppControl(Adb, WSA, Uiautomator2):
             self.app_stop_adb()
 
     def app_clear(self):
-        """清除目标应用的缓存目录。
+        """Очищает каталог кэша целевого приложения.
 
-        通过 ADB 删除 /sdcard/Android/data/{package}/cache/ 下的文件。
+        Удаляет файлы в /sdcard/Android/data/{package}/cache/ через ADB.
         """
         cache_path = f'/sdcard/Android/data/{self.package}/cache/*'
         logger.info(f'[Устройство — приложение] Очистка кэша приложения: {cache_path}')
@@ -102,18 +103,18 @@ class AppControl(Adb, WSA, Uiautomator2):
             logger.info(f'[Устройство — приложение] Результат очистки кэша приложения: {result}')
 
     def hierarchy_timer_set(self, interval=None):
-        """设置 UI 层级获取的最小间隔时间。
+        """Устанавливает минимальный интервал между запросами иерархии UI.
 
         Args:
-            interval (int, float, optional): 间隔秒数，None 使用默认值 0.1 秒。
+            interval (int, float, optional): Интервал в секундах, None для значения по умолчанию 0.1 с.
 
         Raises:
-            ScriptError: 间隔参数类型不正确时抛出。
+            ScriptError: Если тип параметра интервала некорректен.
         """
         if interval is None:
             interval = 0.1
         elif isinstance(interval, (int, float)):
-            # 代码中手动设置时不限制
+            # При ручной настройке в коде ограничение не применяется
             pass
         else:
             logger.warning(f'[Устройство — приложение] Неизвестный интервал получения иерархии: {interval}')
@@ -124,10 +125,10 @@ class AppControl(Adb, WSA, Uiautomator2):
             self._hierarchy_interval.limit = interval
 
     def dump_hierarchy(self) -> etree._Element:
-        """获取当前界面的 UI 层级结构。
+        """Возвращает текущую структуру иерархии UI интерфейса.
 
         Returns:
-            etree._Element: UI 层级元素，可使用 `self.hierarchy.xpath('//*[@text="Hermit"]')` 选取元素。
+            etree._Element: Элемент иерархии UI, к которому можно применять XPath, например `self.hierarchy.xpath('//*[@text="Hermit"]')`.
         """
         self._hierarchy_interval.wait()
         self._hierarchy_interval.reset()

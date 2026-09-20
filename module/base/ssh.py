@@ -1,4 +1,4 @@
-"""SSH 客户端公共工具。"""
+"""Общие утилиты SSH-клиента."""
 
 from pathlib import Path
 from subprocess import DEVNULL, PIPE, run
@@ -7,7 +7,7 @@ from module.logger import logger
 
 
 def _get_known_hosts_files(ssh_executable: str, host: str, port: int) -> list[Path]:
-    """查询指定 SSH 可执行文件对目标主机实际使用的主机指纹文件。"""
+    """Запросить файлы отпечатков хостов, фактически используемые указанным исполняемым файлом SSH для целевого узла."""
     try:
         result = run(
             [ssh_executable, "-G", "-p", str(port), host],
@@ -40,7 +40,7 @@ def _get_known_hosts_files(ssh_executable: str, host: str, port: int) -> list[Pa
 
 
 def clear_ssh_host_key(host: str, port: int, ssh_executable: str = "ssh") -> bool:
-    """仅删除本次连接目标在 SSH 实际使用的主机指纹文件中的记录。"""
+    """Удалить записи только для текущего целевого подключения из файлов отпечатков хостов, фактически используемых SSH."""
     host = str(host or "").rsplit("@", 1)[-1].strip("[]")
     if not host:
         return False

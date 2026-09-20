@@ -1,5 +1,5 @@
-"""游戏开关控件模块。定义 Switch 类，封装游戏中开关/选择器的状态切换逻辑，
-支持带重试机制的多状态切换。"""
+"""Модуль элементов управления переключателями в игре. Определяет класс Switch, инкапсулирующий
+логику переключения состояний переключателей/селекторов с поддержкой механизма повторов."""
 
 import logging
 
@@ -11,26 +11,26 @@ from module.logger import logger
 
 class Switch:
     """
-    游戏开关控件的封装，支持在多个状态间切换并带有重试机制。
+    Обертка элемента управления переключателем в игре; поддерживает переключение между несколькими состояниями с механизмом повторов.
 
     Examples:
-        # 定义
+        # Определение
         submarine_hunt = Switch('Submarine_hunt', offset=120)
         submarine_hunt.add_state('on', check_button=SUBMARINE_HUNT_ON)
         submarine_hunt.add_state('off', check_button=SUBMARINE_HUNT_OFF)
 
-        # 切换到 ON 状态
+        # Переключение в состояние ON
         submarine_view.set('on', main=self)
     """
 
     def __init__(self, name='Switch', is_selector=False, offset=0):
         """
         Args:
-            name (str): 开关名称。
-            is_selector (bool): True 表示多选选择器，点击可切换不同选项。
-                例如：| [每日] | 紧急 | -> 点击 -> | 每日 | [紧急] |
-                False 表示开关，在同一位置点击切换状态。
-                例如：| [开] | -> 点击 -> | [关] |
+            name (str): Имя переключателя.
+            is_selector (bool): True означает селектор с несколькими вариантами выбора кликом.
+                Например: | [Ежедневные] | Срочные | -> клик -> | Ежедневные | [Срочные] |
+                False означает двухпозиционный переключатель, состояние которого меняется кликом в одну область.
+                Например: | [Вкл] | -> клик -> | [Выкл] |
         """
         self.name = name
         self.is_selector = is_selector
@@ -42,14 +42,14 @@ class Switch:
 
     def add_state(self, state, check_button, click_button=None, offset=0, similarity=0.85):
         """
-        添加一个可切换的状态。
+        Добавить доступное для переключения состояние.
 
         Args:
-            state (str): 状态名称，不能使用 'unknown'。
-            check_button (Button): 用于检测该状态的按钮。
-            click_button (Button): 点击切换到该状态的按钮，默认与 check_button 相同。
-            offset (bool, int, tuple): 匹配偏移量。
-            similarity (float): 使用偏移量时的模板匹配阈值。
+            state (str): Имя состояния; нельзя использовать 'unknown'.
+            check_button (Button): Кнопка для проверки этого состояния.
+            click_button (Button): Кнопка для клика переключения в это состояние; по умолчанию совпадает с check_button.
+            offset (bool, int, tuple): Смещение сопоставления.
+            similarity (float): Порог схожести шаблона при использовании смещения.
         """
         if state == 'unknown':
             raise ScriptError(f'Нельзя использовать "unknown" как имя состояния')
@@ -73,25 +73,25 @@ class Switch:
 
     def appear(self, main):
         """
-        检测开关是否出现在屏幕上（即状态不是 'unknown'）。
+        Проверить, отображается ли переключатель на экране (то есть состояние не 'unknown').
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            bool: 是否出现。
+            bool: Отображается ли переключатель.
         """
         return self.get(main=main) != 'unknown'
 
     def get(self, main):
         """
-        获取当前开关状态。
+        Получить текущее состояние переключателя.
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            str: 状态名称或 'unknown'。
+            str: Имя состояния или 'unknown'.
         """
         for data in self.state_list:
             if main.appear(data['check_button'], offset=data['offset'], similarity=data['similarity']):
@@ -101,27 +101,27 @@ class Switch:
 
     def click(self, state, main):
         """
-        点击指定状态对应的按钮。
+        Кликнуть по кнопке, соответствующей указанному состоянию.
 
         Args:
-            state (str): 目标状态名称。
-            main (ModuleBase): 模块基类实例。
+            state (str): Имя целевого состояния.
+            main (ModuleBase): Экземпляр базового модуля.
         """
         button = self.get_data(state)['click_button']
         main.device.click(button)
 
     def get_data(self, state):
         """
-        获取指定状态的数据。
+        Получить данные указанного состояния.
 
         Args:
-            state (str): 状态名称。
+            state (str): Имя состояния.
 
         Returns:
-            dict: add_state 中添加的状态数据。
+            dict: Данные состояния, добавленные в add_state.
 
         Raises:
-            ScriptError: 如果状态无效。
+            ScriptError: Если состояние недопустимо.
         """
         for row in self.state_list:
             if row['state'] == state:
@@ -131,27 +131,27 @@ class Switch:
 
     def handle_additional(self, main):
         """
-        处理额外弹窗，子类可重写此方法。
+        Обработать дополнительные всплывающие окна; подклассы могут переопределять этот метод.
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            bool: 是否处理了弹窗。
+            bool: Было ли обработано всплывающее окно.
         """
         return False
 
     def set(self, state, main, skip_first_screenshot=True):
         """
-        设置开关到指定状态，带重试和超时机制。
+        Установить переключатель в указанное состояние с механизмом повторов и тайм-аута.
 
         Args:
-            state: 目标状态名称。
-            main (ModuleBase): 模块基类实例。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            state: Имя целевого состояния.
+            main (ModuleBase): Экземпляр базового модуля.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 是否发生了点击操作。
+            bool: Был ли выполнен клик.
         """
         logger.info(f'{self.name}: установка состояния {state}')
         self.get_data(state)
@@ -168,7 +168,7 @@ class Switch:
             else:
                 main.device.screenshot()
 
-            # 检测当前状态
+            # Определяем текущее состояние
             current = self.get(main=main)
             logger.log_suppressed(
                 logging.DEBUG,
@@ -177,41 +177,41 @@ class Switch:
                 payload=current,
             )
 
-            # 到达目标状态则退出
+            # Выходим после достижения целевого состояния
             if current == state:
                 logger.finish_suppressed(log_key)
                 return changed
 
-            # 处理额外弹窗
+            # Обрабатываем дополнительные окна
             if self.handle_additional(main=main):
                 continue
 
-            # 未知状态警告
+            # Предупреждение о неизвестном состоянии
             if current == 'unknown':
                 if unknown_timer.reached():
                     logger.warning(f'[UI — Переключатель] Состояние переключателя {self.name} не распознано; '
                                    f'ресурсы следует перепроверить')
                     has_unknown = True
                     unknown_timer.reset()
-                # 如果 unknown_timer 从未触发，不点击未知状态（可能是切换动画）。
-                # 如果 unknown_timer 曾触发过一次，则忽略未知状态直接点击目标状态
-                # （可能是尚未添加的新状态）。
-                # 通过忽略新状态，Switch.set() 仍可在已知状态间切换。
+                # Пока unknown_timer ни разу не сработал, не кликаем неизвестное состояние: это может быть анимация переключения.
+                # Если unknown_timer уже срабатывал, игнорируем неизвестное состояние и кликаем целевое
+                # — это может быть ещё не добавленное новое состояние.
+                # Благодаря игнорированию нового состояния Switch.set() всё ещё может переключаться между известными состояниями.
                 if not has_unknown:
                     continue
             else:
-                # 已知状态，重置计时器
+                # Состояние известно — сбрасываем таймер
                 unknown_timer.reset()
 
-            # 点击切换
+            # Выполняем переключение
             if click_timer.reached():
                 if self.is_selector:
-                    # 选择器模式：点击目标状态
+                    # Режим селектора: кликаем целевое состояние
                     click_state = state
                 else:
-                    # 开关模式：点击当前状态来切换到另一个状态
-                    # 但 'unknown' 不可点击，此时改为点击目标状态
-                    # 假设所有选择器状态共享同一位置
+                    # Режим переключателя: кликаем текущее состояние, чтобы перейти в другое
+                    # Но 'unknown' кликнуть нельзя, поэтому в этом случае кликаем целевое состояние
+                    # Предполагается, что все состояния селектора используют одну позицию
                     if current == 'unknown':
                         click_state = state
                     else:
@@ -225,14 +225,14 @@ class Switch:
 
     def wait(self, main, skip_first_screenshot=True):
         """
-        等待直到任意状态被激活。
+        Ожидать активации любого состояния.
 
         Args:
-            main (ModuleBase): 模块基类实例。
-            skip_first_screenshot: 是否跳过首次截图。
+            main (ModuleBase): Экземпляр базового модуля.
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 是否成功检测到状态。
+            bool: Успешно ли обнаружено состояние.
         """
         log_key = ('switch-state', id(self), 'wait')
         logger.reset_suppression(log_key)
@@ -243,7 +243,7 @@ class Switch:
             else:
                 main.device.screenshot()
 
-            # 检测当前状态
+            # Определяем текущее состояние
             current = self.get(main=main)
             logger.log_suppressed(
                 logging.DEBUG,
@@ -252,7 +252,7 @@ class Switch:
                 payload=current,
             )
 
-            # 检测到已知状态则退出
+            # Выходим, когда обнаружено известное состояние
             if current != 'unknown':
                 logger.finish_suppressed(log_key)
                 return True
@@ -261,6 +261,6 @@ class Switch:
                 logger.warning(f'{self.name}: превышено время ожидания активации')
                 return False
 
-            # 处理额外弹窗
+            # Обрабатываем дополнительные окна
             if self.handle_additional(main=main):
                 continue

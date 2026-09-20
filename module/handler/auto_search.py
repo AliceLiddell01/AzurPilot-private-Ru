@@ -1,15 +1,15 @@
-"""自动搜索处理器。
+"""Обработчик автопоиска.
 
-管理游戏的自动搜索（Auto Search）功能，包括：
-- 舰队准备界面的侧边栏切换（编队/指挥喵/自动搜索设置）
-- 自动搜索设置选项的切换（如舰队1打道中/舰队2打Boss等）
-- 地图中自动搜索开关的检测和控制
-- 自动搜索菜单的继续/退出操作
+Управляет игровой функцией автопоиска (Auto Search), включая:
+- Переключение вкладок боковой панели на экране подготовки флота (построение/командиры/настройки автопоиска)
+- Переключение параметров автопоиска (например, флот 1 для обычных врагов / флот 2 для босса)
+- Контроль переключателя автопоиска на карте
+- Действия «продолжить» и «выйти» в меню автопоиска
 
-自动搜索是碧蓝航线的核心功能之一，允许玩家在通关模式下
-自动进行地图探索，无需手动操作。
+Автопоиск — одна из ключевых функций Azur Lane, позволяющая исследовать зачищенные карты
+в автоматическом режиме без ручного управления.
 
-继承自 EnemySearchingHandler，在 FastForwardHandler 中被进一步扩展。
+Наследуется от EnemySearchingHandler, далее расширяется в FastForwardHandler.
 """
 
 import numpy as np
@@ -22,16 +22,16 @@ from module.handler.enemy_searching import EnemySearchingHandler
 from module.logger import logger
 from module.map.assets import FLEET_PREPARATION_CHECK
 
-# 自动搜索设置按钮列表，对应游戏界面中的 6 个选项
+# Список кнопок настроек автопоиска, соответствующих 6 вариантам в интерфейсе игры
 AUTO_SEARCH_SETTINGS = [
-    AUTO_SEARCH_SET_MOB,       # 舰队1打道中，舰队2打Boss
-    AUTO_SEARCH_SET_BOSS,      # 舰队1打Boss，舰队2打道中
-    AUTO_SEARCH_SET_ALL,       # 舰队1全出击，舰队2待命
-    AUTO_SEARCH_SET_STANDBY,   # 舰队1待命，舰队2全出击
-    AUTO_SEARCH_SET_SUB_AUTO,  # 潜艇自动呼叫
-    AUTO_SEARCH_SET_SUB_STANDBY  # 潜艇待命
+    AUTO_SEARCH_SET_MOB,       # Флот 1 сражается с обычными врагами, флот 2 — с Boss
+    AUTO_SEARCH_SET_BOSS,      # Флот 1 сражается с Boss, флот 2 — с обычными врагами
+    AUTO_SEARCH_SET_ALL,       # Флот 1 выполняет все вылазки, флот 2 ожидает
+    AUTO_SEARCH_SET_STANDBY,   # Флот 1 ожидает, флот 2 выполняет все вылазки
+    AUTO_SEARCH_SET_SUB_AUTO,  # Автоматический вызов подлодок
+    AUTO_SEARCH_SET_SUB_STANDBY  # Подлодки ожидают
 ]
-# 设置名称到按钮索引的映射
+# Отображение имени настройки в индекс кнопки
 dic_setting_name_to_index = {
     'fleet1_mob_fleet2_boss': 0,
     'fleet1_boss_fleet2_mob': 1,
@@ -40,21 +40,21 @@ dic_setting_name_to_index = {
     'sub_auto_call': 4,
     'sub_standby': 5,
 }
-# 按钮索引到设置名称的反向映射
+# Обратное отображение индекса кнопки в имя настройки
 dic_setting_index_to_name = {v: k for k, v in dic_setting_name_to_index.items()}
 
 
 class AutoSearchHandler(EnemySearchingHandler):
-    """自动搜索功能处理器。
+    """Обработчик функциональности автопоиска.
 
-    管理舰队准备界面和地图中的自动搜索相关操作。
-    不同服务器的 UI 布局略有差异（侧边栏按钮位置和大小），
-    通过 @Config.when 装饰器实现服务器特定的适配。
+    Управляет операциями автопоиска на экране подготовки флота и на карте.
+    Разметка интерфейса немного различается между серверами (расположение и размер боковых кнопок),
+    поэтому адаптация реализована через декораторы @Config.when.
 
     Attributes:
-        _auto_search_offset (tuple): 自动搜索选项的匹配偏移量。
-        _auto_search_menu_offset (tuple): 自动搜索菜单的匹配偏移量，
-            当 MULTIPLE_SORTIE 出现时向左偏移 213px。
+        _auto_search_offset (tuple): Смещение сопоставления настроек автопоиска.
+        _auto_search_menu_offset (tuple): Смещение меню автопоиска,
+            сдвигается влево на 213px при появлении MULTIPLE_SORTIE.
     """
     @Config.when(SERVER='en')
     def _fleet_sidebar(self):
@@ -80,13 +80,13 @@ class AutoSearchHandler(EnemySearchingHandler):
 
     def _fleet_preparation_get(self):
         """
-        获取舰队准备界面当前选中的侧边栏索引。
+        Получает индекс активной вкладки боковой панели на экране подготовки флота.
 
         Returns:
             int:
-                1 表示编队
-                2 表示指挥喵
-                3 表示自动搜索设置
+                1 — флот (построение)
+                2 — коты-командиры
+                3 — настройки автопоиска
         """
         current = 0
         total = 0
@@ -109,17 +109,16 @@ class AutoSearchHandler(EnemySearchingHandler):
 
     def fleet_preparation_sidebar_ensure(self, index):
         """
-        确保舰队准备界面切换到指定的侧边栏标签。
+        Гарантирует переключение на указанную вкладку боковой панели экрана подготовки.
 
         Args:
             index (int):
-                1 表示编队
-                2 表示指挥喵
-                3 表示自动搜索设置
+                1 — флот (построение)
+                2 — коты-командиры
+                3 — настройки автопоиска
 
         Returns:
-            bool: 是否成功切换到目标侧边栏，最多尝试 3 次，
-                  超过则返回 False，成功则返回 True。
+            bool: Удалось ли успешно переключить вкладку (до 3 попыток).
         """
         if index <= 0 or index > 5:
             logger.warning(f'[Обработчик — автопоиск] Не удалось установить индекс боковой панели: {index}; допустимый диапазон — от 1 до 5')
@@ -141,13 +140,13 @@ class AutoSearchHandler(EnemySearchingHandler):
 
     def _auto_search_set_click(self, setting):
         """
-        点击自动搜索设置选项。
+        Нажимает на опцию настройки автопоиска.
 
         Args:
-            setting (str): 目标设置名称。
+            setting (str): Имя целевой настройки.
 
         Returns:
-            bool: 是否已选中正确的选项。
+            bool: Выбрана ли уже нужная настройка.
         """
         active = []
 
@@ -174,17 +173,16 @@ class AutoSearchHandler(EnemySearchingHandler):
 
     def auto_search_setting_ensure(self, setting, skip_first_screenshot=True):
         """
-        确保自动搜索设置切换到指定选项。
+        Гарантирует переключение настройки автопоиска на указанный вариант.
 
         Args:
             setting (str):
                 fleet1_mob_fleet2_boss, fleet1_boss_fleet2_mob, fleet1_all_fleet2_standby,
                 fleet1_standby_fleet2_all, sub_auto_call, sub_standby
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 是否成功切换到目标设置，最多尝试 5 次，
-                  超过则返回 False，成功则返回 True。
+            bool: Удалось ли успешно переключить настройку (до 5 попыток).
         """
         counter = 0
         while 1:
@@ -203,25 +201,25 @@ class AutoSearchHandler(EnemySearchingHandler):
                 continue
 
     _auto_search_offset = (5, 5)
-    # 当 MULTIPLE_SORTIE 出现时向左偏移 213px
+    # При появлении MULTIPLE_SORTIE смещаем область на 213 px влево
     _auto_search_menu_offset = (250, 30)
 
     def is_auto_search_running(self):
         """
-        判断自动搜索是否正在运行。
+        Проверяет, запущен ли автопоиск.
 
         Returns:
-            bool: 自动搜索是否已开启。
+            bool: Включён ли автопоиск.
         """
         return self.appear(AUTO_SEARCH_MAP_OPTION_ON, offset=self._auto_search_offset) \
                and self.appear(AUTO_SEARCH_MAP_OPTION_ON)
 
     def handle_auto_search_map_option(self):
         """
-        确保地图中的自动搜索选项已开启。
+        Гарантирует включение опции автопоиска на карте.
 
         Returns:
-            bool: 是否进行了点击操作。
+            bool: Было ли выполнено нажатие.
         """
         if self.appear(AUTO_SEARCH_MAP_OPTION_OFF, offset=self._auto_search_offset) \
                 and self.appear_then_click(AUTO_SEARCH_MAP_OPTION_OFF, interval=2):
@@ -231,10 +229,10 @@ class AutoSearchHandler(EnemySearchingHandler):
 
     def is_in_auto_search_menu(self):
         """
-        判断是否处于自动搜索菜单界面。
+        Проверяет, находится ли экран в интерфейсе меню автопоиска.
 
         Returns:
-            bool: 是否在自动搜索菜单中。
+            bool: Находится ли в меню автопоиска.
         """
         return AUTO_SEARCH_MENU_CONTINUE.match_luma(self.device.image, offset=self._auto_search_menu_offset)
 
@@ -243,16 +241,16 @@ class AutoSearchHandler(EnemySearchingHandler):
 
     def handle_auto_search_exit(self, drop=None):
         """
-        处理自动搜索菜单的退出操作。
+        Обрабатывает действие выхода из меню автопоиска.
 
         Args:
-            drop (DropImage): 掉落记录对象。
+            drop (DropImage): Объект фиксации дропа.
 
         Returns:
-            bool: 是否执行了退出操作。
+            bool: Было ли выполнено действие выхода.
         """
         if self.appear(AUTO_SEARCH_MENU_EXIT, offset=self._auto_search_menu_offset, interval=2):
-            # 此处实现较粗糙
+            # Здесь реализация довольно грубая
             if drop:
                 drop.handle_add(main=self, before=4)
             self.device.click(AUTO_SEARCH_MENU_EXIT)
@@ -265,7 +263,7 @@ class AutoSearchHandler(EnemySearchingHandler):
         """
         Pages:
             in: is_in_auto_search_menu
-            out: page_campaign 或 page_event 或 page_sp
+            out: page_campaign, page_event или page_sp
         """
         if not self.is_in_auto_search_menu():
             return False
@@ -282,7 +280,7 @@ class AutoSearchHandler(EnemySearchingHandler):
                 if self.handle_auto_search_exit(drop=drop):
                     continue
 
-                # 结束条件
+                # Условие завершения
                 if self.is_in_stage():
                     break
 

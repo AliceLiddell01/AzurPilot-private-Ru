@@ -50,7 +50,7 @@ def handle_notify(_config: str, **kwargs) -> bool:
         required: list[str] = notifier.params["required"]
         config.update(kwargs)
 
-        # 参数预检查
+        # Предварительная проверка параметров
         for key in required:
             if key not in config:
                 logger.warning(
@@ -92,7 +92,7 @@ def handle_notify(_config: str, **kwargs) -> bool:
         logger.error("Не удалось отправить push-уведомление")
         return False
     except Exception as e:
-        # 不打印完整异常栈，避免暴露变量信息
+        # Не выводим полный стек исключения, чтобы не раскрывать значения переменных
         logger.error(e)
         return False
 

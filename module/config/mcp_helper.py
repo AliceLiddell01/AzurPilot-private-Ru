@@ -1,17 +1,17 @@
-"""MCP 配置辅助模块。
+"""Вспомогательный модуль конфигурации MCP.
 
-为 MCP (Model Context Protocol) 服务器提供配置数据的结构化访问。
-MCP 服务器通过此模块获取任务列表、任务详情和配置信息，
-供外部 AI 助手查询和修改 AzurPilot 的配置。
+Обеспечивает структурированный доступ к конфигурационным данным для серверов MCP (Model Context Protocol).
+Сервер MCP использует этот модуль для получения списков задач, их деталей и настроек,
+что позволяет внешним AI-ассистентам запрашивать и изменять конфигурацию AzurPilot.
 
-主要功能：
-- get_tasks(): 获取所有可调度任务的名称列表
-- get_task_details(): 获取指定任务的详细参数定义（含国际化）
-- get_dashboard_resources(): 获取仪表盘资源列表
+Основные функции:
+- get_tasks(): получение списка имён всех доступных для планирования задач
+- get_task_details(): получение подробных определений параметров задачи (с локализацией)
+- get_dashboard_resources(): получение списка ресурсов панели управления
 
-配置数据来源：
-- args.json: 合并后的完整参数定义
-- i18n/{lang}.json: 国际化翻译文件
+Источники данных конфигурации:
+- args.json: объединённые полные определения параметров
+- i18n/{lang}.json: файлы локализации
 """
 
 import json
@@ -22,15 +22,15 @@ from module.config.utils import read_file, filepath_args, filepath_i18n
 
 
 class McpConfigHelper:
-    """MCP 配置数据访问助手。
+    """Помощник доступа к конфигурационным данным MCP.
 
-    从 args.json 和 i18n 文件中读取配置元数据，
-    提供结构化的任务和参数信息供 MCP 服务器使用。
+    Считывает метаданные конфигурации из args.json и файлов i18n,
+    предоставляя структурированную информацию о задачах и параметрах для MCP-сервера.
 
     Attributes:
-        lang (str): 当前语言代码，如 'zh-CN'、'en-US'。
-        args_data (dict): 从 args.json 加载的参数定义数据。
-        i18n_data (dict): 从 i18n 文件加载的国际化数据。
+        lang (str): Код текущего языка, например 'ru-RU'.
+        args_data (dict): Данные определений параметров, загруженные из args.json.
+        i18n_data (dict): Данные локализации, загруженные из файла i18n.
     """
 
     def __init__(self, lang=UI_LOCALE):
@@ -41,18 +41,18 @@ class McpConfigHelper:
         self.i18n_data = read_file(filepath_i18n(UI_LOCALE))
 
     def get_tasks(self) -> List[str]:
-        """获取 args.json 中所有任务名称。"""
+        """Получить имена всех задач из args.json."""
         return list(self.args_data.keys())
 
     def get_task_details(self, task_name: str) -> Dict[str, Any]:
-        """获取任务的扁平化元数据，包括国际化名称和帮助文本。"""
+        """Получить сглаженные метаданные задачи, включая локализованное имя и текст справки."""
         if task_name not in self.args_data:
             return {}
 
         task_args = self.args_data[task_name]
         task_i18n = self.i18n_data.get("Task", {}).get(task_name, {})
         
-        # 供 AI 使用的结构化数据
+        # Структурированные данные для использования AI.
         result = {
             "task_name": task_name,
             "display_name": task_i18n.get("name", task_name),
@@ -60,16 +60,16 @@ class McpConfigHelper:
             "groups": {}
         }
 
-        # 参数的国际化数据通常位于 i18n_data[task_name] 的顶层，
-        # 或位于 Task[task_name]（通用任务描述符）。
-        # AzurPilot 按任务级键组织国际化数据。
+        # Данные локализации параметров обычно находятся на верхнем уровне i18n_data[task_name]
+        # или в Task[task_name] (общий дескриптор задачи).
+        # AzurPilot организует данные локализации по ключам уровня задачи.
         spec_i18n = self.i18n_data.get(task_name, {})
 
         for group_name, group_data in task_args.items():
-            if group_name == "Storage":  # 跳过 Storage 组
+            if group_name == "Storage":  # Пропускаем группу Storage.
                 continue
                 
-            # 解析组的国际化元数据
+            # Разбираем метаданные локализации группы.
             group_meta = spec_i18n.get(group_name, {})
             info = group_meta.get("_info", {})
             group_display = info.get("name", group_name)
@@ -84,7 +84,7 @@ class McpConfigHelper:
             for arg_name, arg_meta in group_data.items():
                 arg_i18n = spec_i18n.get(group_name, {}).get(arg_name, {})
                 
-                # 选项翻译
+                # Переводы вариантов.
                 options = arg_meta.get("option", [])
                 translated_options = {}
                 for opt in options:
@@ -104,22 +104,22 @@ class McpConfigHelper:
 
     def get_dashboard_resources(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        从配置数据的 Dashboard 部分提取资源信息。
+        Извлечь информацию о ресурсах из секции Dashboard конфигурационных данных.
 
-        包含 Value、Limit、Total 及本地化名称。
+        Включает Value, Limit, Total и локализованные имена.
         """
         dashboard = config_data.get("Dashboard", {})
         resources = {}
         
-        # 获取 Dashboard 项的本地化名称
-        # 通常位于 i18n_data["Gui"]["Dashboard"] 中
+        # Получаем локализованные имена элементов Dashboard.
+        # Обычно они находятся в i18n_data["Gui"]["Dashboard"].
         dashboard_i18n = self.i18n_data.get("Gui", {}).get("Dashboard", {})
         
         for key, data in dashboard.items():
             if not isinstance(data, dict) or "Value" not in data:
                 continue
                 
-            # 尝试获取友好的显示名称
+            # Пытаемся получить понятное отображаемое имя.
             label = dashboard_i18n.get(key, key)
             
             res_item = {

@@ -1,3 +1,3 @@
-"""Scrcpy 截图和控制后端包。"""
+"""Пакет бэкенда создания снимков экрана и управления Scrcpy."""
 
 from .scrcpy import Scrcpy, ScrcpyError

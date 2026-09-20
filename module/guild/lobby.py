@@ -1,5 +1,6 @@
-"""大舰队大厅处理器，负责大厅中的报告领取、签到和成员信息检测。
-通过颜色识别红点和按钮状态来判断可执行操作。
+"""Обработчик холла гильдии, отвечающий за сбор отчётов, вход и проверку информации об участниках.
+
+Определяет доступные действия по цветовому распознаванию красных точек уведомлений и статусов кнопок.
 """
 
 import numpy as np
@@ -18,18 +19,18 @@ from module.ui.assets import GUILD_CHECK
 class GuildLobby(GuildBase):
     def guild_lobby_get_report(self):
         """
-        获取大舰队报告入口按钮。
+        Получение кнопки входа в отчёты гильдии.
 
         Returns:
-            Button: 进入大舰队报告的按钮，如果不存在则返回 None。
+            Button: Кнопка перехода к отчётам гильдии, либо None при её отсутствии.
         """
-        # 在 GUILD_REPORT_AVAILABLE 区域内查找红色
+        # Ищем красный цвет в области GUILD_REPORT_AVAILABLE
         image = color_similarity_2d(self.image_crop(GUILD_REPORT_AVAILABLE, copy=False), color=(255, 8, 8))
         points = np.array(np.where(image > 221)).T[:, ::-1]
         if len(points):
-            # 红点的中心位置
+            # Координаты центра красной точки
             points = Points(points).group(threshold=40) + GUILD_REPORT_AVAILABLE.area[:2]
-            # 偏移到报告图标的中心
+            # Смещаемся к центру значка отчёта
             area = area_offset((-51, -45, -13, 0), offset=points[0])
             return Button(area=area, color=(255, 255, 255), button=area, name='GUILD_REPORT')
         else:
@@ -37,14 +38,15 @@ class GuildLobby(GuildBase):
 
     def _guild_lobby_collect(self, skip_first_screenshot=True):
         """
-        收集大舰队大厅中的报告奖励。
+        Сбор наград за отчёты в холле гильдии.
 
-        如果报告奖励存在则执行收取操作。如果已在 page_guild 但不在大厅界面，
-        将超时并在下次运行时收取。这些奖励会排队等待，无需立即收取。
+        Если награды за отчёты доступны, выполняет их получение. Если уже на странице page_guild,
+        но не в холле, операция завершится по тайм-ауту и награда будет собрана при следующем запуске.
+        Награды накапливаются в очереди, поэтому не требуют немедленного сбора.
 
         Pages:
-            in: 任意页面
-            out: 任意页面
+            in: Любая страница
+            out: Любая страница
         """
         confirm_timer = Timer(1.5, count=3).start()
         click_timer = Timer(3)
@@ -81,7 +83,7 @@ class GuildLobby(GuildBase):
                 confirm_timer.reset()
                 continue
 
-            # 结束
+            # Завершение
             if self.appear(GUILD_CHECK, offset=(20, 20)):
                 if confirm_timer.reached():
                     break
@@ -90,7 +92,7 @@ class GuildLobby(GuildBase):
 
     def guild_lobby(self):
         """
-        执行大舰队大厅中的所有操作。
+        Выполнение всех операций в холле гильдии.
 
         Pages:
             in: GUILD_LOBBY

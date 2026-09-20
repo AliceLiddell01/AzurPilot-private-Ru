@@ -15,9 +15,9 @@ from module.os.tasks.scheduling import OpsiScheduling
 from module.os_handler.action_point import ActionPointLimit
 
 
-# 大世界行动力每 10 分钟自然回复 1 点。
+# Очки действия в Operation Siren естественно восстанавливаются на 1 каждые 10 минут.
 ACTION_POINT_RECOVER_SECONDS = 600
-# 大世界当前行动力自然上限。
+# Естественный лимит текущих очков действия в Operation Siren.
 NATURAL_ACTION_POINT_LIMIT = 200
 
 

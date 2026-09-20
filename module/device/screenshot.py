@@ -1,15 +1,16 @@
-"""设备截图模块。
+"""Модуль снимков экрана устройства.
 
-管理所有截图捕获后端（ADB、ADB_nc、uiautomator2、aScreenCap、DroidCast、
-scrcpy、nemu_ipc、ldopengl），提供截图、分辨率校验、黑屏检测、截图保存等功能。
-包含后台编码线程，用于将图像序列化并通过 Base64 供 WebUI 实时渲染预览。
+Управляет всеми бэкендами захвата экрана (ADB, ADB_nc, uiautomator2, aScreenCap, DroidCast,
+scrcpy, nemu_ipc, ldopengl), обеспечивает снятие снимков, проверку разрешения, обнаружение чёрного экрана,
+сохранение снимков и другие функции. Содержит фоновый поток кодирования для сериализации изображений
+в Base64 для отображения в WebUI.
 """
 import os
 import time
 from collections import deque
 from PIL import Image
-# 此文件定义了截图处理逻辑。
-# 管理各种截图捕获方式，并包含后台编码线程用于将图像序列化并通过 Base64 供 WebUI 实时渲染预览。
+# Этот файл определяет логику обработки снимков экрана.
+# Управляет различными способами захвата и содержит фоновый поток кодирования для сериализации изображений в Base64 для live-preview WebUI.
 import base64
 import threading
 import queue as _queue
@@ -32,17 +33,18 @@ from module.exception import RequestHumanTakeover, ScriptError
 from module.logger import logger
 
 class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
-    """设备截图管理器。
+    """Диспетчер снимков экрана устройства.
 
-    通过多重继承组合所有截图后端，根据用户配置的 Emulator_ScreenshotMethod
-    自动分发到对应后端。提供截图获取、分辨率归一化、去抖动、黑屏检测、
-    截图保存和间隔控制等统一接口。
+    Объединяет все бэкенды снимков через множественное наследование, автоматически
+    распределяя вызовы по настроенному Emulator_ScreenshotMethod. Предоставляет единый
+    интерфейс захвата, масштабирования разрешения, сглаживания дизеринга, проверки чёрного экрана,
+    сохранения снимков и управления интервалом.
 
     Attributes:
         image (np.ndarray): Последний снимок экрана в формате RGB numpy array.
-        _screen_size_checked (bool): 屏幕分辨率是否已通过检查。
-        _screen_black_checked (bool): 黑屏检测是否已通过。
-        _screenshot_interval (Timer): 截图间隔计时器。
+        _screen_size_checked (bool): Пройдена ли проверка разрешения экрана.
+        _screen_black_checked (bool): Пройдена ли проверка на чёрный экран.
+        _screenshot_interval (Timer): Таймер интервала снимков экрана.
     """
 
     def __init__(self, *args, **kwargs):
@@ -56,11 +58,11 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
 
     @cached_property
     def screenshot_methods(self):
-        """返回截图方法名到截图实现的映射字典。
+        """Возвращает словарь соответствия имени метода захвата его реализации.
 
         Returns:
-            dict[str, Callable]: 键为截图方法名（如 'ADB'、'DroidCast'），
-                值为对应的截图方法。
+            dict[str, Callable]: Ключ — имя метода снимка (например, 'ADB', 'DroidCast'),
+                значение — соответствующий метод захвата.
         """
         return {
             'ADB': self.screenshot_adb,
@@ -77,18 +79,18 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
 
     @cached_property
     def screenshot_method_override(self) -> str:
-        """覆盖截图方法，子类可重写此属性以强制使用特定截图方式。
+        """Переопределение метода снимка; подклассы могут переопределить это свойство для принудительного использования метода.
 
         Returns:
-            str: 覆盖的截图方法名，空字符串表示使用配置中的方法。
+            str: Имя переопределённого метода снимка; пустая строка означает использование метода из конфигурации.
         """
         return ''
 
     def screenshot(self):
-        """截取屏幕截图。
+        """Делает снимок экрана.
 
         Returns:
-            np.ndarray: 截取的屏幕图像。
+            np.ndarray: Изображение снимка экрана.
         """
         self._screenshot_interval.wait()
         self._screenshot_interval.reset()
@@ -108,7 +110,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                 self.image = self.resize_screenshot_to_720p(self.image)
 
             if self.config.Emulator_ScreenshotDedithering:
-                # 此操作大约需要 40-60ms
+                # Эта операция занимает примерно 40–60 мс
                 cv2.fastNlMeansDenoising(self.image, self.image, h=17, templateWindowSize=1, searchWindowSize=2)
             self.image = self._handle_orientated_image(self.image)
 
@@ -124,10 +126,10 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
 
     @staticmethod
     def resize_screenshot_to_720p(image):
-        """将截图归一化到 Alas 的 1280x720 资源空间。
+        """Нормализует снимок экрана к пространству ресурсов Alas 1280x720.
 
-        已在 MuMu 模拟器的 1600x900、1920x1080、2560x1440 和 3840x2160 分辨率下测试。
-        使用三次下采样并配合轻度高斯模糊混合，最接近原生 720p 效果。
+        Протестировано на разрешениях эмулятора MuMu 1600x900, 1920x1080, 2560x1440 и 3840x2160.
+        Использует кубический даунскейлинг со смешиванием лёгкого размытия по Гауссу для максимального приближения к нативному 720p.
         """
         image = cv2.resize(image, (1280, 720), interpolation=cv2.INTER_CUBIC)
         blur = cv2.GaussianBlur(image, (0, 0), sigmaX=1.0, sigmaY=1.0)
@@ -135,27 +137,27 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
 
     @property
     def has_cached_image(self):
-        """判断是否已有缓存的截图。
+        """Проверяет наличие кэшированного снимка экрана.
 
         Returns:
-            bool: 存在非空的缓存图像返回 True。
+            bool: True, если существует непустое кэшированное изображение.
         """
         return hasattr(self, 'image') and self.image is not None
 
     def _handle_orientated_image(self, image):
-        """处理旋转的截图图像。
+        """Обрабатывает поворот изображения снимка экрана.
 
         Args:
-            image: 待处理的图像。
+            image: Исходное изображение.
 
         Returns:
-            处理后的图像。
+            Обработанное изображение.
         """
         width, height = image_size(self.image)
         if width == 1280 and height == 720:
             return image
 
-        # 仅在非 1280x720 时旋转截图
+        # Поворачиваем снимок только при разрешении, отличном от 1280x720
         if self.orientation == 0:
             pass
         elif self.orientation == 1:
@@ -171,32 +173,32 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
 
     @cached_property
     def screenshot_deque(self):
-        """返回用于保存历史截图的双端队列，用于错误诊断。
+        """Возвращает двустороннюю очередь для сохранения истории снимков при диагностике ошибок.
 
-        队列长度由配置 Error_ScreenshotLength 控制，限制在 1~400 范围内。
+        Размер очереди задаётся параметром Error_ScreenshotLength и ограничен диапазоном 1~400.
 
         Returns:
-            deque: 存储 {'time': datetime, 'image': np.ndarray} 字典的队列。
+            deque: Очередь словарей вида {'time': datetime, 'image': np.ndarray}.
         """
         try:
             length = int(self.config.Error_ScreenshotLength)
         except ValueError:
             logger.error(f'[Устройство — снимок] Error_ScreenshotLength={self.config.Error_ScreenshotLength} не является целым числом')
             raise RequestHumanTakeover
-        # 限制在 1~400 范围内
+        # Ограничиваем диапазоном 1–400
         length = max(1, min(length, 400))
         return deque(maxlen=length)
 
     def save_screenshot(self, genre='items', interval=None, to_base_folder=False):
-        """保存截图。使用毫秒时间戳作为文件名。
+        """Сохраняет снимок экрана с использованием миллисекундной метки времени в качестве имени файла.
 
         Args:
-            genre: 截图类型。
-            interval: 两次保存之间的最小间隔（秒）。间隔内的保存将被跳过。
-            to_base_folder: 是否保存到基础文件夹。
+            genre: Категория снимка экрана.
+            interval: Минимальный интервал между сохранениями (в секундах). Сохранения внутри интервала пропускаются.
+            to_base_folder: Сохранять ли в базовую директорию.
 
         Returns:
-            保存成功返回 True。
+            bool: True при успешном сохранении.
         """
         now = time.time()
         if interval is None:
@@ -220,20 +222,20 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
             return False
 
     def screenshot_last_save_time_reset(self, genre):
-        """重置指定类型的截图保存时间戳，用于允许立即保存下一张截图。
+        """Сбрасывает метку времени сохранения для указанной категории снимков, разрешая немедленное сохранение.
 
         Args:
-            genre (str): 截图类型名称。
+            genre (str): Имя категории снимков.
         """
         self._last_save_time[genre] = 0
 
     def screenshot_interval_set(self, interval=None):
-        """设置截图间隔。
+        """Устанавливает интервал между снимками экрана.
 
         Args:
-            interval: 两次截图之间的最小间隔（秒）。
-                None 表示使用 Optimization_ScreenshotInterval，
-                'combat' 表示使用 Optimization_CombatScreenshotInterval。
+            interval: Минимальный интервал между двумя снимками (в секундах).
+                None означает использование Optimization_ScreenshotInterval,
+                'combat' означает использование Optimization_CombatScreenshotInterval.
         """
         if interval is None:
             origin = self.config.Optimization_ScreenshotInterval
@@ -241,7 +243,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
             if interval != origin:
                 logger.warning(f'[Устройство — снимок] Optimization.ScreenshotInterval скорректирован: {origin} → {interval}')
                 self.config.Optimization_ScreenshotInterval = interval
-            # 允许 nemu_ipc 使用更低的默认值
+            # Для nemu_ipc допускаем более низкое значение по умолчанию
             if self.config.Emulator_ScreenshotMethod in ['nemu_ipc', 'ldopengl']:
                 interval = limit_in(origin, 0.001, 0.2)
         elif interval == 'combat':
@@ -251,12 +253,12 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                 logger.warning(f'[Устройство — снимок] Optimization.CombatScreenshotInterval скорректирован: {origin} → {interval}')
                 self.config.Optimization_CombatScreenshotInterval = interval
         elif isinstance(interval, (int, float)):
-            # 代码中手动设置无限制
+            # Значение, заданное вручную в коде, не ограничиваем
             pass
         else:
             logger.warning(f'[Устройство — снимок] Неизвестный интервал снимков экрана: {interval}')
             raise ScriptError(f'[Устройство — снимок] Неизвестный интервал снимков экрана: {interval}')
-        # scrcpy 的截图间隔无意义，视频流会持续接收，无论是否使用。
+        # Интервал снимков для scrcpy не имеет смысла: видеопоток принимается непрерывно независимо от использования.
         if self.config.Emulator_ScreenshotMethod == 'scrcpy':
             interval = 0.1
 
@@ -265,36 +267,36 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
             self._screenshot_interval.limit = interval
 
     def image_show(self, image=None):
-        """使用系统默认图片查看器显示图像。
+        """Отображает изображение с помощью системного средства просмотра.
 
         Args:
-            image (np.ndarray, optional): 要显示的图像，默认为最近一次截图。
+            image (np.ndarray, optional): Отображаемое изображение, по умолчанию последний снимок.
         """
         if image is None:
             image = self.image
         Image.fromarray(image).show()
 
     def image_save(self, file=None):
-        """将最近一次截图保存到文件。
+        """Сохраняет последний снимок экрана в файл.
 
         Args:
-            file (str, optional): 保存路径，默认使用毫秒时间戳命名。
+            file (str, optional): Путь сохранения, по умолчанию используется имя с миллисекундной меткой времени.
         """
         if file is None:
             file = f'{int(time.time() * 1000)}.png'
         save_image(self.image, file)
 
     def check_screen_size(self):
-        """检查屏幕分辨率是否为 1280x720。
+        """Проверяет, равно ли разрешение экрана 1280x720.
 
-        调用前需先截取截图。
+        Перед вызовом необходимо сделать снимок экрана.
         """
         if self._screen_size_checked:
             return True
 
         orientated = False
         for _ in range(2):
-            # 检查屏幕分辨率
+            # Проверяем разрешение экрана
             width, height = image_size(self.image)
             logger.attr('Разрешение экрана', f'{width}x{height}')
             if width == 1280 and height == 720:
@@ -328,17 +330,17 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                 raise RequestHumanTakeover
 
     def check_screen_black(self):
-        """检查截图是否为纯黑色（模拟器异常或设备锁屏）。
+        """Проверяет, не является ли снимок полностью чёрным (сбой эмулятора или блокировка экрана).
 
-        首次调用时执行检测，通过后后续调用直接返回 True。
-        检测到黑屏时会尝试卸载 minicap 或重启相关服务。
+        Проверка выполняется при первом вызове, при успехе последующие вызовы сразу возвращают True.
+        При обнаружении чёрного экрана предпринимается попытка удаления minicap или перезапуска служб.
 
         Returns:
-            bool: 屏幕正常返回 True，纯黑截图返回 False 以触发重试。
+            bool: True, если экран в норме; False при чёрном экране для инициации повторной попытки.
         """
         if self._screen_black_checked:
             return True
-        # 检查屏幕颜色，某些模拟器可能会获取纯黑截图。
+        # Проверяем цвет экрана: некоторые эмуляторы могут возвращать полностью чёрный снимок.
         color = get_color(self.image, area=(0, 0, 1280, 720))
         if sum(color) < 1:
             if self.config.Emulator_Serial == 'wsa-0':

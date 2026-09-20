@@ -1,16 +1,16 @@
-"""医院活动模块。
+"""Модуль события больницы.
 
-提供碧蓝航线医院活动的自动化处理功能，包括：
-- 每日奖励的红点检测与自动领取
-- 线索系统的标签页切换（地点 / 角色）
-- 旁白（aside）列表的遍历与选择
-- 调查（invest）入口的进入与战斗执行
-- 调查奖励的自动领取
-- 旁白列表的滑动翻页处理
-- 体力不足时的优雅退出与延迟重试
+Обеспечивает автоматизацию события больницы в Azur Lane, включая:
+- Обнаружение красной точки и автоматическое получение ежедневных наград
+- Переключение вкладок системы улик (Локации / Персонажи)
+- Обход и выбор элементов списка реплик (aside)
+- Вход в расследования (invest) и проведение боев
+- Автоматический сбор наград за расследования
+- Прокрутку списка реплик
+- Корректный выход и отложенный перезапуск при нехватке топлива
 
-医院活动是一个探索型活动，玩家通过选择不同地点和角色的旁白展开调查，
-每个调查包含线索收集和战斗环节。
+Событие больницы — исследовательское событие, где игрок проводит расследования,
+выбирая реплики различных локаций и персонажей, каждое из которых включает сбор улик и бои.
 """
 from module.base.timer import Timer
 from module.base.utils import random_rectangle_vector
@@ -25,18 +25,18 @@ from module.ui.switch import Switch
 
 
 class HospitalSwitch(Switch):
-    """医院活动标签页切换器。"""
+    """Переключатель вкладок события больницы."""
 
     def get(self, main):
-        """获取当前标签页状态。
+        """Получает текущее состояние вкладки.
 
-        通过检测标签按钮的高亮颜色判断当前选中的标签。
+        Определяет активную вкладку по цвету подсветки кнопок вкладок.
 
         Args:
-            main: 模块实例，用于图像颜色检测。
+            main: Экземпляр модуля для анализа цвета изображения.
 
         Returns:
-            str: 状态名称，未匹配时返回 'unknown'。
+            str: Название состояния; при отсутствии совпадений возвращает 'unknown'.
         """
         for data in self.state_list:
             if main.image_color_count(data['check_button'], color=(33, 77, 189), threshold=221, count=100):
@@ -51,41 +51,41 @@ HOSPITAL_TAB.add_state('CHARACTER', check_button=TAB_CHARACTER)
 
 
 class Hospital(HospitalClue, HospitalCombat):
-    """医院活动主控制器。
+    """Главный контроллер события больницы.
 
-    组合线索处理（HospitalClue）和战斗处理（HospitalCombat）能力，
-    实现医院活动的完整自动化流程。
+    Объединяет возможности обработки улик (HospitalClue) и боев (HospitalCombat),
+    реализуя полный цикл автоматизации события больницы.
 
-    工作流程：
-    1. 检查活动可用性，导航至活动页面
-    2. 领取每日奖励（检测红点 -> 进入奖励界面 -> 领取 -> 退出）
-    3. 进入线索系统，遍历地点和角色标签页的所有旁白
-    4. 对每个旁白执行调查（进入 -> 战斗 -> 领取奖励）
-    5. 角色标签页支持滑动翻页以访问更多旁白
+    Порядок работы:
+    1. Проверка доступности события, переход на страницу события
+    2. Получение ежедневной награды (красная точка -> экран наград -> сбор -> выход)
+    3. Вход в систему улик, обход всех реплик во вкладках локаций и персонажей
+    4. Выполнение расследований для каждой реплики (вход -> бой -> сбор наград)
+    5. Прокрутка списка реплик во вкладке персонажей для доступа к дополнительным репликам
 
     Attributes:
-        HOSPITAL_TAB (HospitalSwitch): 标签页切换器，支持 LOCATION 和 CHARACTER 两种状态。
+        HOSPITAL_TAB (HospitalSwitch): Переключатель вкладок с поддержкой состояний LOCATION и CHARACTER.
     """
 
     def daily_red_dot_appear(self):
-        """检测每日奖励红点是否出现。"""
+        """Проверяет наличие красной точки ежедневной награды."""
         return self.image_color_count(DAILY_RED_DOT, color=(189, 69, 66), threshold=221, count=35)
 
     def daily_reward_receive_appear(self):
-        """检测每日奖励领取按钮是否可点击。"""
+        """Проверяет доступность кнопки сбора ежедневной награды для нажатия."""
         return self.image_color_count(DAILY_REWARD_RECEIVE, color=(41, 73, 198), threshold=221, count=200)
 
     def is_in_daily_reward(self, interval=0):
-        """检测当前是否在每日奖励界面。"""
+        """Проверяет, находится ли экран в интерфейсе ежедневных наград."""
         return self.match_template_color(HOSIPITAL_CLUE_CHECK, offset=(30, 30), interval=interval)
 
     def daily_reward_receive(self):
-        """领取每日奖励。
+        """Получает ежедневную награду.
 
-        检测红点后进入奖励界面，点击领取并退出。
+        При обнаружении красной точки входит на экран наград, забирает их и выходит.
 
         Returns:
-            bool: 是否成功领取。
+            bool: Удалось ли получить награду.
 
         Pages:
             in: page_hospital
@@ -97,7 +97,7 @@ class Hospital(HospitalClue, HospitalCombat):
             return False
 
         logger.hr('Получение ежедневной награды', level=2)
-        # 进入奖励界面
+        # Входим на экран наград
         logger.info('Вход в ежедневные награды')
         skip_first_screenshot = True
         self.interval_clear(page_hospital.check_button)
@@ -113,7 +113,7 @@ class Hospital(HospitalClue, HospitalCombat):
                 self.device.click(HOSPITAL_GOTO_DAILY)
                 continue
 
-        # 领取奖励
+        # Получаем награду
         logger.info('Получение ежедневной награды')
         skip_first_screenshot = True
         self.interval_clear(HOSIPITAL_CLUE_CHECK)
@@ -139,7 +139,7 @@ class Hospital(HospitalClue, HospitalCombat):
                 clicked = True
                 continue
 
-        # 退出奖励界面
+        # Выходим с экрана наград
         logger.info('Выход из ежедневных наград')
         skip_first_screenshot = True
         self.interval_clear(HOSIPITAL_CLUE_CHECK)
@@ -159,14 +159,14 @@ class Hospital(HospitalClue, HospitalCombat):
         return True
 
     def loop_invest(self):
-        """遍历当前页面所有调查并执行战斗。
+        """Обходит все расследования на текущей странице и выполняет бои.
 
-        战斗结束后旁白会重置，需要重新选择。
+        После боя выбор реплики сбрасывается, требуется выбрать её заново.
         """
         self.config.override(Fleet_FleetOrder='fleet1_all_fleet2_standby')
         while 1:
             logger.hr('Цикл исследований госпиталя', level=2)
-            # 调度器检查，可能抛出 ScriptEnd
+            # Проверка планировщика; может выбросить ScriptEnd
             self.emotion.check_reduce(battle=1)
 
             entered = self.invest_enter()
@@ -174,28 +174,28 @@ class Hospital(HospitalClue, HospitalCombat):
                 break
             self.hospital_combat()
 
-            # 调度器检查，可能抛出 TaskEnd
+            # Проверка планировщика; может выбросить TaskEnd
             if self.config.task_switched():
                 self.config.task_stop()
 
-            # 战斗后旁白重置，跳出重新选择
+            # После боя реплика сбрасывается; выходим, чтобы выбрать её заново
             break
 
         self.claim_invest_reward()
         logger.info('Цикл исследований госпиталя завершён')
 
     def invest_reward_appear(self) -> bool:
-        """检测调查奖励领取按钮是否出现。"""
+        """Проверяет появление кнопки сбора награды за исследование."""
         return self.image_color_count(INVEST_REWARD_RECEIVE, color=(33, 77, 189), threshold=221, count=100)
 
     def claim_invest_reward(self):
-        """领取调查奖励。"""
+        """Забирает награду за расследование."""
         if self.invest_reward_appear():
             logger.info('Награда за исследование появилась')
         else:
             logger.info('Награды за исследование нет')
             return False
-        # 领取奖励
+        # Получаем награду
         skip_first_screenshot = True
         clicked = True
         self.interval_clear(HOSIPITAL_CLUE_CHECK)
@@ -217,7 +217,7 @@ class Hospital(HospitalClue, HospitalCombat):
                     continue
 
     def loop_aside(self):
-        """遍历所有标签页的旁白并执行调查。"""
+        """Обходит реплики во всех вкладках и проводит расследования."""
         while 1:
             logger.hr('Цикл реплик госпиталя', level=1)
             HOSPITAL_TAB.set('LOCATION', main=self)
@@ -246,7 +246,7 @@ class Hospital(HospitalClue, HospitalCombat):
         logger.info('Цикл реплик госпиталя завершён')
 
     def aside_swipe_down(self, skip_first_screenshot=True):
-        """向下滑动旁白列表直到没有翻页标识。"""
+        """Прокручивает список реплик вниз до отсутствия индикатора следующей страницы."""
         logger.info('Прокрутка реплик вниз')
         swiped = False
         interval = Timer(2, count=6)
@@ -268,18 +268,18 @@ class Hospital(HospitalClue, HospitalCombat):
                 continue
 
     def run(self):
-        """医院活动主入口。"""
-        # 检查活动是否可用
+        """Основная точка входа события больницы."""
+        # Проверяем доступность события
         if self.event_time_limit_triggered():
             self.config.task_stop()
         self.ui_ensure(page_campaign_menu)
         if self.is_event_entrance_available():
             self.ui_goto(page_hospital)
 
-        # 领取每日奖励
+        # Получаем ежедневную награду
         self.daily_reward_receive()
 
-        # 执行活动
+        # Выполняем событие
         self.clue_enter()
         try:
             self.loop_aside()

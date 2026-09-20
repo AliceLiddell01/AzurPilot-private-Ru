@@ -1,8 +1,9 @@
-"""大世界存储管理模块。
+"""Модуль управления хранилищем Операции «Сирена».
 
-管理大世界（Operation Siren）的仓库操作，包括舰船维修箱的
-使用与结果判断、仓库物品的滚动浏览以及存储界面的导航逻辑。
-提供维修结果枚举（成功/数量不足/超时）用于状态判断。
+Управляет операциями на складе Операции «Сирена» (Operation Siren), включая
+использование ремонтных наборов для кораблей и проверку результата, прокрутку
+предметов склада и навигацию по интерфейсу хранилища. Предоставляет перечисление
+результатов ремонта (успех/недостаточно/тайм-аут) для анализа состояния.
 """
 import time
 from enum import Enum
@@ -28,11 +29,11 @@ from module.ui.scroll import Scroll
 
 class RepairResult(Enum):
     """
-    维修操作的结果枚举。
+    Перечисление результатов операции ремонта.
 
-    SUCCESS: 舰船修复成功。
-    PACK_INSUFFICIENT: 维修箱数量不足，游戏弹出"道具不足"弹窗。
-    TIMEOUT: 超时或遇到未知弹窗，无法确认修复结果。
+    SUCCESS: Корабль успешно отремонтирован.
+    PACK_INSUFFICIENT: Недостаточно ремонтных наборов, игра показала окно «Недостаточно предметов».
+    TIMEOUT: Истекло время ожидания или возникло неизвестное всплывающее окно, результат не подтверждён.
     """
     SUCCESS = 'success'
     PACK_INSUFFICIENT = 'pack_insufficient'
@@ -269,9 +270,9 @@ class StorageHandler(GlobeOperation, ZoneManager):
 
         Returns:
             RepairResult:
-                RepairResult.SUCCESS          — 舰船修复成功（或满血无需修复）。
-                RepairResult.PACK_INSUFFICIENT — 维修箱耗尽，游戏弹出"道具不足"弹窗。
-                RepairResult.TIMEOUT          — 超时或遇到未知弹窗，无法确认修复结果。
+                RepairResult.SUCCESS          — корабль успешно отремонтирован (или полон HP и не требует ремонта).
+                RepairResult.PACK_INSUFFICIENT — ремонтные наборы исчерпаны, игра показала окно «Недостаточно предметов».
+                RepairResult.TIMEOUT          — истекло время ожидания или возникло неизвестное окно, результат не подтверждён.
 
         Pages:
             in: STORAGE_FLEET_CHOOSE
@@ -279,7 +280,7 @@ class StorageHandler(GlobeOperation, ZoneManager):
         """
         self.interval_clear(POPUP_CANCEL)
         self.device.click_record_clear()
-        # 超时保护：维修箱耗尽时游戏弹出"道具不足"弹窗，若未被识别则超时退出
+        # Защита по тайм-ауту: если ремонтные наборы закончились, игра показывает «Недостаточно предметов»; если окно не распознано, выходим по тайм-ауту
         timeout = Timer(15, count=30).start()
         while 1:
             if skip_first_screenshot:
@@ -297,12 +298,12 @@ class StorageHandler(GlobeOperation, ZoneManager):
             if self.handle_popup_cancel('STORAGE_REPAIR_FULL_CANCEL'):
                 logger.info('[Операция «Сирена» — хранилище] Этот корабль не требует ремонта')
                 return RepairResult.SUCCESS
-            # 处理"道具不足"弹窗：维修箱数量不足时游戏弹出此提示，需点击取消退出
-            # 截图显示弹窗标题为"信息 INFORMATION"，内容为"道具不足"，底部有取消按钮
+            # Обрабатываем окно «Недостаточно предметов»: при нехватке ремонтных наборов игра показывает это сообщение; нажимаем отмену и выходим
+            # На скриншоте заголовок окна — «Информация INFORMATION», содержимое — «Недостаточно предметов», внизу есть кнопка отмены
             if self.appear_then_click(POPUP_CANCEL, offset=(20, 20), interval=2):
                 logger.warning('[Операция «Сирена» — хранилище] Недостаточно ремонтных наборов, корабль пропущен')
                 return RepairResult.PACK_INSUFFICIENT
-            # 超时保护：防止未知弹窗导致死循环
+            # Защита по тайм-ауту: предотвращает бесконечный цикл при неизвестном всплывающем окне
             if timeout.reached():
                 logger.warning('[Операция «Сирена» — хранилище] Истекло время подтверждения использования ремонтного набора: неизвестное окно или зависшее состояние')
                 return RepairResult.TIMEOUT
@@ -312,18 +313,18 @@ class StorageHandler(GlobeOperation, ZoneManager):
 
     def repair_pack_use(self, button):
         """
-        Select a ship that needs to be repaired, then use repair packs.
+        Выбрать корабль, требующий ремонта, и применить ремонтные наборы.
 
         Args:
             button (Button): Ship
 
         Returns:
-            RepairResult: Result of the repair attempt, propagated from repair_pack_use_confirm().
-                RepairResult.SUCCESS          — 舰船修复成功（或满血无需修复）。
-                RepairResult.PACK_INSUFFICIENT — 维修箱耗尽，游戏弹出"道具不足"弹窗，
-                                                 调用方应停止继续修理后续舰船。
-                RepairResult.TIMEOUT          — 超时或遇到未知弹窗，无法确认修复结果，
-                                                 调用方可选择跳过该艘继续尝试。
+            RepairResult: Результат попытки ремонта, переданный из repair_pack_use_confirm().
+                RepairResult.SUCCESS          — корабль успешно отремонтирован (или полон HP и не требует ремонта).
+                RepairResult.PACK_INSUFFICIENT — ремонтные наборы исчерпаны, игра показала окно «Недостаточно предметов»,
+                                                 вызывающая сторона должна прекратить ремонт последующих кораблей.
+                RepairResult.TIMEOUT          — истекло время ожидания или возникло неизвестное окно, результат не подтверждён,
+                                                 вызывающая сторона может пропустить корабль и продолжить попытки.
 
         Pages:
             in: STORAGE_FLEET_CHOOSE

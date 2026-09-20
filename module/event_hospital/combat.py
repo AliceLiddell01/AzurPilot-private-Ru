@@ -1,8 +1,8 @@
-"""医院活动战斗处理模块。
+"""Модуль обработки боев события больницы.
 
-处理医院活动中的战斗流程，包括舰队推荐编队、战斗准备、
-战斗执行和结果处理。继承 Combat、HospitalUI 和
-CampaignEvent，组合完整的战斗生命周期管理。
+Обрабатывает боевой процесс в событии больницы, включая автоматический выбор флота,
+подготовку к бою, проведение боя и обработку результатов.
+Наследует Combat, HospitalUI и CampaignEvent для полного управления жизненным циклом боя.
 """
 
 from module.base.decorator import run_once
@@ -19,22 +19,22 @@ from module.raid.assets import RAID_FLEET_PREPARATION
 
 
 class HospitalCombat(Combat, HospitalUI, CampaignEvent):
-    """医院活动战斗处理器，组合战斗、UI 和活动逻辑。"""
+    """Обработчик боев события больницы, объединяющий логику боя, интерфейса и события."""
 
     def handle_fleet_recommend(self, recommend=True):
-        """处理舰队推荐。
+        """Обрабатывает выбор рекомендуемого флота.
 
-        检查舰队是否已在使用中，若未使用则根据配置决定
-        是否自动推荐舰队或要求手动编队。
+        Проверяет, назначен ли уже флот. Если нет, в зависимости от конфигурации
+        автоматически рекомендует состав либо запрашивает ручную расстановку.
 
         Args:
-            recommend: 是否启用自动推荐舰队。
+            recommend: Включен ли автоматический выбор рекомендуемого флота.
 
         Returns:
-            bool: 是否点击了推荐按钮。
+            bool: Была ли нажата кнопка рекомендации.
 
         Raises:
-            RequestHumanTakeover: 舰队未准备且未启用推荐时抛出。
+            RequestHumanTakeover: Если флот не готов и авто-рекомендация отключена.
         """
         fleet_1 = FleetOperator(
             choose=FLEET_1_CHOOSE, advice=FLEET_1_ADVICE, bar=FLEET_1_BAR, clear=FLEET_1_CLEAR,
@@ -51,13 +51,13 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
             raise RequestHumanTakeover
 
     def combat_preparation(self, balance_hp=False, emotion_reduce=False, auto='combat_auto', fleet_index=1):
-        """战斗准备阶段，处理舰队编成和出击确认。
+        """Фаза подготовки к бою: формирование флота и подтверждение выхода.
 
         Args:
-            balance_hp: 是否平衡血量。
-            emotion_reduce: 是否减少情绪值。
-            auto: 自动战斗模式。
-            fleet_index: 舰队索引。
+            balance_hp: Балансировать ли здоровье кораблей.
+            emotion_reduce: Снижать ли настроение кораблей.
+            auto: Режим авто-боя.
+            fleet_index: Индекс флота.
         """
         logger.info('Подготовка к бою.')
         skip_first_screenshot = True
@@ -96,7 +96,7 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
                 continue
             if self.handle_story_skip():
                 continue
-            # 处理舰队编成
+            # Обрабатываем формирование флота.
             if self.appear(RAID_FLEET_PREPARATION, offset=(30, 30), interval=2):
                 if self.handle_fleet_recommend(recommend=self.config.Hospital_UseRecommendFleet):
                     self.interval_clear(RAID_FLEET_PREPARATION)
@@ -106,7 +106,7 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
             if self.appear_then_click(HOSPITAL_BATTLE_PREPARE, offset=(20, 20), interval=2):
                 continue
 
-            # 战斗开始
+            # Бой начался.
             pause = self.is_combat_executing()
             if pause:
                 logger.attr('Боевой интерфейс', pause)
@@ -117,12 +117,12 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
     in_clue_confirm = Timer(0.5, count=2)
 
     def hospital_expected_end(self):
-        """判断医院战斗是否结束。
+        """Определяет, завершился ли бой события больницы.
 
-        连续两次检测到线索界面时判定战斗结束。
+        Бой считается завершенным при обнаружении интерфейса улик два раза подряд.
 
         Returns:
-            bool: 战斗是否已结束。
+            bool: Завершился ли бой.
         """
         if self.handle_clue_exit():
             return False
@@ -135,7 +135,7 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
         return False
 
     def hospital_combat(self):
-        """执行医院活动战斗流程。
+        """Выполняет цикл боя в событии больницы.
 
         Pages:
             in: FLEET_PREPARATION

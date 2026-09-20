@@ -1,6 +1,9 @@
-"""仓库管理核心模块，处理装备和材料仓库的各项操作。
-包括装备识别、物品统计、拆解确认、材料购买数量设置，
-以及仓库已满异常处理等功能。"""
+"""Основной модуль управления хранилищем.
+
+Обрабатывает операции со снаряжением и материалами на складе,
+включая распознавание снаряжения, учет предметов, подтверждение разбора,
+настройку количества покупки материалов и обработку исключений переполнения склада.
+"""
 
 import numpy as np
 
@@ -28,29 +31,29 @@ OCR_DISASSEMBLE_COUNT = Digit(DISASSEMBLE_COUNT_OCR, letter=(235, 235, 235))
 
 
 class StorageFull(Exception):
-    """仓库已满异常，当装备/材料仓库无剩余空间时抛出。"""
+    """Исключение переполнения хранилища, когда на складе снаряжения/материалов нет свободного места."""
     pass
 
 
 class StorageHandler(StorageUI):
-    """仓库操作处理器，提供开箱、拆解装备等仓库管理功能。
+    """Обработчик операций склада: открытие ящиков, разбор снаряжения и управление хранилищем.
 
-    继承 StorageUI 获取仓库页面导航能力。
+    Наследует StorageUI для навигации по страницам хранилища.
     """
     storage_has_boxes = True
 
     @staticmethod
     def _storage_box_template(rarity):
-        """根据稀有度返回对应的装备箱模板。
+        """Получить шаблон ящика снаряжения по его редкости.
 
         Args:
-            rarity: 装备箱稀有度等级，1=T1, 2=T2, 3=T3, 4=T4。
+            rarity: Уровень редкости ящика снаряжения: 1=T1, 2=T2, 3=T3, 4=T4.
 
         Returns:
-            对应稀有度的 TEMPLATE_BOX_T* 模板对象。
+            Объект шаблона TEMPLATE_BOX_T* соответствующей редкости.
 
         Raises:
-            ScriptError: 传入未知的稀有度等级时抛出。
+            ScriptError: Если передан неизвестный уровень редкости.
         """
         if rarity == 1:
             return TEMPLATE_BOX_T1
@@ -64,16 +67,16 @@ class StorageHandler(StorageUI):
             raise ScriptError(f'Неизвестная редкость шаблона ящика: {rarity}')
 
     def _handle_use_box_amount(self, amount):
-        """设置开箱数量。
+        """Установить количество открываемых ящиков.
 
-        通过 OCR 读取当前数量，然后点击 +/- 按钮调整到目标值。
-        如果箱子数量不足，实际设置值可能小于期望值。
+        Считывает текущее значение через OCR и регулирует его кнопками +/- до целевого.
+        Если ящиков недостаточно, фактически установленное значение может быть меньше запрошенного.
 
         Args:
-            amount: 期望设置的开箱数量。
+            amount: Желаемое количество открываемых ящиков.
 
         Returns:
-            int: 实际设置的开箱数量，当箱子不足时可能小于期望值。
+            int: Фактически установленное количество открываемых ящиков.
 
         Pages:
             in: SHOP_BUY_CONFIRM_AMOUNT
@@ -83,17 +86,17 @@ class StorageHandler(StorageUI):
         ocr = Digit(BOX_AMOUNT_OCR, letter=(239, 239, 239), name='OCR_SHOP_AMOUNT')
         index_offset = (40, 50)
 
-        # 等待 +/- 按钮出现
+        # Ждём появления кнопок +/-.
         timeout = Timer(1, count=3).start()
         for _ in self.loop():
-            # +/- 按钮可能位置偏移，使用 OCR 偏移量匹配
+            # Положение кнопок +/- может быть смещено; используем смещение OCR для сопоставления.
             if self.appear(AMOUNT_MINUS, offset=index_offset) and self.appear(AMOUNT_PLUS, offset=index_offset):
                 break
             if timeout.reached():
                 logger.warning('[Хранилище] Тайм-аут ожидания кнопок изменения количества')
                 break
 
-        # 等待 OCR 读取到合理数值
+        # Ждём, пока OCR распознает разумное значение.
         current = 0
         timeout = Timer(1, count=3).start()
         for _ in self.loop():
@@ -104,7 +107,7 @@ class StorageHandler(StorageUI):
                 logger.warning('[Хранилище] Тайм-аут ожидания количества ящиков')
                 break
 
-        # 通过多点击 +/- 按钮设置目标数量，类似 ui_ensure_index
+        # Устанавливаем целевое количество многократными нажатиями +/-, аналогично ui_ensure_index.
         logger.info(f'[Хранилище] Установка количества ящиков: {amount}')
         skip_first = True
         retry = Timer(1, count=2)
@@ -132,20 +135,21 @@ class StorageHandler(StorageUI):
         return current
 
     def _storage_use_one_box(self, button, amount=1):
-        """使用一个装备箱。
+        """Использовать один ящик снаряжения.
 
-        在材料页面点击指定箱子，确认使用，处理开箱结果和装备满仓弹窗。
-        流程：点击箱子 -> 确认使用 -> 设置数量 -> 确认数量 -> 处理获得物品 -> 确认装备。
+        Нажимает на указанный ящик на странице материалов, подтверждает использование,
+        обрабатывает результат открытия и всплывающее окно переполнения склада.
+        Поток: клик по ящику -> подтверждение использования -> ввод количества -> подтверждение -> получение предметов -> подтверждение экипировки.
 
         Args:
-            button: 要点击的装备箱 Button 对象。
-            amount: 期望开箱数量，默认为 1。
+            button: Объект Button нажимаемого ящика снаряжения.
+            amount: Желаемое количество ящиков (по умолчанию 1).
 
         Returns:
-            int: 实际使用的箱子数量，不完全精确。
+            int: Фактически использованное количество ящиков (приблизительно).
 
         Raises:
-            StorageFull: 装备仓库已满无法继续开箱时抛出。
+            StorageFull: Если склад снаряжения переполнен и невозможно продолжить открытие.
 
         Pages:
             in: MATERIAL_CHECK
@@ -166,11 +170,11 @@ class StorageHandler(StorageUI):
         ])
 
         for _ in self.loop():
-            # 退出条件：已完成开箱且回到材料页面
+            # Условие выхода: открытие ящиков завершено и выполнен возврат на страницу материалов.
             if success and self._storage_in_material() and not self.appear(EQUIP_CONFIRM_2, offset=(20, 20)):
                 break
 
-            # 开箱流程
+            # Процесс открытия ящиков.
             if self._storage_in_material(interval=5):
                 self.device.click(button)
                 continue
@@ -187,8 +191,8 @@ class StorageHandler(StorageUI):
                 self.device.click(MATERIAL_ENTER)
                 self.interval_reset(MATERIAL_CHECK)
                 continue
-            # 使用 match_template_color 匹配 BOX_AMOUNT_CONFIRM
-            # 开箱动画会遮盖确认按钮，需要模板颜色匹配
+            # Для сопоставления BOX_AMOUNT_CONFIRM используем match_template_color.
+            # Анимация открытия ящика перекрывает кнопку подтверждения, поэтому требуется цветовое сопоставление шаблона.
             if self.match_template_color(BOX_AMOUNT_CONFIRM, offset=(20, 20), interval=5):
                 actual = self._handle_use_box_amount(amount)
                 self.device.click(BOX_AMOUNT_CONFIRM)
@@ -199,18 +203,18 @@ class StorageHandler(StorageUI):
                 self.interval_reset(MATERIAL_CHECK)
                 continue
             if self.appear_then_click(EQUIP_CONFIRM_2, offset=(20, 20), interval=5):
-                # GET_ITEMS_* 弹出较慢，需要重置其 interval
+                # GET_ITEMS_* появляется с задержкой, поэтому нужно сбросить его interval.
                 self.interval_reset(MATERIAL_CHECK)
                 self.interval_clear([GET_ITEMS_1, GET_ITEMS_2])
-                # 流程：EQUIP_CONFIRM_2 -> GET_ITEMS -> _storage_in_material
-                # 标记 EQUIP_CONFIRM_2 为最后一步
+                # Последовательность: EQUIP_CONFIRM_2 -> GET_ITEMS -> _storage_in_material.
+                # Помечаем EQUIP_CONFIRM_2 как последний шаг.
                 success = True
                 continue
 
-            # 仓库已满处理
+            # Обработка заполненного хранилища.
             if self.appear(EQUIPMENT_FULL, offset=(20, 20)):
                 logger.info('Хранилище заполнено')
-                # 关闭弹窗后抛出异常
+                # После закрытия всплывающего окна выбрасываем исключение.
                 self.ui_click(MATERIAL_ENTER, check_button=self._storage_in_material, appear_button=EQUIPMENT_FULL,
                               retry_wait=3, skip_first_screenshot=True)
                 raise StorageFull
@@ -219,18 +223,18 @@ class StorageHandler(StorageUI):
         return used
 
     def _storage_use_box_in_page(self, rarity, amount, skip_first_screenshot=False):
-        """在当前材料页面使用指定稀有度的装备箱。
+        """Использовать ящики снаряжения указанной редкости на текущей странице материалов.
 
-        通过模板匹配在页面中查找指定稀有度的箱子并逐个使用，
-        直到达到目标数量或页面中无更多箱子。
+        Ищет ящики заданной редкости на странице через сопоставление шаблонов и поочередно использует их,
+        пока не будет достигнуто целевое количество или на странице не закончатся ящики.
 
         Args:
-            rarity: 装备箱稀有度等级，1=T1, 2=T2, 3=T3。
-            amount: 期望使用的箱子数量。
-            skip_first_screenshot: 是否跳过首次截图复用上一状态的截图。
+            rarity: Уровень редкости ящиков снаряжения (1=T1, 2=T2, 3=T3).
+            amount: Желаемое количество используемых ящиков.
+            skip_first_screenshot: Пропускать ли первый скриншот для переиспользования предыдущего кадра.
 
         Returns:
-            int: 实际使用的箱子数量，不完全精确。
+            int: Фактически использованное количество ящиков (приблизительно).
 
         Pages:
             in: MATERIAL_CHECK
@@ -264,20 +268,20 @@ class StorageHandler(StorageUI):
         return used
 
     def _storage_use_box_execute(self, rarity=1, amount=10):
-        """执行开箱操作，支持翻页查找箱子。
+        """Выполнить открытие ящиков с поддержкой прокрутки страниц.
 
-        根据稀有度定位页面起始位置（T1 在底部，其他在顶部），
-        逐页查找并使用箱子，直到达到目标数量或无更多箱子。
+        Позиционирует начальную страницу по редкости (T1 внизу, остальные вверху)
+        и последовательно ищет и использует ящики до достижения лимита или исчерпания ящиков.
 
         Args:
-            rarity: 装备箱稀有度等级，1=T1, 2=T2, 3=T3。
-            amount: 最多使用的箱子数量。
+            rarity: Уровень редкости ящиков снаряжения (1=T1, 2=T2, 3=T3).
+            amount: Максимальное количество используемых ящиков.
 
         Returns:
-            int: 实际使用的箱子数量，不完全精确。
+            int: Фактически использованное количество ящиков (приблизительно).
 
         Raises:
-            StorageFull: 装备仓库已满时抛出。
+            StorageFull: Если склад снаряжения переполнен.
 
         Pages:
             in: page_storage, material, MATERIAL_CHECK
@@ -288,7 +292,7 @@ class StorageHandler(StorageUI):
 
         if MATERIAL_SCROLL.appear(main=self):
             if rarity == 1:
-                # T1 箱子始终在列表底部
+                # Ящики T1 всегда находятся внизу списка.
                 MATERIAL_SCROLL.set_bottom(main=self)
             else:
                 MATERIAL_SCROLL.set_top(main=self)
@@ -309,16 +313,16 @@ class StorageHandler(StorageUI):
         return used
 
     def _storage_disassemble_equipment_execute_once(self, amount=40):
-        """执行一次装备拆解操作。
+        """Выполнить одну операцию разбора снаряжения.
 
-        在拆解页面中选取装备并确认拆解。最多选取 40 件装备。
-        流程：选取装备 -> 确认拆解 -> 处理弹窗 -> 等待结果。
+        Выбирает снаряжение на странице разбора и подтверждает операцию (до 40 единиц за раз).
+        Поток: выбор снаряжения -> подтверждение разбора -> обработка диалогов -> ожидание результата.
 
         Args:
-            amount: 最多拆解的装备数量，上限为 40。
+            amount: Максимальное число разбираемого снаряжения (не более 40).
 
         Returns:
-            int: 实际拆解的装备数量。
+            int: Фактически разобранное количество снаряжения.
 
         Pages:
             in: DISASSEMBLE_CANCEL
@@ -369,7 +373,7 @@ class StorageHandler(StorageUI):
                 break
         amount = min(cumsum[-1], amount)
 
-        # 等待装备被选中
+        # Ждём выбора снаряжения.
         logger.info(f'[Хранилище] Один проход разбора, количество в хранилище: {amount}')
         timeout = Timer(1, count=2).start()
         prev_disassemble = 0
@@ -400,8 +404,8 @@ class StorageHandler(StorageUI):
                 self.device.screenshot()
 
             if click_count >= 3:
-                # 可能是因为没有选中装备，
-                # _storage_disassemble_equipment_execute() 会重新选取
+                # Возможно, снаряжение не было выбрано,
+                # _storage_disassemble_equipment_execute() выполнит выбор повторно.
                 logger.warning('[Хранилище] После 3 попыток не удалось подтвердить разбор')
                 disassembled = 0
                 break
@@ -413,7 +417,7 @@ class StorageHandler(StorageUI):
                 click_count += 1
                 continue
             if self.appear_then_click(DISASSEMBLE_POPUP_CONFIRM, offset=(-15, -5, 5, 70), interval=5):
-                # 2025.05.20 起拆解不再弹出 GET_ITEMS 页面
+                # Начиная с 2025.05.20 при разборе больше не появляется страница GET_ITEMS.
                 success = True
                 continue
             if self.handle_popup_confirm('DISASSEMBLE'):
@@ -432,16 +436,16 @@ class StorageHandler(StorageUI):
         return disassembled
 
     def _storage_disassemble_equipment_execute(self, rarity=1, amount=40):
-        """执行装备拆解，支持翻页循环拆解直到达到目标数量。
+        """Выполнить разбор снаряжения с циклической прокруткой до достижения целевого количества.
 
-        设置装备筛选条件后，逐页拆解装备直到达到目标数量或装备列表为空。
+        Устанавливает фильтр снаряжения и постранично разбирает предметы, пока не наберется нужный объем либо список не опустеет.
 
         Args:
-            rarity: 装备稀有度筛选，1=普通, 2=稀有, 3=精锐, 4=超稀有, 5=最高稀有。
-            amount: 期望拆解的装备数量，实际数量 >= 期望值。
+            rarity: Фильтр редкости снаряжения: 1=обычный, 2=редкий, 3=элитный, 4=сверхредкий, 5=высшая редкость.
+            amount: Желаемое количество разбираемого снаряжения (фактическое >= желаемому).
 
         Returns:
-            int: 实际拆解的装备数量。
+            int: Фактически разобранное количество снаряжения.
 
         Pages:
             in: page_storage, equipment, DISASSEMBLE
@@ -471,17 +475,17 @@ class StorageHandler(StorageUI):
         return disassembled
 
     def storage_disassemble_equipment(self, rarity=1, amount=15):
-        """拆解指定数量的装备。
+        """Разобрать заданное количество снаряжения.
 
-        优先拆解已有装备，不足时开箱获取更多装备后继续拆解。
-        如果箱子用完或仓库已满无法继续则停止。
+        В первую очередь разбирает имеющееся снаряжение; если его недостаточно, открывает ящики и продолжает разбор.
+        Останавливается, если закончились ящики либо склад переполнен и разбор невозможен.
 
         Args:
-            rarity: 装备稀有度筛选，1=普通, 2=稀有, 3=精锐, 4=超稀有。
-            amount: 期望拆解的装备数量，实际数量 >= 期望值。
+            rarity: Фильтр редкости снаряжения: 1=обычный, 2=редкий, 3=элитный, 4=сверхредкий.
+            amount: Желаемое количество разбираемого снаряжения (фактическое >= желаемому).
 
         Returns:
-            int: 实际拆解的装备数量。
+            int: Фактически разобранное количество снаряжения.
 
         Pages:
             in: Any
@@ -489,7 +493,7 @@ class StorageHandler(StorageUI):
         """
         logger.hr('Разбор снаряжения', level=2)
         self.ui_goto_storage()
-        # 装备中开关不影响拆解，无需设置；筛选确认会自动等待仓库稳定
+        # Переключатель «в снаряжении» не влияет на разбор, поэтому настраивать его не нужно; подтверждение фильтра автоматически ждёт стабилизации хранилища.
         disassembled = 0
         while 1:
             logger.attr('Всего разобрано', f'{disassembled}/{amount}')
@@ -504,13 +508,13 @@ class StorageHandler(StorageUI):
                     logger.warning('[Хранилище] Больше нет доступных ящиков; разбор снаряжения завершён')
                     self.storage_has_boxes = False
                     break
-                # 2025.05.20 起箱中装备会自动拆解
+                # Начиная с 2025.05.20 снаряжение из ящиков разбирается автоматически.
                 disassembled += boxes
-                # 开箱成功，重新检查总量
+                # Ящики успешно открыты; повторно проверяем общее количество.
                 continue
             except StorageFull:
                 pass
-            # 仓库已满，进入拆解流程
+            # Хранилище заполнено; переходим к разбору.
             self._storage_enter_disassemble()
             equip = self._storage_disassemble_equipment_execute(rarity=rarity, amount=amount)
             disassembled += equip
@@ -525,17 +529,17 @@ class StorageHandler(StorageUI):
         return disassembled
 
     def storage_use_box(self, rarity=1, amount=40):
-        """使用装备箱并处理仓库满仓。
+        """Использовать ящики снаряжения с автоматической обработкой переполнения склада.
 
-        进入仓库材料页面使用箱子，当仓库满时自动拆解装备腾出空间后继续。
-        如果箱子用完或仓库满且无法拆解则停止。
+        Переходит в материалы склада и использует ящики; при переполнении автоматически разбирает экипировку и продолжает.
+        Останавливается при исчерпании ящиков либо невозможности освободить место на складе.
 
         Args:
-            rarity: 装备箱稀有度等级，1=普通, 2=稀有, 3=精锐, 4=超稀有。
-            amount: 最多使用的箱子数量。
+            rarity: Уровень редкости ящиков: 1=обычный, 2=редкий, 3=элитный, 4=сверхредкий.
+            amount: Максимальное количество используемых ящиков.
 
         Returns:
-            int: 实际使用的箱子数量。
+            int: Фактически использованное количество ящиков.
 
         Pages:
             in: Any
@@ -577,33 +581,33 @@ class StorageHandler(StorageUI):
         return used
 
     def handle_storage_full(self, rarity=1, amount=40):
-        """处理装备仓库满仓弹窗。
+        """Обработать всплывающее окно переполнения склада снаряжения.
 
-        检测 EQUIPMENT_FULL 弹窗并自动拆解装备腾出空间。
-        处理完成后返回到弹窗出现前的页面。
+        Обнаруживает окно EQUIPMENT_FULL и автоматически разбирает экипировку для освобождения места.
+        По завершении возвращается на страницу, где появилось окно.
 
         Args:
-            rarity: 拆解时使用的装备稀有度筛选，1=普通, 2=稀有, 3=精锐, 4=超稀有。
-            amount: 期望拆解的装备数量，实际数量 >= 期望值。
+            rarity: Фильтр редкости снаряжения для разбора: 1=обычный, 2=редкий, 3=элитный, 4=сверхредкий.
+            amount: Желаемое количество разбираемого снаряжения (фактическое >= желаемому).
 
         Returns:
-            bool: 是否检测到并处理了满仓弹窗。
+            bool: Было ли обнаружено и обработано окно переполнения склада.
 
         Pages:
-            in: 任意页面，当 EQUIPMENT_FULL 出现时自动处理
-            out: 处理满仓弹窗前所在页面
+            in: Любая страница при появлении диалога EQUIPMENT_FULL
+            out: Страница, предшествовавшая открытию диалога
         """
         if not self.appear(EQUIPMENT_FULL, offset=(30, 30), interval=2):
             return False
 
-        # 检测到 EQUIPMENT_FULL 弹窗，进入拆解流程
+        # Обнаружено окно EQUIPMENT_FULL; переходим к разбору.
         logger.info('[Хранилище] Обработка заполненного хранилища')
         self.ui_click(EQUIPMENT_FULL, check_button=DISASSEMBLE_CANCEL, skip_first_screenshot=True, retry_wait=3)
         disassembled = self._storage_disassemble_equipment_execute(rarity=rarity, amount=amount)
         if disassembled <= 0:
             logger.warning('[Хранилище] Хранилище заполнено, но разобрать снаряжение не удалось')
 
-        # 退出拆解页面，返回之前的页面
+        # Выходим со страницы разбора и возвращаемся на предыдущую страницу.
         skip_first_screenshot = True
         while 1:
             if skip_first_screenshot:
@@ -617,7 +621,7 @@ class StorageHandler(StorageUI):
                 self.device.click(BACK_ARROW)
                 continue
 
-            # 已离开仓库页面
+            # Страница хранилища уже покинута.
             if not self.appear(STORAGE_CHECK, offset=(30, 30)):
                 break
 

@@ -1,26 +1,26 @@
 """
-科研项目数据模型与识别。
+Модель данных и распознавание исследовательских проектов.
 
-本模块定义科研项目的数据结构，并提供从截图中识别科研项目的函数。
+Модуль определяет структуры данных исследовательских проектов и функции их распознавания по скриншотам.
 
-包含两个主要数据类：
-- ResearchProject: 用于 CN/EN/TW 服务器，通过 OCR 项目名称 + 系列模板匹配
-  从项目列表截图中批量识别 5 个项目
-- ResearchProjectJp: 用于 JP 服务器，通过逐个点击详情页并使用模板匹配
-  识别系列、类型、消耗、舰船蓝图等信息（因 JP 服务器无 OCR 项目名称）
+Содержит два основных класса данных:
+- ResearchProject: для серверов CN/EN/TW; распознает пакет из 5 проектов по скриншоту списка
+  через OCR названий проектов + шаблонное сопоставление серий
+- ResearchProjectJp: для JP-сервера; определяет серию, жанр, расход ресурсов, чертежи кораблей
+  и другие сведения поочередным открытием страниц деталей и сопоставлением шаблонов (так как на JP названия проектов не подлежат OCR)
 
-模块还提供以下辅助函数：
-- 系列编号识别：通过 Sobel 边缘检测分析罗马数字的笔画结构
-- 已完成项目检测：通过状态指示灯的颜色（绿色=已完成）判断
-- JP 详情页识别：系列、时长、类型、消耗、舰船蓝图的模板匹配
+Модуль также предоставляет вспомогательные функции:
+- Распознавание номера серии: анализ структуры штрихов римских цифр оператором Собеля
+- Обнаружение завершенных проектов: проверка цвета индикаторов состояния (зеленый = завершено)
+- Распознавание деталей на JP: сопоставление по шаблонам серии, длительности, жанра, затрат и чертежей кораблей
 
-术语对照：
-    系列(Series): 科研系列编号 S1-S9，对应不同的科研舰船池
-    类型(Genre): 项目类型代码 B/C/D/E/G/H/Q/T
-    蓝图(Blueprint): 科研产出的舰船设计图，用于强化对应舰船
-    DR: 决战方案(Dreamship Rarity)，金色稀有度科研舰船
-    PRY: 近代方案(Priority Rarity)，紫色稀有度科研舰船
-    天运拟合(Fate Simulation): 使用蓝图对已满强化舰船进行的命运模拟
+Терминология:
+    Серия (Series): номер серии исследований S1-S9, соответствующий определенному пулу кораблей исследований
+    Жанр (Genre): код типа проекта B/C/D/E/G/H/Q/T
+    Чертеж (Blueprint): чертеж корабля из исследований для его усиления
+    DR: решающий проект (Decisive / Dreamship Rarity), корабль радужной/золотой редкости
+    PRY: приоритетный проект (Priority Rarity), корабль высшей редкости
+    Моделирование судьбы (Fate Simulation): моделирование судьбы с помощью чертежей для максимально усиленных кораблей
 """
 from datetime import timedelta
 
@@ -46,23 +46,23 @@ RESEARCH_DETAIL_GENRE = [DETAIL_GENRE_B, DETAIL_GENRE_C, DETAIL_GENRE_D, DETAIL_
 
 def get_research_series_old(image, series_button=RESEARCH_SERIES):
     """
-    使用简单的颜色检测获取科研系列（旧版算法）。
+    Определяет серию исследования простым анализом цветов (устаревший алгоритм).
 
-    通过计算白色线条数来检测罗马数字。
-    已被 get_research_series() 替代，保留用于兼容。
+    Распознает римские цифры подсчетом количества белых линий.
+    Заменена функцией get_research_series(), сохранена для совместимости.
 
     Args:
-        image (np.ndarray): 科研列表页面的截图。
-        series_button (tuple): 5 个系列标识区域的按钮定义。
+        image (np.ndarray): Скриншот страницы списка исследований.
+        series_button (tuple): Определение кнопок 5 областей индикаторов серий.
 
     Returns:
-        list[int]: 5 个项目的系列编号列表，如 [1, 1, 1, 2, 3]。
+        list[int]: Список номеров серий 5 проектов, например [1, 1, 1, 2, 3].
     """
     result = []
-    # 设置 'prominence = 50' 以忽略可能的噪声。
-    # 2021.07.18 自 07.15 维护后，字母 IV 比 I、II、III 更小。
-    #   IV 中 "V" 的 "/" 因抗锯齿变得更暗。
-    #   因此将高度降低到 160 以获得更好的检测效果。
+    # Устанавливаем 'prominence = 50' для фильтрации возможных шумов.
+    # 2021.07.18: после техобслуживания 07.15 цифра IV стала меньше, чем I, II, III.
+    #   Наклонная черта '/' в 'V' внутри 'IV' стала темнее из-за сглаживания.
+    #   Поэтому высота снижена до 160 для лучшей детекции.
     parameters = {'height': 160, 'prominence': 50, 'width': 1}
 
     for button in series_button:
@@ -71,7 +71,7 @@ def get_research_series_old(image, series_button=RESEARCH_SERIES):
         upper, lower = max(peaks), min(peaks)
         # print(peaks)
 
-        # 去除类似 [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2] 的噪声
+        # Удаление шумов вида [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2]
         if upper == 3 and lower == 2 and peaks.count(3) <= 2:
             upper = 2
 
@@ -91,17 +91,17 @@ def get_research_series_old(image, series_button=RESEARCH_SERIES):
 
 def _get_research_series(img):
     """
-    通过 Sobel 算子分析单个系列标识的笔画方向。
+    Анализирует направление штрихов отдельного индикатора серии оператором Собеля.
 
-    内部辅助函数，被 get_research_series() 调用。
-    通过检测边缘梯度角判断笔画是竖直（0）还是倾斜（1），
-    组合笔画序列映射到系列编号。
+    Внутренняя вспомогательная функция, вызываемая из get_research_series().
+    Определяет вертикальный (0) или наклонный (1) штрих по углам градиента границ,
+    сопоставляя последовательность штрихов с номером серии.
 
     Args:
-        img (np.ndarray): 裁剪并缩放后的系列标识图像。
+        img (np.ndarray): Вырезанное и масштабированное изображение индикатора серии.
 
     Returns:
-        int: 系列编号（1-6），无法识别返回 0。
+        int: Номер серии (1-6), либо 0 при невозможности распознать.
     """
     # img = rgb2luma(img)
     img = extract_white_letters(img)
@@ -140,17 +140,17 @@ def _get_research_series(img):
 
 def get_research_series(image, series_button=RESEARCH_SERIES):
     """
-    通过 Sobel 边缘检测识别科研系列编号。
+    Распознает номер серии исследования обнаружением границ Собеля.
 
-    分析系列标识区域的罗马数字笔画方向，通过边缘梯度角判断
-    笔画是竖直（/）还是倾斜（\），从而区分不同系列。
+    Анализирует направление штрихов римских цифр в области индикатора серии
+    по углам градиента границ (вертикальный "/" или наклонный "\\"), различая серии.
 
     Args:
-        image (np.ndarray): 科研列表页面的截图。
-        series_button (tuple): 5 个系列标识区域的按钮定义。
+        image (np.ndarray): Скриншот страницы списка исследований.
+        series_button (tuple): Определение кнопок 5 областей индикаторов серий.
 
     Returns:
-        list[int]: 5 个项目的系列编号列表，如 [1, 1, 1, 2, 3]。
+        list[int]: Список номеров серий 5 проектов, например [1, 1, 1, 2, 3].
     """
     result = []
     for button in series_button:
@@ -164,16 +164,16 @@ def get_research_series(image, series_button=RESEARCH_SERIES):
 
 def get_research_name(image, ocr=OCR_RESEARCH):
     """
-    通过 OCR 识别科研列表中 5 个项目的名称。
+    Распознает названия 5 проектов в списке исследований с помощью OCR.
 
     Args:
-        image (np.ndarray): 科研列表页面的截图。
-        ocr (Ocr): OCR 识别器实例，默认使用 RESEARCH 专用 OCR，
-            支持字母数字混合识别（字母表：0123456789BCDEGHQTMIULRF-）。
+        image (np.ndarray): Скриншот страницы списка исследований.
+        ocr (Ocr): Экземпляр распознавателя OCR, по умолчанию специализированный OCR RESEARCH
+            с поддержкой смешанного буквенно-цифрового распознавания (алфавит: 0123456789BCDEGHQTMIULRF-).
 
     Returns:
-        list[str]: 5 个项目的名称列表，如
-            ['D-057-UL', 'C-038-RF', 'G-185-MI', 'H-339-MI', 'Q-027-MI']。
+        list[str]: Список названий 5 проектов, например:
+            ['D-057-UL', 'C-038-RF', 'G-185-MI', 'H-339-MI', 'Q-027-MI'].
     """
     names = ocr.ocr(image)
     if not isinstance(names, list):
@@ -183,18 +183,18 @@ def get_research_name(image, ocr=OCR_RESEARCH):
 
 def get_research_finished(image):
     """
-    通过状态指示灯颜色检测已完成的科研项目。
+    Определяет завершенные исследовательские проекты по цвету индикатора состояния.
 
-    遍历 5 个项目的状态指示灯，通过 RGB 颜色通道分析判断状态：
-    - 绿色（G 通道最大）= 已完成
-    - 蓝色（B 通道最大）= 运行中
-    - 其他颜色 = 异常，跳过
+    Обходит индикаторы состояния 5 проектов и анализирует каналы цвета RGB:
+    - Зеленый (максимум канала G) = завершено
+    - Синий (максимум канала B) = выполняется
+    - Прочие цвета = аномалия, пропуск
 
     Args:
-        image (np.ndarray): 科研列表页面的截图。
+        image (np.ndarray): Скриншот страницы списка исследований.
 
     Returns:
-        int: 已完成项目的索引（0-4）。如果没有已完成项目返回 None。
+        int: Индекс завершенного проекта (0-4), либо None, если завершенных проектов нет.
     """
     for index in [2, 1, 3, 0, 4]:
         button = RESEARCH_STATUS[index]
@@ -204,9 +204,9 @@ def get_research_finished(image):
             continue
         color_index = np.argmax(color)  # R, G, B
         if color_index == 1:
-            return index  # 绿色
+            return index  # Зеленый
         elif color_index == 2:
-            continue  # 蓝色
+            continue  # Синий
         else:
             logger.warning(f'[Исследование — состояние] Неожиданный цвет: {color}')
             continue
@@ -216,14 +216,14 @@ def get_research_finished(image):
 
 def parse_time(string):
     """
-    解析时间字符串为 timedelta 对象。
+    Разбирает строку времени в объект timedelta.
 
     Args:
-        string (str): 时间字符串，格式为 'HH:MM:SS'，
-            如 '01:00:00'、'05:47:10'、'17:50:51'。
+        string (str): Строка времени в формате 'HH:MM:SS',
+            например '01:00:00', '05:47:10', '17:50:51'.
 
     Returns:
-        timedelta: 解析后的时间间隔对象，解析失败返回 None。
+        timedelta: Разобранный интервал времени, либо None при ошибке разбора.
     """
     result = re.search(r'(\d+):(\d+):(\d+)', string)
     if not result:
@@ -236,18 +236,18 @@ def parse_time(string):
 
 def match_template(image, template, area, offset=30, similarity=0.85):
     """
-    在截图的指定区域内进行模板匹配。
+    Выполняет сопоставление по шаблону в указанной области скриншота.
 
     Args:
-        image (np.ndarray): 完整截图。
-        template (np.ndarray): 待匹配的模板图像。
-        area (tuple): 图像裁剪区域 (x1, y1, x2, y2)。
-        offset (int, tuple): 检测区域的扩展偏移量，用于扩大搜索范围。
-            整数表示上下对称偏移，元组表示 (左右, 上下) 独立偏移。
-        similarity (float): 相似度阈值（0-1），低于此值返回 0.0。
+        image (np.ndarray): Полный скриншот.
+        template (np.ndarray): Изображение искомого шаблона.
+        area (tuple): Область обрезки изображения (x1, y1, x2, y2).
+        offset (int, tuple): Смещение расширения области поиска.
+            Целое число задает симметричное смещение по вертикали, кортеж — независимые (горизонталь, вертикаль).
+        similarity (float): Порог сходства (0-1), при значении ниже порога возвращается 0.0.
 
     Returns:
-        float: 匹配相似度（0-1），低于阈值返回 0.0。
+        float: Сходство сопоставления (0-1), либо 0.0 при значении ниже порога.
     """
     if isinstance(offset, tuple):
         offset = np.array((-offset[0], -offset[1], offset[0], offset[1]))
@@ -263,28 +263,28 @@ def match_template(image, template, area, offset=30, similarity=0.85):
 
 def get_research_series_jp_old(image):
     """
-    从 JP 服务器详情页识别系列编号（旧版算法）。
+    Определяет номер серии со страницы деталей на JP-сервере (устаревший алгоритм).
 
-    与 get_research_series 基本相同，区别在于按钮区域和无需缩放。
-    已被 get_research_series_jp() 替代，保留用于兼容。
+    В основном совпадает с get_research_series, отличаясь областью кнопки и отсутствием масштабирования.
+    Заменена функцией get_research_series_jp(), сохранена для совместимости.
 
     Args:
-        image (np.ndarray): 科研详情页的截图。
+        image (np.ndarray): Скриншот страницы деталей исследования.
 
     Returns:
-        str: 系列标识，如 "S4"。
+        str: Обозначение серии, например "S4".
     """
-    # 设置 'prominence = 50' 以忽略可能的噪声。
+    # Устанавливаем 'prominence = 50' для фильтрации возможных шумов.
     parameters = {'height': 160, 'prominence': 50, 'width': 1}
 
     area = SERIES_DETAIL.area
-    # JP 服务器只需检查一个区域，无需缩放。
+    # На сервере JP проверяется только одна область, масштабирование не требуется.
     im = color_similarity_2d(crop(image, area, copy=False), color=(255, 255, 255))
     peaks = [len(signal.find_peaks(row, **parameters)[0]) for row in im[5:-5]]
     upper, lower = max(peaks), min(peaks)
     # print(upper, lower)
 
-    # 去除类似 [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2] 的噪声
+    # Удаление шумов вида [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2]
     if upper == 3 and lower == 2 and peaks.count(3) <= 2:
         upper = 2
 
@@ -303,15 +303,15 @@ def get_research_series_jp_old(image):
 
 def get_research_series_jp(image):
     """
-    从 JP 服务器详情页识别系列编号。
+    Определяет номер серии со страницы деталей на JP-сервере.
 
-    通过模板匹配从详情页的系列标识区域识别系列编号。
+    Распознает номер серии в области индикатора серии страницы деталей сопоставлением шаблонов.
 
     Args:
-        image (np.ndarray): 科研详情页的截图。
+        image (np.ndarray): Скриншот страницы деталей исследования.
 
     Returns:
-        str: 系列标识，如 "S4"。
+        str: Обозначение серии, например "S4".
     """
     series = get_detail_series(image)
     return f'S{series}'
@@ -319,13 +319,13 @@ def get_research_series_jp(image):
 
 def get_research_duration_jp(image):
     """
-    通过 OCR 识别 JP 服务器详情页中的科研时长。
+    Распознает длительность исследования со страницы деталей на JP-сервере через OCR.
 
     Args:
-        image (np.ndarray): 科研详情页的截图。
+        image (np.ndarray): Скриншот страницы деталей исследования.
 
     Returns:
-        int: 科研时长，单位为秒。
+        int: Длительность исследования в секундах.
     """
     ocr = Duration(DURATION_DETAIL)
     duration = ocr.ocr(image).total_seconds()
@@ -334,15 +334,15 @@ def get_research_duration_jp(image):
 
 def get_research_genre_jp(image):
     """
-    通过模板匹配识别 JP 服务器详情页中的科研类型。
+    Определяет жанр исследования со страницы деталей на JP-сервере по шаблонам.
 
-    遍历所有类型模板（B/C/D/E/G/H/Q/T），找到匹配度最高的类型。
+    Перебирает шаблоны всех жанров (B/C/D/E/G/H/Q/T) и выбирает вариант с наибольшим сходством.
 
     Args:
-        image (np.ndarray): 科研详情页的截图。
+        image (np.ndarray): Скриншот страницы деталей исследования.
 
     Returns:
-        str: 类型代码，如 'd'、'c'、'g'。无法识别返回空字符串。
+        str: Код жанра, например 'd', 'c', 'g'. При неудаче возвращает пустую строку.
     """
     genre = ''
     for button in RESEARCH_DETAIL_GENRE:
@@ -357,18 +357,17 @@ def get_research_genre_jp(image):
 
 def get_research_cost_jp(image):
     """
-    通过模板匹配识别 JP 服务器详情页中的资源消耗。
+    Определяет затраты ресурсов со страницы деталей на JP-сервере по шаблонам.
 
-    检测详情页中是否包含金币、魔方和部件的消耗图标。
-    当科研有 1 个消耗项时模板尺寸为 78x78，有 2 个时为 77x77，
-    因此匹配阈值设为较低的 0.8 以提高容错率。
+    Проверяет наличие иконок затрат монет, кубов и деталей на странице деталей.
+    При одном типе затрат размер шаблона составляет 78x78, при двух — 77x77,
+    поэтому порог сходства установлен на уровне 0.8 для устойчивости к погрешностям.
 
     Args:
-        image (np.ndarray): 科研详情页的截图。
+        image (np.ndarray): Скриншот страницы деталей исследования.
 
     Returns:
-        dict: 消耗信息字典，键为 'need_coin'、'need_cube'、'need_part'，
-            值为 bool 表示是否需要该资源。
+        dict: Словарь затрат с ключами 'need_coin', 'need_cube', 'need_part' и булевыми флагами.
     """
     size_template = (78, 78)
     area_template = (0, 0, 78, 57)
@@ -390,7 +389,7 @@ def get_research_cost_jp(image):
                 costs[cost] = True
                 continue
 
-    # 重命名键以匹配 ResearchProjectJp 的属性名
+    # Переименование ключей в соответствии со свойствами ResearchProjectJp
     costs['need_coin'] = costs.pop('coin')
     costs['need_cube'] = costs.pop('cube')
     costs['need_part'] = costs.pop('plate')
@@ -399,17 +398,17 @@ def get_research_cost_jp(image):
 
 def get_research_ship_jp(image):
     """
-    通过模板匹配识别 JP 服务器详情页中的舰船蓝图。
+    Определяет чертеж корабля со страницы деталей на JP-сервере по шаблонам.
 
-    从蓝图模板库中找到与详情页蓝图区域最匹配的舰船。
-    注意 2.5/5/8 小时的 D 系列有 4 个物品，0.5 小时有 3 个，
-    因此 DETAIL_BLUEPRINT 按钮不应只覆盖第一个物品。
+    Находит в библиотеке шаблонов чертежей наиболее подходящий корабль для области чертежей на странице деталей.
+    Для жанра D длительностью 2.5/5/8 часов отображаются 4 предмета, а для 0.5 часа — 3,
+    поэтому кнопка DETAIL_BLUEPRINT не должна покрывать только первый предмет.
 
     Args:
-        image (np.ndarray): 科研详情页的截图。
+        image (np.ndarray): Скриншот страницы деталей исследования.
 
     Returns:
-        str: 舰船名称，如 'azuma'、'drake'。无法识别返回空字符串。
+        str: Название корабля, например 'azuma', 'drake'. При неудаче возвращает пустую строку.
     """
     folder = './assets/research_blueprint'
     templates = load_folder(folder)
@@ -431,16 +430,16 @@ def get_research_ship_jp(image):
 
 def research_jp_detect(image):
     """
-    从 JP 服务器详情页完整识别一个科研项目。
+    Полностью распознает исследовательский проект со страницы деталей на JP-сервере.
 
-    组合调用系列、时长、类型、消耗和舰船识别函数，
-    生成完整的 ResearchProjectJp 对象。
+    Комбинирует вызовы распознавания серии, длительности, жанра, затрат и корабля,
+    формируя готовый объект ResearchProjectJp.
 
     Args:
-        image (np.ndarray): 科研详情页的截图。
+        image (np.ndarray): Скриншот страницы деталей исследования.
 
     Returns:
-        ResearchProjectJp: 识别到的科研项目对象。
+        ResearchProjectJp: Распознанный объект исследовательского проекта.
     """
     project = ResearchProjectJp()
     project.series = get_research_series_jp(image)
@@ -463,16 +462,16 @@ def research_jp_detect(image):
 
 def research_detect(image):
     """
-    从科研列表截图中批量识别 5 个科研项目。
+    Пакетно распознает 5 исследовательских проектов по скриншоту списка исследований.
 
-    通过 OCR 识别项目名称，模板匹配识别系列编号，
-    组合生成 ResearchProject 对象列表。
+    Распознает названия проектов через OCR и номера серий сопоставлением шаблонов,
+    формируя список объектов ResearchProject.
 
     Args:
-        image (np.ndarray): 科研列表页面的截图。
+        image (np.ndarray): Скриншот страницы списка исследований.
 
     Returns:
-        list[ResearchProject]: 5 个科研项目对象的列表。
+        list[ResearchProject]: Список 5 объектов исследовательских проектов.
     """
     projects = []
     for name, series in zip(get_research_name(image), get_research_series_3(image)):
@@ -484,32 +483,32 @@ def research_detect(image):
 
 class ResearchProject:
     """
-    科研项目数据模型，用于 CN/EN/TW 服务器。
+    Модель данных исследовательского проекта для серверов CN/EN/TW.
 
-    通过项目名称（如 'D-057-UL'）和系列编号（如 3）在项目数据库中
-    查询匹配的项目信息，解析出类型、编号、时长、消耗需求和产出舰船等属性。
+    Находит информацию о проекте в базе данных по названию (например 'D-057-UL') и номеру серии (например 3),
+    определяя жанр, номер, длительность, необходимые ресурсы и целевой корабль.
 
-    OCR 识别可能存在错误，构造函数中包含大量的名称修正逻辑，
-    例如：'G-185-MI' -> 'C-185-MI'、'D-022-ML' -> 'D-022-MI' 等。
+    OCR может ошибаться при распознавании, поэтому конструктор содержит обширную логику корректировки названий,
+    например: 'G-185-MI' -> 'C-185-MI', 'D-022-ML' -> 'D-022-MI' и т. д.
 
     Attributes:
-        valid (bool): 项目是否有效（在数据库中找到匹配项）。
-        raw_series (int): 原始系列编号（1-9）。
-        series (str): 格式化的系列标识，如 'S3'。
-        name (str): 修正后的项目名称，如 'D-057-UL'。
-        genre (str): 项目类型代码，如 'D'、'C'、'G'。
-        number (str): 项目编号，如 '057'。
-        duration (str): 项目时长（小时），如 '0.5'、'2'、'8'。
-        ship (str): 产出的舰船名称，如 'azuma'、'drake'。
-            非 D 系列项目通常为空字符串。
-        ship_rarity (str): 舰船稀有度，'dr' 或 'pry'。
-            仅 D 系列有蓝图产出时有值。
-        need_coin (bool): 是否消耗金币。
-        need_cube (bool): 是否消耗魔方。
-        need_part (bool): 是否消耗部件。
-        task (str): 项目特殊要求描述，如 'Scrap 8 pieces of gear.'。
-        equipment_amount (int): 需要拆解的装备数量（E 系列），0 表示无要求。
-        commission_amount (int): 需要完成的委托数量（T 系列），0 表示无要求。
+        valid (bool): Действителен ли проект (найден ли в базе данных).
+        raw_series (int): Исходный номер серии (1-9).
+        series (str): Форматированное обозначение серии, например 'S3'.
+        name (str): Скорректированное название проекта, например 'D-057-UL'.
+        genre (str): Код жанра проекта, например 'D', 'C', 'G'.
+        number (str): Номер проекта, например '057'.
+        duration (str): Длительность проекта (в часах), например '0.5', '2', '8'.
+        ship (str): Название целевого корабля, например 'azuma', 'drake'.
+            Для проектов вне жанра D обычно пустая строка.
+        ship_rarity (str): Редкость корабля, 'dr' или 'pry'.
+            Заполняется только при наличии чертежей у проектов жанра D.
+        need_coin (bool): Расходуются ли монеты.
+        need_cube (bool): Расходуются ли кубы мудрости.
+        need_part (bool): Расходуются ли детали.
+        task (str): Описание особых требований проекта, например 'Scrap 8 pieces of gear.'.
+        equipment_amount (int): Требуемое количество разбираемого снаряжения (жанр E), 0 если требований нет.
+        commission_amount (int): Требуемое количество завершаемых поручений (жанр T), 0 если требований нет.
     """
     REGEX_SHIP = re.compile(
         '('
@@ -562,8 +561,8 @@ class ResearchProject:
     def __init__(self, name, series):
         """
         Args:
-            name (str): 如 'D-057-UL'
-            series (int): 如 1, 2, 3
+            name (str): Название проекта, например 'D-057-UL'.
+            series (int): Номер серии, например 1, 2, 3.
         """
         self.valid = True
         # '4'
@@ -580,14 +579,14 @@ class ResearchProject:
         self.number = ''
         # '0.5'
         self.duration = '24'
-        # 舰船头像，如 'Azuma'
+        # Аватар корабля, например 'Azuma'
         self.ship = ''
-        # 'dr' 或 'pry'
+        # 'dr' или 'pry'
         self.ship_rarity = ''
         self.need_coin = False
         self.need_cube = False
         self.need_part = False
-        # 项目要求，如 'Scrap 8 pieces of gear.'
+        # Требование проекта, например 'Scrap 8 pieces of gear.'
         self.task = ''
 
         matched = False
@@ -627,17 +626,17 @@ class ResearchProject:
 
     def check_name(self, name):
         """
-        修正 OCR 识别中的常见项目名称错误。
+        Исправляет типичные ошибки OCR в названиях проектов.
 
-        处理多种 OCR 误识别情况，包括：前缀混淆（G/D/C/L）、
-        数字误识别（D->0, O->0, S->5）、后缀修正（ML->MI, 0C->UL）、
-        特定服务器的已知错误等。
+        Обрабатывает различные случаи ошибочного распознавания OCR: путаницу префиксов (G/D/C/L),
+        ошибки в цифрах (D->0, O->0, S->5), исправление суффиксов (ML->MI, 0C->UL),
+        а также известные серверные ошибки.
 
         Args:
-            name (str): OCR 识别的原始项目名称。
+            name (str): Исходное название проекта, распознанное OCR.
 
         Returns:
-            str: 修正后的项目名称，如 'D-057-UL'。
+            str: Скорректированное название проекта, например 'D-057-UL'.
         """
         name = name.strip('-')
         # G-185-MI, D-T85-MI -> C-185-MI
@@ -664,9 +663,9 @@ class ResearchProject:
             # LC-038-RF -> C-038-RF
             prefix = prefix.replace('LC', 'C')
 
-            # S3 D-022-MI (S3-Drake-0.5) 因 Drake 的白色衣物被识别为 'D-022-ML'
+            # S3 D-022-MI (S3-Drake-0.5) распознается как 'D-022-ML' из-за белой одежды Drake
             suffix = suffix.replace('ML', 'MI').replace('MIL', 'MI').replace('M1', 'MI')
-            # S4 D-063-UL (S4-hakuryu-0.5) 被识别为 'D-063-0C'
+            # S4 D-063-UL (S4-hakuryu-0.5) распознается как 'D-063-0C'
             # D-057-DC -> D-057-UL
             suffix = suffix.replace('0C', 'UL').replace('UC', 'UL')
             suffix = suffix.replace('DC5', 'UL').replace('DC3', 'UL').replace('DC', 'UL')
@@ -675,14 +674,14 @@ class ResearchProject:
 
             if suffix == 'U':
                 suffix = 'UL'
-            # TW 服务器 OCR 错误，将 B 转换为 D
+            # Ошибка OCR на сервере TW: замена B на D
             if prefix == 'B' and number in ResearchProject.D_PROJECT_NUMBERS:
-                # 保留 B-397-RF，S7 D-397-MI 和 S* B-397-RF 共享 397
+                # Сохраняем B-397-RF: S7 D-397-MI и S* B-397-RF делят номер 397
                 if number == '397' and suffix == 'RF':
                     pass
                 else:
                     prefix = 'D'
-            # I-483-RF 修正为 -483-RF -> D-483-RF
+            # I-483-RF корректируется в -483-RF -> D-483-RF
             if prefix == '' and number in ResearchProject.D_PROJECT_NUMBERS:
                 prefix = 'D'
             # L-153-MI -> C-153-MI
@@ -690,25 +689,25 @@ class ResearchProject:
                 prefix = 'C'
             return '-'.join([prefix, number, suffix])
         elif len(parts) == 2:
-            # 尝试插入 '-'，处理类似 H339-MI 的结果
+            # Пробуем вставить '-', обрабатывая результаты вроде H339-MI
             if name[0].isalpha() and name[1].isdigit():
                 return self.check_name(f'{name[0]}-{name[1:]}')
         return name
 
     def get_data(self, name, series):
         """
-        从项目数据库中查询匹配的科研项目数据。
+        Запрашивает подходящие данные исследовательского проекта из базы данных.
 
-        按优先级依次尝试精确匹配、前缀修正（G/C/D 混淆）、
-        后缀模糊匹配等多种策略，以应对 OCR 识别错误。
+        Поочередно проверяет точное совпадение, исправление префиксов (путаница G/C/D),
+        нечеткое сопоставление суффиксов и другие стратегии для компенсации ошибок OCR.
 
         Args:
-            name (str): 修正后的项目名称，如 'D-057-UL'。
-            series (int): 系列编号，如 1, 2, 3。
+            name (str): Скорректированное название проекта, например 'D-057-UL'.
+            series (int): Номер серии, например 1, 2, 3.
 
         Yields:
-            dict: 匹配到的项目数据字典，包含 name、series、time、
-                task、input、output 等字段。
+            dict: Словарь с данными найденного проекта, содержащий поля name, series, time,
+                task, input, output и др.
         """
         for data in LIST_RESEARCH_PROJECT:
             if (data['series'] == series) and (data['name'] == name):
@@ -724,7 +723,7 @@ class ResearchProject:
                         yield data
 
         if name.startswith('D'):
-            # 字母 'C' 可能因项目卡片反光被识别为 'D'
+            # Буква 'C' может распознаваться как 'D' из-за блика на карточке проекта
             name1 = 'C' + self.name[1:]
             for data in LIST_RESEARCH_PROJECT:
                 if (data['series'] == series) and (data['name'] == name1):
@@ -739,8 +738,8 @@ class ResearchProject:
 
     @cached_property
     def equipment_amount(self):
-        # 拆解 8 件装备。
-        # 拆解 15 件装备。
+        # Разобрать 8 ед. снаряжения.
+        # Разобрать 15 ед. снаряжения.
         if '8 piece' in self.task:
             return 8
         elif '15 piece' in self.task:
@@ -762,34 +761,34 @@ class ResearchProject:
 
 class ResearchProjectJp:
     """
-    科研项目数据模型，用于 JP 服务器。
+    Модель данных исследовательского проекта для JP-сервера.
 
-    JP 服务器的科研项目名称无法通过 OCR 识别，因此使用模板匹配
-    逐个检测详情页中的系列、类型、消耗和舰船蓝图信息。
-    项目名称由检测结果组合生成，格式为 '{series}-{genre}-{duration}{ship}'。
+    Названия проектов на JP-сервере не подлежат OCR-распознаванию, поэтому используется сопоставление
+    шаблонов для поочередного определения серии, жанра, затрат и чертежей кораблей со страницы деталей.
+    Название формируется из результатов распознавания в виде '{series}-{genre}-{duration}{ship}'.
 
     Attributes:
-        valid (bool): 项目是否有效（通过 check_valid() 验证）。
-        name (str): 组合生成的项目标识，如 'S4-D-0.5azuma'。
-        series (str): 格式化的系列标识，如 'S4'。
-        genre (str): 项目类型代码，如 'd'、'c'、'g'。
-        number (str): 项目编号，JP 服务器通常为空字符串。
-        duration (str): 项目时长（小时），如 '0.5'、'2'、'8'。
-        ship (str): 产出的舰船名称，如 'azuma'。
-        ship_rarity (str): 舰船稀有度，'dr' 或 'pry'。
-        need_coin (bool): 是否消耗金币。
-        need_cube (bool): 是否消耗魔方。
-        need_part (bool): 是否消耗部件。
-        task (str): 项目特殊要求，JP 服务器通常为空字符串。
-        equipment_amount (int): 需要拆解的装备数量（E 系列）。
-        commission_amount (int): 需要完成的委托数量（T 系列）。
+        valid (bool): Действителен ли проект (проверен через check_valid()).
+        name (str): Сгенерированный идентификатор проекта, например 'S4-D-0.5azuma'.
+        series (str): Форматированное обозначение серии, например 'S4'.
+        genre (str): Код жанра проекта, например 'd', 'c', 'g'.
+        number (str): Номер проекта, на JP-сервере обычно пустая строка.
+        duration (str): Длительность проекта (в часах), например '0.5', '2', '8'.
+        ship (str): Название получаемого корабля, например 'azuma'.
+        ship_rarity (str): Редкость корабля, 'dr' или 'pry'.
+        need_coin (bool): Расходуются ли монеты.
+        need_cube (bool): Расходуются ли кубы мудрости.
+        need_part (bool): Расходуются ли детали.
+        task (str): Особые требования проекта, на JP-сервере обычно пустая строка.
+        equipment_amount (int): Требуемое количество разбираемого снаряжения (жанр E).
+        commission_amount (int): Требуемое количество завершаемых поручений (жанр T).
 
-    类属性:
-        GENRE (list[str]): 所有有效的项目类型代码。
-        DURATION (list[str]): 所有有效的项目时长。
-        SHIP_S1 ~ SHIP_S9 (list[str]): 各系列对应的舰船名称列表。
-        SHIP_ALL (list[str]): 所有系列的舰船名称合并列表。
-        DR_SHIP (list[str]): 所有 DR（决战方案）舰船名称。
+    Атрибуты класса:
+        GENRE (list[str]): Все допустимые коды жанров проектов.
+        DURATION (list[str]): Все допустимые длительности проектов.
+        SHIP_S1 ~ SHIP_S9 (list[str]): Списки кораблей для каждой серии.
+        SHIP_ALL (list[str]): Объединенный список кораблей всех серий.
+        DR_SHIP (list[str]): Все корабли редкости DR (решающие проекты).
     """
     GENRE = ['b', 'c', 'd', 'e', 'g', 'h', 'q', 't']
     DURATION = ['0.5', '1', '1.5', '2', '2.5', '3', '4', '5', '6', '8', '12']
@@ -830,13 +829,13 @@ class ResearchProjectJp:
 
     def check_valid(self):
         """
-        验证 JP 服务器科研项目的有效性。
+        Проверяет валидность исследовательского проекта для JP-сервера.
 
-        检查系列、类型、时长是否在有效范围内，
-        以及 D 系列项目是否识别到了舰船蓝图。
+        Проверяет допустимость диапазонов серии, жанра и длительности,
+        а также распознан ли чертеж корабля для проектов жанра D.
 
         Returns:
-            bool: 项目是否有效。
+            bool: Действителен ли проект.
         """
         self.valid = False
         if self.series.lower() == "s0":
@@ -864,8 +863,8 @@ class ResearchProjectJp:
     @cached_property
     def equipment_amount(self):
         if self.genre == 'E' and self.duration == '2':
-            # JP 服务器没有科研名称，无法区分 E-031-MI 和 E-315-MI，
-            # 返回最大值 15
+            # На сервере JP нет названий исследований: невозможно различить E-031-MI и E-315-MI,
+            # возвращаем максимальное значение 15
             return 15
         else:
             return 0

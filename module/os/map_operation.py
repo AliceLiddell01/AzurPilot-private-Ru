@@ -106,7 +106,7 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
 
     @Config.when(SERVER='en')
     def get_zone_name(self):
-        # 仅用于 EN 服务器
+        # Только для EN-сервера
         ocr = Ocr(MAP_NAME, lang='azur_lane', letter=(206, 223, 247), threshold=96, name='OCR_OS_MAP_NAME')
         name = ocr.ocr(self.device.image)
         name = "".join(name.split())
@@ -114,24 +114,24 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
         name = name.strip('\\/-—–－')
         if '-' in name:
             name = name.split('-')[0]
-        if 'é' in name:  # 地中海名称映射
+        if 'é' in name:  # Сопоставление названий Средиземного моря
             name = name.replace('é', 'e')
-        if 'nvcity' in name:  # NY City 港口 OCR 误读 'Y' 为 'V'
+        if 'nvcity' in name:  # OCR порта NY City ошибочно распознаёт 'Y' как 'V'
             name = 'nycity'
         if 'cibraltar' in name:
             name = 'gibraltar'
-        # OCR 偶尔误读修正
+        # Исправление периодических ошибок OCR
         name = name.replace('sate', 'safe')
         self.is_zone_name_hidden = 'safe' in name
 
-        # OCR 偶尔误读，热修复
+        # Периодические ошибки OCR: оперативные исправления
         name = name.replace('pasage', 'passage')
         name = name.replace('shef', 'shelf')
         name = name.replace('nnocean', 'naocean')
-        # A OceanwsectorB-Safe zone 修正
+        # Исправление A OceanwsectorB-Safe zone
         name = re.sub('^aocean', 'naocean',  name)
 
-        # `-` 缺失或因字体大小被读为 '.'
+        # `-` отсутствует или из-за размера шрифта распознаётся как '.'
         name = name.replace('safe', '')
         name = name.replace('zone', '')
         if name.endswith('.'):
@@ -140,19 +140,19 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
 
     @Config.when(SERVER='jp')
     def get_zone_name(self):
-        # 仅用于 JP 服务器
+        # Только для JP-сервера
         ocr = Ocr(MAP_NAME, lang='jp', letter=(157, 173, 192), threshold=127, name='OCR_OS_MAP_NAME')
         name = ocr.ocr(self.device.image)
         name = name.replace(' ', '')
-        # 将各种破折号标准化为连字符
+        # Нормализуем различные тире в дефис
         import re
         name = re.sub(r'[\\/—–－−]', '-', name)
         name = name.strip('-')
         self.is_zone_name_hidden = '安全' in name
-        # 移除标点符号
+        # Удаляем знаки препинания
         for char in '・':
             name = name.replace(char, '')
-        # 移除'異常海域'和'セイレーン要塞海域'
+        # Удаляем '異常海域' и 'セイレーン要塞海域'
         if '異' in name:
             name = name.split('異')[0]
         if 'セ' in name:
@@ -161,13 +161,13 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
         if '-' in name:
             name = name.split('-')[0]
         else:
-            # 移除 JP OCR 末尾的'安全海域'或'秘密海域'。
+            # Удаляем суффиксы '安全海域' или '秘密海域' в конце результата JP OCR.
             name = _remove_zone_suffix(
                 name,
                 ('安全海域', '秘密海域', '異常海域', '要塞海域', '安全', '秘密', '異常', '要塞'),
             )
-        # 汉字'一'、'力'和'卜'不使用，而片假名'ー'、'カ'和'ト'有时被误读为汉字。
-        # 片假名'ペ'可能被误读为平假名'ぺ'。
+        # Иероглифы '一', '力' и '卜' не используются, но катакана 'ー', 'カ' и 'ト' иногда ошибочно распознаётся как эти иероглифы.
+        # Катакана 'ペ' может ошибочно распознаваться как хирагана 'ぺ'.
         name = name.replace('一', 'ー').replace('力', 'カ').replace('卜', 'ト').replace('ぺ', 'ペ')
         name = name.replace('ジブフルタル', 'ジブラルタル')
         name = name.replace('タント', 'タラント').replace('タフント', 'タラント')
@@ -180,23 +180,23 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
 
     @Config.when(SERVER='tw')
     def get_zone_name(self):
-        # 仅用于 TW 服务器
+        # Только для TW-сервера
         ocr = Ocr(MAP_NAME, lang='tw', letter=(198, 215, 239), threshold=127, name='OCR_OS_MAP_NAME')
         name = ocr.ocr(self.device.image)
         name = name.replace(' ', '')
-        # 将各种破折号标准化为连字符
+        # Нормализуем различные тире в дефис
         import re
         name = re.sub(r'[\\/—–－−一]', '-', name)
         name = name.strip('-')
         self.is_zone_name_hidden = '安全' in name
-        # 移除'塞壬要塞海域'
+        # Удаляем '塞壬要塞海域'
         if '塞' in name:
             name = name.split('塞')[0]
             
         if '-' in name:
             name = name.split('-')[0]
         else:
-            # 移除 TW OCR 末尾的'安全海域'、'隱秘海域'、'深淵海域'。
+            # Удаляем суффиксы '安全海域', '隱秘海域' и '深淵海域' в конце результата TW OCR.
             name = _remove_zone_suffix(
                 name,
                 ('安全海域', '隱秘海域', '深淵海域', '塞壬要塞海域', '安全', '隱秘', '深淵'),
@@ -205,11 +205,11 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
 
     @Config.when(SERVER=None)
     def get_zone_name(self):
-        # 仅用于 CN 服务器
+        # Только для CN-сервера
         ocr = Ocr(MAP_NAME, lang='cnocr', letter=(214, 231, 255), threshold=127, name='OCR_OS_MAP_NAME')
         name = ocr.ocr(self.device.image)
         name = name.replace(' ', '')
-        # 将各种破折号标准化为连字符
+        # Нормализуем различные тире в дефис
         import re
         name = re.sub(r'[\\/—–－−]', '-', name)
         name = name.strip('-')
@@ -273,14 +273,14 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
         logger.info('[Операция «Сирена» — действия на карте] Получение названия зоны')
         timeout = Timer(1.5, count=5).start()
         for _ in self.loop():
-            # 处理弹窗
+            # Обрабатываем всплывающие окна
             if self.handle_map_event():
                 timeout.reset()
                 continue
-            # 游戏 bug：上一个已清理海域的 AUTO_SEARCH_REWARD 弹窗
+            # Баг игры: окно AUTO_SEARCH_REWARD от предыдущей уже очищенной зоны
             if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50), interval=3):
                 continue
-            # 月度重置后 EXCHANGE_CHECK 弹窗
+            # Окно EXCHANGE_CHECK после ежемесячного сброса
             if self.is_in_globe():
                 self.os_globe_goto_map()
                 timeout.reset()
@@ -289,7 +289,7 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
                 self.device.click(BACK_ARROW)
                 timeout.reset()
                 continue
-            # 处理任务完成标题，可能遮挡地图名称或因额外文本导致 OCR 误读
+            # Обрабатываем заголовок завершённого задания: он может перекрыть название карты или вызвать ошибку OCR из-за дополнительного текста
             if self.is_in_map() and \
                     not self.appear(OS_CHECK, offset=(20, 20)):
                 self.wait_until_appear(OS_CHECK)
@@ -336,24 +336,24 @@ class OSMapOperation(MapOrderHandler, MissionHandler, PortHandler, StorageHandle
         confirm_timer = Timer(1, count=2)
         changed = False
         for _ in self.loop():
-            # 结束条件
+            # Условие завершения
             if changed and self.is_in_map():
                 if confirm_timer.reached():
                     break
             else:
                 confirm_timer.reset()
-            # 如果 MAP_EXIT 仍显示，说明尚未退出此海域
+            # Если MAP_EXIT всё ещё отображается, зона ещё не покинута
             if self.appear(MAP_EXIT, offset=(20, 20), similarity=0.75):
                 confirm_timer.reset()
 
-            # 点击
+            # Нажатия
             if self.appear_then_click(MAP_EXIT, offset=(20, 20), interval=3, similarity=0.75):
                 continue
             if self.handle_popup_confirm('MAP_EXIT'):
                 self.interval_reset(MAP_EXIT)
                 continue
             if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50)):
-                # 偶尔会出现
+                # Иногда появляется
                 self.device.screenshot_interval_set()
                 continue
             if self.handle_map_event():

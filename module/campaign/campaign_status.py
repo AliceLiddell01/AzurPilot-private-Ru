@@ -1,17 +1,17 @@
-"""战役状态检测模块。
+"""Модуль отслеживания состояния кампании.
 
-通过 OCR 读取战役页面上的数值信息，包括：
-- 物资（金币）数量
-- 石油数量
-- 活动 PT（点数）
-- 石油和物资限制检测
+Считывает числовую информацию на экране кампании через OCR:
+- Количество припасов (монет)
+- Количество нефти
+- Очки события (PT)
+- Проверка лимитов нефти и припасов
 
-这些信息用于判断是否满足停止条件（如石油耗尽、物资溢出等）。
+Эти данные используются для проверки условий остановки (например, исчерпание нефти, переполнение монет и т. д.).
 
-PtOcr 类专门处理活动 PT 数字的 OCR 识别，
-需要特殊的图像预处理（反色、背景去除等）。
+Класс PtOcr отвечает за распознавание очков события,
+требуя специальной предварительной обработки изображения (инверсия, удаление фона и т. д.).
 
-继承自 UI，利用页面导航能力。
+Наследуется от UI, используя механизмы навигации по экранам.
 """
 
 import datetime
@@ -41,18 +41,18 @@ class PtOcr(Ocr):
 
     def pre_process(self, image):
         """
-        对 PT 数字图像进行预处理。
+        Предварительно обрабатывает изображение с цифрами очков события (PT).
 
         Args:
-            image (np.ndarray): 形状为 (height, width, channel) 的图像。
+            image (np.ndarray): Изображение формата (height, width, channel).
 
         Returns:
-            np.ndarray: 形状为 (width, height) 的灰度图像。
+            np.ndarray: Оттенки серого формата (width, height).
         """
-        # 取 RGB 三通道的最大值
+        # Берём максимальное значение из трёх каналов RGB
         r, g, b = cv2.split(cv2.subtract((255, 255, 255), image))
         image = cv2.min(cv2.min(r, g), b)
-        # 去除背景，将 0-192 映射到 0-255
+        # Удаляем фон, отображая диапазон 0–192 в 0–255
         image = cv2.multiply(image, 255 / 192)
 
         return image.astype(np.uint8)
@@ -64,21 +64,21 @@ OCR_PT = PtOcr(OCR_EVENT_PT)
 class CampaignStatus(UI):
     def get_event_pt(self, update=False):
         """
-        获取活动 PT 数量。
+        Получает количество очков события (PT).
 
         Returns:
-            int: PT 数量，解析失败返回 0。
+            int: Количество PT, либо 0 при сбое распознавания.
         """
         pt = OCR_PT.ocr(self.device.image)
 
-        # 首选匹配带前缀 X 的格式（历史上部分活动使用 ‘X1234’）
+        # В первую очередь ищем формат с префиксом X: исторически некоторые события использовали «X1234»
         res = re.search(r'X(\d+)', pt)
         if res:
             pt = int(res.group(1))
             logger.attr('Очки события', pt)
             LogRes(self.config).Pt = pt
         else:
-            # 回退：若 OCR 返回纯数字也接受（保留警告以便回溯）
+            # Резервный вариант: принимаем и чисто числовой результат OCR, сохраняя предупреждение для диагностики
             res2 = re.search(r'(\d+)', pt)
             if res2:
                 num = int(res2.group(1))
@@ -95,10 +95,10 @@ class CampaignStatus(UI):
 
     def get_coin(self, skip_first_screenshot=True, update=False):
         """
-        获取金币数量。
+        Получает количество монет (припасов).
 
         Returns:
-            int: 金币数量。
+            int: Количество монет.
         """
         _coin = {}
         timeout = Timer(1, count=2).start()
@@ -125,12 +125,12 @@ class CampaignStatus(UI):
         return _coin['Value']
 
     def _get_num(self, _button, name, letter=(247, 247, 247)):
-        # 更新偏移量
+        # Обновляем смещение
         _ = self.appear(OCR_OIL_CHECK)
 
         color = get_color(self.device.image, OCR_OIL_CHECK.button)
         if color_similar(color, OCR_OIL_CHECK.color):
-            # 原始颜色
+            # Исходный цвет
             if isinstance(_button, Ocr):
                 ocr = _button
             else:
@@ -139,7 +139,7 @@ class CampaignStatus(UI):
                 else:
                     ocr = Digit(_button, name=name, letter=(201, 201, 201), threshold=128)
         elif color_similar(color, (59, 59, 64)):
-            # 带黑色遮罩
+            # С чёрной маской
             ocr = Digit(_button, name=name, letter=(165, 165, 165), threshold=128)
         else:
             logger.warning('[Кампания — состояние] Неожиданный цвет OCR_OIL_CHECK')
@@ -149,10 +149,10 @@ class CampaignStatus(UI):
 
     def get_oil(self, skip_first_screenshot=True, update=False):
         """
-        获取石油数量。
+        Получает количество нефти.
 
         Returns:
-            int: 石油数量。
+            int: Количество нефти.
         """
         _oil = {}
         timeout = Timer(1, count=2).start()
@@ -184,10 +184,10 @@ class CampaignStatus(UI):
 
     def is_balancer_task(self):
         """
-        判断当前任务是否为活动任务（排除每日活动任务）。
+        Определяет, является ли текущая задача задачей события (исключая ежедневные задачи события).
 
         Returns:
-            bool: 是否为活动任务。
+            bool: Является ли задачей события.
         """
         tasks = [
             'Event',

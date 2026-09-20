@@ -1,8 +1,8 @@
-"""大世界模拟器核心模块。
+"""Основной модуль симулятора Operation Siren.
 
-通过蒙特卡洛模拟评估大世界（Operation Siren）行动力的最优使用策略。
-使用 Numba JIT 加速采样计算，模拟明石商店抽奖、海域净化、
-行动力消耗等随机过程，输出统计分布以辅助策略决策。
+Оценивает оптимальную стратегию расхода очков действия Operation Siren методом Монте-Карло.
+Использует ускорение расчётов Numba JIT, симулируя лотерею магазина Акаши, зачистку зон,
+расход AP и другие случайные процессы, формируя статистические распределения для принятия решений.
 """
 import numpy as np
 import numba as nb
@@ -23,7 +23,7 @@ from module.os_simulator.logger import OSSLogger, TqdmToLogger
 @nb.njit(cache=True, fastmath=True)
 def _akashi_sample():
     """
-    不放回采样: 从 AKASHI (长度24) 中选6个。
+    Выборка без возвращения: выбор 6 элементов из AKASHI (длиной 24).
     """
     total = 0.0
     mask = 0
@@ -39,7 +39,7 @@ def _akashi_sample():
 @nb.njit(cache=True, fastmath=True)
 def _handle_akashi(s, akashi_prob, deterministic):
     if deterministic:
-        # 确定性模式：使用预计算的期望值
+        # Детерминированный режим: используем предварительно вычисленное ожидаемое значение
         total_reward = akashi_prob * AKASHI_EXPECT_REWARD_6
         s[AP] += total_reward
         s[COIN] -= total_reward * 40.0
@@ -64,13 +64,13 @@ def _simulate_one(
     record_history=False
 ):
     """
-    模拟单个样本的核心循环。
-    支持 record_history 模式以记录轨迹。
+    Основной цикл симуляции одного прогона (выборки).
+    Поддерживает режим record_history для сохранения траектории.
     """
     s = np.zeros(8, dtype=np.float64)
     s[AP], s[COIN], s[STATUS] = init_ap, init_coin, 0.0
 
-    # 历史记录初始化
+    # Инициализация истории
     hist_time = hist_ap = hist_coin = hist_status = np.empty(0, dtype=np.float64)
     hist_idx = 0
     max_steps = 0
@@ -83,12 +83,12 @@ def _simulate_one(
         hist_ap = np.empty(max_steps, dtype=np.float64)
         hist_coin = np.empty(max_steps, dtype=np.float64)
         hist_status = np.empty(max_steps, dtype=np.float64)
-        # 初始记录
+        # Начальная запись
         hist_time[0], hist_ap[0], hist_coin[0], hist_status[0] = 0.0, init_ap, init_coin, 0.0
         hist_idx, last_time = 1, 0.0
 
     while s[STATUS] != STATUS_DONE:
-        # 1. 状态切换逻辑
+        # 1. Логика переключения состояний
         curr_status = s[STATUS]
         if curr_status == STATUS_CL1:
             if s[AP] < ap_preserve: s[STATUS] = STATUS_CRASHED
@@ -99,7 +99,7 @@ def _simulate_one(
         elif curr_status == STATUS_CRASHED:
             if s[AP] >= AP_COSTS[1]: s[STATUS] = STATUS_CL1
 
-        # 2. 样本步进动作
+        # 2. Шаг симуляции образца
         active_status = s[STATUS]
         if active_status == STATUS_CL1:
             s[CL1_COUNT] += 1
@@ -120,7 +120,7 @@ def _simulate_one(
         elif active_status == STATUS_CRASHED:
             s[HAS_CRASHED], s[USED_TIME], s[AP] = 1.0, s[USED_TIME] + 43200.0, s[AP] + 72.0
 
-        # 3. 每日/周刷新检查
+        # 3. Проверка ежедневного/еженедельного обновления
         sim_days = int(s[USED_TIME] // 86400)
         while sim_days > s[PASSED_DAYS]:
             s[PASSED_DAYS] += 1
@@ -132,7 +132,7 @@ def _simulate_one(
         if s[USED_TIME] >= total_time:
             s[STATUS] = STATUS_DONE
 
-        # 4. 轨迹记录
+        # 4. Запись траектории
         if record_history and s[USED_TIME] > last_time:
             if hist_idx < max_steps:
                 hist_time[hist_idx], hist_ap[hist_idx], hist_coin[hist_idx], hist_status[hist_idx] = \
@@ -178,9 +178,9 @@ class OSSimulator:
         self._stop_event = threading.Event()
 
     def _get_azurstat_data(self):
-        # 预计之后使用azurstat统计数据，目前先这样吧（
+        # Позже предполагается использовать статистику azurstat, а пока оставляем так (
         
-        # 目前包括吊机
+        # Сейчас включает кран
         cl1_coin = self.config.cross_get('OpsiSimulator.OpsiSimulatorParameters.Cl1Coin')
         meow3_coin = self.config.cross_get('OpsiSimulator.OpsiSimulatorParameters.Meow3Coin')
         meow5_coin = self.config.cross_get('OpsiSimulator.OpsiSimulatorParameters.Meow5Coin')
@@ -279,14 +279,14 @@ class OSSimulator:
         self.days_until_next_monday = self._get_days_until_next_monday()
         self.logger.info(f'[Симулятор Операции «Сирена»] Дней до следующего понедельника: {self.days_until_next_monday}')
 
-        # 调试模式开关：设置为 True 则取消随机性，按照期望值计算演化
+        # Переключатель режима отладки: True отключает случайность и рассчитывает эволюцию по ожидаемым значениям
         self.deterministic = self.config.cross_get('OpsiSimulator.OpsiSimulatorParameters.Deterministic', False)
         if self.deterministic:
             self.samples = 1
             self.logger.info('[Симулятор Операции «Сирена»] Режим отладки: используется детерминированный расчёт. Для ускорения число выборок принудительно установлено в 1.')
             self.logger.info('[Симулятор Операции «Сирена»] (случайные вероятности не используются, расчёт выполняется по ожидаемым значениям)')
 
-        # 修正后的单轮时间：包含了因"时间利用率"不足而产生的空闲时间，用于正确计算AP的自然恢复
+        # Скорректированное время одного цикла включает простой из-за неполного использования времени для корректного расчёта естественного восстановления AP
         self.modified_meow_time = self.meow_time / self.time_use_ratio
         self.modified_cl1_time = self.cl1_time / self.time_use_ratio
 
@@ -294,21 +294,21 @@ class OSSimulator:
 
     def precompile(self):
         """
-        预编译 Numba 函数，确保正式模拟时达到最高速度。
-        即使已从缓存加载，也会在日志输出时间。
+        Предкомпиляция функций Numba для достижения максимальной скорости при реальной симуляции.
+        Даже если функции загружены из кэша, фиксирует время в логе.
         """
         self.logger.info("[Симулятор Операции «Сирена»] Проверка предкомпиляции (первый запуск может занять некоторое время)...")
         start_time = time.perf_counter()
         
-        # 1. 编译基础采样函数
+        # 1. Компилируем базовую функцию выборки
         _akashi_sample()
         
-        # 2. 编译明石处理逻辑
+        # 2. Компилируем обработку Акаши
         s = np.zeros(8, dtype=np.float64)
         _handle_akashi(s, 0.5, False)
         
-        # 3. 编译核心模拟循环 (覆盖两种 record_history 情况)
-        # 使用 dummy 参数确保立即返回
+        # 3. Компилируем основной цикл симуляции (для обоих вариантов record_history)
+        # Используем dummy-параметры для немедленного возврата
         _params = (
             0.0, 0.0, 0.0, 5, 
             0.0, 0.0, 0.0, 0.0, 0.0, 
@@ -388,18 +388,18 @@ class OSSimulator:
         if not hasattr(self, 'init_ap'):
             self.get_paras()
         
-        # 准备传给 Numba kernel 的参数
+        # Подготавливаем параметры для Numba kernel
         coin_expect_cl1 = float(self.coin_expectation[1])
         coin_expect_meow = float(self.coin_expectation[self.meow_hazard_level])
 
-        # 结果数组: (samples, 8)
+        # Массив результатов: (samples, 8)
         results = np.empty((self.samples, 8), dtype=np.float64)
 
-        # 绘图历史
+        # История для графиков
         record_single = (self.draw_setting == 'single_sample')
         record_multi = (self.draw_setting == 'multi_sample')
 
-        # 主循环：分批并行模拟
+        # Основной цикл: параллельная симуляция пакетами
         batch_size = 1000
         start_idx = 0
         
@@ -418,7 +418,7 @@ class OSSimulator:
             batch_grid_coin = np.empty((1, 1), dtype=np.float64)
             batch_grid_crash = np.empty((1, 1), dtype=np.float64)
         
-        # 使用 tqdm 画图并重定向到 logger，mininterval 限制日志记录频率
+        # Используем tqdm для отображения прогресса и перенаправляем его в logger; mininterval ограничивает частоту логирования
         pbar = tqdm(
             range(self.samples), 
             file=TqdmToLogger(self.logger), 
@@ -439,7 +439,7 @@ class OSSimulator:
             self.deterministic
         )
 
-        # 绘图历史（仅 single_sample 时记录 sample 0）
+        # История для графика (для single_sample записываем только sample 0)
         if record_single and self.samples > 0:
             result, h_time, h_ap, h_coin, h_status, h_len = _simulate_one(*params, True)
             results[0] = result
@@ -487,7 +487,7 @@ class OSSimulator:
             mean_crash = grid_crash_sum / completed
             var_ap = grid_ap_sq / completed - mean_ap ** 2
             var_coin = grid_coin_sq / completed - mean_coin ** 2
-            # 防止浮点误差造成的负方差
+            # Не допускаем отрицательной дисперсии из-за ошибок вычислений с плавающей точкой
             var_ap[var_ap < 0] = 0
             var_coin[var_coin < 0] = 0
             self.history_multi_avg = {

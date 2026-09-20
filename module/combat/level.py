@@ -1,17 +1,17 @@
-"""舰船等级检测模块。
+"""Модуль определения уровня кораблей.
 
-通过 OCR 识别战斗画面中各舰船的等级信息。
+Распознаёт информацию об уровнях кораблей на боевом экране с помощью OCR.
 
-等级检测的使用场景：
-- 等级停止条件：当任一舰船达到目标等级时停止战役
-- LV.32 检测：当旗舰达到 32 级时停止（钻石 farming 场景）
+Сценарии использования проверки уровней:
+- Условие остановки по уровню: остановка кампании, когда любой корабль достигает целевого уровня
+- Проверка LV.32: остановка при достижении флагманом 32 уровня (фарм алмазов)
 
-等级显示格式为 "LV.XX"，OCR 前需要：
-1. 去除 "LV." 前缀，仅保留数字部分
-2. 处理低血量时的遮罩效果（颜色偏暗）
-3. 处理半透明蓝色背景
+Формат отображения уровня — "LV.XX". Перед OCR требуется:
+1. Удалить префикс "LV.", оставив только цифры
+2. Обработать эффект затемнения при низком здоровье
+3. Обработать полупрозрачный синий фон
 
-等级数据按 6 个位置独立追踪（先锋 3 + 主力 3）。
+Данные об уровнях отслеживаются независимо для 6 позиций (3 авангард + 3 мейн).
 """
 
 import module.config.server as server
@@ -22,19 +22,19 @@ from module.base.decorator import Config
 from module.logger import logger
 from module.ocr.ocr import Digit
 
-# 白色和遮罩后的参考颜色
+# Эталонные цвета: белый и после наложения маски
 COLOR_WHITE = (255, 255, 255)
 COLOR_MASKED = (107, 105, 107)
 
 
 class Level(ModuleBase):
-    """舰船等级检测器。
+    """Детектор уровня кораблей.
 
-    通过 OCR 读取战斗画面中各位置舰船的等级，并提供等级停止条件判断。
+    Считывает уровни кораблей на каждой позиции через OCR и предоставляет логику условий остановки по уровню.
 
     Attributes:
-        _lv (list[int]): 各位置的当前等级，-1 表示未检测。
-        _lv_before_battle (list[int]): 战斗前的等级快照，用于检测升级。
+        _lv (list[int]): Текущие уровни по позициям, -1 означает, что уровень не определён.
+        _lv_before_battle (list[int]): Снимок уровней до боя для определения повышения уровня.
     """
     _lv = [-1, -1, -1, -1, -1, -1]
     _lv_before_battle = [-1, -1, -1, -1, -1, -1]
@@ -43,7 +43,7 @@ class Level(ModuleBase):
     def lv(self):
         """
         Returns:
-            list[int]: 各位置的等级列表。
+            list[int]: Список уровней по позициям.
         """
         return self._lv
 
@@ -51,12 +51,12 @@ class Level(ModuleBase):
     def lv(self, value):
         """
         Args:
-            value (list[int]): 各位置的等级列表。
+            value (list[int]): Список уровней по позициям.
         """
         self._lv = value
 
     def lv_reset(self):
-        """进入地图后调用此方法重置等级数据。"""
+        """Сбрасывает данные уровней при входе на карту."""
         self._lv = [-1] * 6
         self._lv_before_battle = [-1] * 6
 
@@ -73,13 +73,13 @@ class Level(ModuleBase):
         return ButtonGrid(origin=(58, 128), delta=(0, 100), button_shape=(46, 19), grid_shape=(1, 6))
 
     def lv_get(self, after_battle=False):
-        """获取各位置的等级。
+        """Получает уровни кораблей на всех позициях.
 
         Args:
-            after_battle (bool): 是否在战斗后调用。
+            after_battle (bool): Вызывается ли метод после боя.
 
         Returns:
-            list[int]: 各位置的等级列表。
+            list[int]: Список уровней по позициям.
         """
         if not self.config.StopCondition_ReachLevel and not self.config.STOP_IF_REACH_LV32:
             return [-1] * 6
@@ -130,26 +130,26 @@ class Level(ModuleBase):
 
 class LevelOcr(Digit):
     def pre_process(self, image):
-        # 检查红色通道最大值以判断图像是否被遮罩。
-        # 被遮罩时红色通道最大值不超过 COLOR_MASKED[0]=107。
-        # 先裁剪再检查，去除"需要修理"图标同时保留字符 'V' 的上半部分。
+        # Проверяем максимум красного канала, чтобы определить, наложена ли на изображение маска.
+        # При наложенной маске максимум красного канала не превышает COLOR_MASKED[0]=107.
+        # Сначала обрезаем изображение, чтобы убрать значок «требуется ремонт» и сохранить верхнюю половину символа 'V'.
         max_red = image[:8, :, 0].max()
         if max_red <= COLOR_MASKED[0]:
-            # 低血量舰船的遮罩将 COLOR_WHITE=(255, 255, 255) 变为 COLOR_MASKED=(107, 105, 107)
-            # 通过乘以标量将所有通道恢复。
+            # Маска корабля с низким HP преобразует COLOR_WHITE=(255, 255, 255) в COLOR_MASKED=(107, 105, 107)
+            # Восстанавливаем все каналы умножением на скаляр.
             scalar = np.mean(COLOR_WHITE) / np.mean(COLOR_MASKED)
             image = cv2.addWeighted(image, scalar, image, 0, 0)
 
-        # 转灰度前处理字符的蓝色背景。
-        # 背景是半透明的，将 (0, 0, 0) 变为 (33, 65, 115)，(255, 255, 255) 变为 (107, 138, 189)。
-        # 使用中点 (70, 102, 152)。
+        # Перед переводом в оттенки серого обрабатываем синий фон символов.
+        # Фон полупрозрачный: (0, 0, 0) превращается в (33, 65, 115), а (255, 255, 255) — в (107, 138, 189).
+        # Используем среднюю точку (70, 102, 152).
         bg = (70, 102, 152)
-        # BT.601 亮度转换
+        # Преобразование яркости BT.601
         luma_trans = (0.299, 0.587, 0.114)
         luma_bg = np.dot(bg, luma_trans)
         image = cv2.subtract(image, bg).dot(luma_trans).round().astype(np.uint8)
         image = cv2.subtract(255, cv2.multiply(image, 255 / (255 - luma_bg)))
-        # 找到 'L' 以去除 'LV.' 前缀。如果未找到 'L' 则返回空图像。
+        # Ищем 'L', чтобы удалить префикс 'LV.'. Если 'L' не найден, возвращаем пустое изображение.
         if server.server != 'jp':
             letter_l = np.nonzero(image[9:15, :].max(axis=0) < 127)[0]
             if len(letter_l):
@@ -159,7 +159,7 @@ class LevelOcr(Digit):
         else:
             letter_l = np.nonzero(image[5:11, :].max(axis=0) < 63)[0]
             if len(letter_l):
-                first_digit = letter_l[0] + 23  # 船坞中最大尺寸，海域网格中最小尺寸
+                first_digit = letter_l[0] + 23  # Максимальный размер в доке, минимальный — в сетке области
                 if first_digit + 3 < 70:  # LV_GRID_MAIN.button_shape[0] = 46
                     image = image[:, first_digit:]
                     image = cv2.copyMakeBorder(image, 2, 2, 2, 2, cv2.BORDER_CONSTANT, value=(255, 255, 255))
@@ -170,8 +170,8 @@ class LevelOcr(Digit):
         result = result.replace('I', '1').replace('D', '0').replace('S', '5')
         result = result.replace('B', '8')
 
-        # 不记录修正日志，因为等级通常为空
-        # 如: [23, 0, 0, 100, 0, 0]
+        # Не логируем исправления, поскольку значения уровней часто пустые
+        # Например: [23, 0, 0, 100, 0, 0]
         result = int(result) if result else 0
 
         return result

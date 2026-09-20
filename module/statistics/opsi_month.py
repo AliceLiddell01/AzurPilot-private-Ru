@@ -1,9 +1,10 @@
-"""大世界（Operation Siren）月度统计模块。
-从加密 SQLite 数据库中读取战斗数据，
-计算月度练级效率、资源投入和战斗次数等汇总指标。"""
+"""Модуль ежемесячной статистики Operation Siren (Большой мир).
+Считывает боевые данные из зашифрованной базы SQLite,
+рассчитывает сводные показатели эффективности прокачки, расхода ресурсов и числа боев.
+"""
 
-# 此文件专门用于统计分析大世界（Operation Siren）的月度练级效率与资源投入数据。
-# 负责从加密 SQLite 数据库中读取统计数据，并具备计算概况与详细指标的功能。
+# Этот файл предназначен для статистического анализа месячной эффективности прокачки и расхода ресурсов в Operation Siren.
+# Он читает статистику из зашифрованной базы SQLite и рассчитывает сводные и подробные показатели.
 from __future__ import annotations
 
 from datetime import datetime
@@ -26,7 +27,7 @@ class OpsiMonthStats:
             month = now.month
         key = f"{year:04d}-{month:02d}"
 
-        # 从数据库读取数据
+        # Читаем данные из базы данных
         data = get_monthly_stats(self._instance_name, year, month)
 
         total = int(data.get("battle_count", 0))
@@ -45,7 +46,7 @@ class OpsiMonthStats:
         self, year: int | None = None, month: int | None = None
     ) -> Dict[str, Any]:
         """
-        获取详细的统计摘要,包含所有计算指标
+        Возвращает подробную статистическую сводку, содержащую все расчетные показатели.
         """
         now = datetime.now()
         if year is None:
@@ -54,16 +55,16 @@ class OpsiMonthStats:
             month = now.month
         key = f"{year:04d}-{month:02d}"
 
-        # 从数据库读取数据
+        # Читаем данные из базы данных
         data = get_monthly_stats(self._instance_name, year, month)
 
-        # 基础数据
+        # Базовые данные
         battle_count = int(data.get("battle_count", 0))
         akashi_encounters = int(data.get("akashi_encounters", 0))
         akashi_ap = int(data.get("akashi_ap", 0))
         siren_research_devices = int(data["siren_research_devices"]["cl1"])
 
-        # 计算衍生指标
+        # Вычисляем производные показатели
         battle_rounds = battle_count // 2
         sortie_cost = battle_rounds * 120
 
@@ -111,7 +112,7 @@ def compute_monthly_cl1_akashi_ap(
     instance_name: str | None = None,
 ) -> int:
     """
-    计算指定月份从明石商店购买的行动力总额
+    Рассчитывает суммарный объем очков действия (AP), купленный в магазине Акаси за указанный месяц.
     """
     now = datetime.now()
     if year is None:
@@ -130,20 +131,20 @@ def get_ap_timeline(
     year: int | None = None, month: int | None = None, instance_name: str | None = None
 ) -> list:
     """
-    获取行动力变化时间序列数据（真实体力剩余），用于绘制体力变化曲线。
+    Получает временной ряд изменения очков действия (фактический остаток выносливости) для построения графика расхода.
 
-    返回按时间排序的数据点列表，每个数据点包含:
-    - ts: ISO 格式时间戳
-    - ap: 当时的行动力剩余
-    - source: 数据来源 (cl1 / meow)
+    Возвращает упорядоченный по времени список точек данных, каждая из которых содержит:
+    - ts: метка времени в формате ISO
+    - ap: остаток очков действия на тот момент
+    - source: источник данных (cl1 / meow)
 
     Args:
-        year: 年份，默认当前年
-        month: 月份，默认当前月
-        instance_name: 实例名称
+        year: Год, по умолчанию текущий
+        month: Месяц, по умолчанию текущий
+        instance_name: Имя инстанса
 
     Returns:
-        list[dict]: 时间序列数据点
+        list[dict]: Точки данных временного ряда
     """
     now = datetime.now()
     if year is None:
@@ -159,7 +160,7 @@ def get_ap_timeline(
     if not snapshots:
         return []
 
-    # 按时间排序
+    # Сортируем по времени
     try:
         snapshots_sorted = sorted(snapshots, key=lambda e: e.get("ts", ""))
     except Exception:
@@ -172,21 +173,21 @@ def get_coins_timeline(
     year: int | None = None, month: int | None = None, instance_name: str | None = None
 ) -> list:
     """
-    获取凭证变化时间序列数据（作战补给凭证/特别兑换凭证），用于绘制凭证变化曲线。
+    Получает временной ряд изменения жетонов (желтые/фиолетовые монеты снабжения/обмена) для построения графика.
 
-    返回按时间排序的数据点列表，每个数据点包含:
-    - ts: ISO 格式时间戳
-    - yellow_coins: 当时的作战补给凭证（黄币）数量
-    - purple_coins: 当时的特别兑换凭证（紫币）数量
-    - source: 数据来源 (cl1 / meow / other)
+    Возвращает упорядоченный по времени список точек данных, каждая из которых содержит:
+    - ts: метка времени в формате ISO
+    - yellow_coins: количество жетонов снабжения (желтые монеты) на тот момент
+    - purple_coins: количество жетонов особого обмена (фиолетовые монеты) на тот момент
+    - source: источник данных (cl1 / meow / other)
 
     Args:
-        year: 年份，默认当前年
-        month: 月份，默认当前月
-        instance_name: 实例名称
+        year: Год, по умолчанию текущий
+        month: Месяц, по умолчанию текущий
+        instance_name: Имя инстанса
 
     Returns:
-        list[dict]: 时间序列数据点
+        list[dict]: Точки данных временного ряда
     """
     now = datetime.now()
     if year is None:
@@ -223,19 +224,19 @@ def get_resource_timeline(
     instance_name: str | None = None, limit: int = 500
 ) -> list:
     """
-    获取所有资源的快照时间序列数据，用于绘制资源变化趋势图。
+    Получает моментальные снимки временного ряда всех ресурсов для построения графика динамики.
 
-    返回按时间排序的数据点列表，每个数据点包含:
-    - ts: ISO 格式时间戳
+    Возвращает упорядоченный по времени список точек данных, каждая из которых содержит:
+    - ts: метка времени в формате ISO
     - oil, coin, gem, pt, cube, core, medal, merit, guild_coin,
-      action_point, yellow_coin, purple_coin: 各资源数值（可能为 None）
+      action_point, yellow_coin, purple_coin: числовые значения каждого ресурса (может быть None)
 
     Args:
-        instance_name: 实例名称
-        limit: 最大返回条数
+        instance_name: Имя инстанса
+        limit: Максимальное количество возвращаемых записей
 
     Returns:
-        list[dict]: 时间序列数据点
+        list[dict]: Точки данных временного ряда
     """
     from module.statistics.resource_stats import get_resource_timeline as _get_timeline
 
@@ -246,7 +247,7 @@ def get_resource_timeline(
 def get_asset_timeline(
     year: int | None = None, month: int | None = None, instance_name: str | None = None
 ) -> list:
-    """获取 AP 快照中的资产时间线。"""
+    """Возвращает временную шкалу активов из снимков AP."""
     now = datetime.now()
     if year is None:
         year = now.year

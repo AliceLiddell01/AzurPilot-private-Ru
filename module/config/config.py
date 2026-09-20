@@ -1,8 +1,8 @@
-"""配置管理核心模块。
+"""Основной модуль управления конфигурацией.
 
-定义 AzurLaneConfig 类，从 JSON 配置文件加载用户设置并与模板合并。
-整合 ConfigUpdater、ManualConfig、GeneratedConfig、ConfigWatcher，
-支持配置热重载、版本迁移和任务级配置绑定。
+Определяет класс AzurLaneConfig, загружающий пользовательские настройки из файла JSON и объединяющий их с шаблоном.
+Объединяет ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher,
+поддерживает горячую перезагрузку конфигурации, миграцию версий и привязку настроек уровня задач.
 """
 
 import copy
@@ -31,24 +31,24 @@ from module.map.map_grids import SelectedGrids
 
 
 class TaskEnd(Exception):
-    """任务提前结束异常。
+    """Исключение досрочного завершения задачи.
 
-    当检测到需要延迟任务（如情绪不足）时抛出，
-    由调度循环捕获并安排延迟重试。
+    Вызывается при обнаружении необходимости отложить задачу (например, недостаточно настроения),
+    перехватывается циклом планировщика для назначения отложенного повтора.
     """
     pass
 
 
 class Function:
-    """任务调度函数描述对象。
+    """Объект-описание функции планировщика задач.
 
-    描述一个可调度任务的基本属性：是否启用、命令名称和下次执行时间。
-    用于任务调度器的优先级排序和执行选择。
+    Описывает базовые свойства планируемой задачи: активность, имя команды и время следующего выполнения.
+    Используется планировщиком для сортировки по приоритету и выбора исполнения.
 
     Attributes:
-        enable (bool): 任务是否启用。
-        command (str): 任务命令名称，如 'Research'、'Commission'。
-        next_run (datetime): 下次计划执行时间。
+        enable (bool): Включена ли задача.
+        command (str): Имя команды задачи, например 'Research', 'Commission'.
+        next_run (datetime): Время следующего запланированного запуска.
     """
 
     def __init__(self, data):
@@ -74,13 +74,13 @@ class Function:
 
 def name_to_function(name):
     """
-    根据任务名称创建 Function 对象。
+    Создать объект Function по имени задачи.
 
     Args:
-        name (str): 任务名称。
+        name (str): Имя задачи.
 
     Returns:
-        Function: 对应的 Function 实例。
+        Function: Соответствующий экземпляр Function.
     """
     function = Function({})
     function.command = name
@@ -89,37 +89,37 @@ def name_to_function(name):
 
 
 class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher):
-    """碧蓝航线自动化配置管理器。
+    """Менеджер конфигурации автоматизации Azur Lane.
 
-    项目的核心配置类，通过多重继承组合了：
-    - ConfigUpdater: 配置版本升级和默认值合并
-    - ManualConfig: 手动配置的属性访问
-    - GeneratedConfig: 自动生成的配置属性（从 template.json 生成）
-    - ConfigWatcher: 配置文件变更检测
+    Центральный класс конфигурации проекта, объединяющий через множественное наследование:
+    - ConfigUpdater: обновление версий конфигурации и слияние значений по умолчанию
+    - ManualConfig: доступ к свойствам ручной конфигурации
+    - GeneratedConfig: автоматически сгенерированные свойства конфигурации (из template.json)
+    - ConfigWatcher: отслеживание изменений файлов конфигурации
 
-    配置加载流程:
-        1. 从 `config/{config_name}.json` 读取用户配置
-        2. 与 args.json 默认值合并（ConfigUpdater.config_update）
-        3. 执行版本迁移重定向（ConfigUpdater.config_redirect）
-        4. 应用云手机覆盖值（_override）
-        5. 绑定到当前任务（bind(task)）
+    Процесс загрузки конфигурации:
+        1. Чтение пользовательской конфигурации из `config/{config_name}.json`
+        2. Слияние со значениями по умолчанию из args.json (ConfigUpdater.config_update)
+        3. Выполнение перенаправлений миграции версий (ConfigUpdater.config_redirect)
+        4. Применение переопределений для облачного телефона (_override)
+        5. Привязка к текущей задаче (bind(task))
 
-    属性访问:
-        配置路径格式为 `Task.Group.Argument`，通过 `__getattr__` 映射为
-        `self.Group_Argument`（下划线分隔），如 `self.Research_PresetFilter`。
+    Доступ к свойствам:
+        Путь конфигурации имеет формат `Task.Group.Argument` и отображается через `__getattr__`
+        в `self.Group_Argument` (с разделителем-подчёркиванием), например `self.Research_PresetFilter`.
 
-    属性修改:
-        通过 `__setattr__` 拦截已绑定的属性，自动将修改写入配置文件。
+    Изменение свойств:
+        Через `__setattr__` перехватываются привязанные свойства с автоматической записью изменений в файл конфигурации.
 
     Attributes:
-        stop_event (threading.Event | None): 停止事件，用于跨线程通知停止。
-        bound (dict): 当前任务绑定的属性名到配置路径的映射。
-        is_hoarding_task (bool): 是否为囤积任务（影响空闲行为）。
+        stop_event (threading.Event | None): Событие остановки для межпоточного уведомления.
+        bound (dict): Отображение имён привязанных свойств текущей задачи на пути конфигурации.
+        is_hoarding_task (bool): Является ли задача накопительной (влияет на поведение при простое).
     """
     stop_event: threading.Event = None
     bound = {}
 
-    # 类属性
+    # Свойства класса
     is_hoarding_task = True
 
     def __setattr__(self, key, value):
@@ -133,33 +133,33 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
     def __init__(self, config_name, task=None):
         logger.attr("Сервер", self.SERVER)
-        # 读取 ./config/<config_name>.json
+        # Чтение ./config/<config_name>.json
         self.config_name = config_name
-        # YAML 文件中的原始 JSON 数据
+        # Исходные данные JSON из файлов YAML
         self.data = {}
-        # 已修改的参数。键：YAML 文件中的参数路径。值：修改后的值。
-        # 所有变量修改都会记录在此处，并在 `save()` 方法中保存。
+        # Измененные параметры. Ключ: путь к параметру в YAML-файле. Значение: измененное значение.
+        # Все изменения переменных записываются сюда и сохраняются в методе `save()`.
         self.modified = {}
-        # 键：GeneratedConfig 中的参数名。值：`data` 中的路径。
+        # Ключ: имя параметра в GeneratedConfig. Значение: путь в `data`.
         self.bound = {}
-        # 是否在每次变量修改后立即写入
+        # Выполнять ли немедленную запись после каждого изменения переменной
         self.auto_update = True
-        # 强制覆盖的变量
-        # 键：GeneratedConfig 中的参数名。值：修改后的值。
+        # Принудительно переопределяемые переменные
+        # Ключ: имя параметра в GeneratedConfig. Значение: измененное значение.
         self.overridden = {}
-        # 调度器队列，在 `get_next_task()` 中更新，包含 Function 对象列表
-        # pending_task：运行时间已到，但因任务调度尚未执行
-        # waiting_task：运行时间未到，需要等待
+        # Очередь планировщика, обновляется в `get_next_task()`, содержит список объектов Function
+        # pending_task: время запуска наступило, но задача еще не выполнена из-за планирования
+        # waiting_task: время запуска не наступило, требуется ожидание
         self.pending_task = []
         self.waiting_task = []
-        # 待运行和绑定的任务
-        # task 表示 AzurLaneAutoScript 类中要运行的函数名
+        # Задачи для выполнения и привязки
+        # task обозначает имя функции для запуска в классе AzurLaneAutoScript
         self.task: Function
-        # 模板配置供开发工具使用
+        # Шаблонная конфигурация для инструментов разработки
         self.is_template_config = config_name.startswith("template")
 
         if self.is_template_config:
-            # 供开发工具使用
+            # Для инструментов разработки
             logger.info("[Конфигурация] Используется шаблон в режиме только для чтения")
             self.auto_update = False
             self.task = name_to_function("template")
@@ -179,10 +179,10 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
         self.load()
         if task is None:
-            # 默认绑定 Alas，包含模拟器设置
+            # По умолчанию привязывается Alas, включая настройки эмулятора
             task = name_to_function("Alas")
         else:
-            # 绑定特定任务，用于调试
+            # Привязка конкретной задачи для отладки
             task = name_to_function(task)
         self.bind(task)
         self.task = task
@@ -206,11 +206,11 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             deep_set(self.data, keys=path, value=value)
 
     def bind(self, func, func_list=None):
-        """绑定任务及其配置参数。
+        """Привязать задачу и её параметры конфигурации.
 
         Args:
-            func (str, Function): 要运行的任务名称或 Function 对象。
-            func_list (list[str]): 需要绑定的任务列表。
+            func (str, Function): Имя запускаемой задачи или объект Function.
+            func_list (list[str]): Список привязываемых задач.
         """
         if isinstance(func, Function):
             func = func.command
@@ -238,7 +238,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             func_list.insert(0, "General")
         logger.info(f"[Конфигурация] Привязка задач: {func_list}")
 
-        # 绑定参数
+        # Привязка аргументов
         visited = set()
         self.bound.clear()
         for func in func_list:
@@ -253,7 +253,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                     self.bound[arg] = f"{func}.{path}"
                     visited.add(path)
 
-        # 覆盖参数
+        # Переопределение аргументов
         for arg, value in self.overridden.items():
             super().__setattr__(arg, value)
 
@@ -280,11 +280,11 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                 if sys.platform == 'darwin' and platform.machine() == 'arm64':
                     return 'ane'
                 if sys.platform == 'win32':
-                    # Windows ML 会自行筛选 NPU、独显和 CPU，不应仅以显存决定是否尝试。
+                    # Windows ML самостоятельно фильтрует NPU, дискретный GPU и CPU; не следует полагаться только на видеопамять.
                     return 'auto'
                 return 'gpu' if is_good_gpu() else 'cpu'
             else:
-                # ncnn 后端：检查 Vulkan GPU 可用性
+                # Бэкенд ncnn: проверка доступности Vulkan GPU
                 from module.ocr.ncnn_ocr import has_ncnn_vulkan_gpu
                 return 'gpu' if has_ncnn_vulkan_gpu() else 'cpu'
 
@@ -317,7 +317,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         return self.task.command.lower() not in ['alas', 'template']
 
     def get_next_task(self):
-        """计算任务队列，设置 pending_task 和 waiting_task。"""
+        """Вычислить очередь задач, заполнив pending_task и waiting_task."""
         pending = []
         waiting = []
         error = []
@@ -370,10 +370,10 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         self.waiting_task = waiting
 
     def get_next(self):
-        """获取下一个待运行的任务。
+        """Получить следующую задачу для выполнения.
 
         Returns:
-            Function: 待运行的任务。
+            Function: Задача для выполнения.
         """
         self.get_next_task()
 
@@ -407,7 +407,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         logger.info(
             f"[Конфигурация] Сохранение {filepath_config(self.config_name, mod_name)}, {dict_to_kv(self.modified)}"
         )
-        # 不要使用 self.modified = {}，那会创建新对象。
+        # Не используйте self.modified = {}, это создаст новый объект.
         self.modified.clear()
         self.write_file(self.config_name, data=self.data)
 
@@ -437,21 +437,21 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         limit_next_run(["OpsiExplore", "OpsiCrossMonth", "OpsiVoucher", "OpsiMonthBoss", "OpsiShop"],
                        limit=now + timedelta(days=31, seconds=-1))
         limit_next_run(["OpsiArchive"], limit=now + timedelta(days=7, seconds=-1))
-        # 防溢出任务会按当前行动力恢复到 200 的时间延后，最长可能超过 24 小时。
+        # Задача защиты от перелива откладывается до восстановления 200 AP, максимум свыше 24 часов.
         limit_next_run(["OpsiPreventActionPointOverflow"], limit=now + timedelta(hours=48, seconds=-1))
-        # IslandPearlSell 按周调度，合法 NextRun 可能超过 24 小时。
+        # IslandPearlSell планируется еженедельно, корректный NextRun может превышать 24 часа.
         limit_next_run(["IslandPearlSell"], limit=now + timedelta(days=8, seconds=-1))
-        # 通用兜底保留 24 小时调度的少量误差空间，避免刚好延后一天的任务被重置。
+        # Универсальный резерв сохраняет небольшой допуск для 24-часового расписания, чтобы не сбрасывать отложенные на день задачи.
         limit_next_run(
             [task for task in self.args.keys() if task != "OpsiPreventActionPointOverflow"],
             limit=now + timedelta(hours=25, seconds=-1),
         )
 
         """
-        强制覆盖任意配置项。
+        Принудительно переопределить произвольные параметры конфигурации.
 
-        被覆盖的变量即使从 YAML 文件重新加载配置也会保持覆盖状态。
-        注意：此方法不可逆。
+        Переопределённые переменные сохраняют своё состояние даже при повторной загрузке конфигурации из YAML-файла.
+        Обратите внимание: данный метод необратим.
         """
         for arg, value in kwargs.items():
             self.overridden[arg] = value
@@ -460,11 +460,11 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
     config_override = override
 
     def set_record(self, **kwargs):
-        """设置值并自动记录当前时间。
+        """Установить значение и автоматически записать текущее время.
 
         Args:
-            **kwargs: 例如 `Emotion1_Value=150` 会同时设置
-                `Emotion1_Value=150` 和 `Emotion1_Record=now()`。
+            **kwargs: Например, `Emotion1_Value=150` одновременно установит
+                `Emotion1_Value=150` и `Emotion1_Record=now()`.
         """
         with self.multi_set():
             for arg, value in kwargs.items():
@@ -473,7 +473,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                 self.__setattr__(record, current_time().replace(microsecond=0))
 
     def multi_set(self):
-        """批量设置多个参数，但只保存一次。
+        """Пакетно установить несколько параметров с однократным сохранением.
 
         Examples:
             with self.config.multi_set():
@@ -483,46 +483,46 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         return MultiSetWrapper(main=self)
 
     def cross_get(self, keys, default=None):
-        """从其他任务获取配置。
+        """Получить параметр конфигурации из другой задачи.
 
         Args:
-            keys (str, list[str]): 配置路径，如 `{task}.Scheduler.Enable`。
-            default: 默认值。
+            keys (str, list[str]): Путь конфигурации, например `{task}.Scheduler.Enable`.
+            default: Значение по умолчанию.
 
         Returns:
-            Any: 配置值。
+            Any: Значение параметра конфигурации.
         """
         return deep_get(self.data, keys=keys, default=default)
 
     def cross_set(self, keys, value):
-        """设置其他任务的配置。
+        """Установить параметр конфигурации для другой задачи.
 
         Args:
-            keys (str, list[str]): 配置路径，如 `{task}.Scheduler.Enable`。
-            value (Any): 要设置的值。
+            keys (str, list[str]): Путь конфигурации, например `{task}.Scheduler.Enable`.
+            value (Any): Устанавливаемое значение.
         """
         self.modified[keys] = value
         if self.auto_update:
             self.update()
 
     def task_delay(self, success=None, server_update=None, target=None, minute=None, task=None):
-        """设置 Scheduler.NextRun，延迟任务的下次运行时间。
+        """Установить Scheduler.NextRun, отложив время следующего запуска задачи.
 
-        至少需要设置一个参数。如果设置了多个参数，取最近的时间。
+        Требуется задать хотя бы один параметр. Если указано несколько параметров, выбирается ближайшее время.
 
         Args:
             success (bool):
-                True 表示延迟 Scheduler.SuccessInterval，
-                False 表示延迟 Scheduler.FailureInterval。
+                True — отложить на Scheduler.SuccessInterval,
+                False — отложить на Scheduler.FailureInterval.
             server_update (bool, list, str):
-                True 表示延迟到最近的 Scheduler.ServerUpdate。
-                list 或 str 类型表示延迟到指定的服务器更新时间。
+                True — отложить до ближайшего времени Scheduler.ServerUpdate.
+                Тип list или str — отложить до указанного времени обновления сервера.
             target (datetime.datetime, str, list):
-                延迟到指定时间。
+                Отложить до указанного момента времени.
             minute (int, float, tuple):
-                延迟指定分钟数。
+                Отложить на указанное количество минут.
             task (str):
-                跨任务设置。None 表示当前任务。
+                Установка для другой задачи. Если None — для текущей задачи.
         """
 
         def ensure_delta(delay):
@@ -576,14 +576,14 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             cl1_preserve=False,
             ap_limit_minutes=None,
     ):
-        """延迟大世界所有任务的 NextRun。
+        """Отложить время NextRun всех задач Operation Siren.
 
         Args:
-            recon_scan (bool): True 表示延迟所有需要侦察扫描的任务 27 分钟。
-            submarine_call (bool): True 表示延迟所有需要呼叫潜艇的任务 60 分钟。
-            ap_limit (bool): True 表示延迟所有需要行动力的任务 360 分钟。
-            cl1_preserve (bool): True 表示延迟所有需要大量行动力的任务 360 分钟。
-            ap_limit_minutes (int): 已知行动力恢复时间时使用该值。
+            recon_scan (bool): True — отложить на 27 минут все задачи, требующие сканирования разведки.
+            submarine_call (bool): True — отложить на 60 минут все задачи, требующие вызова подлодок.
+            ap_limit (bool): True — отложить на 360 минут все задачи, требующие очков действия (AP).
+            cl1_preserve (bool): True — отложить на 360 минут все задачи с большим расходом AP.
+            ap_limit_minutes (int): Использовать это значение при известном времени восстановления AP.
         """
         if not recon_scan and not submarine_call and not ap_limit and not cl1_preserve:
             return None
@@ -668,8 +668,8 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                     "OpsiObscure",
                     "OpsiAbyssal",
                     "OpsiStronghold",
-                    # 延迟 OpsiArchive，因为 OpsiArchive 和 OpsiDaily 共享同一任务列表，
-                    # 虽然进入不需要行动力。
+                    # Откладываем OpsiArchive, так как OpsiArchive и OpsiDaily делят один список задач,
+                    # хотя для входа очки действия не требуются.
                     "OpsiArchive",
                     "OpsiMeowfficerFarming",
                 ]
@@ -800,10 +800,10 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
     @staticmethod
     def task_stop(message=""):
-        """停止当前任务。
+        """Остановить текущую задачу.
 
         Raises:
-            TaskEnd: 始终抛出此异常以中断任务。
+            TaskEnd: Всегда выбрасывает это исключение для прерывания задачи.
         """
         try:
             from module.base.async_executor import async_executor
@@ -817,12 +817,12 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             raise TaskEnd
 
     def task_switched(self):
-        """检查是否需要切换任务。
+        """Проверить, требуется ли переключение задачи.
 
         Returns:
-            bool: 是否需要切换任务。
+            bool: Требуется ли смена задачи.
         """
-        # 更新事件
+        # Обновление события
         if self.stop_event is not None:
             if self.stop_event.is_set():
                 return True
@@ -837,12 +837,12 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             return True
 
     def check_task_switch(self, message=""):
-        """当任务切换时停止当前任务。
+        """Остановить текущую задачу при переключении задач.
 
         Raises:
-            TaskEnd: 任务已切换时抛出此异常。
+            TaskEnd: Вызывается при переключении задачи.
         """
-        # 如果设置了禁用任务切换标志，则跳过检查
+        # Если установлен флаг отключения переключения задач, проверка пропускается
         if getattr(self, '_disable_task_switch', False):
             logger.info('[Конфигурация] Проверка переключения задач временно отключена')
             return
@@ -855,7 +855,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
     @property
     def campaign_name(self):
-        """保存掉落记录时使用的子目录名称。"""
+        """Имя подкаталога, используемое при сохранении статистики выпадений."""
         name = self.Campaign_Name.lower().replace("-", "_")
         if name[0].isdigit():
             name = "campaign_" + str(name)
@@ -864,19 +864,19 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         return name
 
     """
-    以下配置和方法用于兼容旧版本。
+    Следующие настройки и методы сохранены для совместимости со старыми версиями.
     """
 
     def merge(self, other):
-        """合并另一个配置到当前配置。
+        """Объединить другую конфигурацию с текущей.
 
         Args:
-            other (AzurLaneConfig, Config): 要合并的配置对象。
+            other (AzurLaneConfig, Config): Объект конфигурации для слияния.
 
         Returns:
-            AzurLaneConfig: 合并后的配置。
+            AzurLaneConfig: Объединённая конфигурация.
         """
-        # 由于所有任务独立运行，无需分离配置
+        # Поскольку все задачи выполняются независимо, разделение конфигурации не требуется
         # config = copy.copy(self)
         config = self
 
@@ -940,18 +940,18 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         self._fleet_boss = value
 
     def temporary(self, **kwargs):
-        """临时覆盖部分设置，之后恢复。
+        """Временно переопределить часть настроек с последующим восстановлением.
 
-        用法:
+        Использование:
             backup = self.config.cover(ENABLE_DAILY_REWARD=False)
             # do_something()
             backup.recover()
 
         Args:
-            **kwargs: 要临时覆盖的配置项。
+            **kwargs: Временно переопределяемые параметры конфигурации.
 
         Returns:
-            ConfigBackup: 备份对象，可用于恢复原配置。
+            ConfigBackup: Объект резервной копии для восстановления исходной конфигурации.
         """
         backup = ConfigBackup(config=self)
         backup.cover(**kwargs)
@@ -966,7 +966,7 @@ class ConfigBackup:
     def __init__(self, config):
         """
         Args:
-            config (AzurLaneConfig): 要备份的配置对象。
+            config (AzurLaneConfig): Резервируемый объект конфигурации.
         """
         self.config = config
         self.backup = {}
@@ -993,7 +993,7 @@ class MultiSetWrapper:
     def __init__(self, main):
         """
         Args:
-            main (AzurLaneConfig): 配置实例。
+            main (AzurLaneConfig): Экземпляр конфигурации.
         """
         self.main = main
         self.in_wrapper = False

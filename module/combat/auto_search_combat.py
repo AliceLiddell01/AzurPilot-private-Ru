@@ -1,17 +1,17 @@
-"""自动搜索战斗管理器。
+"""Менеджер автопоиска боёв.
 
-管理通关模式（快进模式）下的自动搜索战斗流程。
+Управляет циклом боёв в режиме автопоиска (режим ускоренной зачистки карты).
 
-在通关模式下，游戏会自动进行地图探索和战斗。
-此模块负责：
-- 启动自动搜索（地图中的出击按钮）
-- 等待自动搜索完成（检测回到关卡页面）
-- 处理战斗期间的异常（退役、低情绪、撤退等）
-- 检测停止条件（石油/物资限制、通关次数等）
-- Boss 战后的关卡推进
+В режиме автопоиска игра автоматически выполняет исследование карты и бои.
+Данный модуль отвечает за:
+- Запуск автопоиска (кнопка вылазки на карте)
+- Ожидание завершения автопоиска (определение возврата на страницу этапа)
+- Обработку нештатных ситуаций во время боя (отставка, низкое настроение, отступление и т. д.)
+- Проверку условий остановки (лимиты нефти/монет, количество зачисток и т. д.)
+- Продвижение по этапу после битвы с боссом
 
-继承自 MapOperation + Combat + CampaignStatus，
-组合了地图操作、战斗系统和战役状态追踪的能力。
+Наследует от MapOperation + Combat + CampaignStatus,
+объединяя возможности управления картой, боевой системы и отслеживания статуса кампании.
 """
 
 from module.base.timer import Timer
@@ -26,20 +26,21 @@ from module.map.map_operation import MapOperation
 
 
 class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
-    """自动搜索战斗执行器。
+    """Исполнитель боёв в режиме автопоиска.
 
-    在通关模式下编排自动搜索战斗流程，处理各种战斗异常和停止条件。
+    Организует процесс боёв автопоиска в режиме зачистки, обрабатывая различные
+    исключительные ситуации боя и условия остановки.
 
     Attributes:
-        _auto_search_in_stage_timer (Timer): 关卡页面检测计时器。
-        _auto_search_status_confirm (bool): 自动搜索状态是否已确认。
-        _withdraw (bool): 是否已执行撤退。
-        _defeat_count (int): 战败次数。
-        _shipwreck_emotion_reduced (bool): 沉船心情扣减是否已执行，防止重复扣减。
-        _auto_search_emotion_reduce (bool): 当前战斗是否启用心情扣减。
-        _auto_search_fleet_index (int): 当前战斗的舰队索引。
-        auto_search_oil_limit_triggered (bool): 石油限制是否已触发。
-        auto_search_coin_limit_triggered (bool): 物资限制是否已触发。
+        _auto_search_in_stage_timer (Timer): Таймер проверки нахождения на странице этапа.
+        _auto_search_status_confirm (bool): Подтверждён ли статус автопоиска.
+        _withdraw (bool): Было ли выполнено отступление.
+        _defeat_count (int): Количество поражений.
+        _shipwreck_emotion_reduced (bool): Было ли выполнено списание настроения за потопление, предотвращает повторное списание.
+        _auto_search_emotion_reduce (bool): Включено ли списание настроения для текущего боя.
+        _auto_search_fleet_index (int): Индекс флота в текущем бою.
+        auto_search_oil_limit_triggered (bool): Сработал ли лимит нефти.
+        auto_search_coin_limit_triggered (bool): Сработал ли лимит монет.
     """
     _auto_search_in_stage_timer = Timer(3, count=6)
     _auto_search_status_confirm = False
@@ -325,16 +326,16 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
                     self._shipwreck_emotion_reduced = True
                 self._withdraw = True
                 break
-            # D评价结算界面（BATTLE_STATUS_D / EXP_INFO_D）
-            # S/A/B评价的动画过渡帧可能短暂误匹配D评价模板，
-            # 但只有真正的沉船才会出现OPTS_INFO_D弹窗。
-            # 此处不设置 _withdraw，让后续S/A/B评价条件覆盖误匹配。
-            # 真正的D评价会先被上方OPTS_INFO_D捕获。
+            # Экран результатов с оценкой D (BATTLE_STATUS_D / EXP_INFO_D)
+            # Кадры анимационного перехода оценок S/A/B могут кратковременно ошибочно совпасть с шаблоном оценки D,
+            # но окно OPTS_INFO_D появляется только при реальной потере корабля.
+            # Здесь не устанавливаем _withdraw, чтобы последующие условия S/A/B перекрыли ложное совпадение.
+            # Настоящая оценка D будет перехвачена выше через OPTS_INFO_D.
             if self.appear(BATTLE_STATUS_D) or self.appear(EXP_INFO_D):
                 break
             if confirm_timer.reached():
-                # 结算确认超时：不扣心情、不盲目点击OPTS_INFO_D
-                # 只设置_withdraw让status处理，status中检测到OPTS_INFO_D才扣心情
+                # Тайм-аут подтверждения результатов: не снижаем настроение и не кликаем OPTS_INFO_D вслепую
+                # Только устанавливаем _withdraw для обработки в status; настроение снижается лишь когда status обнаружит OPTS_INFO_D
                 logger.warning('[Автопоиск — бой] Истекло время подтверждения результатов; перехожу к обработке статуса')
                 self._withdraw = True
                 confirm_timer.reset()
@@ -356,14 +357,14 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
 
     def _wait_withdraw_stable(self, withdraw_stable_timer):
         """
-        等待WITHDRAW按钮稳定出现，防止界面过渡动画导致误判。
+        Ожидает стабильного появления кнопки WITHDRAW, предотвращая ложные срабатывания из-за анимаций перехода интерфейса.
 
         Args:
-            withdraw_stable_timer (Timer): WITHDRAW按钮稳定计时器
+            withdraw_stable_timer (Timer): Таймер стабилизации кнопки WITHDRAW.
 
         Returns:
-            bool: True表示WITHDRAW按钮已稳定出现，可以点击；
-                  False表示按钮尚未出现或不稳定，需要继续等待。
+            bool: True, если кнопка WITHDRAW стабильно появилась и готова к клику;
+                  False, если кнопка ещё не появилась или нестабильна и нужно продолжать ожидание.
         """
         withdraw_appear = self.appear(WITHDRAW, offset=(30, 30))
         if withdraw_appear:
@@ -376,11 +377,11 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
 
     def _handle_fleet_switch_over(self):
         """
-        处理舰队切换操作：仅撤退当前战败舰队，切换到另一队继续战斗。
-        包含超时保护，避免UI异常时无限循环。
+        Обрабатывает операцию переключения флота: отступает только текущим побеждённым флотом и переключается на другой для продолжения боя.
+        Включает защиту по таймауту для предотвращения бесконечного цикла при сбоях UI.
 
         Returns:
-            bool: True表示切换成功，False表示超时。
+            bool: True, если переключение прошло успешно; False при таймауте.
         """
         timeout = Timer(10, count=20).start()
         while 1:
@@ -416,7 +417,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             # End
             if self.is_auto_search_running():
                 self._auto_search_status_confirm = False
-                # 战斗正常结束（非战败），重置连续战败计数
+                # Бой завершён нормально (не поражением): сбрасываем счётчик последовательных поражений
                 if self._defeat_count > 0:
                     logger.info('Бой выигран; счётчик поражений сброшен')
                     self._defeat_count = 0
@@ -426,9 +427,9 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
 
             # Withdraw
             if self._withdraw:
-                # 先处理战斗结算界面（D评价、经验信息、获得舰船等），
-                # 结算完成后才会出现FLEET_SWITCH_CONFIRM或WITHDRAW按钮
-                # 沉船D评价流程：OPTS_INFO_D → BATTLE_STATUS_D → EXP_INFO_D → OPTS_INFO_D(再次出现) → FLEET_SWITCH_CONFIRM
+                # Сначала обрабатываем экран результатов боя (оценка D, опыт, получение корабля и т. д.),
+                # только после завершения результатов появится FLEET_SWITCH_CONFIRM или кнопка WITHDRAW
+                # Потеря корабля с оценкой D: OPTS_INFO_D → BATTLE_STATUS_D → EXP_INFO_D → OPTS_INFO_D(повторно) → FLEET_SWITCH_CONFIRM
                 if self.appear_then_click(OPTS_INFO_D, offset=(30, 30), interval=2):
                     continue
                 if self.handle_battle_status():
@@ -444,9 +445,9 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
 
                 defeat_withdraw = self.config.Campaign_DefeatWithdraw
                 if defeat_withdraw == 'withdraw_continue' or defeat_withdraw == 'withdraw_stop':
-                    # 撤退后继续任务 / 撤退后关闭任务：
-                    # 点击FLEET_SWITCH_CONFIRM仅关闭弹窗，不取消撤退
-                    # 游戏在舰队战败后弹出FLEET_SWITCH_CONFIRM，点击后才能看到WITHDRAW按钮
+                    # Продолжить после отступления / остановить после отступления:
+                    # Нажатие FLEET_SWITCH_CONFIRM только закрывает окно и не отменяет отступление
+                    # После поражения флота игра показывает FLEET_SWITCH_CONFIRM; только после нажатия становится видна кнопка WITHDRAW
                     if self.appear_then_click(FLEET_SWITCH_CONFIRM, offset=(30, 30)):
                         continue
                     if self.handle_popup_confirm('WITHDRAW'):
@@ -455,26 +456,26 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
                         continue
                     self._withdraw = False
                     if defeat_withdraw == 'withdraw_stop':
-                        # 撤退后关闭任务：连续3次战败才关闭任务
+                        # Остановить после отступления: завершаем задачу только после 3 поражений подряд
                         self._defeat_count += 1
                         logger.attr('Счётчик поражений', f'{self._defeat_count}/3')
                         if self._defeat_count >= 3:
-                            # 连续3次战败，关闭任务
-                            # withdraw()内部抛出CampaignEnd，
-                            # 需要捕获后转换为ScriptEnd以终止任务
+                            # Три поражения подряд: завершаем задачу
+                            # withdraw() внутри выбрасывает CampaignEnd,
+                            # его нужно перехватить и преобразовать в ScriptEnd для завершения задачи
                             try:
                                 self.withdraw()
                             except CampaignEnd:
                                 raise ScriptEnd('DefeatWithdraw=withdraw_stop')
                         else:
-                            # 未满3次，撤退后继续任务
+                            # Пока поражений меньше 3, после отступления продолжаем задачу
                             self.withdraw()
                             break
                     else:
                         self.withdraw()
                     break
                 elif defeat_withdraw == 'switch_fleet':
-                    # 切换队伍继续出击：尝试切换另一队继续战斗
+                    # Продолжить с другим флотом: пытаемся переключиться на второй флот и продолжить бой
                     if self.appear_then_click(FLEET_SWITCH_CONFIRM, offset=(30, 30)):
                         self.fleet_alive_multiple = False
                         self._withdraw = False
@@ -510,16 +511,16 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             if self.handle_mission_popup_ack():
                 continue
 
-            # 处理战斗结算界面——SABC评价在自动搜索中可能快速自动过渡，
-            # 若截图恰好捕获到结算画面则点击推进并记录评价
-            # D评价点击BATTLE_STATUS_D后，会出现OPTS_INFO_D沉船弹窗
+            # Обрабатываем экран результатов боя — оценки S/A/B/C в автопоиске могут быстро сменяться,
+            # если снимок попал на экран результатов, кликаем для продолжения и фиксируем оценку
+            # После нажатия BATTLE_STATUS_D при оценке D появляется окно потери корабля OPTS_INFO_D
             if self.handle_battle_status():
                 continue
             if self.handle_exp_info():
                 continue
-            # 检测D评价（沉船）弹窗——这是沉船的确认性标志（二次确认）
-            # 只有OPTS_INFO_D出现才确认是真正的D评价并扣心情
-            # S/A/B/C转场误匹配BATTLE_STATUS_D不会出现OPTS_INFO_D，不会扣心情
+            # Обнаруживаем окно оценки D (потеря корабля) — это надёжный признак потери (повторное подтверждение)
+            # Только появление OPTS_INFO_D подтверждает настоящую оценку D и приводит к снижению настроения
+            # Ложное совпадение BATTLE_STATUS_D во время перехода S/A/B/C не показывает OPTS_INFO_D и не снижает настроение
             if self.appear(OPTS_INFO_D, offset=(30, 30)):
                 logger.info('[Автопоиск — результаты] Обнаружено окно потери корабля; перехожу к обработке отступления')
                 if self._auto_search_emotion_reduce and not self._shipwreck_emotion_reduced:

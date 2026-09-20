@@ -1,18 +1,18 @@
 """
-演习（PvP）任务模块。
+Модуль задачи учений (PvP).
 
-自动执行演习系统的日常操作，包括：
-- 通过 OCR 识别剩余演习次数和赛季重置倒计时
-- 支持多种对手选择策略：按经验优先、按难度优先、最左优先等
-- 支持将军试炼时间区间配置，在特定时段集中消耗次数
-- 管理对手刷新次数，跨天自动重置
-- 支持延迟执行，在赛季结束前指定时间开始消耗
+Автоматически выполняет ежедневные операции в системе учений, включая:
+- Распознавание через OCR оставшихся попыток учений и таймера сброса сезона
+- Поддержку различных стратегий выбора соперника: по максимальному опыту, минимальной сложности, крайний левый и др.
+- Поддержку настройки временного окна «Испытания адмирала» для концентрированного расхода попыток
+- Учёт и управление количеством обновлений списка соперников с посуточным сбросом
+- Поддержку отложенного выполнения ближе к окончанию сезона
 
-对手选择策略：
-- max_exp: 选择经验最高的对手
-- easiest: 选择最容易击败的对手
-- easiest_else_exp: 优先选最简单的，无法击败时切换到最大经验
-- leftmost: 优先选择最左侧的对手
+Стратегии выбора соперника:
+- max_exp: выбор соперника с наибольшим опытом
+- easiest: выбор наиболее простого соперника
+- easiest_else_exp: сначала наиболее простой, при невозможности победить — переключение на максимальный опыт
+- leftmost: выбор крайнего левого соперника
 """
 import datetime
 from module.config.time_source import now as current_time
@@ -26,15 +26,15 @@ from module.config.utils import get_server_next_update
 
 class DatedDuration(Ocr):
     """
-    带日期的时长 OCR 识别器。
+    OCR-распознаватель продолжительности с датой.
 
-    用于识别演习赛季剩余时间格式，如 `10d 01:30:30` 或 `7日01:30:30`。
-    对 OCR 常见错误进行修正（I->1, D->0, S->5）。
+    Используется для распознавания формата оставшегося времени сезона учений, например `10d 01:30:30`.
+    Исправляет частые ошибки OCR (I->1, D->0, S->5).
 
     Attributes:
-        buttons: OCR 识别区域。
-        lang (str): OCR 语言，默认 'cnocr'。
-        alphabet (str): 可识别字符集。
+        buttons: Область распознавания OCR.
+        lang (str): Язык OCR, по умолчанию 'cnocr'.
+        alphabet (str): Набор распознаваемых символов.
     """
 
     def __init__(self, buttons, lang='cnocr', letter=(255, 255, 255), threshold=128, alphabet='0123456789:IDS天日d',
@@ -48,14 +48,14 @@ class DatedDuration(Ocr):
 
     def ocr(self, image, direct_ocr=False):
         """
-        对带日期的时长进行 OCR 识别，如 `10d 01:30:30` 或 `7日01:30:30`。
+        Выполнение OCR-распознавания продолжительности с датой, например `10d 01:30:30`.
 
         Args:
-            image: 截图图像。
-            direct_ocr: 是否直接进行 OCR。
+            image: Изображение снимка экрана.
+            direct_ocr: Выполнять ли прямое распознавание.
 
         Returns:
-            datetime.timedelta 或其列表：时间差对象。
+            datetime.timedelta или их список: объект временного интервала.
         """
         result_list = super().ocr(image, direct_ocr=direct_ocr)
         if not isinstance(result_list, list):
@@ -68,13 +68,13 @@ class DatedDuration(Ocr):
     @staticmethod
     def parse_time(string):
         """
-        解析带日期的时长字符串。
+        Разбор строки продолжительности с датой.
 
         Args:
-            string (str): 时长字符串，如 `10d 01:30:30` 或 `7日01:30:30`。
+            string (str): Строка продолжительности, например `10d 01:30:30`.
 
         Returns:
-            datetime.timedelta: 解析后的时间差对象。
+            datetime.timedelta: Разобранный объект интервала времени.
         """
         import re
         result = re.search(r'(\d{1,2})\D?(\d{1,2}):?(\d{2}):?(\d{2})', string)
@@ -88,9 +88,9 @@ class DatedDuration(Ocr):
 
 class DatedDurationYuv(DatedDuration, OcrYuv):
     """
-    YUV 色彩空间的带日期时长 OCR 识别器。
+    OCR-распознаватель продолжительности с датой в цветовом пространстве YUV.
 
-    继承自 DatedDuration 和 OcrYuv，使用 YUV 色彩空间进行预处理。
+    Наследуется от DatedDuration и OcrYuv, используя цветовое пространство YUV для предобработки.
     """
     pass
 
@@ -98,7 +98,7 @@ class DatedDurationYuv(DatedDuration, OcrYuv):
 OCR_EXERCISE_REMAIN = Digit(OCR_EXERCISE_REMAIN, letter=(173, 247, 74), threshold=128)
 OCR_PERIOD_REMAIN = DatedDuration(OCR_PERIOD_REMAIN, letter=(255, 255, 255), threshold=128)
 ADMIRAL_TRIAL_HOUR_INTERVAL = {
-    # "aggressive": [336, 0]  # 激进模式
+    # "aggressive": [336, 0]  # Агрессивный режим
     "sun18": [6, 0],
     "sun12": [12, 6],
     "sun0": [24, 12],
@@ -111,15 +111,15 @@ ADMIRAL_TRIAL_HOUR_INTERVAL = {
 
 class Exercise(ExerciseCombat):
     """
-    演习任务主处理器，负责演习的调度和执行。
+    Основной обработчик задачи учений, отвечающий за планирование и выполнение боёв.
 
-    继承自 ExerciseCombat，整合了对手选择、战斗执行、次数管理等功能。
-    根据配置的策略自动选择对手并执行战斗，支持多种消耗策略和延迟执行。
+    Наследуется от ExerciseCombat, объединяя выбор соперника, бой и управление попытками.
+    Автоматически выбирает соперников по заданной стратегии, поддерживает различные алгоритмы расхода попыток и отложенный запуск.
 
     Attributes:
-        opponent_change_count (int): 当前对手刷新次数，每天最多刷新 5 次。
-        remain (int): 剩余演习次数。
-        preserve (int): 保留次数，剩余演习次数低于此值时停止。
+        opponent_change_count (int): Текущее количество обновлений соперников (до 5 раз в день).
+        remain (int): Оставшееся количество попыток учений.
+        preserve (int): Резерв попыток, ниже которого выполнение останавливается.
     """
 
     opponent_change_count = 0
@@ -128,9 +128,9 @@ class Exercise(ExerciseCombat):
 
     def _new_opponent(self):
         """
-        刷新对手列表。
+        Обновление списка соперников.
 
-        点击刷新按钮获取新的对手，并记录当天的刷新次数。
+        Нажимает кнопку обновления для получения новых соперников и фиксирует суточный счётчик обновлений.
         """
         logger.info('[Учения — противник] Обновление списка противников')
         self.appear_then_click(NEW_OPPONENT)
@@ -143,23 +143,23 @@ class Exercise(ExerciseCombat):
 
     def _opponent_fleet_check_all(self):
         """
-        检查所有对手的舰队信息。
+        Проверка информации о флотах всех соперников.
 
-        当选择模式为 leftmost 时跳过检查，直接使用最左侧对手。
+        При режиме выбора leftmost проверка пропускается и сразу используется крайний левый соперник.
         """
         if self.config.Exercise_OpponentChooseMode != 'leftmost':
             super()._opponent_fleet_check_all()
 
     def _opponent_sort(self, method=None):
         """
-        根据策略对对手进行排序。
+        Сортировка соперников в соответствии со стратегией.
 
         Args:
-            method (str): 排序方法，默认使用配置中的 Exercise_OpponentChooseMode。
-                leftmost 模式直接返回 [0, 1, 2, 3]。
+            method (str): Метод сортировки; по умолчанию используется значение настройки Exercise_OpponentChooseMode.
+                В режиме leftmost сразу возвращается [0, 1, 2, 3].
 
         Returns:
-            list[int]: 对手索引列表，按优先级排序。
+            list[int]: Список индексов соперников, отсортированный по приоритету.
         """
         if method is None:
             method = self.config.Exercise_OpponentChooseMode
@@ -170,12 +170,12 @@ class Exercise(ExerciseCombat):
 
     def _exercise_once(self):
         """
-        执行一次演习。
+        Выполнение одного боя учений.
 
-        处理对手刷新和演习失败的情况。
+        Обрабатывает обновление списка соперников и поражения в боях.
 
         Returns:
-            bool: 击败一个对手返回 True，所有对手均未击败且刷新次数耗尽返回 False。
+            bool: True, если соперник побеждён; False, если ни одного соперника не удалось победить и попытки обновления исчерпаны.
         """
         self._opponent_fleet_check_all()
         while 1:
@@ -193,12 +193,12 @@ class Exercise(ExerciseCombat):
 
     def _exercise_easiest_else_exp(self):
         """
-        优先选择最简单的对手，若无法击败则切换到最大经验对手并接受失败。
+        Приоритетный выбор простейшего соперника; при невозможности победить — переключение на максимальный опыт с принятием поражения.
 
-        处理对手刷新和演习失败的情况。
+        Обрабатывает обновление списка соперников и поражения в боях.
 
         Returns:
-            bool: 击败一个对手返回 True，所有对手均未击败且刷新次数耗尽返回 False。
+            bool: True, если соперник побеждён; False, если ни одного соперника не удалось победить и попытки обновления исчерпаны.
         """
         method = "easiest_else_exp"
         restore = self.config.Exercise_LowHpThreshold
@@ -225,45 +225,45 @@ class Exercise(ExerciseCombat):
 
     def _get_opponent_change_count(self):
         """
-        获取对手刷新次数。
+        Получение количества обновлений списка соперников.
 
-        同一天内，计数设为上次记录的刷新次数或 6（即不再刷新）。
-        新的一天，计数重置为 0（即最多可刷新 5 次）。
+        В течение одного дня счётчик равен последнему сохранённому значению или 6 (обновления больше не выполняются).
+        В новый день счётчик сбрасывается в 0 (доступно до 5 обновлений).
 
         Returns:
-            int: 当前对手刷新次数。
+            int: Текущее количество обновлений списка соперников.
         """
         record = self.config.Exercise_OpponentRefreshRecord
         update = get_server_last_update('00:00')
         if record.date() == update.date():
-            # 同一天
+            # Тот же день
             return self.config.Exercise_OpponentRefreshValue
         else:
-            # 新的一天
+            # Новый день
             self.config.set_record(Exercise_OpponentRefreshValue=0)
             return 0
 
     def _get_exercise_reset_remain(self):
         """
-        获取演习重置剩余时间。
+        Получение оставшегося времени до сброса сезона учений.
 
         Returns:
-            datetime.timedelta: 重置剩余时间。
+            datetime.timedelta: Оставшееся время до сброса.
         """
         result = OCR_PERIOD_REMAIN.ocr(self.device.image)
         return result
 
     def _get_exercise_strategy(self):
         """
-        获取演习消耗策略。
+        Получение стратегии расхода попыток учений.
 
-        根据配置的 Exercise_ExerciseStrategy 确定保留次数和将军试炼时间区间。
+        На основе значения Exercise_ExerciseStrategy определяет число сохраняемых попыток и интервал времени адмиральского испытания.
 
         Returns:
             tuple: (preserve, admiral_interval)
-                - preserve (int): 保留次数，激进模式为 0，保守模式为 5。
-                - admiral_interval (list 或 None): 将军试炼时间区间 [start, end]（小时），
-                  激进模式为 None。
+                - preserve (int): Число сохраняемых попыток (0 в агрессивном режиме, 5 в консервативном).
+                - admiral_interval (list или None): Интервал времени испытания [start, end] (в часах),
+                  None для агрессивного режима.
         """
         if self.config.Exercise_ExerciseStrategy == "aggressive":
             preserve = 0
@@ -276,18 +276,18 @@ class Exercise(ExerciseCombat):
 
     def run(self):
         """
-        演习任务主入口。
+        Основная точка входа задачи учений.
 
-        流程：
-        1. 导航到演习页面
-        2. 获取对手刷新次数和消耗策略
-        3. 检查是否达到将军试炼时间区间，决定是否强制消耗
-        4. 检查是否需要延迟执行
-        5. 循环执行演习直到次数用尽或达到保留阈值
-        6. 设置下次任务调度时间
+        Последовательность:
+        1. Переход на страницу учений
+        2. Получение количества обновлений списка соперников и стратегии расхода
+        3. Проверка достижения интервала испытания и решение о принудительном расходе
+        4. Проверка необходимости отложить выполнение
+        5. Циклическое проведение боёв до исчерпания попыток или порога сохранения
+        6. Планирование времени следующего запуска задачи
 
         Pages:
-            in: 任意页面
+            in: Любая страница
             out: page_exercise
         """
         self.ui_ensure(page_exercise)
@@ -304,11 +304,11 @@ class Exercise(ExerciseCombat):
         if admiral_interval is not None and remain_time:
             admiral_start, admiral_end = admiral_interval
 
-            if admiral_start > int(remain_time.total_seconds() // 3600) >= admiral_end:  # 达到将军试炼设定时间
+            if admiral_start > int(remain_time.total_seconds() // 3600) >= admiral_end:  # Наступило заданное время адмиральского испытания
                 logger.info('[Учения — планировщик] Наступило заданное время адмиральского испытания; расходуем все попытки')
                 self.preserve = 0
                 forced_run =True
-            elif int(remain_time.total_seconds() // 3600) < 6:  # 未设置为 "sun18" 时，仍在周日 18 点前消耗
+            elif int(remain_time.total_seconds() // 3600) < 6:  # Даже если не выбран "sun18", расходуем попытки до 18:00 воскресенья
                 logger.info('[Учения — планировщик] До конца сезона учений меньше 6 часов; расходуем все попытки')
                 self.preserve = 0
                 forced_run = True
@@ -318,7 +318,7 @@ class Exercise(ExerciseCombat):
         else:
             forced_run = False
 
-        # 延迟到设定时间执行任务
+        # Откладываем выполнение задачи до заданного времени
         if ((get_server_next_update(server_update) - current_time()).seconds >
             3600 * self.config.Exercise_DelayUntilHoursBeforeNextUpdate)\
                 and not forced_run:
@@ -344,7 +344,7 @@ class Exercise(ExerciseCombat):
 
         # self.equipment_take_off_when_finished()
 
-        # 调度器
+        # Планировщик
         with self.config.multi_set():
             self.config.set_record(Exercise_OpponentRefreshValue=self.opponent_change_count)
             if self.remain <= self.preserve or self.opponent_change_count >= 5:

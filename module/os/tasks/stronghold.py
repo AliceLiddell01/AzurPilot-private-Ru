@@ -52,7 +52,7 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
         self.handle_fleet_repair_by_config(revert=False)
         self.handle_fleet_resolve(revert=False)
 
-        # 检查是否还有更多要塞
+        # Проверяем, остались ли ещё крепости
         self.os_map_goto_globe()
         self.globe_update()
         next_zone = self.find_siren_stronghold()
@@ -90,9 +90,9 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
             STORY_OPTION=0
         )
         interrupt = [self.stronghold_interrupt_check, self.is_meowfficer_searching] if submarine else None
-        # 尝试 3 次，因为舰队可能卡在迷雾中
+        # Пробуем 3 раза, поскольку флот может застрять в тумане
         for _ in range(3):
-            # 攻击
+            # Атака
             self.fleet_set(fleet.fleet_index)
             try:
                 self.run_auto_search(question=False, rescan=False, interrupt=interrupt)
@@ -101,13 +101,13 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
             self.hp_reset()
             self.hp_get()
 
-            # 判断结果
+            # Проверяем результат
             if self.get_stronghold_percentage() == '0':
                 logger.info('[Операция «Сирена» — крепость] Босс побеждён')
                 return True
             elif any(self.need_repair):
                 logger.info('[Операция «Сирена» — крепость] Автоматические поиски остановлены, так как флот погиб')
-                # 重新进入以重置舰队位置
+                # Повторно входим, чтобы сбросить позицию флота
                 prev = self.zone
                 self.globe_goto(self.zone_nearest_azur_port(self.zone))
                 self.handle_fog_block(repair=True)
@@ -115,12 +115,12 @@ class OpsiStronghold(CoinTaskMixin, OSMap):
                 return False
             elif submarine and self.os_sumbarine_empty():
                 logger.info('[Операция «Сирена» — крепость] Боезапас подлодки исчерпан, ожидание следующей зачистки')
-                # 潜艇弹药耗尽，等待下次清理
+                # Боезапас подлодок исчерпан, ждём следующей зачистки
                 self.globe_goto(self.zone_nearest_azur_port(self.zone))
                 return True
             else:
                 logger.info('[Операция «Сирена» — крепость] Автоматический поиск остановился из-за застревания флота')
-                # 重新进入以重置舰队位置
+                # Повторно входим, чтобы сбросить позицию флота
                 prev = self.zone
                 self.globe_goto(self.zone_nearest_azur_port(self.zone))
                 self.handle_fog_block(repair=False)

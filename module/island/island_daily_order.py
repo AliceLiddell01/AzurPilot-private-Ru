@@ -30,13 +30,13 @@ class IslandDailyOrder(Island):
         out: page_island_phone
     """
 
-    # 货物格子裁剪坐标（竖向排列，最多3个）
+    # Координаты обрезки ячеек товаров (вертикальный ряд, до 3 шт.)
     SLOT_AREA_1 = (905, 255, 950, 300)
     SLOT_AREA_2 = (905, 335, 950, 380)
     SLOT_AREA_3 = (905, 415, 950, 460)
     ITEM_SLOT_AREAS = [SLOT_AREA_1, SLOT_AREA_2, SLOT_AREA_3]
 
-    # OCR 区域
+    # Область OCR
     OCR_URGENT_REMAINING = Button(
         area=(1150, 272, 1197, 292),
         color=(),
@@ -50,10 +50,10 @@ class IslandDailyOrder(Island):
         name='OCR_DAILY_ORDER_COOLDOWN'
     )
 
-    # 左侧页面图标检测区域
+    # Область детекции иконок левой панели
     LEFT_PANEL_AREA = (60, 60, 832, 580)
 
-    # 冷却时间 OCR 区域相对于紧急模板匹配左上角的偏移 (x1, y1, x2, y2)
+    # Смещение области OCR времени отката относительно верхнего левого угла шаблона срочных заказов (x1, y1, x2, y2)
     URGENT_COOLDOWN_OFFSET = (-54, 120, 0, 113)
     DEFAULT_URGENT_REFRESH_TIME = datetime(2020, 1, 1, 0, 0)
     URGENT_TOTAL_COUNT = 15
@@ -69,10 +69,10 @@ class IslandDailyOrder(Island):
 
         self.ui_ensure(page_island)
 
-        # 导航到岛屿手机页面
+        # Переход на страницу телефона острова
         self.ui_goto(page_island_phone, get_ship=False)
 
-        # OCR 本周剩余紧急委托次数（仅在首次检测）
+        # OCR оставшихся попыток срочных поручений на этой неделе (только при первой проверке)
         self.device.screenshot()
         urgent_remaining = self._ocr_urgent_remaining()
         if urgent_remaining is None:
@@ -82,7 +82,7 @@ class IslandDailyOrder(Island):
             self.config.IslandDailyOrder_UrgentDetectRefreshTime = next_monday
             logger.info(f'[Остров — ежедневные заказы] Срочные поручения исчерпаны; следующая проверка: {next_monday}')
 
-        # 主流程
+        # Основной поток
         self._first_right_panel_check = True
         self._should_exit_reenter = False
         self.reject_count = self.config.IslandDailyOrder_RejectCount
@@ -93,7 +93,7 @@ class IslandDailyOrder(Island):
         self.config.IslandDailyOrder_RejectCount = self.reject_count
         logger.info('[Остров — ежедневные заказы] Выполнение ежедневных заказов завершено')
 
-    # ==================== OCR 辅助 ====================
+    # ==================== Вспомогательные функции OCR ====================
 
     @staticmethod
     def _area_button(area, name):
@@ -207,7 +207,7 @@ class IslandDailyOrder(Island):
             return None
         return refresh_time
 
-    # ==================== 模板匹配辅助 ====================
+    # ==================== Шаблонное сопоставление ====================
 
     def _template_appears(self, template, similarity=0.80):
         region = self.image_crop(self.LEFT_PANEL_AREA, copy=False)
@@ -277,7 +277,7 @@ class IslandDailyOrder(Island):
         self._handle_order_reward_popups()
         return True
 
-    # ==================== 主循环 ====================
+    # ==================== Главный цикл ====================
 
     def _main_loop(self):
         """
@@ -287,21 +287,21 @@ class IslandDailyOrder(Island):
         while 1:
             self.device.screenshot()
 
-            # 处理弹窗
+            # Обработка всплывающих окон
             if self._handle_popups():
                 continue
 
-            # ── ① 紧急委托检测 ──
+            # ── ① Проверка срочных поручений ──
             result = self._step_urgent()
             if result == 'reenter':
                 self._reenter()
                 continue
             elif result == 'continue':
-                continue  # 回到 ① 开头
+                continue  # Возврат к началу ①
             elif result == 'next':
-                pass  # 进入 ②
+                pass  # Переход к ②
 
-            # ── ② 右侧订单页面检测 ──
+            # ── ② Проверка панели заказов справа ──
             result = self._step_right_panel()
             if result == 'reenter':
                 self._reenter()
@@ -310,11 +310,11 @@ class IslandDailyOrder(Island):
                 self._delay_to_next_daily_run()
                 break
             elif result == 'to_step3':
-                pass  # 进入 ③
+                pass  # Переход к ③
             elif result == 'to_step1':
-                continue  # 回到 ①
+                continue  # Возврат к ①
 
-            # ── ③ 挑战/轻松图标检测 ──
+            # ── ③ Детекция иконок «Вызов» / «Легко» ──
             result = self._step_challenge_easy()
             if result == 'reenter':
                 self._reenter()
@@ -323,24 +323,24 @@ class IslandDailyOrder(Island):
                 self._delay_to_next_daily_run()
                 break
             elif result == 'to_step2':
-                continue  # 回到 ②（由 _step_right_panel 处理）
+                continue  # Возврат к ② (обрабатывается в _step_right_panel)
             elif result == 'to_step4':
-                pass  # 进入 ④
+                pass  # Переход к ④
 
-            # ── ④ 退出判断 ──
+            # ── ④ Проверка условий выхода ──
             result = self._step_exit()
             if result == 'wait':
-                break  # 延时等待
+                break  # Задержка ожидания
             elif result == 'next_day':
                 self._delay_to_next_daily_run()
                 break
             elif result == 'normal':
                 break
 
-        # 返回岛屿手机页面
+        # Возврат на страницу телефона острова
         self._back_to_island_phone()
 
-    # ==================== ① 紧急委托检测 ====================
+    # ==================== ① Проверка срочных поручений ====================
 
     def _step_urgent(self):
         """
@@ -349,13 +349,13 @@ class IslandDailyOrder(Island):
         Returns:
             str: 'continue' → 回 ①; 'next' → 跳到 ②; 'reenter' → 退出重进
         """
-        # 检查刷新时间
+        # Проверка времени обновления
         refresh_time = self._get_urgent_refresh_time()
         if refresh_time and current_time() < refresh_time:
             logger.info(f'[Остров — ежедневные заказы] Время обновления срочных поручений ещё не наступило ({refresh_time}); переход к шагу ②')
             return 'next'
 
-        # 检测紧急图标，模板漏检时使用固定位置按钮兜底。
+        # Детекция значка срочности; при пропуске шаблона резервно используется фиксированная кнопка.
         urgent_match = self._template_click_urgent()
         if urgent_match:
             logger.info('[Остров — ежедневные заказы] Обнаружено срочное поручение')
@@ -368,20 +368,20 @@ class IslandDailyOrder(Island):
 
         self.device.sleep(1)
 
-        # 紧急委托没有驳回按钮，先用右侧按钮状态确认已切到紧急委托页。
+        # У срочных поручений нет кнопки отклонения: проверяем статус правой кнопки для подтверждения перехода.
         self.device.screenshot()
         if self._has_reject_button():
             logger.warning('[Остров — ежедневные заказы] После выбора срочного поручения всё ещё обнаружена кнопка отклонения; переход к шагу ②')
             return 'next'
 
-        # 点击交付（紧急委托有专用交付按钮）
+        # Клик по сдаче (у срочных поручений отдельная кнопка сдачи)
         submit_result = self._submit_order(urgent_deliver_button, must_appear=True)
         if submit_result is None:
             logger.warning('[Остров — ежедневные заказы] Кнопка доставки срочного поручения не обнаружена; переход к шагу ②')
             return 'next'
         if not submit_result:
             logger.info('[Остров — ежедневные заказы] Недостаточно ресурсов для срочного поручения')
-            # OCR 冷却时间（从模板匹配位置下方偏移）
+            # OCR времени отката (со смещением вниз от совпадения шаблона)
             if urgent_match:
                 mx, my, mw, mh = urgent_match
                 cooldown = self._ocr_cooldown_below_urgent(mx, my, mw, mh)
@@ -393,10 +393,10 @@ class IslandDailyOrder(Island):
             logger.info(f'[Остров — ежедневные заказы] Восстановление срочного поручения: {cooldown} сек.; время обновления: {refresh}')
             return 'continue'
 
-        # 交付成功
+        # Успешная сдача
         logger.info('[Остров — ежедневные заказы] Срочное поручение успешно доставлено')
 
-        # 检测右侧是否为空
+        # Проверка пустоты правой панели
         self.device.screenshot()
         if self._is_right_panel_empty():
             logger.info('[Остров — ежедневные заказы] После срочной доставки правая панель пуста; выход и повторный вход')
@@ -404,7 +404,7 @@ class IslandDailyOrder(Island):
 
         return 'next'
 
-    # ==================== ② 右侧页面检测 ====================
+    # ==================== ② Проверка правой панели ====================
 
     def _step_right_panel(self):
         """
@@ -415,7 +415,7 @@ class IslandDailyOrder(Island):
         """
         self.device.screenshot()
 
-        # 1) 右侧为空
+        # 1) Правая панель пуста
         if self._is_right_panel_empty():
             if self._first_right_panel_check:
                 self._first_right_panel_check = False
@@ -427,12 +427,12 @@ class IslandDailyOrder(Island):
 
         self._first_right_panel_check = False
 
-        # 2) 没有驳回按钮 → 当前是紧急委托页面
+        # 2) Нет кнопки отклонения → текущая страница срочных поручений
         if not self._has_reject_button():
             logger.info('[Остров — ежедневные заказы] На правой панели нет кнопки отклонения (страница срочного поручения); переход к шагу ③')
             return 'to_step3'
 
-        # 3) 命中过滤物品则直接驳回，否则尝试交付。
+        # 3) При совпадении с фильтром отклоняем сразу, иначе пробуем сдать.
         if self._check_items_for_reject():
             logger.info('[Остров — ежедневные заказы] Заказ соответствует фильтру отклоняемых предметов; отклонение')
         else:
@@ -440,7 +440,7 @@ class IslandDailyOrder(Island):
             if self._submit_order(DAILY_ORDER_DELIVER):
                 logger.info('[Остров — ежедневные заказы] Заказ успешно доставлен')
 
-                # 交付后检测右侧是否为空
+                # Проверка пустоты справа после сдачи
                 self.device.screenshot()
                 if self._is_right_panel_empty():
                     logger.info('[Остров — ежедневные заказы] После доставки правая панель пуста; выход и повторный вход')
@@ -454,19 +454,19 @@ class IslandDailyOrder(Island):
         self.appear_then_click(DAILY_ORDER_REJECT, interval=2)
         self.device.sleep(self.FAST_POPUP_CHECK_INTERVAL)
 
-        # 检测驳回失败弹窗（当前不可替换）
+        # Детекция окна ошибки отклонения (сейчас нельзя заменить)
         self.device.screenshot()
         if self.appear(POPUP_ORDER_CANNOT_REPLACE, offset=30):
             logger.info('[Остров — ежедневные заказы] Не удалось отклонить заказ (сейчас замена недоступна); переход к шагу ③')
-            self.device.sleep(3)  # 等待弹窗自动关闭
+            self.device.sleep(3)  # Ожидание автоматического закрытия окна
             return 'to_step3'
 
-        # 驳回成功
+        # Отклонение успешно
         self.reject_count += 1
         logger.info(f'[Остров — ежедневные заказы] Заказ отклонён; текущее число отклонений: {self.reject_count}')
         return 'to_step3'
 
-    # ==================== ③ 挑战/轻松检测 ====================
+    # ==================== ③ Детекция «Вызов» / «Легко» ====================
 
     def _step_challenge_easy(self):
         """
@@ -475,7 +475,7 @@ class IslandDailyOrder(Island):
         Returns:
             str: 'reenter' / 'next_day' / 'to_step2' / 'to_step4'
         """
-        # 收集所有挑战和轻松图标的匹配位置
+        # Сбор позиций совпадения всех значков «Вызов» и «Легко»
         all_matches = []
         for template, label in [
             (TEMPLATE_DAILY_ORDER_CHALLENGE, 'сложный'),
@@ -502,7 +502,7 @@ class IslandDailyOrder(Island):
             logger.info('[Остров — ежедневные заказы] Других значков «сложное/лёгкое» нет')
             return 'to_step4'
 
-        # 逐个处理
+        # Поочередная обработка
         processed_positions = set()
         for pos, template, label in all_matches:
             pos_key = (pos[0] // 10 * 10, pos[1] // 10 * 10)
@@ -514,7 +514,7 @@ class IslandDailyOrder(Island):
             self._click_position(pos[0], pos[1])
             self.device.sleep(1)
 
-            # 检测右侧状态
+            # Проверка состояния правой панели
             self.device.screenshot()
             if self._is_preparing():
                 logger.info(f'[Остров — ежедневные заказы] Поручение «{label}» готовится; проверка следующего')
@@ -526,11 +526,11 @@ class IslandDailyOrder(Island):
                 logger.warning(f'[Остров — ежедневные заказы] Состояние поручения «{label}» неизвестно; переход к следующему')
                 continue
 
-        # 所有图标处理完毕
+        # Все значки обработаны
         logger.info('[Остров — ежедневные заказы] Все значки «сложное/лёгкое» обработаны')
         return 'to_step4'
 
-    # ==================== ④ 退出判断 ====================
+    # ==================== ④ Проверка условий выхода ====================
 
     def _step_exit(self):
         """
@@ -556,7 +556,7 @@ class IslandDailyOrder(Island):
             logger.info('[Остров — ежедневные заказы] Правая панель не находится в состоянии подготовки; задержка до следующих 03:00')
             return 'next_day'
 
-    # ==================== 辅助方法 ====================
+    # ==================== Вспомогательные методы ====================
 
     @classmethod
     def _urgent_template_sort_key(cls, item):
@@ -633,11 +633,11 @@ class IslandDailyOrder(Island):
     def _reenter(self):
         """退出每日订单界面并重新进入。"""
         logger.info('[Остров — ежедневные заказы] Выход и повторный вход в интерфейс ежедневных заказов')
-        # 点击返回按钮回到岛屿手机页面
+        # Клик по кнопке «Назад» для возврата на страницу телефона острова
         self._back_to_island_phone()
-        # 重新进入
+        # Повторный вход
         self._enter_daily_order()
-        # 重置首次检测标记
+        # Сброс флага первой проверки
         self._first_right_panel_check = True
 
     def _back_to_island_phone(self):

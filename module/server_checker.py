@@ -39,9 +39,9 @@ class ServerChecker:
     def __init__(self, server: str) -> None:
         self._base: str = 'http://sc.shiratama.cn'
         self._api: dict = {
-            'get_state': '/server/get_state',           # POST 请求
-            'get_all_state': '/server/get_all_state',   # POST 请求
-            'list': '/server/list'                      # GET 请求
+            'get_state': '/server/get_state',           # POST-запрос
+            'get_all_state': '/server/get_all_state',   # POST-запрос
+            'list': '/server/list'                      # GET-запрос
         }
 
         if server != 'disabled':
@@ -54,7 +54,7 @@ class ServerChecker:
         self._expired: int = 0
         self._timer: Timer = Timer(0)
 
-        # 状态标志
+        # Флаги состояния
         self._recover: bool = False
         self._retry: bool = False
 
@@ -89,7 +89,7 @@ class ServerChecker:
                     self._state.append(False)
                     logger.info(f'[Проверка состояния сервера] Сервер "{self._server}" находится на техническом обслуживании.')
 
-                # 检查 API 服务端是否已停止更新
+                # Проверяем, не перестал ли API-сервер обновлять данные
                 if j['last_update'] > self._timestamp:
                     self._timestamp = j['last_update']
                     self._expired = 0
@@ -98,8 +98,8 @@ class ServerChecker:
                     if self._expired > 3:
                         logger.warning(f'[Проверка состояния сервера] Метка времени {self._timestamp} не обновлялась 3 раза.')
             elif resp.status_code == 404:
-                # API 数据库可能未收录新增服务器（如"长弓计划"），
-                # 检查本地服务器列表确认该服务器是否真实存在
+                # База API может ещё не содержать новый сервер (например, "长弓计划"),
+                # Проверяем локальный список серверов, чтобы подтвердить существование сервера
                 if self._server_in_local_list():
                     self._state.append(True)
                     logger.info(f'[Проверка состояния сервера] Сервер "{self._server}" доступен (подтверждено локально, API не содержит данных).')
@@ -139,7 +139,7 @@ class ServerChecker:
             self._load_server()
             if self._state[-1]:
                 self._timer.limit = 0
-                # Recover 表示最新状态为可用（state[-1]=True），前一状态为不可用（state[0]=False）
+                # Recover означает: текущее состояние доступно (state[-1]=True), предыдущее было недоступно (state[0]=False)
                 if not self._state[0]:
                     self._recover = True
             else:
@@ -188,7 +188,7 @@ class ServerChecker:
         if self._timer.limit != 0 and self._timer.reached():
             self.check_now()
 
-        return self._state[-1]  # 返回最新状态
+        return self._state[-1]  # Возвращаем последнее состояние
 
     def is_recovered(self) -> bool:
         """

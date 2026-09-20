@@ -1,10 +1,12 @@
 """
-DroidCast 截图方法。
+Метод создания снимков экрана DroidCast.
 
-通过 DroidCast 投屏服务执行设备截图，适用于 ADB screencap 不可用的场景。
-DroidCast 是一个运行在 Android 设备上的截图服务，通过 HTTP 接口提供屏幕图像。
-支持 DroidCast 和 DroidCast_raw 两种模式：前者返回 PNG/JPEG 图像，
-后者直接返回原始像素数据以获得更高性能。需要先在设备上安装并启动 DroidCast APK。
+Выполняет создание снимков экрана через службу трансляции экрана DroidCast, применяется в сценариях,
+когда ADB screencap недоступен.
+DroidCast — это служба создания снимков экрана, работающая на устройстве Android и предоставляющая изображения через HTTP-интерфейс.
+Поддерживает два режима: DroidCast и DroidCast_raw (первый возвращает изображения PNG/JPEG,
+второй напрямую передает необработанные пиксельные данные для максимальной производительности).
+Требует предварительной передачи и запуска APK DroidCast на устройстве.
 """
 import time
 import typing as t
@@ -55,16 +57,16 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 无法处理
+            # Необрабатываемая ошибка
             except RequestHumanTakeover:
                 break
-            # ADB 服务被终止时
+            # При остановке службы ADB
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
-            # ADB 错误
+            # Ошибка ADB
             except AdbError as e:
                 if handle_adb_error(e):
                     def init():
@@ -75,13 +77,13 @@ def retry(func):
                         self.adb_reconnect()
                 else:
                     break
-            # 应用未安装
+            # Приложение не установлено
             except PackageNotInstalled as e:
                 logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
-            # DroidCast 未运行
+            # DroidCast не запущен
             # requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
             # ReadTimeout: HTTPConnectionPool(host='127.0.0.1', port=20482): Read timed out. (read timeout=3)
             except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
@@ -89,23 +91,23 @@ def retry(func):
 
                 def init():
                     self.droidcast_init()
-            # DroidCast 版本不兼容
+            # Несовместимая версия DroidCast
             except DroidCastVersionIncompatible as e:
                 logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.droidcast_init()
-            # 图像数据截断
+            # Данные изображения обрезаны
             except ImageTruncated as e:
                 from module.device.method.utils import handle_image_truncated
                 handle_image_truncated(self, e)
 
                 def init():
                     pass
-            # 无法处理 - 必须向上抛出以触发模拟器重启
+            # Необрабатываемая ошибка — обязательно пробрасываем выше, чтобы запустить перезапуск эмулятора
             except EmulatorNotRunningError:
                 raise
-            # 未知异常
+            # Неизвестное исключение
             except Exception as e:
                 logger.exception(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
@@ -123,8 +125,8 @@ def retry(func):
 
 class DroidCast(Uiautomator2):
     """
-    DroidCast 截图方案，https://github.com/rayworks/DroidCast
-    DroidCast_raw，DroidCast 的修改版本，发送原始位图和 PNG，https://github.com/Torther/DroidCastS
+    Метод создания снимков DroidCast, https://github.com/rayworks/DroidCast
+    DroidCast_raw — модифицированная версия DroidCast, отправляющая исходный растр и PNG, https://github.com/Torther/DroidCastS
     """
 
     _droidcast_port: int = 0
@@ -134,18 +136,18 @@ class DroidCast(Uiautomator2):
     @cached_property
     def droidcast_session(self):
         session = requests.Session()
-        session.trust_env = False  # 忽略代理
+        session.trust_env = False  # Игнорируем прокси
         self._droidcast_port = self.adb_forward('tcp:53516')
         return session
 
     """
-    可用 API 参考源码：
+    Ссылки на доступные API в исходном коде:
     https://github.com/Torther/DroidCast_raw/blob/DroidCast_raw/app/src/main/java/ink/mol/droidcast_raw/KtMain.kt
-    可用接口：
+    Доступные эндпоинты:
     - /screenshot
-        获取 RGB565 位图
+        Получение растрового изображения RGB565
     - /preview
-        获取 PNG 截图
+        Получение снимка экрана в формате PNG
     """
 
     def droidcast_url(self, url='/preview'):
@@ -208,7 +210,7 @@ class DroidCast(Uiautomator2):
             w, h = self.resolution_uiautomator2(cal_rotation=False)
             self.get_orientation()
             # 720, 1280
-            # mumu12 > 3.5.6 始终为竖屏设备
+            # В mumu12 > 3.5.6 устройство всегда считается портретным
             self.droidcast_width, self.droidcast_height = w, h
             logger.info(f'Разрешение DroidCast: {(w, h)}')
 
@@ -260,15 +262,15 @@ class DroidCast(Uiautomator2):
 
         resp = self.droidcast_session.get(self.droidcast_raw_url(), timeout=3)
         image = resp.content
-        # DroidCast_raw 返回 RGB565 位图
+        # DroidCast_raw возвращает bitmap RGB565
 
-        # 防止空内容导致 np.frombuffer 抛出 TypeError
+        # Не допускаем TypeError в np.frombuffer из-за пустого содержимого
         if image is None or len(image) == 0:
             raise ImageTruncated('Пустые данные изображения от DroidCast_raw')
 
-        # DroidCast 返回了短错误信息而非原始位图数据
-        # 例如 b':(  Failed to generate the screenshot on device / emulator: ...'
-        # 抛出 ConnectionError 以在重试处理器中立即触发 droidcast_init
+        # DroidCast вернул короткое сообщение об ошибке вместо исходных данных bitmap
+        # Например, b':(  Failed to generate the screenshot on device / emulator: ...'
+        # Выбрасываем ConnectionError, чтобы обработчик повторных попыток сразу запустил droidcast_init
         if len(image) < 500:
             logger.warning(f'[Устройство — DroidCast] Некорректный снимок экрана; получено {len(image)} байт')
             raise requests.exceptions.ConnectionError(f'[Устройство — DroidCast] Ошибка службы; получено {len(image)} байт')
@@ -278,13 +280,13 @@ class DroidCast(Uiautomator2):
             if rotate:
                 arr = arr.reshape(shape)
                 # arr = cv2.rotate(arr, cv2.ROTATE_90_CLOCKWISE)
-                # 稍微快一点？
+                # Немного быстрее?
                 arr = cv2.transpose(arr)
                 cv2.flip(arr, 1, dst=arr)
             else:
                 arr = arr.reshape(shape)
         except ValueError as e:
-            # 尝试作为 `DroidCast` 格式加载
+            # Пробуем загрузить в формате `DroidCast`
             image = np.frombuffer(image, np.uint8)
             if image is not None:
                 image = cv2.imdecode(image, cv2.IMREAD_COLOR)
@@ -294,7 +296,7 @@ class DroidCast(Uiautomator2):
             # ValueError: cannot reshape array of size 0 into shape (720,1280)
             raise ImageTruncated(str(e)+'\nЕсли разрешение эмулятора отличается от 1280x720, установите разрешение 1280x720')
 
-        # 将 RGB565 转换为 RGB888
+        # Преобразуем RGB565 в RGB888
         # https://blog.csdn.net/happy08god/article/details/10516871
 
         # r = (arr & 0b1111100000000000) >> (11 - 3)
@@ -308,9 +310,9 @@ class DroidCast(Uiautomator2):
         # b = b.astype(np.uint8)
         # image = cv2.merge([r, g, b])
 
-        # 与上方代码功能相同，但耗时约 2.7ms 而非 16ms。
-        # 注意 cv2.convertScaleAbs 比 cv2.multiply 快 5 倍，cv2.add 比 cv2.convertScaleAbs 快 8 倍
-        # 注意 cv2.convertScaleAbs 包含四舍五入
+        # Функционально то же, что код выше, но занимает около 2,7 мс вместо 16 мс.
+        # Обратите внимание: cv2.convertScaleAbs в 5 раз быстрее cv2.multiply, а cv2.add в 8 раз быстрее cv2.convertScaleAbs
+        # Обратите внимание: cv2.convertScaleAbs выполняет округление
         tmp = np.empty_like(arr)
         cv2.bitwise_and(arr, 0b1111100000000000, dst=tmp)
         r = cv2.convertScaleAbs(tmp, alpha=0.0040283203125)  # 0.00390625 * 1.03125
@@ -324,7 +326,7 @@ class DroidCast(Uiautomator2):
         return image
 
     def droidcast_wait_startup(self):
-        """等待 DroidCast 启动完成。"""
+        """Ожидать завершения запуска DroidCast."""
         timeout = Timer(10).start()
         while 1:
             self.sleep(0.25)
@@ -333,7 +335,7 @@ class DroidCast(Uiautomator2):
 
             try:
                 resp = self.droidcast_session.get(self.droidcast_url('/'), timeout=3)
-                # 路由 `/` 不可用，但 404 表示启动已完成
+                # Маршрут `/` недоступен, но 404 означает, что запуск завершён
                 if resp.status_code == 404:
                     logger.attr('Состояние DroidCast', 'в сети')
                     return True
@@ -345,15 +347,15 @@ class DroidCast(Uiautomator2):
 
     def droidcast_uninstall(self):
         """
-        停止 DroidCast 进程并删除 DroidCast APK。
-        DroidCast 并非真正安装，而是通过 JAVA 类调用，卸载即删除文件。
+        Остановить процесс DroidCast и удалить APK DroidCast.
+        DroidCast не устанавливается в систему полноценно, а запускается через класс Java; удаление означает удаление файла.
         """
         self.droidcast_stop()
         logger.info('[Устройство — DroidCast] Удаление DroidCast')
         self.adb_shell(["rm", self.config.DROIDCAST_FILEPATH_REMOTE])
 
     def _iter_droidcast_proc(self) -> t.Iterable[ProcessInfo]:
-        """列出所有 DroidCast 进程。"""
+        """Перечислить все процессы DroidCast."""
         processes = self.proc_list_uiautomator2()
         for proc in processes:
             if 'com.rayworks.droidcast.Main' in proc.cmdline:
@@ -364,7 +366,7 @@ class DroidCast(Uiautomator2):
                 yield proc
 
     def droidcast_stop(self):
-        """停止 DroidCast 进程。"""
+        """Остановить процессы DroidCast."""
         logger.info('[Устройство — DroidCast] Остановка DroidCast')
         for proc in self._iter_droidcast_proc():
             logger.info(f'[Устройство — DroidCast] Завершение процесса PID={proc.pid}')

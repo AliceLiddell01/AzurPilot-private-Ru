@@ -1,11 +1,11 @@
-"""
-私人休息室商店主逻辑。
+"""Основная логика магазина личных покоев.
 
-编排私人宿舍商店的完整购买流程，包括商品过滤、货架扫描、
-余额检测和逐项购买。通过 Filter 和 PQShopItemGrid 实现
-商品分类与筛选，支持按优先级排序购买。
+Организует полный процесс покупок в магазине личных покоев, включая фильтрацию товаров,
+сканирование полок, проверку баланса и покупку по списку. Через Filter и PQShopItemGrid
+реализует классификацию и выбор товаров с учетом приоритетов.
 
-Pages: in: PRIVATE_QUARTERS_SHOP
+Pages:
+    in: PRIVATE_QUARTERS_SHOP
 """
 import re
 
@@ -33,29 +33,28 @@ FILTER = Filter(FILTER_REGEX, FILTER_ATTR)
 
 class PQShopItemGrid(ItemGrid):
     def predict(self, image, name=True, amount=True, cost=False, price=False, tag=False):
-        """
-        识别商品列表并为每个商品添加分组/子类/层级属性，用于过滤。
+        """Распознать список товаров и проставить атрибуты group/sub_genre/tier для фильтрации.
 
-        通过正则表达式从商品名称中提取 group、sub_genre、tier 三个属性。
+        Извлекает атрибуты group, sub_genre, tier из имени товара с помощью регулярного выражения.
 
         Args:
-            image: 截图图像
-            name (bool): 是否识别名称
-            amount (bool): 是否识别数量
-            cost (bool): 是否识别消耗
-            price (bool): 是否识别价格
-            tag (bool): 是否识别标签
+            image: Изображение скриншота.
+            name (bool): Распознавать ли название.
+            amount (bool): Распознавать ли количество.
+            cost (bool): Распознавать ли затраты.
+            price (bool): Распознавать ли цену.
+            tag (bool): Распознавать ли тег.
 
         Returns:
-            list[Item]: 带有额外过滤属性的商品列表
+            list[Item]: Список товаров с добавленными атрибутами фильтрации.
         """
         super().predict(image, name, amount, cost, price, tag)
 
         for item in self.items:
-            # 初始化默认值
+            # Инициализируем значения по умолчанию
             item.group, item.sub_genre, item.tier = None, None, None
 
-            # 通过正则表达式快速填充过滤属性
+            # Быстро заполняем атрибуты фильтра через регулярное выражение
             name = item.name
             result = re.search(FILTER_REGEX, name)
             if result:
@@ -75,11 +74,10 @@ class PQShop(PQShopClerk, PQStatus):
 
     @cached_property
     def shop_filter(self):
-        """
-        根据配置生成商品过滤字符串。
+        """Сформировать строку фильтрации товаров на основе конфигурации.
 
         Returns:
-            str: 过滤条件，如 'GiftRoses > GiftCake'
+            str: Условие фильтрации, например 'GiftRoses > GiftCake'.
         """
         list_filter = []
         if self.config.PrivateQuarters_BuyRoses:
@@ -91,11 +89,10 @@ class PQShop(PQShopClerk, PQStatus):
 
     @cached_property
     def shop_grid(self):
-        """
-        商店商品网格布局（4 列 1 行）。
+        """Сетка товаров магазина (4 колонки, 1 строка).
 
         Returns:
-            ButtonGrid: 商品网格
+            ButtonGrid: Сетка кнопок товаров.
         """
         shop_grid = ButtonGrid(
             origin=(290, 215), delta=(230, 0), button_shape=(96, 96), grid_shape=(4, 1),
@@ -104,11 +101,10 @@ class PQShop(PQShopClerk, PQStatus):
 
     @cached_property
     def shop_private_quarters_items(self):
-        """
-        私人宿舍商店商品网格，含模板匹配和 OCR 价格识别。
+        """Сетка товаров магазина личных покоев с сопоставлением шаблонов и OCR цен.
 
         Returns:
-            PQShopItemGrid: 商品网格实例
+            PQShopItemGrid: Экземпляр сетки товаров.
         """
         shop_grid = self.shop_grid
         shop_private_quarters_items = PQShopItemGrid(shop_grid, templates={},
@@ -119,38 +115,35 @@ class PQShop(PQShopClerk, PQStatus):
         return shop_private_quarters_items
 
     def shop_items(self):
-        """
-        获取商店商品网格实例。
+        """Получить экземпляр сетки товаров магазина.
 
-        若存在服务器语言差异，参考 shop_guild/medal 的 @Config 方式。
+        При языковых различиях серверов ориентироваться на подход @Config в shop_guild/medal.
 
         Returns:
-            PQShopItemGrid: 商品网格实例
+            PQShopItemGrid: Экземпляр сетки товаров.
         """
         return self.shop_private_quarters_items
 
     def shop_currency(self):
-        """
-        OCR 识别商店货币（金币和钻石）并更新内部状态。
+        """Распознать через OCR валюту магазина (монеты и алмазы) и обновить внутреннее состояние.
 
         Pages:
-            in: 私人宿舍商店页
+            in: Страница магазина личных покоев
         """
         self._currency = self.status_get_gold_coins()
         self.gems = self.status_get_gems()
         logger.info(f'[Личные покои — магазин] Монеты: {self._currency}, самоцветы: {self.gems}')
 
     def shop_check_item(self, item):
-        """
-        检查商品是否可购买（余额是否充足）。
+        """Проверить, доступен ли товар для покупки (достаточен ли баланс).
 
-        玫瑰需要 24000+ 金币，蛋糕需要 210+ 钻石。
+        Розы требуют 24 000+ монет, торт требует 210+ алмазов.
 
         Args:
-            item: 待检查的商品
+            item: Проверяемый товар.
 
         Returns:
-            bool: 是否可购买
+            bool: Доступен ли для покупки.
         """
         if self.config.PrivateQuarters_BuyRoses:
             if item.sub_genre == 'roses':
@@ -167,16 +160,15 @@ class PQShop(PQShopClerk, PQStatus):
         return False
 
     def shop_get_item_to_buy(self, items):
-        """
-        从商品列表中筛选出第一个可购买的商品。
+        """Выбрать из списка товаров первый доступный для покупки.
 
         Args:
-            items (list[Item]): 商品列表
+            items (list[Item]): Список товаров.
 
         Returns:
-            Item: 待购买的商品，无可买项时返回 None
+            Item: Товар для покупки, либо None, если ничего недоступно.
         """
-        # 加载过滤条件，应用过滤，返回第一个结果
+        # Загружаем условия фильтра, применяем фильтрацию и возвращаем первый результат
         FILTER.load(self.shop_filter)
         filtered = FILTER.apply(items, self.shop_check_item)
 

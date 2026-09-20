@@ -1,5 +1,6 @@
-"""战斗通行证处理器，检测红点并领取战斗通行证奖励。
-通过颜色检测判断是否有可领取奖励，自动完成领取流程。
+"""Обработчик боевого пропуска: проверка красной точки и получение наград.
+
+Определяет наличие доступных наград по цвету индикатора и автоматически выполняет сбор.
 """
 
 from module.base.timer import Timer
@@ -15,19 +16,18 @@ from module.ui_white.assets import POPUP_CONFIRM_WHITE_BATTLEPASS
 
 class BattlePass(Combat, UI):
     def battle_pass_red_dot_appear(self):
-        """
-        检测战斗通行证红点是否出现。
+        """Проверить появление красной точки боевого пропуска.
 
         Returns:
-            bool: 红点是否出现。
+            bool: Отображается ли красная точка.
 
         Pages:
             in: page_reward
         """
         if self.appear(REWARD_GOTO_BATTLE_PASS, offset=(50, 150)):
-            # 从 REWARD_GOTO_BATTLE_PASS 加载按钮偏移，因为入口可能不在最上方。
+            # Загружаем смещение кнопки из REWARD_GOTO_BATTLE_PASS, потому что вход может находиться не в самом верху.
             BATTLE_PASS_RED_DOT.load_offset(REWARD_GOTO_BATTLE_PASS)
-            # 此处不使用 self.appear()，因为红点是透明的，颜色会随背景变化。
+            # Здесь не используем self.appear(): красная точка прозрачная, поэтому её цвет меняется вместе с фоном.
             r, _, _ = get_color(self.device.image, BATTLE_PASS_RED_DOT.button)
             if r > BATTLE_PASS_RED_DOT.color[0] - 40:
                 logger.info('[Бонусы — боевой пропуск] Найдена красная точка боевого пропуска')
@@ -43,8 +43,7 @@ class BattlePass(Combat, UI):
         return self.appear_then_click(PURCHASE_POPUP, offset=(20, 20), interval=2)
 
     def battle_pass_enter(self):
-        """
-        进入战斗通行证页面。
+        """Войти на страницу боевого пропуска.
 
         Pages:
             in: page_reward
@@ -58,14 +57,13 @@ class BattlePass(Combat, UI):
                       additional=self.handle_battle_pass_popup, skip_first_screenshot=True)
 
     def battle_pass_receive(self, skip_first_screenshot=True):
-        """
-        领取战斗通行证奖励。
+        """Забрать награды боевого пропуска.
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            skip_first_screenshot (bool): Пропускать ли первый скриншот.
 
         Returns:
-            bool: 是否领取了奖励。
+            bool: Были ли получены награды.
 
         Pages:
             in: page_battle_pass
@@ -99,7 +97,7 @@ class BattlePass(Combat, UI):
                     confirm_timer.reset()
                     continue
             if self.handle_popup_confirm('BATTLE_PASS'):
-                # 锁定新 META 舰船
+                # Блокировка нового корабля META
                 confirm_timer.reset()
                 continue
             if self.handle_get_items():
@@ -115,7 +113,7 @@ class BattlePass(Combat, UI):
                 confirm_timer.reset()
                 continue
 
-            # 结束
+            # Завершение
             if self.appear(BATTLE_PASS_CHECK, offset=(20, 20)) \
                     and not self.appear(REWARD_RECEIVE, offset=(20, 20)) \
                     and not self.appear(REWARD_RECEIVE_WHITE, offset=(20, 20)):

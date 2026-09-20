@@ -1,5 +1,6 @@
-"""模拟器基类定义。提供 EmulatorBase、EmulatorInstanceBase、
-EmulatorManagerBase 的抽象接口，定义模拟器路径和实例管理的通用协议。"""
+"""Определение базовых классов эмуляторов. Предоставляет абстрактные интерфейсы
+EmulatorBase, EmulatorInstanceBase, EmulatorManagerBase, определяя общий протокол
+управления путями и экземплярами эмуляторов."""
 
 import os
 import re
@@ -15,13 +16,13 @@ def abspath(path):
 
 def get_serial_pair(serial):
     """
-    根据 serial 推导对应的 serial 对。
+    Выводит парный серийный номер по переданному serial.
 
     Args:
-        serial (str): 设备序列号
+        serial (str): Серийный номер устройства.
 
     Returns:
-        tuple: `127.0.0.1:5555+{X}` 和 `emulator-5554+{X}`，其中 0 <= X <= 32
+        tuple: `127.0.0.1:5555+{X}` и `emulator-5554+{X}`, где 0 <= X <= 32.
     """
     if serial.startswith('127.0.0.1:'):
         try:
@@ -43,13 +44,13 @@ def get_serial_pair(serial):
 
 def remove_duplicated_path(paths):
     """
-    去除重复路径（大小写不敏感），保留第一次出现的原始大小写形式。
+    Удаляет дублирующиеся пути без учёта регистра, сохраняя исходный регистр первого вхождения.
 
     Args:
-        paths (list[str]): 路径列表
+        paths (list[str]): Список путей.
 
     Returns:
-        list[str]: 去重后的路径列表
+        list[str]: Список путей без дубликатов.
     """
     paths = sorted(set(paths))
     dic = {}
@@ -60,14 +61,14 @@ def remove_duplicated_path(paths):
 
 @dataclass
 class EmulatorInstanceBase:
-    """模拟器实例的基类数据结构。"""
-    # ADB 连接用的序列号
+    """Базовая структура данных экземпляра эмулятора."""
+    # Серийный номер для подключения ADB
     serial: str
-    # 模拟器实例名称，用于启停模拟器
+    # Имя экземпляра эмулятора, используется для запуска и остановки
     name: str
-    # 模拟器 .exe 文件路径
+    # Путь к .exe-файлу эмулятора
     path: str
-    # 特定模拟器的附加字段（可选）
+    # Дополнительное поле конкретного эмулятора (необязательно)
     index: int = 0
     state: str = ''
 
@@ -78,7 +79,7 @@ class EmulatorInstanceBase:
     def type(self) -> str:
         """
         Returns:
-            str: 模拟器类型，如 Emulator.NoxPlayer
+            str: Тип эмулятора, например Emulator.NoxPlayer.
         """
         return self.emulator.type
 
@@ -86,7 +87,7 @@ class EmulatorInstanceBase:
     def emulator(self):
         """
         Returns:
-            EmulatorBase: 当前实例对应的模拟器对象
+            EmulatorBase: Объект эмулятора, соответствующий текущему экземпляру.
         """
         return EmulatorBase(self.path)
 
@@ -108,15 +109,15 @@ class EmulatorInstanceBase:
     @cached_property
     def MuMuPlayer12_id(self):
         """
-        将 MuMu 12 实例名称转换为实例 ID。
-        示例名称:
+        Преобразует имя экземпляра MuMu 12 в идентификатор экземпляра (ID).
+        Примеры имён:
             MuMuPlayer-12.0-3
             MuMuPlayerGlobal-12.0-0
             MuMuPlayer-15.0-0
             YXArkNights-12.0-1
 
         Returns:
-            int: 实例 ID，如果不是 MuMu 12 实例则返回 None
+            int: Идентификатор экземпляра или None, если это не экземпляр MuMu 12.
         """
         res = re.search(r'MuMuPlayer(?:Global)?-12.0-(\d+)', self.name)
         if res:
@@ -132,26 +133,26 @@ class EmulatorInstanceBase:
 
     def mumu_vms_config(self, file):
         """
-        获取 MuMu 虚拟机配置文件的绝对路径。
+        Возвращает абсолютный путь к конфигурационному файлу виртуальной машины MuMu.
 
         Args:
-            file (str): 配置文件名，如 customer_config.json
+            file (str): Имя файла конфигурации, например customer_config.json.
 
         Returns:
-            str: 配置文件的绝对路径
+            str: Абсолютный путь к файлу конфигурации.
         """
         return self.emulator.abspath(f'../vms/{self.name}/configs/{file}')
 
     @cached_property
     def LDPlayer_id(self):
         """
-        将雷电模拟器实例名称转换为实例 ID。
-        示例名称:
+        Преобразует имя экземпляра эмулятора LDPlayer в идентификатор экземпляра (ID).
+        Примеры имён:
             leidian0
             leidian1
 
         Returns:
-            int: 实例 ID，如果不是雷电模拟器实例则返回 None
+            int: Идентификатор экземпляра или None, если это не экземпляр LDPlayer.
         """
         res = re.search(r'leidian(\d+)', self.name)
         if res:
@@ -161,8 +162,8 @@ class EmulatorInstanceBase:
 
 
 class EmulatorBase:
-    """模拟器基类，定义模拟器类型常量和通用接口。"""
-    # 此处的值必须与 argument.yaml 中 EmulatorInfo.Emulator.option 保持一致
+    """Базовый класс эмулятора, определяющий константы типов и общий интерфейс."""
+    # Значения здесь должны совпадать с EmulatorInfo.Emulator.option в argument.yaml
     NoxPlayer = 'NoxPlayer'
     NoxPlayer64 = 'NoxPlayer64'
     NoxPlayerFamily = [NoxPlayer, NoxPlayer64]
@@ -181,7 +182,7 @@ class EmulatorBase:
     MuMuPlayer12 = 'MuMuPlayer12'
     MuMuPlayerFamily = [MuMuPlayer, MuMuPlayerX, MuMuPlayer12]
     MEmuPlayer = 'MEmuPlayer'
-    # Mac 模拟器
+    # Эмуляторы для Mac
     BlueStacksAir = 'BlueStacksAir'
     MuMuPro = 'MuMuPro'
     MacEmulatorFamily = [BlueStacksAir, MuMuPro]
@@ -190,40 +191,40 @@ class EmulatorBase:
     @classmethod
     def path_to_type(cls, path: str) -> str:
         """
-        根据 .exe 文件路径判断模拟器类型。
+        Определяет тип эмулятора по пути к .exe-файлу.
 
         Args:
-            path: .exe 文件路径
+            path: Путь к .exe-файлу.
 
         Returns:
-            str: 模拟器类型，如 Emulator.NoxPlayer；如果不是模拟器则返回空字符串
+            str: Тип эмулятора, например Emulator.NoxPlayer; пустая строка, если не является эмулятором.
         """
         return ''
 
     def iter_instances(self) -> t.Iterable[EmulatorInstanceBase]:
         """
-        遍历当前模拟器中发现的所有实例。
+        Перебирает все обнаруженные экземпляры текущего эмулятора.
 
         Yields:
-            EmulatorInstanceBase: 模拟器实例
+            EmulatorInstanceBase: Экземпляр эмулятора.
         """
         pass
 
     def iter_adb_binaries(self) -> t.Iterable[str]:
         """
-        遍历当前模拟器中找到的 adb 二进制文件路径。
+        Перебирает пути к исполняемым файлам adb, найденным в текущем эмуляторе.
 
         Yields:
-            str: adb 二进制文件的绝对路径
+            str: Абсолютный путь к исполняемому файлу adb.
         """
         pass
 
     def __init__(self, path):
-        # .exe 文件路径
+        # Путь к .exe-файлу
         self.path = path.replace('\\', '/')
-        # 模拟器安装目录
+        # Каталог установки эмулятора
         self.dir = os.path.dirname(path)
-        # str: 模拟器类型，如果不是模拟器则为空字符串
+        # str: тип эмулятора; пустая строка, если это не эмулятор
         self.type = self.__class__.path_to_type(path)
 
     def __eq__(self, other):
@@ -252,77 +253,77 @@ class EmulatorBase:
     @classmethod
     def is_emulator(cls, path: str) -> bool:
         """
-        判断给定路径是否为模拟器。
+        Определяет, является ли указанный путь эмулятором.
 
         Args:
-            path: .exe 文件路径
+            path: Путь к .exe-файлу.
 
         Returns:
-            bool: 是否为模拟器
+            bool: Является ли эмулятором.
         """
         return bool(cls.path_to_type(path))
 
     def list_folder(self, folder, is_dir=False, ext=None):
         """
-        安全地列出文件夹中的文件。
+        Безопасно выводит список файлов в папке.
 
         Args:
-            folder: 文件夹路径（相对于模拟器目录）
-            is_dir: 是否只列目录
-            ext: 文件扩展名过滤
+            folder: Путь к папке (относительно каталога эмулятора).
+            is_dir: Перечислять ли только каталоги.
+            ext: Фильтр по расширению файла.
 
         Returns:
-            list[str]: 文件路径列表
+            list[str]: Список путей к файлам.
         """
         folder = self.abspath(folder)
         return list(iter_folder(folder, is_dir=is_dir, ext=ext))
 
 
 class EmulatorManagerBase:
-    """模拟器管理器基类，提供模拟器发现和枚举的通用接口。"""
+    """Базовый класс менеджера эмуляторов, предоставляющий общий интерфейс обнаружения и перечисления эмуляторов."""
 
     @staticmethod
     def iter_running_emulator():
         """
-        遍历正在运行的模拟器可执行文件路径。
+        Перебирает пути к исполняемым файлам запущенных эмуляторов.
 
         Yields:
-            str: 模拟器可执行文件路径，可能包含重复值
+            str: Путь к исполняемому файлу эмулятора, может содержать дубликаты.
         """
         return
 
     @cached_property
     def all_emulators(self) -> t.List[EmulatorBase]:
         """
-        获取当前计算机上安装的所有模拟器。
+        Возвращает все эмуляторы, установленные на текущем компьютере.
 
         Returns:
-            list[EmulatorBase]: 模拟器列表
+            list[EmulatorBase]: Список эмуляторов.
         """
         return []
 
     @cached_property
     def all_emulator_instances(self) -> t.List[EmulatorInstanceBase]:
         """
-        获取当前计算机上安装的所有模拟器实例。
+        Возвращает все экземпляры эмуляторов, установленные на текущем компьютере.
 
         Returns:
-            list[EmulatorInstanceBase]: 模拟器实例列表
+            list[EmulatorInstanceBase]: Список экземпляров эмуляторов.
         """
         return []
 
     @cached_property
     def all_emulator_serials(self) -> t.List[str]:
         """
-        获取当前计算机上所有可能的设备序列号。
+        Возвращает все возможные серийные номера устройств на текущем компьютере.
 
         Returns:
-            list[str]: 序列号列表
+            list[str]: Список серийных номеров.
         """
         out = []
         for emulator in self.all_emulator_instances:
             out.append(emulator.serial)
-            # 同时添加 `emulator-5554` 格式的序列号
+            # Также добавляем serial в формате `emulator-5554`
             port_serial, emu_serial = get_serial_pair(emulator.serial)
             if emu_serial:
                 out.append(emu_serial)
@@ -331,10 +332,10 @@ class EmulatorManagerBase:
     @cached_property
     def all_adb_binaries(self) -> t.List[str]:
         """
-        获取当前计算机上所有模拟器的 adb 二进制文件路径。
+        Возвращает пути к исполняемым файлам adb всех эмуляторов на текущем компьютере.
 
         Returns:
-            list[str]: adb 二进制文件路径列表
+            list[str]: Список путей к исполняемым файлам adb.
         """
         out = []
         for emulator in self.all_emulators:

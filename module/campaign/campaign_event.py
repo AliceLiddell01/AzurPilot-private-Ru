@@ -1,20 +1,20 @@
-"""战役活动管理模块。
+"""Модуль управления событиями кампании.
 
-管理活动战役的配置和状态，包括：
-- 活动结束时的自动禁用和配置重置
-- GemsFarming 任务的关卡重置（活动结束时回退到 2-4）
-- 活动推送通知
-- 活动页面的导航检测
+Управляет конфигурацией и состоянием событийных кампаний, включая:
+- Автоматическое отключение и сброс конфигурации по завершении события
+- Сброс этапа для задач GemsFarming (откат на 2-4 по окончании события)
+- Отправка push-уведомлений о событиях
+- Проверка доступности страниц событий при навигации
 
-支持的活动类型：
-- 普通活动（Event）
-- 突袭活动（Raid）
-- 联动活动（Coalition）
-- 作战档案（War Archives）
-- 医院活动（Hospital）
-- 海上护卫（MaritimeEscort）
+Поддерживаемые типы событий:
+- Обычные события (Event)
+- Рейдовые события (Raid)
+- Коллаборации (Coalition)
+- Военный архив (War Archives)
+- Госпиталь (Hospital)
+- Морской эскорт (MaritimeEscort)
 
-继承自 CampaignStatus，提供活动状态检测能力。
+Наследуется от CampaignStatus, обеспечивая возможность проверки статуса событий.
 """
 
 import re
@@ -32,16 +32,16 @@ from module.war_archives.assets import WAR_ARCHIVES_CAMPAIGN_CHECK
 
 
 class CampaignEvent(CampaignStatus):
-    """战役活动管理器。
+    """Менеджер событий кампании.
 
-    处理活动的生命周期管理，包括活动检测、禁用、配置重置和通知。
+    Обрабатывает жизненный цикл событий: обнаружение, отключение, сброс настроек и уведомления.
     """
     def _reset_gems_farming(self, tasks):
         """
-        活动结束时将 GemsFarming 重置为 2-4。
+        Сбрасывает этап GemsFarming на 2-4 по завершении события.
 
         Args:
-            tasks (list[str]): 任务名称列表。
+            tasks (list[str]): Список названий задач.
         """
         for task in tasks:
             if task not in GEMS_FARMINGS:
@@ -54,13 +54,13 @@ class CampaignEvent(CampaignStatus):
 
     def _disable_tasks(self, tasks):
         """
-        禁用指定任务列表中的任务。
+        Отключает задачи из указанного списка задач.
 
         Args:
-            tasks (list[str]): 任务名称列表。
+            tasks (list[str]): Список названий задач.
         """
         with self.config.multi_set():
-            # 禁用普通活动任务
+            # Отключаем обычные задачи события
             for task in tasks:
                 if task in GEMS_FARMINGS:
                     continue
@@ -72,7 +72,7 @@ class CampaignEvent(CampaignStatus):
                 keys = f'{task}.Emotion.Fleet2Onsen'
                 self.config.cross_set(keys=keys, value=False)
 
-            # 重置 GemsFarming
+            # Сбрасываем GemsFarming
             self._reset_gems_farming(tasks)
 
             logger.info(f'[Кампания события] Ограничение времени события сброшено')
@@ -80,15 +80,15 @@ class CampaignEvent(CampaignStatus):
 
     def event_pt_limit_triggered(self):
         """
-        检查活动 PT 是否达到限制。
+        Проверяет, достигнут ли лимит очков события (PT).
 
         Returns:
-            bool: 是否触发 PT 限制。
+            bool: Сработал ли лимит очков события.
 
         Pages:
             in: page_event or page_sp
         """
-        # 部分配置可能使用 "100,000" 这种带逗号的格式
+        # Некоторые конфигурации могут использовать формат с разделителем тысяч, например "100,000"
         limit = int(
             re.sub(r'[,.\'"，。]', '', str(self.config.EventGeneral_PtLimit))
         )
@@ -112,10 +112,10 @@ class CampaignEvent(CampaignStatus):
 
     def coin_limit_triggered(self):
         """
-        检查金币数量是否达到 StopCondition.CoinLimit 限制。
+        Проверяет, достигло ли количество монет лимита StopCondition.CoinLimit.
 
         Returns:
-            bool: 是否触发金币限制。
+            bool: Сработал ли лимит монет.
         """
         limit = int(
             re.sub(r'[,.\'"，。]', '', str(self.config.StopCondition_CoinLimit))
@@ -125,7 +125,7 @@ class CampaignEvent(CampaignStatus):
 
         coin = self.get_coin()
         if coin == 0:
-            # 避免 OCR 识别错误/返回零值
+            # Защита от ошибки OCR / нулевого результата
             logger.warning('[Кампания события] Монеты не найдены')
             return False
 
@@ -144,10 +144,10 @@ class CampaignEvent(CampaignStatus):
 
     def event_time_limit_triggered(self):
         """
-        检查活动时间是否达到限制。
+        Проверяет, достигнуто ли ограничение по времени события.
 
         Returns:
-            bool: 是否触发时间限制。
+            bool: Сработало ли ограничение времени.
 
         Pages:
             in: page_event or page_sp
@@ -171,10 +171,10 @@ class CampaignEvent(CampaignStatus):
 
     def triggered_task_balancer(self):
         """
-        检查任务均衡器是否触发。
+        Проверяет, сработал ли балансировщик задач.
 
         Returns:
-            bool: 是否触发任务切换。
+            bool: Требуется ли переключение задачи.
 
         Pages:
             in: page_event or page_sp
@@ -184,9 +184,9 @@ class CampaignEvent(CampaignStatus):
         coin = deep_get(self.config.data, 'Dashboard.Coin.Value')
         logger.attr('Количество монет', coin)
 
-        # 检查金币
+        # Проверяем монеты
         if coin == 0:
-            # 避免 OCR 识别错误/返回零值
+            # Защита от ошибки OCR / нулевого результата
             logger.warning('[Кампания события] Монеты не найдены')
             return False
         else:
@@ -209,13 +209,13 @@ class CampaignEvent(CampaignStatus):
 
     def is_event_entrance_available(self):
         """
-        检查活动入口是否可用。
+        Проверяет доступность входа в событие.
 
         Returns:
-            bool: 可用返回 True。
+            bool: True, если вход доступен.
 
         Raises:
-            TaskEnd: 不可用时抛出。
+            TaskEnd: Выбрасывается, если событие недоступно.
         """
         if self.appear(CAMPAIGN_MENU_NO_EVENT, offset=(20, 20)):
             logger.info('[Кампания события] Событие недоступно; задача отключена')
@@ -227,7 +227,7 @@ class CampaignEvent(CampaignStatus):
             return True
 
     def ui_goto_event(self):
-        # 已在 page_event，跳过活动检查。
+        # Уже на page_event, поэтому проверку события пропускаем.
         if self.ui_get_current_page() == page_event:
             if self.appear(WAR_ARCHIVES_CAMPAIGN_CHECK, offset=(20, 20)):
                 logger.info('[Кампания события] Открыты Архивы')
@@ -236,13 +236,13 @@ class CampaignEvent(CampaignStatus):
                 logger.info('[Кампания события] Уже на странице события')
                 return True
         self.ui_goto(page_campaign_menu)
-        # 检查活动是否可用
+        # Проверяем доступность события
         if self.is_event_entrance_available():
             self.ui_goto(page_event)
             return True
 
     def ui_goto_sp(self):
-        # 已在 page_sp，跳过活动检查。
+        # Уже на page_sp, поэтому проверку события пропускаем.
         if self.ui_get_current_page() == page_sp:
             if self.appear(WAR_ARCHIVES_CAMPAIGN_CHECK, offset=(20, 20)):
                 logger.info('[Кампания события] Открыты Архивы')
@@ -251,26 +251,27 @@ class CampaignEvent(CampaignStatus):
                 logger.info('[Кампания события] Уже на странице SP')
                 return True
         self.ui_goto(page_campaign_menu)
-        # 检查活动是否可用
+        # Проверяем доступность события
         if self.is_event_entrance_available():
             self.ui_goto(page_sp)
             return True
 
     def ui_goto_coalition(self):
-        # 已在 page_coalition，跳过活动检查。
+        # Уже на page_coalition, поэтому проверку события пропускаем.
         if self.ui_get_current_page() == page_coalition:
             logger.info('[Кампания события] Уже на странице коллаборации')
             return True
         else:
             self.ui_goto(page_campaign_menu)
-            # 检查活动是否可用
+            # Проверяем доступность события
             if self.is_event_entrance_available():
                 self.ui_goto(page_coalition)
                 return True
 
     def disable_raid_on_event(self):
         """
-        进入活动时禁用突袭（或联动）任务，防止用户忘记在突袭结束后手动禁用。
+        Отключает задачи рейдов (или коллабораций) при входе в событие,
+        чтобы предотвратить работу устаревших рейдов, если пользователь забыл отключить их вручную.
         """
         command = self.config.Scheduler_Command
         if command not in EVENTS + GEMS_FARMINGS:
@@ -289,7 +290,8 @@ class CampaignEvent(CampaignStatus):
 
     def disable_event_on_raid(self):
         """
-        进入突袭或联动时禁用活动任务，防止用户忘记在活动结束后手动禁用。
+        Отключает задачи обычных событий при входе в рейд или коллаборацию,
+        чтобы предотвратить работу устаревших событий, если пользователь забыл отключить их вручную.
         """
         command = self.config.Scheduler_Command
         if command not in RAIDS + COALITIONS + MARITIME_ESCORTS:
@@ -308,10 +310,10 @@ class CampaignEvent(CampaignStatus):
     @staticmethod
     def stage_is_main(name) -> bool:
         """
-        判断给定关卡名称是否为主线关卡。
+        Определяет, является ли указанное название этапа этапом основной кампании.
 
         Args:
-            name (str): 关卡名称，如 `7-2`、`D3`。
+            name (str): Название этапа, например `7-2`, `D3`.
         """
         regex_main = re.compile(r'\d{1,2}[-_]\d')
         return bool(regex_main.search(name))

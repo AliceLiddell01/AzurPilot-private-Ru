@@ -190,7 +190,7 @@ class Benchmark(DaemonBase, CampaignUI):
             result = self.benchmark_test(self.device.screenshot_methods[method])
             screenshot_result.append([method, result])
 
-        area = (124, 4, 649, 106)  # 屏幕上可安全点击的区域
+        area = (124, 4, 649, 106)  # Область экрана, безопасная для кликов
         click_result = []
         for method in click:
             x, y = random_rectangle_point(area)
@@ -215,7 +215,7 @@ class Benchmark(DaemonBase, CampaignUI):
         if click_result:
             self.show(test='Управление', data=click_result, evaluate_func=self.evaluate_click)
             fastest = sorted(click_result, key=lambda item: compare(item))[0]
-            # 如果 minitouch 和 MaaTouch 都是最快的，优先选择 MaaTouch
+            # Если minitouch и MaaTouch одинаково быстры, предпочитаем MaaTouch
             if 'MaaTouch' in click and fastest[0] == 'minitouch':
                 fastest[0] = 'MaaTouch'
             logger.info(f'Рекомендуемый метод управления: {fastest[0]} ({float2str(fastest[1])})')
@@ -236,19 +236,19 @@ class Benchmark(DaemonBase, CampaignUI):
         def remove(*args):
             return [l for l in screenshot if l not in args]
 
-        # Android > 9 不支持 aScreenCap
+        # Android > 9 не поддерживает aScreenCap
         sdk = self.device.sdk_ver
         logger.info(f'sdk_ver: {sdk}')
         if not (21 <= sdk <= 28):
             screenshot = remove('aScreenCap', 'aScreenCap_nc')
-        # 云手机不支持 nc 本地回环
+        # Облачные телефоны не поддерживают локальную петлю nc
         if device in ['plone_cloud_with_adb']:
             screenshot = remove('ADB_nc', 'aScreenCap_nc')
-        # VMOS 虚拟机仅支持部分方法
+        # В виртуальной машине VMOS поддерживается только часть методов
         if device == 'android_phone_vmos':
             screenshot = ['ADB', 'aScreenCap', 'DroidCast', 'DroidCast_raw']
             click = ['ADB', 'Hermit', 'MaaTouch']
-        # DroidCast 仅支持 SDK 23 (Android 6.0) 到 SDK 32 (Android 12)
+        # DroidCast поддерживает только SDK 23 (Android 6.0) — SDK 32 (Android 12)
         if not (23 <= sdk <= 32):
             screenshot = remove('DroidCast', 'DroidCast_raw')
 
