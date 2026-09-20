@@ -32,6 +32,14 @@ class _ResponseError(Exception):
     pass
 
 
+class _NoPermissionError(_ResponseError):
+    pass
+
+
+class _AuthorizationError(_ConnectionError):
+    pass
+
+
 class _NoBackoff:
     pass
 
@@ -84,6 +92,8 @@ def _install_fake_redis(monkeypatch: pytest.MonkeyPatch) -> None:
     module.Redis = _FakeRedis  # type: ignore[attr-defined]
     module.exceptions = SimpleNamespace(
         AuthenticationError=_AuthenticationError,
+        NoPermissionError=_NoPermissionError,
+        AuthorizationError=_AuthorizationError,
         TimeoutError=_TimeoutError,
         ConnectionError=_ConnectionError,
         ResponseError=_ResponseError,
@@ -156,6 +166,8 @@ def test_runtime_cache_recreates_client_after_pid_change(monkeypatch: pytest.Mon
     ("error", "expected"),
     (
         (_AuthenticationError("provider-secret"), RuntimeCacheStatus.AUTH_FAILED),
+        (_NoPermissionError("provider-secret"), RuntimeCacheStatus.AUTH_FAILED),
+        (_AuthorizationError("provider-secret"), RuntimeCacheStatus.AUTH_FAILED),
         (_TimeoutError("provider-secret"), RuntimeCacheStatus.TIMEOUT),
         (_ConnectionError("provider-secret"), RuntimeCacheStatus.UNAVAILABLE),
         (_ResponseError("provider-secret"), RuntimeCacheStatus.INVALID_DATA),
@@ -174,6 +186,19 @@ def test_runtime_cache_health_maps_provider_errors_without_payload_leak(
 
     assert health.status is expected
     assert "provider-secret" not in str(RuntimeCacheError(expected))
+
+
+def test_runtime_cache_maps_pinned_redis_acl_exception_hierarchy():
+    import redis
+
+    assert issubclass(redis.exceptions.NoPermissionError, redis.exceptions.ResponseError)
+    assert issubclass(redis.exceptions.AuthorizationError, redis.exceptions.ConnectionError)
+    assert redis_runtime_cache.RedisRuntimeCache._error_for(
+        redis.exceptions.NoPermissionError("provider-secret")
+    ).status is RuntimeCacheStatus.AUTH_FAILED
+    assert redis_runtime_cache.RedisRuntimeCache._error_for(
+        redis.exceptions.AuthorizationError("provider-secret")
+    ).status is RuntimeCacheStatus.AUTH_FAILED
 
 
 def test_runtime_cache_rejects_unscoped_keys_and_invalid_expiry(

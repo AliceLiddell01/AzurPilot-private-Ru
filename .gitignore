@@ -212,6 +212,7 @@ celerybeat-schedule
 
 # Environments
 .env
+.azurpilot-runtime.env
 .venv
 env/
 venv/

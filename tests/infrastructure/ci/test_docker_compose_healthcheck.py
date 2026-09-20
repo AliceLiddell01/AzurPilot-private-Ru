@@ -199,6 +199,11 @@ def test_redis_runtime_cache_and_redisinsight_are_authenticated_and_loopback_onl
     assert "user default off" in redis["command"][-1]
     assert "user azurpilot_app" in redis["command"][-1]
     assert "unsupported characters" in redis["command"][-1]
+    assert "rm -f -- /data/acl.conf" in redis["command"][-1]
+    assert "aclfile /run/redis/acl.conf" in redis["command"][-1]
+    assert "aclfile /data/acl.conf" not in redis["command"][-1]
+    assert redis["tmpfs"] == ["/run/redis:rw,noexec,nosuid,nodev,mode=1777"]
+    assert all(volume["target"] != "/run/redis" for volume in redis["volumes"])
     assert redis["healthcheck"]["test"][0:1] == ["CMD-SHELL"]
     assert "REDISCLI_AUTH" in redis["healthcheck"]["test"][1]
     assert compose_data["volumes"]["redis-data"]["name"] == "azurpilot-redis-data"

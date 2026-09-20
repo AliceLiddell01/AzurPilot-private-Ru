@@ -182,7 +182,14 @@ class RedisRuntimeCache:
         try:
             import redis
 
-            if isinstance(error, redis.exceptions.AuthenticationError):
+            if isinstance(
+                error,
+                (
+                    redis.exceptions.AuthenticationError,
+                    redis.exceptions.NoPermissionError,
+                    redis.exceptions.AuthorizationError,
+                ),
+            ):
                 status = RuntimeCacheStatus.AUTH_FAILED
             elif isinstance(error, (redis.exceptions.TimeoutError, TimeoutError)):
                 status = RuntimeCacheStatus.TIMEOUT

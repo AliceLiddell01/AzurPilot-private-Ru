@@ -74,6 +74,8 @@ def _prepare_runtime_sources(root: Path) -> None:
                 "AZURPILOT_REDIS_PORT=6379",
                 "AZURPILOT_REDIS_USERNAME=azurpilot_app",
                 "AZURPILOT_REDIS_PASSWORD=runtime-redis-secret",
+                "AZURPILOT_REDIS_ADMIN_PASSWORD=operator-only-admin-secret",
+                "AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY=operator-only-encryption-key",
             )
         )
         + "\n",
@@ -190,6 +192,8 @@ def test_docker_runtime_secret_is_mount_only_and_never_evidence(tmp_path: Path):
                 "AZURPILOT_REDIS_PORT=6379",
                 "AZURPILOT_REDIS_USERNAME=azurpilot_app",
                 "AZURPILOT_REDIS_PASSWORD=runtime-redis-secret",
+                "AZURPILOT_REDIS_ADMIN_PASSWORD=operator-only-admin-secret",
+                "AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY=operator-only-encryption-key",
             )
         )
         + "\n",
@@ -202,7 +206,15 @@ def test_docker_runtime_secret_is_mount_only_and_never_evidence(tmp_path: Path):
     assert any("readonly" in argument for argument in mount)
     assert any("/run/secrets/storage_backend.json" in argument for argument in mount)
     assert any("/run/azurpilot:noexec" in argument for argument in mount)
+    assert any(".azurpilot-runtime.env" in argument for argument in mount)
+    assert not any("source=" + str(root / ".env") in argument for argument in mount)
     assert secret_value not in " ".join(mount)
+    staged_env = root / ".azurpilot-runtime.env"
+    assert staged_env.is_file()
+    staged_payload = staged_env.read_text(encoding="utf-8")
+    assert "AZURPILOT_REDIS_PASSWORD=runtime-redis-secret" in staged_payload
+    assert "AZURPILOT_REDIS_ADMIN_PASSWORD" not in staged_payload
+    assert "AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY" not in staged_payload
 
 
 def test_docker_runtime_requires_local_env_for_database_credentials(tmp_path: Path):
@@ -237,6 +249,8 @@ def test_docker_runtime_entrypoint_stages_bind_sources_without_exposing_values(
                 "AZURPILOT_REDIS_PORT=6379",
                 "AZURPILOT_REDIS_USERNAME=azurpilot_app",
                 "AZURPILOT_REDIS_PASSWORD=runtime-redis-secret",
+                "AZURPILOT_REDIS_ADMIN_PASSWORD=redis-admin-secret",
+                "AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY=redis-insight-key",
             )
         )
         + "\n",
@@ -262,6 +276,9 @@ def test_docker_runtime_entrypoint_stages_bind_sources_without_exposing_values(
 
     staged_env = (runtime_dir / ".env").read_text(encoding="utf-8")
     assert f"AZURPILOT_POSTGRES_PASSWORD={secret_value}" in staged_env
+    assert "AZURPILOT_REDIS_PASSWORD=runtime-redis-secret" in staged_env
+    assert "AZURPILOT_REDIS_ADMIN_PASSWORD" not in staged_env
+    assert "AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY" not in staged_env
     assert "PGPASSFILE=" + str(runtime_dir / "pgpass.conf") in staged_env
     assert (runtime_dir / "pgpass.conf").read_text(encoding="utf-8") == "passfile-secret\n"
     assert os.environ["AZURPILOT_LOCAL_ENV_PATH"] == str(runtime_dir / ".env")

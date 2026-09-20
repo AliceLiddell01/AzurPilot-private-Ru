@@ -155,12 +155,17 @@ adapter не изменяет admin password, named volumes или Compose state
     AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY=<случайный_ключ_шифрования>
     AZURPILOT_REDISINSIGHT_PORT=5540
 
-Redis secrets не передаются в argv и не записываются в Compose evidence. App
-пользователь ограничен namespace `azurpilot:*` и командами cache; admin secret
-нужен только для операторского подключения. RedisInsight получает endpoint и
-username через официальные environment-параметры, а пароль вводится в его UI
-при первом подключении. Все строки выше относятся к защищённому локальному
-`.env` и не должны попадать в Git, логи или скриншоты `docker inspect`.
+Redis secrets не передаются в argv и не записываются в Compose evidence. При
+Docker deployment application получает отдельный staged runtime payload: app
+credential и transport остаются доступны cache adapter, а
+`AZURPILOT_REDIS_ADMIN_PASSWORD` и `AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY` в
+application container не монтируются. App пользователь ограничен namespace
+`azurpilot:*` и командами cache; admin secret нужен только для операторского
+подключения. RedisInsight получает endpoint и username через официальные
+environment-параметры, а пароль вводится в его UI при первом подключении.
+`RI_ENCRYPTION_KEY` сейчас является обычным RedisInsight environment value: он не
+хранится в Git и не должен выводиться приложением, логами или evidence, но
+доступен Docker operator/admin через container metadata/`docker inspect`.
 
 ## Запуск и обслуживание
 
@@ -247,7 +252,11 @@ canonical project, healthy Redis container, Compose network и DNS alias до
 передачи transport overrides приложению. Redis включён с AOF и
 `appendfsync everysec`; named volume `azurpilot-redis-data` сохраняет cache
 между обычным restart Redis, но данные всё равно считаются временными и могут
-быть пересозданы приложением.
+быть пересозданы приложением. Secret-derived ACL file создаётся на каждом
+запуске в непостоянном `/run/redis` (`tmpfs`); persistent `/data` содержит AOF и
+cache, но не reusable app/admin passwords. При переходе со старой реализации
+startup удаляет только устаревший `/data/acl.conf`; AOF, cache keys и named
+volume не удаляются.
 
 Проверка без публикации secret:
 

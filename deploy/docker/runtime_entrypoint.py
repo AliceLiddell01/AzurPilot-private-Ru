@@ -6,6 +6,10 @@ import os
 import sys
 from pathlib import Path
 
+from module.persistence.local_environment_schema import (
+    APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS,
+)
+
 _MAX_RUNTIME_FILE_SIZE = 65_536
 _ENV_SOURCE = Path("/run/secrets/azurpilot.env")
 _PASSFILE_SOURCE = Path("/run/secrets/azurpilot.pgpass")
@@ -56,6 +60,31 @@ def _read_source(path: Path) -> bytes:
     if len(payload) > _MAX_RUNTIME_FILE_SIZE:
         raise RuntimeError("Исходный файл среды выполнения Docker превышает допустимый размер.")
     return payload
+
+
+def _filter_application_runtime_environment(payload: bytes) -> bytes:
+    """Удалить operator-only Redis values из application runtime payload."""
+
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeError as exc:
+        raise RuntimeError("Локальный Docker env невозможно безопасно прочитать.") from exc
+    lines: list[str] = []
+    seen: set[str] = set()
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        if line.lstrip().startswith("#") or "=" not in line:
+            lines.append(raw_line)
+            continue
+        key, _value = line.split("=", 1)
+        key = key.strip()
+        if key in APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS:
+            if key in seen:
+                raise RuntimeError("Локальный Docker env содержит дублирующийся operator key.")
+            seen.add(key)
+            continue
+        lines.append(raw_line)
+    return "".join(lines).encode("utf-8")
 
 
 def _replace_passfile_paths(payload: bytes) -> bytes:
@@ -340,6 +369,7 @@ def _prepare_runtime_files() -> None:
             b"/run/secrets/azurpilot.pgpass",
             str(_PASSFILE_TARGET).encode("ascii"),
         )
+        env_payload = _filter_application_runtime_environment(env_payload)
         if redis_transport is not None:
             env_payload = _replace_redis_transport(env_payload)
         _write_runtime_file(_ENV_TARGET, env_payload)

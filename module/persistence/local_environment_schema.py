@@ -150,6 +150,17 @@ SECRET_ENVIRONMENT_KEYS = frozenset(
     entry.name for entry in LOCAL_ENVIRONMENT_REGISTRY if entry.secret
 )
 
+# Эти значения нужны только operator boundary Redis и не должны пересекать
+# application runtime boundary даже при общем локальном source `.env`.
+APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS = frozenset(
+    {
+        "AZURPILOT_REDIS_ADMIN_PASSWORD",
+        "AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY",
+    }
+)
+if not APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS.issubset(LOCAL_ENVIRONMENT_KEYS):
+    raise RuntimeError("Registry локального environment не описывает operator-only keys.")
+
 
 def get_local_environment_key(name: str) -> LocalEnvironmentKey | None:
     """Вернуть точное описание ключа или ``None`` для неизвестного имени."""

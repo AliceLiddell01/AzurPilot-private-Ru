@@ -77,6 +77,8 @@ services:
         admin_password="$$(cat /run/secrets/redis_admin_password)"
         test -n "$$app_password"
         test -n "$$admin_password"
+        rm -f -- /data/acl.conf
+        mkdir -p /run/redis
         case "$$app_password$$admin_password" in
           *[!A-Za-z0-9._~+=:@%/,-]*)
             echo "Redis secrets contain unsupported characters" >&2
@@ -87,8 +89,8 @@ services:
           'user default off -@all' \
           "user azurpilot_app on >$$app_password ~azurpilot:* +ping +get +set +del +expire +expireat +ttl" \
           "user azurpilot_admin on >$$admin_password ~* +@all" \
-          >/data/acl.conf
-        exec redis-server --appendonly yes --appendfsync everysec --aclfile /data/acl.conf
+          >/run/redis/acl.conf
+        exec redis-server --appendonly yes --appendfsync everysec --aclfile /run/redis/acl.conf
     ports:
       - "127.0.0.1:${AZURPILOT_REDIS_PORT:-6379}:6379"
     secrets:
@@ -98,6 +100,8 @@ services:
       - type: volume
         source: redis-data
         target: /data
+    tmpfs:
+      - /run/redis:rw,noexec,nosuid,nodev,mode=1777
     healthcheck:
       test:
         - CMD-SHELL

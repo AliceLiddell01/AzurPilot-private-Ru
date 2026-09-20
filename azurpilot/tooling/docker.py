@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import time
@@ -22,7 +23,7 @@ from .contracts import (
     ToolingResult,
 )
 from .errors import ToolingError
-from .filesystem import canonical_path, path_has_link
+from .filesystem import ScopedPath, canonical_path, path_has_link
 from .process import ProcessSpec, StructuredProcessRunner, docker_environment
 from .repository import RepositoryResolver
 
@@ -36,6 +37,7 @@ _SOURCE_REQUIRED_PATHS = (
     Path("deploy/docker/Dockerfile"),
 )
 _BACKEND_MARKER_PATH = Path("config/state/storage_backend.json")
+_RUNTIME_APPLICATION_ENV_PATH = Path(".azurpilot-runtime.env")
 _COMPOSE_FILE_PATH = Path("infrastructure/observability/compose.yaml")
 _COMPOSE_PROJECT = "azurpilot-infrastructure"
 _COMPOSE_POSTGRES_SERVICE = "postgres"
@@ -304,11 +306,28 @@ class DockerDeploymentService:
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "PGPASSFILE отсутствует или имеет небезопасный путь.",
             )
+        try:
+            from deploy.docker.runtime_entrypoint import (
+                _filter_application_runtime_environment,
+            )
+
+            staged_payload = _filter_application_runtime_environment(env_path.read_bytes())
+            staged_env_path = ScopedPath(root).atomic_write_bytes(
+                _RUNTIME_APPLICATION_ENV_PATH,
+                staged_payload,
+            )
+            if os.name != "nt":
+                staged_env_path.chmod(0o600)
+        except (OSError, RuntimeError, UnicodeError) as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Application runtime env невозможно безопасно подготовить.",
+            ) from exc
         mounts.extend(
             (
                 "--mount",
                 "type=bind,source="
-                + str(canonical_path(env_path))
+                + str(canonical_path(staged_env_path))
                 + ",target=/run/secrets/azurpilot.env,readonly",
                 "--mount",
                 "type=bind,source="
@@ -724,7 +743,6 @@ class DockerDeploymentService:
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "PostgreSQL и Redis не доказаны в одной canonical Compose network.",
             )
-        runtime_mount, runtime_secret_mode = self._runtime_secret_mount(root)
         self._run(
             docker,
             root,
@@ -748,6 +766,7 @@ class DockerDeploymentService:
                 ResultCode.TOOLING_OPERATION_CONFLICT,
                 "Контейнер уже существует; повторите с явным --replace.",
             )
+        runtime_mount, runtime_secret_mode = self._runtime_secret_mount(root)
         replacement = False
         rollback_name: str | None = None
         existing_running = False
