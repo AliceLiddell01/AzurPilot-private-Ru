@@ -2685,12 +2685,48 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if wsl_bundle_path is None:
                 return False
             git = GitClient(root)
+            parent_values = tuple(
+                git.text(
+                    "rev-list",
+                    "--parents",
+                    "-n",
+                    "1",
+                    expected_base,
+                    timeout_seconds=30,
+                ).split()
+            )
+            if not parent_values or parent_values[0] != expected_base:
+                return False
+            base_parents = parent_values[1:]
+            if any(_SHA_RE.fullmatch(value) is None for value in base_parents):
+                return False
+            namespace = (
+                "refs/azurpilot/coderabbit/transport/" + secrets.token_hex(12)
+            )
+            base_ref = f"{namespace}/base"
+            head_ref = f"{namespace}/head"
+            temporary_refs = [(base_ref, expected_base), (head_ref, expected_head)]
+            temporary_refs.extend(
+                (f"{namespace}/base-parent-{index}", parent)
+                for index, parent in enumerate(base_parents)
+            )
+            created_refs: list[tuple[str, str]] = []
+            for ref, value in temporary_refs:
+                git.run(
+                    "update-ref",
+                    ref,
+                    value,
+                    "0" * 40,
+                    timeout_seconds=30,
+                )
+                created_refs.append((ref, value))
             git.run(
                 "bundle",
                 "create",
                 str(bundle_path),
-                expected_base,
-                expected_head,
+                head_ref,
+                base_ref,
+                *(f"^{ref}" for ref, _value in temporary_refs[2:]),
                 timeout_seconds=120,
             )
             if not bundle_path.is_file():
@@ -2699,12 +2735,27 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "fetch",
                 "--no-tags",
                 wsl_bundle_path,
+                head_ref,
+                base_ref,
                 timeout=15 * 60,
             )
             return not self._command_failed(fetched)
         except (OSError, ToolingError, ValueError):
             return False
         finally:
+            if "created_refs" in locals():
+                for ref, value in reversed(created_refs):
+                    try:
+                        GitClient(root).run(
+                            "update-ref",
+                            "-d",
+                            ref,
+                            value,
+                            timeout_seconds=30,
+                            allow_nonzero=True,
+                        )
+                    except (OSError, ToolingError, ValueError):
+                        pass
             if bundle_path is not None:
                 try:
                     bundle_path.unlink(missing_ok=True)
