@@ -237,6 +237,45 @@ def test_legacy_active_state_is_migrated_without_becoming_native_active(tmp_path
     assert state["provider_state"] == "legacy_state_migrated"
 
 
+def test_legacy_default_finding_disposition_is_not_verified_triage(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    layout = StateLayout.for_repository(root)
+    layout.ensure()
+    layout.path("coderabbit-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+                "base_sha": "a" * 40,
+                "reviewed_head": "b" * 40,
+                "substantive_iterations": 2,
+                "terminal": True,
+                "findings": [
+                    {
+                        "severity": "major",
+                        "path": "azurpilot/tooling/git.py",
+                        "impact": "Provider finding",
+                        "disposition": "insufficient evidence",
+                        "resolution": "Provider suggestion",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = coderabbit.CodeRabbitAdapter._load_review_state(root)
+
+    assert state["findings"][0]["disposition"] is None
+    assert state["triage_complete"] is False
+    assert state["cycle_status"] == "triage_required"
+    assert state["terminal"] is False
+
+
 def test_exact_liveness_blocks_duplicate_review(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
     root = tmp_path / "checkout"
@@ -345,6 +384,233 @@ def test_review_persists_native_identity_then_clears_it_after_exact_postconditio
     assert state["provider_identity"] is None
 
 
+def test_provider_findings_require_individual_triage_before_next_review(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "base_sha": "a" * 40,
+            "substantive_iterations": 1,
+            "iterations": 1,
+        }
+    )
+    adapter._save_review_state(root, state)
+    provider_findings = "\n".join(
+        json.dumps(
+            {
+                "type": "finding",
+                "finding": {
+                    "path": f"azurpilot/module_{index}.py",
+                    "severity": "major",
+                    "comment": f"Проверить finding {index}.",
+                    "classification": "confirmed",
+                },
+            },
+            ensure_ascii=False,
+        )
+        for index in range(1, 9)
+    )
+    review_result = _result(
+        root,
+        stdout=provider_findings + "\n" + json.dumps({"type": "complete"}) + "\n",
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    candidate_calls = iter(((fingerprint, None, None), (fingerprint, None, None)))
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: next(candidate_calls),
+    )
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(review_result),
+    )
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-1",
+    )
+    saved = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == "CODERABBIT_TRIAGE_REQUIRED"
+    assert outcome.record.state is IntegrationState.DEGRADED
+    assert len(outcome.findings) == 8
+    assert all(finding.disposition is None for finding in outcome.findings)
+    assert saved["substantive_iterations"] == 2
+    assert saved["cycle_status"] == "triage_required"
+    assert saved["terminal"] is False
+    assert saved["triage_complete"] is False
+    assert outcome.coderabbit_cycle is not None
+    assert outcome.coderabbit_cycle.triaged_findings_count == 0
+    assert outcome.coderabbit_cycle.triage_required is True
+
+    blocked = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-1",
+    )
+    assert blocked.record.reason_code == "CODERABBIT_TRIAGE_REQUIRED"
+    assert blocked.record.state is IntegrationState.DEGRADED
+
+
+def test_triage_requires_evidence_and_new_exact_head_for_confirmed_findings(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    first = coderabbit.CandidateFingerprint(
+        "a" * 24, "hosted:github.com/example/project", "a" * 40, "b" * 40, "c" * 64
+    )
+    second = coderabbit.CandidateFingerprint(
+        "a" * 24, "hosted:github.com/example/project", "a" * 40, "c" * 40, "d" * 64
+    )
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "base_sha": "a" * 40,
+            "substantive_iterations": 1,
+            "iterations": 1,
+        }
+    )
+    adapter._save_review_state(root, state)
+    first_review = "\n".join(
+        json.dumps(
+            {
+                "type": "finding",
+                "finding": {
+                    "path": f"azurpilot/module_{index}.py",
+                    "severity": "major",
+                    "comment": f"Проверить finding {index}.",
+                },
+            },
+            ensure_ascii=False,
+        )
+        for index in range(1, 9)
+    )
+    provider_results = iter(
+        (
+            _result(root, stdout=first_review + "\n" + json.dumps({"type": "complete"}) + "\n"),
+            _result(root, stdout=json.dumps({"type": "complete", "findings": []}) + "\n"),
+        )
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    candidate_calls = iter(
+        ((first, None, None), (first, None, None), (second, None, None), (second, None, None))
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: next(candidate_calls),
+    )
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(next(provider_results)),
+    )
+
+    first_outcome = adapter.review(
+        root, IntegrationConfig(), base_sha="a" * 40, head_sha="b" * 40, task_id="task-1"
+    )
+    assert first_outcome.record.reason_code == "CODERABBIT_TRIAGE_REQUIRED"
+
+    manifest = tmp_path / "triage.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "base_sha": "a" * 40,
+                "reviewed_head": "b" * 40,
+                "findings": [
+                    {
+                        "index": index,
+                        "triage": {
+                            "disposition": "confirmed" if index == 1 else "false positive",
+                            "reviewed_head": "b" * 40,
+                            "affected_code": f"affected code {index}",
+                            "call_sites": f"call sites {index}",
+                            "nearest_tests": f"nearest tests {index}",
+                            "relevant_contracts": f"relevant contracts {index}",
+                            "claimed_impact": f"claimed impact {index}",
+                        },
+                    }
+                    for index in range(1, 9)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    triaged = adapter.triage(root, IntegrationConfig(), manifest_path=manifest)
+
+    assert triaged.record.reason_code == "CODERABBIT_TRIAGE_COMPLETE_FIXES_REQUIRED"
+    assert triaged.record.state is IntegrationState.DEGRADED
+    assert triaged.coderabbit_cycle is not None
+    assert triaged.coderabbit_cycle.triaged_findings_count == 8
+    assert triaged.coderabbit_cycle.triage_required is False
+    assert triaged.coderabbit_cycle.terminal is False
+
+    same_head = adapter.review(
+        root, IntegrationConfig(), base_sha="a" * 40, head_sha="b" * 40, task_id="task-1"
+    )
+    assert same_head.record.reason_code == "CODERABBIT_FIX_REQUIRED"
+
+    after_fixes = adapter.review(
+        root, IntegrationConfig(), base_sha="a" * 40, head_sha="c" * 40, task_id="task-1"
+    )
+    final_state = adapter._load_review_state(root)
+    assert after_fixes.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    assert final_state["substantive_iterations"] == 3
+    assert final_state["reviewed_head"] == "c" * 40
+    assert final_state["terminal"] is True
+
+
 def test_review_postcondition_mismatch_is_not_substantive_success(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
     root = tmp_path / "checkout"
@@ -397,3 +663,22 @@ def test_obsolete_reconcile_route_is_not_in_provider_cli():
     parser = build_parser()
     with pytest.raises(CliInvocationError):
         parser.parse_args(["integrations", "coderabbit", "reconcile"])
+
+
+def test_coderabbit_cli_exposes_typed_triage_manifest_action():
+    from azurpilot.cli import build_parser
+
+    parsed = build_parser().parse_args(
+        [
+            "integrations",
+            "coderabbit",
+            "triage",
+            "--manifest",
+            "C:/temp/coderabbit-triage.json",
+            "--json",
+        ]
+    )
+
+    assert parsed.integration_target == "coderabbit"
+    assert parsed.integration_action == "triage"
+    assert parsed.manifest == "C:/temp/coderabbit-triage.json"

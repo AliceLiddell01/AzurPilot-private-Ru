@@ -41,7 +41,6 @@ from azurpilot.integrations.mcp_client import (
 from azurpilot.integrations.service import ADAPTER_ORDER, AdapterOutcome
 from azurpilot.tooling.contracts import (
     AnalysisScope,
-    FindingDisposition,
     GitRange,
 )
 from azurpilot.tooling.errors import ToolingError
@@ -114,7 +113,8 @@ def test_agent_ndjson_parses_status_finding_and_complete():
 
     assert parsed.complete is True
     assert len(parsed.findings) == 1
-    assert parsed.findings[0].disposition is FindingDisposition.CONFIRMED
+    assert parsed.findings[0].disposition is None
+    assert parsed.findings[0].triage is None
     assert parsed.findings[0].path.endswith("service.py")
     assert "Содержательное замечание" in parsed.findings[0].impact
     assert parsed.unknown_events == ("review_context", "status")

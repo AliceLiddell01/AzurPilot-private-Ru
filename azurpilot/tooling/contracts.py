@@ -68,7 +68,7 @@ class FindingSeverity(StrEnum):
 
 
 class FindingDisposition(StrEnum):
-    """Обязательная классификация результата внешнего review."""
+    """Допустимая классификация после независимого triage внешнего review."""
 
     CONFIRMED = "confirmed"
     PARTIALLY_CONFIRMED = "partially confirmed"
@@ -339,8 +339,20 @@ class PullRequestIdentity(ClosedModel):
     head_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
 
 
+class CodeRabbitFindingTriage(ClosedModel):
+    """Индивидуальное доказательство проверки одного provider finding."""
+
+    disposition: FindingDisposition
+    reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    affected_code: str = Field(min_length=1, max_length=1200)
+    call_sites: str = Field(min_length=1, max_length=1200)
+    nearest_tests: str = Field(min_length=1, max_length=1200)
+    relevant_contracts: str = Field(min_length=1, max_length=1200)
+    claimed_impact: str = Field(min_length=1, max_length=1200)
+
+
 class CodeRabbitFinding(ClosedModel):
-    """Нормализованный finding для durable PR disposition."""
+    """Provider finding с отдельным optional verified triage."""
 
     severity: FindingSeverity
     path: str = Field(min_length=1, max_length=512)
@@ -348,14 +360,42 @@ class CodeRabbitFinding(ClosedModel):
     line: int | None = Field(default=None, ge=1, le=10_000_000)
     line_end: int | None = Field(default=None, ge=1, le=10_000_000)
     impact: str = Field(min_length=1, max_length=1200)
-    disposition: FindingDisposition
+    disposition: FindingDisposition | None = None
     resolution: str = Field(min_length=1, max_length=1200)
     fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+    triage: CodeRabbitFindingTriage | None = None
 
     @model_validator(mode="after")
     def validate_line_range(self) -> CodeRabbitFinding:
         if self.line is not None and self.line_end is not None and self.line_end < self.line:
             raise ValueError("line_end не может быть меньше line")
+        if self.triage is None and self.disposition is not None:
+            raise ValueError("provider finding не может иметь disposition без triage evidence")
+        if self.triage is not None and self.disposition is not self.triage.disposition:
+            raise ValueError("finding disposition должен совпадать с verified triage")
+        return self
+
+
+class CodeRabbitTriageEntry(ClosedModel):
+    """Одна запись manifest-а triage, адресованная по порядковому индексу."""
+
+    index: int = Field(ge=1, le=128)
+    triage: CodeRabbitFindingTriage
+
+
+class CodeRabbitTriageManifest(ClosedModel):
+    """Закрытый manifest индивидуального CodeRabbit triage."""
+
+    schema_version: Literal[1] = 1
+    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    findings: tuple[CodeRabbitTriageEntry, ...] = Field(max_length=128)
+
+    @model_validator(mode="after")
+    def validate_unique_indices(self) -> CodeRabbitTriageManifest:
+        indices = tuple(entry.index for entry in self.findings)
+        if len(indices) != len(set(indices)):
+            raise ValueError("triage manifest содержит дублирующиеся finding indices")
         return self
 
 
@@ -835,7 +875,10 @@ __all__ = [
     "CapabilityStatus",
     "ClosedModel",
     "CodeRabbitFinding",
+    "CodeRabbitFindingTriage",
     "CodeRabbitReview",
+    "CodeRabbitTriageEntry",
+    "CodeRabbitTriageManifest",
     "CommitIdentity",
     "DeliveryChange",
     "DeliveryDetails",

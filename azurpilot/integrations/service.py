@@ -393,6 +393,20 @@ class IntegrationService:
         outcome = adapter.findings(root, config, base_sha=base_sha, head_sha=head_sha)
         return self._result("findings", (outcome.record,), target=IntegrationName.CODERABBIT, findings=outcome.findings, coderabbit_cycle=outcome.coderabbit_cycle)
 
+    def triage(
+        self,
+        *,
+        manifest_path: str,
+        repository_root: str | Path | None = None,
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        root = self.resolve_root(repository_root)
+        config = load_integration_config(root)
+        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
+        if not isinstance(adapter, CodeRabbitAdapter):
+            raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "CodeRabbit adapter имеет неверный тип.")
+        outcome = adapter.triage(root, config, manifest_path=manifest_path)
+        return self._result("triage", (outcome.record,), target=IntegrationName.CODERABBIT, findings=outcome.findings, coderabbit_cycle=outcome.coderabbit_cycle)
+
     def recover_coderabbit_review(
         self, *, repository_root: str | Path | None = None
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:

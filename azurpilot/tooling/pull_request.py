@@ -160,7 +160,11 @@ class PullRequestBodyRenderer:
                         severity=finding.severity.value,
                         path=_table_cell(finding.path),
                         impact=_table_cell(finding.impact),
-                        disposition=finding.disposition.value,
+                        disposition=(
+                            finding.disposition.value
+                            if finding.disposition is not None
+                            else "untriaged"
+                        ),
                         resolution=_table_cell(finding.resolution),
                         fix_head=finding.fix_head or "—",
                     )

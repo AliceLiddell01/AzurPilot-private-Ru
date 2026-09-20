@@ -23,6 +23,7 @@ from pathlib import Path
 
 from azurpilot.tooling.contracts import (
     CodeRabbitFinding,
+    CodeRabbitTriageManifest,
     FindingDisposition,
     FindingSeverity,
     ResultCode,
@@ -76,13 +77,14 @@ _TASK_ID_RE = re.compile(TASK_ID_PATTERN)
 _MAX_REVIEW_BYTES = 4 * 1024 * 1024
 _MAX_REVIEW_LINES = 512
 _MAX_STATE_BYTES = 32 * 1024
+_MAX_TRIAGE_MANIFEST_BYTES = 128 * 1024
 _MAX_REVIEW_ATTEMPTS = 128
 _MAX_RETAINED_FINDINGS = 128
 _RATE_LIMIT_MAX_SECONDS = 7 * 24 * 60 * 60
 _HEARTBEAT_INTERVAL_SECONDS = 15.0
 _REVIEW_TIMEOUT_SECONDS = 20 * 60
 _STATE_FILE_NAME = "coderabbit-review.json"
-_REVIEW_SCHEMA_VERSION = 3
+_REVIEW_SCHEMA_VERSION = 4
 REVIEW_STATE_SCHEMA_VERSION = _REVIEW_SCHEMA_VERSION
 CODERABBIT_STATE_SCHEMA = REVIEW_STATE_SCHEMA_VERSION
 _RATE_LIMIT_WAITING = "rate_limited_waiting"
@@ -349,19 +351,6 @@ def _severity(value: object) -> FindingSeverity:
     }.get(text, FindingSeverity.INFO)
 
 
-def _disposition(value: object) -> FindingDisposition:
-    text = " ".join(str(value or "").casefold().replace("_", " ").split())
-    return {
-        "confirmed": FindingDisposition.CONFIRMED,
-        "partially confirmed": FindingDisposition.PARTIALLY_CONFIRMED,
-        "partial": FindingDisposition.PARTIALLY_CONFIRMED,
-        "false positive": FindingDisposition.FALSE_POSITIVE,
-        "false": FindingDisposition.FALSE_POSITIVE,
-        "insufficient evidence": FindingDisposition.INSUFFICIENT_EVIDENCE,
-        "insufficient": FindingDisposition.INSUFFICIENT_EVIDENCE,
-    }.get(text, FindingDisposition.INSUFFICIENT_EVIDENCE)
-
-
 def _finding_text(payload: Mapping[str, object], *keys: str) -> object:
     nested_keys = ("message", "body", "comment", "text", "title", "description")
     for key in keys:
@@ -437,7 +426,6 @@ def _parse_finding(raw: object) -> CodeRabbitFinding:
         line=line,
         line_end=line_end,
         impact=impact,
-        disposition=_disposition(payload.get("disposition") or payload.get("classification")),
         resolution=resolution,
     )
 
@@ -592,7 +580,6 @@ def parse_provider_findings_output(output: str) -> tuple[CodeRabbitFinding, ...]
                 if isinstance(current.get("line_end"), int)
                 else None,
                 impact=_bounded_string(" ".join(impact_lines), _DEFAULT_FINDING_IMPACT, 1200),
-                disposition=FindingDisposition.INSUFFICIENT_EVIDENCE,
                 resolution=_bounded_string(
                     " ".join(resolution_lines), _DEFAULT_FINDING_RESOLUTION, 1200
                 ),
@@ -632,10 +619,69 @@ def parse_provider_findings_output(output: str) -> tuple[CodeRabbitFinding, ...]
     return tuple(findings)
 
 
+def load_coderabbit_triage_manifest(path: str | os.PathLike[str]) -> CodeRabbitTriageManifest:
+    """Прочитать bounded manifest только из абсолютного обычного файла."""
+
+    manifest_path = Path(path).expanduser()
+    try:
+        if not manifest_path.is_absolute() or path_has_link(manifest_path):
+            raise ToolingError(
+                ResultCode.TOOLING_MANIFEST_INVALID,
+                "CodeRabbit triage manifest должен быть абсолютным обычным файлом.",
+            )
+        document = json.loads(
+            bounded_read_text(manifest_path, max_bytes=_MAX_TRIAGE_MANIFEST_BYTES)
+        )
+        return CodeRabbitTriageManifest.model_validate(document)
+    except ToolingError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise ToolingError(
+            ResultCode.TOOLING_MANIFEST_INVALID,
+            "Не удалось разобрать закрытый CodeRabbit triage manifest.",
+        ) from exc
+
+
+def _finding_is_triaged(
+    finding: CodeRabbitFinding, *, reviewed_head: object
+) -> bool:
+    return (
+        finding.triage is not None
+        and finding.disposition is not None
+        and finding.disposition is finding.triage.disposition
+        and isinstance(reviewed_head, str)
+        and finding.triage.reviewed_head == reviewed_head
+    )
+
+
+def _triaged_findings_count(
+    findings: Iterable[CodeRabbitFinding], *, reviewed_head: object
+) -> int:
+    return sum(
+        _finding_is_triaged(finding, reviewed_head=reviewed_head)
+        for finding in findings
+    )
+
+
+def _finding_requires_fix(finding: CodeRabbitFinding) -> bool:
+    return finding.disposition in {
+        FindingDisposition.CONFIRMED,
+        FindingDisposition.PARTIALLY_CONFIRMED,
+    }
+
+
+def _provider_finding_payload(finding: CodeRabbitFinding) -> dict[str, object]:
+    """Получить identity provider finding без mutable triage metadata."""
+
+    return finding.model_dump(
+        mode="json", exclude={"disposition", "triage", "fix_head"}
+    )
+
+
 def _normalized_findings_digest(findings: Iterable[CodeRabbitFinding]) -> str:
     return hashlib.sha256(
         json.dumps(
-            [finding.model_dump(mode="json") for finding in findings],
+            [_provider_finding_payload(finding) for finding in findings],
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
@@ -677,6 +723,7 @@ def _default_review_state() -> dict[str, object]:
         "findings_count": 0,
         "findings_digest": None,
         "findings": [],
+        "triage_complete": False,
         "candidate_fingerprint": None,
         "provider_identity": None,
         "phase": "idle",
@@ -874,10 +921,34 @@ class CodeRabbitAdapter(IntegrationAdapter):
         if isinstance(raw_findings, list):
             for raw in raw_findings[:_MAX_RETAINED_FINDINGS]:
                 try:
-                    state["findings"].append(CodeRabbitFinding.model_validate(raw).model_dump(mode="json"))
+                    candidate = dict(raw) if isinstance(raw, Mapping) else {}
+                    # Старые state сохраняли provider/default disposition без
+                    # индивидуального evidence. Это не verified triage: очистить
+                    # classification и заставить lifecycle пройти через triage.
+                    if not isinstance(candidate.get("triage"), Mapping):
+                        candidate["disposition"] = None
+                        candidate["triage"] = None
+                        candidate["fix_head"] = None
+                    state["findings"].append(
+                        CodeRabbitFinding.model_validate(candidate).model_dump(mode="json")
+                    )
                 except Exception:  # noqa: BLE001, S112 - corrupted finding is discarded.
                     continue
         state["findings_count"] = len(state["findings"])
+        parsed_findings = tuple(
+            CodeRabbitFinding.model_validate(raw) for raw in state["findings"]
+        )
+        reviewed_head = state.get("reviewed_head")
+        triaged_count = _triaged_findings_count(
+            parsed_findings, reviewed_head=reviewed_head
+        )
+        state["triage_complete"] = bool(parsed_findings) and triaged_count == len(parsed_findings)
+        if not parsed_findings:
+            state["triage_complete"] = True
+        elif not state["triage_complete"]:
+            state["terminal"] = False
+            state["cycle_status"] = "triage_required"
+            state["phase"] = "triage"
         state["findings_digest"] = (
             str(payload.get("findings_digest"))[:64]
             if isinstance(payload.get("findings_digest"), str)
@@ -943,7 +1014,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "CodeRabbit state должен быть JSON object.",
             )
         schema = payload.get("schema_version", 1)
-        if not isinstance(schema, int) or schema not in {1, 2, _REVIEW_SCHEMA_VERSION}:
+        if not isinstance(schema, int) or schema not in {1, 2, 3, _REVIEW_SCHEMA_VERSION}:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "CodeRabbit state имеет неподдерживаемую schema.",
@@ -972,6 +1043,15 @@ class CodeRabbitAdapter(IntegrationAdapter):
         iterations = max(0, min(int(iterations), MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE)) if isinstance(iterations, int) else 0
         previous = state.get("previous_cycles")
         last_head = state.get("reviewed_head")
+        raw_findings = state.get("findings")
+        raw_items = raw_findings[:_MAX_RETAINED_FINDINGS] if isinstance(raw_findings, list) else ()
+        findings = tuple(
+            CodeRabbitFinding.model_validate(raw)
+            for raw in raw_items
+            if isinstance(raw, Mapping)
+        )
+        triaged_count = _triaged_findings_count(findings, reviewed_head=last_head)
+        findings_count = len(findings)
         return CodeRabbitCycleSummary(
             cycle_id=cycle_id,
             task_id=state.get("logical_task_id") if isinstance(state.get("logical_task_id"), str) else None,
@@ -983,9 +1063,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
             retry_source=state.get("retry_source") if state.get("retry_source") in _RETRY_SOURCES else "unknown",
             last_reviewed_head=last_head if isinstance(last_head, str) and _SHA_RE.fullmatch(last_head) else None,
             previous_cycles_retained=len(previous) if isinstance(previous, list) else 0,
-            findings_count=max(0, min(int(state.get("findings_count", 0)), _MAX_RETAINED_FINDINGS))
-            if isinstance(state.get("findings_count", 0), int)
-            else 0,
+            findings_count=findings_count,
+            triaged_findings_count=triaged_count,
+            triage_required=findings_count > triaged_count,
             terminal=bool(state.get("terminal", False)),
             active=bool(state.get("active", False)),
         )
@@ -1423,6 +1503,17 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 message="CodeRabbit cycle ограничен provider rate limit.",
                 authenticated=True,
             )
+        if state.get("findings") and not state.get("triage_complete", False):
+            return self._record_from_error(
+                settings,
+                "CODERABBIT_TRIAGE_REQUIRED",
+                state=IntegrationState.DEGRADED,
+                diagnostics=diagnostics,
+                provider=check.provider,
+                message="CodeRabbit provider findings сохранены; требуется индивидуальный triage каждого finding.",
+                configured=True,
+                authenticated=True,
+            )
         return self._record_from_error(
             settings,
             "CODERABBIT_NATIVE_READY",
@@ -1470,7 +1561,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     reviewed_head=head_sha if isinstance(head_sha, str) and _SHA_RE.fullmatch(head_sha) else None,
                     base_sha=base_sha if isinstance(base_sha, str) and _SHA_RE.fullmatch(base_sha) else None,
                     fix_head=finding.fix_head,
-                    disposition=finding.disposition.value,
+                    disposition=(finding.disposition.value if finding.disposition is not None else None),
                     resolution=finding.resolution,
                 )
             )
@@ -1499,6 +1590,16 @@ class CodeRabbitAdapter(IntegrationAdapter):
             )
             return AdapterOutcome(record, (), self._cycle_summary(state))
         findings = self._stored_findings(state, base_sha, head_sha)
+        if findings and not state.get("triage_complete", False):
+            record = self._record_from_error(
+                settings,
+                "CODERABBIT_TRIAGE_REQUIRED",
+                state=IntegrationState.DEGRADED,
+                message="Сохранённые CodeRabbit findings ещё не прошли individual triage.",
+                configured=True,
+                authenticated=True,
+            )
+            return AdapterOutcome(record, findings, self._cycle_summary(state))
         record = self._record_from_error(
             settings,
             "CODERABBIT_FINDINGS_AVAILABLE",
@@ -1507,6 +1608,111 @@ class CodeRabbitAdapter(IntegrationAdapter):
             configured=True,
         )
         return AdapterOutcome(record, findings, self._cycle_summary(state))
+
+    def triage(
+        self,
+        root: Path,
+        config: IntegrationConfig,
+        *,
+        manifest_path: str | os.PathLike[str],
+    ) -> AdapterOutcome:
+        """Зафиксировать только индивидуально доказанный triage exact findings."""
+
+        settings = config.provider("coderabbit")
+        manifest = load_coderabbit_triage_manifest(manifest_path)
+        state = self._load_review_state(root)
+        if (
+            state.get("base_sha") != manifest.base_sha
+            or state.get("reviewed_head") != manifest.reviewed_head
+        ):
+            record = self._record_from_error(
+                settings,
+                "CODERABBIT_TRIAGE_HEAD_MISMATCH",
+                state=IntegrationState.INCOMPATIBLE,
+                message="Triage manifest не относится к последнему exact CodeRabbit review head.",
+            )
+            return AdapterOutcome(record, (), self._cycle_summary(state))
+
+        raw_findings = state.get("findings")
+        raw_items = raw_findings if isinstance(raw_findings, list) else ()
+        findings = tuple(
+            CodeRabbitFinding.model_validate(raw)
+            for raw in raw_items
+            if isinstance(raw, Mapping)
+        )
+        expected_indices = set(range(1, len(findings) + 1))
+        entries = {entry.index: entry for entry in manifest.findings}
+        if not findings or set(entries) != expected_indices:
+            record = self._record_from_error(
+                settings,
+                "CODERABBIT_TRIAGE_INCOMPLETE",
+                state=IntegrationState.DEGRADED,
+                message="Для каждого provider finding требуется ровно одна triage evidence запись.",
+                configured=True,
+                authenticated=True,
+            )
+            return AdapterOutcome(record, self._stored_findings(state, manifest.base_sha, manifest.reviewed_head), self._cycle_summary(state))
+
+        updated: list[CodeRabbitFinding] = []
+        for index, finding in enumerate(findings, start=1):
+            entry = entries[index]
+            if entry.triage.reviewed_head != manifest.reviewed_head:
+                record = self._record_from_error(
+                    settings,
+                    "CODERABBIT_TRIAGE_HEAD_MISMATCH",
+                    state=IntegrationState.INCOMPATIBLE,
+                    message="Каждое triage evidence должно ссылаться на exact reviewed head.",
+                    configured=True,
+                    authenticated=True,
+                )
+                return AdapterOutcome(record, self._stored_findings(state, manifest.base_sha, manifest.reviewed_head), self._cycle_summary(state))
+            updated.append(
+                finding.model_copy(
+                    update={
+                        "disposition": entry.triage.disposition,
+                        "triage": entry.triage,
+                    }
+                )
+            )
+
+        requires_fix = any(_finding_requires_fix(finding) for finding in updated)
+        state.update(
+            {
+                "findings": [finding.model_dump(mode="json") for finding in updated],
+                "triage_complete": True,
+                "terminal": not requires_fix,
+                "cycle_status": "fixes_required" if requires_fix else "triage_terminal",
+                "phase": "complete" if requires_fix else "terminal",
+                "last_event_type": "triage_complete",
+            }
+        )
+        self._save_review_state(root, state)
+        if requires_fix:
+            reason_code = "CODERABBIT_TRIAGE_COMPLETE_FIXES_REQUIRED"
+            integration_state = IntegrationState.DEGRADED
+            message = "Каждый finding проверен; подтверждённые findings требуют исправления и нового exact head."
+        else:
+            reason_code = "CODERABBIT_TRIAGE_COMPLETE"
+            integration_state = IntegrationState.READY
+            message = "Каждый finding проверен; изменений кода для нового review не требуется."
+        record = self._record_from_error(
+            settings,
+            reason_code,
+            state=integration_state,
+            diagnostics=(
+                f"reviewed_head={manifest.reviewed_head}",
+                f"findings={len(updated)}",
+                "individual_triage=complete",
+            ),
+            message=message,
+            configured=True,
+            authenticated=True,
+        )
+        return AdapterOutcome(
+            record,
+            self._stored_findings(state, manifest.base_sha, manifest.reviewed_head),
+            self._cycle_summary(state),
+        )
 
     def recover_interrupted_review(
         self, root: Path, config: IntegrationConfig
@@ -1771,6 +1977,35 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if cycle_error is not None or prepared is None:
                 return AdapterOutcome(cycle_error or self._record_from_error(settings, "CODERABBIT_CYCLE_PREPARATION_FAILED", state=IntegrationState.UNKNOWN), (), self._cycle_summary(state))
             state = prepared
+            if state.get("findings") and not state.get("triage_complete", False):
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        "CODERABBIT_TRIAGE_REQUIRED",
+                        state=IntegrationState.DEGRADED,
+                        message="Перед следующим CodeRabbit review требуется индивидуально проверить каждый provider finding.",
+                        configured=True,
+                        authenticated=True,
+                    ),
+                    self._stored_findings(state, state.get("base_sha"), state.get("reviewed_head")),
+                    self._cycle_summary(state),
+                )
+            if (
+                state.get("cycle_status") == "fixes_required"
+                and state.get("reviewed_head") == head_sha
+            ):
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        "CODERABBIT_FIX_REQUIRED",
+                        state=IntegrationState.INCOMPATIBLE,
+                        message="Подтверждённые CodeRabbit findings требуют исправления и нового exact head.",
+                        configured=True,
+                        authenticated=True,
+                    ),
+                    self._stored_findings(state, state.get("base_sha"), state.get("reviewed_head")),
+                    self._cycle_summary(state),
+                )
             iterations = state.get("substantive_iterations", 0)
             terminal = bool(state.get("terminal", False))
             if not isinstance(iterations, int) or not review_iteration_allowed(iterations, terminal=terminal):
@@ -1897,16 +2132,34 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     "findings": [finding.model_dump(mode="json") for finding in findings],
                     "findings_count": len(findings),
                     "findings_digest": _normalized_findings_digest(findings),
+                    "triage_complete": not findings,
                     "terminal": not findings,
-                    "cycle_status": "zero_findings" if not findings else "findings_pending",
+                    "cycle_status": "zero_findings" if not findings else "triage_required",
                     "phase": "terminal" if not findings else "complete",
                     "provider_quota": {"state": "available", "rate_limited_at": None, "retry_not_before": None, "retry_source": "unknown"},
                 }
             )
             self._save_review_state(root, state)
-            _emit_progress(progress_callback, phase="complete", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations + 1, provider_state="complete", message="Native CodeRabbit review завершён; exact postcondition подтверждён.", started_monotonic=started_monotonic)
+            _emit_progress(progress_callback, phase="complete", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations + 1, provider_state="complete", message=("Native CodeRabbit review завершён; exact postcondition подтверждён." if not findings else "Native CodeRabbit provider complete; требуется individual triage findings."), started_monotonic=started_monotonic)
             integration_findings = self._stored_findings(state, base_sha, head_sha)
-            record = self._record_from_error(settings, "CODERABBIT_REVIEW_COMPLETE", state=IntegrationState.READY, diagnostics=(f"reviewed_head={head_sha}", f"findings={len(findings)}", "candidate_postcondition=matched"), provider=provider, message="Native CodeRabbit review завершён на canonical checkout.", configured=True, authenticated=True)
+            if findings:
+                record = self._record_from_error(
+                    settings,
+                    "CODERABBIT_TRIAGE_REQUIRED",
+                    state=IntegrationState.DEGRADED,
+                    diagnostics=(
+                        f"reviewed_head={head_sha}",
+                        f"findings={len(findings)}",
+                        "candidate_postcondition=matched",
+                        "provider_complete=authoritative",
+                    ),
+                    provider=provider,
+                    message="Native CodeRabbit provider review завершён; workflow не завершён без individual triage.",
+                    configured=True,
+                    authenticated=True,
+                )
+            else:
+                record = self._record_from_error(settings, "CODERABBIT_REVIEW_COMPLETE", state=IntegrationState.READY, diagnostics=(f"reviewed_head={head_sha}", f"findings={len(findings)}", "candidate_postcondition=matched"), provider=provider, message="Native CodeRabbit review завершён на canonical checkout.", configured=True, authenticated=True)
             return AdapterOutcome(record, integration_findings, self._cycle_summary(state))
         finally:
             lock.release()
@@ -1919,6 +2172,7 @@ __all__ = [
     "CodeRabbitProgress",
     "CodeRabbitStreamError",
     "ParsedCodeRabbitReview",
+    "load_coderabbit_triage_manifest",
     "parse_agent_ndjson",
     "parse_provider_findings_output",
     "review_iteration_allowed",

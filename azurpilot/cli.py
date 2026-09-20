@@ -464,6 +464,13 @@ def build_parser() -> argparse.ArgumentParser:
             _add_common_options(findings, suppress_defaults=True)
             findings.add_argument("--base", required=True, help="exact base SHA")
             findings.add_argument("--head", required=True, help="exact reviewed HEAD")
+            triage = provider_subparsers.add_parser(
+                "triage", help="зафиксировать individual triage exact findings"
+            )
+            _add_common_options(triage, suppress_defaults=True)
+            triage.add_argument(
+                "--manifest", required=True, metavar="MANIFEST", help="absolute JSON triage manifest"
+            )
             cycle = provider_subparsers.add_parser(
                 "cycle", help="управлять bounded CodeRabbit review cycles"
             )
@@ -789,10 +796,11 @@ def _render_human(
                     "partially confirmed": "частично подтверждено",
                     "false positive": "ложное срабатывание",
                     "insufficient evidence": "недостаточно данных",
+                    "untriaged": "не проверено",
                 }
                 for index, finding in enumerate(findings, start=1):
                     severity = str(getattr(finding, "severity", "info"))
-                    disposition = str(getattr(finding, "disposition", ""))
+                    disposition = str(getattr(finding, "disposition", None) or "untriaged")
                     location = str(getattr(finding, "path", "не указан"))
                     line = getattr(finding, "line", None)
                     line_end = getattr(finding, "line_end", None)
@@ -1088,6 +1096,11 @@ def _dispatch(
             return services.integrations.findings(
                 base_sha=args.base,
                 head_sha=args.head,
+                repository_root=root,
+            )
+        if target == IntegrationName.CODERABBIT.value and action == "triage":
+            return services.integrations.triage(
+                manifest_path=args.manifest,
                 repository_root=root,
             )
         if (

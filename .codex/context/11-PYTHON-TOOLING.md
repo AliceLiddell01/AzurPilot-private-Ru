@@ -179,8 +179,17 @@ CodeRabbit — консультативный reviewer, а не источник
   подменяется другим checkout;
 - pre/post candidate fingerprint должен совпасть; mutation в checkout во время
   active review не допускается;
-- finding triage: confirmed / partially confirmed / false positive /
-  insufficient evidence;
+- provider finding не равен verified finding disposition;
+- до classification каждый finding проходит individual exact-head triage по
+  affected code, call sites, ближайшим tests, relevant contracts и заявленному
+  impact;
+- `insufficient evidence` не является default/fallback и допустим только при
+  доказанной невозможности подтвердить или опровергнуть finding;
+- triage фиксируется typed manifest-ом через прямой `azur integrations
+  coderabbit triage`; review с findings остаётся `triage_required`;
+- после confirmed / partially confirmed обязательны fix, проверка, новый exact
+  commit head и следующий review только при оставшемся budget; без code change
+  duplicate review ради `3/3` запрещён;
 - ограниченный цикл review ограничивает substantive iterations и сохраняет типизированное
   state;
 - provider rate limit/cooldown не расходует substantive iteration и не запускает

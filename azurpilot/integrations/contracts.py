@@ -139,6 +139,8 @@ class CodeRabbitCycleSummary(ClosedModel):
     last_reviewed_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     previous_cycles_retained: int = Field(ge=0, le=MAX_RETAINED_REVIEW_CYCLES)
     findings_count: int = Field(ge=0, le=128)
+    triaged_findings_count: int = Field(default=0, ge=0, le=128)
+    triage_required: bool = False
     terminal: bool
     active: bool
 

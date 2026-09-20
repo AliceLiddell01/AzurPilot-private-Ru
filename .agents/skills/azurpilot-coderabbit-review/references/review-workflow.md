@@ -1,8 +1,9 @@
 # Рабочий поток CodeRabbit
 
-Этот reference описывает bounded read-only диагностику вокруг typed
-`azur integrations coderabbit` adapter. Он не заменяет adapter и не разрешает
-mutation.
+Этот reference описывает bounded provider review и typed triage вокруг
+`azur integrations coderabbit` adapter. Provider review не меняет код; отдельная
+команда triage меняет только repository-scoped review state после проверки
+закрытого manifest-а.
 
 ## Exact candidate
 
@@ -65,14 +66,34 @@ text.
 
 ## Triage, budget и liveness
 
-Для каждого issue проверь exact head, call sites, tests, security impact и scope.
-Classification только одна из: `confirmed`, `partially confirmed`, `false
-positive`, `insufficient evidence`.
+Provider finding и verified finding disposition — разные сущности. Не переноси
+provider `classification`/`disposition` в verified state и не присваивай всем
+findings `insufficient evidence` как fallback.
+
+Для каждого finding до любой classification отдельно проверь exact reviewed
+head, affected code, call sites, ближайшие tests, relevant contracts и
+заявленный provider impact. Результаты сохрани в одной записи manifest-а на
+каждый finding:
+
+```text
+azur integrations coderabbit triage --manifest <absolute-json-manifest>
+```
+
+Только typed triage manifest с exact reviewed head может установить одну из
+классификаций: `confirmed`, `partially confirmed`, `false positive`,
+`insufficient evidence`. `insufficient evidence` допустим только если
+выполненная проверка объективно не позволила подтвердить или опровергнуть
+finding.
 
 Максимум — `3/3` substantive iterations в одном cycle. Completed `0 findings`
-означает early stop. Auth/network/process/parse failure и rate limit до
-authoritative `complete` budget не потребляют. При rate limit немедленно верни
-typed result без wait/retry loop.
+означает early stop. Completed `findings > 0` означает `triage_required`, а не
+terminal success: workflow нельзя завершить на сохранении provider findings.
+Для `confirmed`/`partially confirmed` обязательны fix, проверка и новый exact
+commit head; следующий substantive review запускай только если budget остался.
+После доказанного triage без требующих изменения кода findings не запускай
+duplicate review только ради `3/3`. Auth/network/process/parse failure и rate
+limit до authoritative `complete` budget не потребляют. При rate limit немедленно
+верни typed result без wait/retry loop.
 
 Heartbeat сообщает только liveness и не запускает второй provider call. Exact
 `ProcessIdentity` со matching PID, start time, executable, argv и cwd означает

@@ -5,7 +5,10 @@ from pathlib import Path
 
 import yaml
 
-from dev_tools.integration_contract_gate import _OPERATOR_POLICY_MARKERS
+from dev_tools.integration_contract_gate import (
+    _OPERATOR_POLICY_MARKERS,
+    _OPERATOR_POLICY_PATHS,
+)
 from tests.support.paths import REPOSITORY_ROOT
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
@@ -236,45 +239,26 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "native Windows",
         "false positive",
         "rate limit",
+        "provider finding не является verified finding disposition",
+        "individual triage",
+        "CODERABBIT_TRIAGE_REQUIRED",
     ):
         assert required.lower() in review_content.lower()
+    workflow_content = " ".join(review_reference.read_text(encoding="utf-8").split())
+    for required in (
+        "provider finding и verified finding disposition — разные сущности",
+        "affected code",
+        "call sites",
+        "ближайшие tests",
+        "relevant contracts",
+        "azur integrations coderabbit triage",
+        "duplicate review",
+    ):
+        assert required.lower() in workflow_content.lower()
 
 
 def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -> None:
-    policy_paths = (
-        _REPOSITORY_ROOT / "AGENTS.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "11-PYTHON-TOOLING.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md",
-        _SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md",
-        _SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md",
-        _SKILLS_ROOT
-        / "azurpilot-coderabbit-review"
-        / "references"
-        / "review-workflow.md",
-        _REPOSITORY_ROOT
-        / "plugins"
-        / "azurpilot"
-        / "skills"
-        / "azurpilot-development"
-        / "SKILL.md",
-        _REPOSITORY_ROOT
-        / "plugins"
-        / "azurpilot"
-        / "skills"
-        / "azurpilot-game-control"
-        / "SKILL.md",
-        _REPOSITORY_ROOT
-        / "plugins"
-        / "azurpilot"
-        / "skills"
-        / "azurpilot-troubleshooting"
-        / "SKILL.md",
-        _REPOSITORY_ROOT
-        / "plugins"
-        / "azurpilot"
-        / "references"
-        / "mcp-routing.md",
-    )
+    policy_paths = tuple(_REPOSITORY_ROOT / relative for relative in _OPERATOR_POLICY_PATHS)
     content = " ".join(path.read_text(encoding="utf-8").lower() for path in policy_paths)
     for required in _OPERATOR_POLICY_MARKERS:
         assert required.casefold() in content

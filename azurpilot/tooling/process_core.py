@@ -394,6 +394,68 @@ class RunningProcess:
         )
 
 
+@dataclass(frozen=True)
+class _OutputCapture:
+    stdout_buffer: bytearray
+    stderr_buffer: bytearray
+    output_locks: tuple[threading.Lock, threading.Lock]
+    output_threads: tuple[threading.Thread, ...]
+    output_truncated: list[bool]
+
+
+def _start_output_capture(
+    process: subprocess.Popen[bytes], spec: ProcessSpec
+) -> _OutputCapture:
+    """Запустить одинаковый bounded drain для long-lived и one-shot процессов."""
+
+    stdout_buffer = bytearray()
+    stderr_buffer = bytearray()
+    output_locks = (threading.Lock(), threading.Lock())
+    truncated = [False, False]
+
+    def drain(stream: object, buffer: bytearray, index: int) -> None:
+        if stream is None:
+            return
+        read = stream.read
+        try:
+            while True:
+                chunk = read(8192)
+                if not chunk:
+                    return
+                with output_locks[index]:
+                    remaining = spec.max_output_bytes - len(buffer)
+                    if remaining > 0:
+                        buffer.extend(chunk[:remaining])
+                    if len(chunk) > remaining:
+                        truncated[index] = True
+        except (OSError, ValueError):
+            return
+
+    threads = (
+        threading.Thread(
+            target=drain,
+            args=(process.stdout, stdout_buffer, 0),
+            name=f"azurpilot-process-stdout-{process.pid}",
+            daemon=True,
+        ),
+        threading.Thread(
+            target=drain,
+            args=(process.stderr, stderr_buffer, 1),
+            name=f"azurpilot-process-stderr-{process.pid}",
+            daemon=True,
+        ),
+    )
+    for thread in threads:
+        thread.start()
+    return _OutputCapture(
+        stdout_buffer=stdout_buffer,
+        stderr_buffer=stderr_buffer,
+        output_locks=output_locks,
+        output_threads=threads,
+        output_truncated=truncated,
+    )
+
+
 def _safe_environment(
     extra: Mapping[str, str], *, allow_test_environment: bool = False
 ) -> dict[str, str]:
@@ -638,50 +700,12 @@ class StructuredProcessRunner:
         if not spec.capture_output:
             return running
 
-        stdout_buffer = bytearray()
-        stderr_buffer = bytearray()
-        output_locks = (threading.Lock(), threading.Lock())
-        truncated = [False, False]
-
-        def drain(stream: object, buffer: bytearray, index: int) -> None:
-            if stream is None:
-                return
-            read = stream.read
-            try:
-                while True:
-                    chunk = read(8192)
-                    if not chunk:
-                        return
-                    with output_locks[index]:
-                        remaining = spec.max_output_bytes - len(buffer)
-                        if remaining > 0:
-                            buffer.extend(chunk[:remaining])
-                        if len(chunk) > remaining:
-                            truncated[index] = True
-            except (OSError, ValueError):
-                return
-
-        threads = (
-            threading.Thread(
-                target=drain,
-                args=(process.stdout, stdout_buffer, 0),
-                name=f"azurpilot-process-stdout-{process.pid}",
-                daemon=True,
-            ),
-            threading.Thread(
-                target=drain,
-                args=(process.stderr, stderr_buffer, 1),
-                name=f"azurpilot-process-stderr-{process.pid}",
-                daemon=True,
-            ),
-        )
-        running.stdout_buffer = stdout_buffer
-        running.stderr_buffer = stderr_buffer
-        running.output_locks = output_locks
-        running.output_threads = threads
-        running.output_truncated = truncated
-        for thread in threads:
-            thread.start()
+        capture = _start_output_capture(process, spec)
+        running.stdout_buffer = capture.stdout_buffer
+        running.stderr_buffer = capture.stderr_buffer
+        running.output_locks = capture.output_locks
+        running.output_threads = capture.output_threads
+        running.output_truncated = capture.output_truncated
         return running
 
     def run(self, spec: ProcessSpec) -> ProcessResult:
@@ -734,45 +758,7 @@ class StructuredProcessRunner:
                 message="Не удалось подтвердить идентичность созданного процесса.",
             ) from exc
 
-        stdout_buffer = bytearray()
-        stderr_buffer = bytearray()
-        output_locks = (threading.Lock(), threading.Lock())
-        truncated = [False, False]
-
-        def drain(stream: object, buffer: bytearray, index: int) -> None:
-            if stream is None:
-                return
-            read = stream.read
-            try:
-                while True:
-                    chunk = read(8192)
-                    if not chunk:
-                        return
-                    with output_locks[index]:
-                        remaining = spec.max_output_bytes - len(buffer)
-                        if remaining > 0:
-                            buffer.extend(chunk[:remaining])
-                        if len(chunk) > remaining:
-                            truncated[index] = True
-            except (OSError, ValueError):
-                return
-
-        threads = [
-            threading.Thread(
-                target=drain,
-                args=(process.stdout, stdout_buffer, 0),
-                name=f"azurpilot-process-stdout-{process.pid}",
-                daemon=True,
-            ),
-            threading.Thread(
-                target=drain,
-                args=(process.stderr, stderr_buffer, 1),
-                name=f"azurpilot-process-stderr-{process.pid}",
-                daemon=True,
-            ),
-        ]
-        for thread in threads:
-            thread.start()
+        capture = _start_output_capture(process, spec)
 
         deadline = time.monotonic() + spec.timeout_seconds
         timed_out = False
@@ -787,7 +773,7 @@ class StructuredProcessRunner:
             except subprocess.TimeoutExpired:
                 pass
         finally:
-            for thread in threads:
+            for thread in capture.output_threads:
                 thread.join(timeout=3.0)
             for stream in (process.stdout, process.stderr):
                 if stream is not None:
@@ -796,12 +782,12 @@ class StructuredProcessRunner:
                     except (OSError, ValueError):
                         pass
 
-        with output_locks[0]:
-            stdout_data = bytes(stdout_buffer)
-            stdout_was_drained_truncated = truncated[0]
-        with output_locks[1]:
-            stderr_data = bytes(stderr_buffer)
-            stderr_was_drained_truncated = truncated[1]
+        with capture.output_locks[0]:
+            stdout_data = bytes(capture.stdout_buffer)
+            stdout_was_drained_truncated = capture.output_truncated[0]
+        with capture.output_locks[1]:
+            stderr_data = bytes(capture.stderr_buffer)
+            stderr_was_drained_truncated = capture.output_truncated[1]
         stdout, stdout_was_truncated = _bounded_text(stdout_data, spec.max_output_bytes)
         stderr, stderr_was_truncated = _bounded_text(stderr_data, spec.max_output_bytes)
         return ProcessResult(
