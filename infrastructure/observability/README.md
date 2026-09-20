@@ -247,7 +247,7 @@ canonical project, healthy Redis container, Compose network и DNS alias до
 
 Проверка без публикации secret:
 
-    docker compose --env-file ../../.env exec -T redis sh -c 'REDISCLI_AUTH="$$(cat /run/secrets/redis_app_password)" redis-cli --user azurpilot_app ping'
+    docker compose --env-file ../../.env exec -T redis sh -c 'REDISCLI_AUTH="$(cat /run/secrets/redis_app_password)" redis-cli --user azurpilot_app ping'
     docker compose --env-file ../../.env ps redis redisinsight
     Invoke-WebRequest http://127.0.0.1:5540/api/health/
 

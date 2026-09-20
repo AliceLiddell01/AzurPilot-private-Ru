@@ -55,24 +55,6 @@ _ContainerState = Literal["found", "not_found", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
-class _DockerPostgresRuntime:
-    """Проверенный ephemeral transport для канонического Compose PostgreSQL."""
-
-    network: str
-    host: Literal["postgres"] = _DOCKER_POSTGRES_HOST
-    port: Literal[5432] = _DOCKER_POSTGRES_PORT
-
-
-@dataclass(frozen=True, slots=True)
-class _DockerRedisRuntime:
-    """Проверенный ephemeral transport для канонического Compose Redis."""
-
-    network: str
-    host: Literal["redis"] = _DOCKER_REDIS_HOST
-    port: Literal[6379] = _DOCKER_REDIS_PORT
-
-
-@dataclass(frozen=True, slots=True)
 class _DockerServiceRuntime:
     network: str
     host: str
@@ -589,8 +571,8 @@ class DockerDeploymentService:
 
     def _resolve_postgres_runtime(
         self, docker: Path, root: Path
-    ) -> _DockerPostgresRuntime:
-        runtime = self._resolve_compose_runtime(
+    ) -> _DockerServiceRuntime:
+        return self._resolve_compose_runtime(
             docker,
             root,
             service_name=_COMPOSE_POSTGRES_SERVICE,
@@ -598,12 +580,11 @@ class DockerDeploymentService:
             host=_DOCKER_POSTGRES_HOST,
             port=_DOCKER_POSTGRES_PORT,
         )
-        return _DockerPostgresRuntime(network=runtime.network)
 
     def _resolve_redis_runtime(
         self, docker: Path, root: Path
-    ) -> _DockerRedisRuntime:
-        runtime = self._resolve_compose_runtime(
+    ) -> _DockerServiceRuntime:
+        return self._resolve_compose_runtime(
             docker,
             root,
             service_name=_COMPOSE_REDIS_SERVICE,
@@ -611,7 +592,6 @@ class DockerDeploymentService:
             host=_DOCKER_REDIS_HOST,
             port=_DOCKER_REDIS_PORT,
         )
-        return _DockerRedisRuntime(network=runtime.network)
 
     @staticmethod
     def _wait_readiness(host: str, port: int, timeout_seconds: float) -> bool:

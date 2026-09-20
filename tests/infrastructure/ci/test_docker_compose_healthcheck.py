@@ -190,12 +190,15 @@ def test_redis_runtime_cache_and_redisinsight_are_authenticated_and_loopback_onl
         "redis:8.10.1@sha256:"
         "8a1efc5f479551822b47424ccae982026b633f28818eab0387348120a61e10e2"
     )
+    assert redis["user"] == "redis"
+    assert redis["security_opt"] == ["no-new-privileges:true"]
     assert redis["ports"] == ["127.0.0.1:${AZURPILOT_REDIS_PORT:-6379}:6379"]
     assert redis["secrets"] == ["redis_app_password", "redis_admin_password"]
     assert "appendonly yes" in redis["command"][-1]
     assert "appendfsync everysec" in redis["command"][-1]
     assert "user default off" in redis["command"][-1]
     assert "user azurpilot_app" in redis["command"][-1]
+    assert "unsupported characters" in redis["command"][-1]
     assert redis["healthcheck"]["test"][0:1] == ["CMD-SHELL"]
     assert "REDISCLI_AUTH" in redis["healthcheck"]["test"][1]
     assert compose_data["volumes"]["redis-data"]["name"] == "azurpilot-redis-data"
