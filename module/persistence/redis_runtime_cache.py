@@ -46,7 +46,7 @@ def _parse_env_file(path: Path) -> dict[str, str]:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeCacheSettings:
-    """Bounded Redis transport settings without URL-embedded credentials."""
+    """Ограниченные Redis transport settings без credentials в URL."""
 
     host: str
     port: int

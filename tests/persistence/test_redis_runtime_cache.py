@@ -131,8 +131,19 @@ def test_runtime_cache_is_lazy_namespaced_and_uses_absolute_expiry(
 
 def test_runtime_cache_recreates_client_after_pid_change(monkeypatch: pytest.MonkeyPatch):
     _install_fake_redis(monkeypatch)
-    pids = iter((100, 200))
-    monkeypatch.setattr(redis_runtime_cache.os, "getpid", lambda: next(pids))
+    original_getpid = redis_runtime_cache.os.getpid
+    pid_calls = 0
+
+    def fake_getpid() -> int:
+        nonlocal pid_calls
+        pid_calls += 1
+        if pid_calls == 1:
+            return 100
+        if pid_calls == 2:
+            return 200
+        return original_getpid()
+
+    monkeypatch.setattr(redis_runtime_cache.os, "getpid", fake_getpid)
     cache = RedisRuntimeCache(_settings())
 
     assert cache.health().available

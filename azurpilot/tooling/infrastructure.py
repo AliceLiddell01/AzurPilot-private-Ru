@@ -217,6 +217,18 @@ class InfrastructureService:
             return [item for item in value if isinstance(item, dict)]
         return []
 
+    @staticmethod
+    def _record_ready(
+        record: dict[str, object] | None, *, require_health: bool
+    ) -> bool:
+        if record is None or str(record.get("State", "")).casefold() not in {
+            "running",
+            "up",
+        }:
+            return False
+        health = str(record.get("Health", "")).casefold()
+        return health == "healthy" if require_health else health in {"", "healthy"}
+
     def ensure_started(
         self,
         root: Path,
@@ -331,7 +343,26 @@ class InfrastructureService:
                 timeout_seconds=budget(240.0),
             )
             caddy_status = CapabilityStatus.READY
-        redisinsight_status = self.inspect(root, settings).redisinsight
+        raw = self._run_docker(
+            root,
+            compose,
+            env_file,
+            "ps",
+            "--all",
+            "--format",
+            "json",
+            timeout_seconds=budget(60.0),
+        )
+        records = self._records(raw)
+        redisinsight = next(
+            (item for item in records if item.get("Service") == "redisinsight"),
+            None,
+        )
+        redisinsight_status = (
+            CapabilityStatus.READY
+            if self._record_ready(redisinsight, require_health=True)
+            else CapabilityStatus.UNAVAILABLE
+        )
         return InfrastructureOutcome(
             postgres=CapabilityStatus.READY,
             caddy=caddy_status,
@@ -368,38 +399,24 @@ class InfrastructureService:
                 (item for item in records if item.get("Service") == "postgres"),
                 None,
             )
-            postgres_ready = bool(
-                postgres
-                and str(postgres.get("State", "")).casefold() in {"running", "up"}
-                and str(postgres.get("Health", "")).casefold() in {"", "healthy"}
-            )
+            postgres_ready = self._record_ready(postgres, require_health=False)
             caddy_configured = self._endpoint_configured(env_file)
             caddy = next(
                 (item for item in records if item.get("Service") == "caddy"),
                 None,
             )
-            caddy_ready = bool(
-                caddy
-                and str(caddy.get("State", "")).casefold() in {"running", "up"}
-                and str(caddy.get("Health", "")).casefold() in {"", "healthy"}
-            )
+            caddy_ready = self._record_ready(caddy, require_health=False)
             redis = next(
                 (item for item in records if item.get("Service") == "redis"),
                 None,
             )
-            redis_ready = bool(
-                redis
-                and str(redis.get("State", "")).casefold() in {"running", "up"}
-                and str(redis.get("Health", "")).casefold() == "healthy"
-            )
+            redis_ready = self._record_ready(redis, require_health=True)
             redisinsight = next(
                 (item for item in records if item.get("Service") == "redisinsight"),
                 None,
             )
-            redisinsight_ready = bool(
-                redisinsight
-                and str(redisinsight.get("State", "")).casefold() in {"running", "up"}
-                and str(redisinsight.get("Health", "")).casefold() == "healthy"
+            redisinsight_ready = self._record_ready(
+                redisinsight, require_health=True
             )
             return InfrastructureInspection(
                 postgres=CapabilityStatus.READY

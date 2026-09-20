@@ -332,7 +332,16 @@ def migrate(repository_root: Path) -> dict[str, Any]:
     # RedisInsight остаётся постоянным canonical service, но его operator UI
     # не может блокировать готовность игрового runtime: проверка его health
     # выполняется отдельным typed doctor capability.
-    _run_compose(repository_root, "up", "--detach", "redisinsight", timeout=120)
+    optional_services: dict[str, dict[str, str]] = {
+        "redisinsight": {"status": "started"}
+    }
+    try:
+        _run_compose(repository_root, "up", "--detach", "redisinsight", timeout=120)
+    except ComposeMigrationError as exc:
+        optional_services["redisinsight"] = {
+            "status": "unavailable",
+            "reason_code": str(exc),
+        }
     records = _verify_canonical_project(repository_root)
     final_state = inventory()
     if (
@@ -353,6 +362,7 @@ def migrate(repository_root: Path) -> dict[str, Any]:
         "persistent_volumes": list(LEGACY_VOLUMES),
         "legacy_containers_removed": len(state["legacy_containers"]),
         "legacy_networks_removed": len(state["legacy_networks"]),
+        "optional_services": optional_services,
     }
 
 

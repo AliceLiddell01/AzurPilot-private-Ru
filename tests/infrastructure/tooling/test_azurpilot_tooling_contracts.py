@@ -945,6 +945,8 @@ def test_docker_environment_is_bounded_and_reused_by_inspect_and_start(
             specs.append(spec)
             output = (
                 '{"Service":"postgres","State":"running","Health":"healthy"}\n'
+                '{"Service":"redis","State":"running","Health":"healthy"}\n'
+                '{"Service":"redisinsight","State":"running","Health":"healthy"}\n'
                 if "ps" in spec.argv
                 else ""
             )
@@ -958,7 +960,7 @@ def test_docker_environment_is_bounded_and_reused_by_inspect_and_start(
         "_run_project_module",
         lambda *_args, **_kwargs: "",
     )
-    service.ensure_started(root, settings, timeout_seconds=30)
+    outcome = service.ensure_started(root, settings, timeout_seconds=30)
 
     docker_specs = specs
     assert docker_specs
@@ -971,6 +973,8 @@ def test_docker_environment_is_bounded_and_reused_by_inspect_and_start(
     assert all("SOME_SECRET_TOKEN" not in spec.env for spec in docker_specs)
     assert inspection.compose is CapabilityStatus.READY
     assert inspection.postgres is CapabilityStatus.READY
+    assert outcome.redisinsight is CapabilityStatus.READY
+    assert sum("ps" in spec.argv for spec in docker_specs) == 2
     assert tooling_postgresql_runtime._backup_process_environment()[
         "DOCKER_CONTEXT"
     ] == "remote-context"

@@ -183,3 +183,33 @@ def test_unhealthy_redisinsight_does_not_block_canonical_migration(
     records = migration._verify_canonical_project(tmp_path)
 
     assert {record["Service"] for record in records} == set(services)
+
+
+def test_redisinsight_start_failure_is_non_blocking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    state = _state("fresh")
+    inventories = iter((state, state))
+    monkeypatch.setattr(migration, "inventory", lambda: next(inventories))
+    monkeypatch.setattr(migration, "_create_fresh_legacy_volumes", lambda: None)
+    monkeypatch.setattr(
+        migration,
+        "_verify_canonical_project",
+        lambda _root: [{"Service": "postgres"}],
+    )
+
+    def run_compose(_root: Path, *arguments: str, **_kwargs: object) -> str:
+        if "redisinsight" in arguments:
+            raise migration.ComposeMigrationError("DOCKER_COMMAND_FAILED")
+        return ""
+
+    monkeypatch.setattr(migration, "_run_compose", run_compose)
+
+    result = migration.migrate(tmp_path)
+
+    assert result["optional_services"] == {
+        "redisinsight": {
+            "status": "unavailable",
+            "reason_code": "DOCKER_COMMAND_FAILED",
+        }
+    }
