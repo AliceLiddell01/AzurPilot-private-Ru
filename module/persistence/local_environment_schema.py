@@ -162,6 +162,31 @@ if not APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS.issubset(LOCAL_ENVIRONMENT_KEYS):
     raise RuntimeError("Registry локального environment не описывает operator-only keys.")
 
 
+def filter_application_runtime_environment(payload: bytes) -> bytes:
+    """Удалить operator-only Redis values из application runtime payload."""
+
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeError as exc:
+        raise RuntimeError("Локальный Docker env невозможно безопасно прочитать.") from exc
+    lines: list[str] = []
+    seen: set[str] = set()
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        if line.lstrip().startswith("#") or "=" not in line:
+            lines.append(raw_line)
+            continue
+        key, _value = line.split("=", 1)
+        key = key.strip()
+        if key in APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS:
+            if key in seen:
+                raise RuntimeError("Локальный Docker env содержит дублирующийся operator key.")
+            seen.add(key)
+            continue
+        lines.append(raw_line)
+    return "".join(lines).encode("utf-8")
+
+
 def get_local_environment_key(name: str) -> LocalEnvironmentKey | None:
     """Вернуть точное описание ключа или ``None`` для неизвестного имени."""
 

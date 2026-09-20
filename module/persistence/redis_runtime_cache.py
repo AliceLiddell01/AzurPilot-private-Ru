@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from math import ceil
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from module.application.errors import StorageConfigurationError
 from module.application.runtime_cache import (
@@ -27,6 +27,7 @@ _REDIS_KEYS = frozenset(
         "AZURPILOT_DOCKER_REDIS_PORT",
     }
 )
+_APPLICATION_KEY_PREFIX = "azurpilot:"
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -52,7 +53,7 @@ class RuntimeCacheSettings:
     port: int
     username: str
     password: str = field(repr=False)
-    key_prefix: str = "azurpilot:"
+    key_prefix: ClassVar[str] = _APPLICATION_KEY_PREFIX
     socket_connect_timeout_seconds: float = 1.0
     socket_timeout_seconds: float = 1.0
 
@@ -65,10 +66,6 @@ class RuntimeCacheSettings:
             raise StorageConfigurationError("Redis username некорректен.")
         if not self.password or any(character in self.password for character in "\x00\r\n"):
             raise StorageConfigurationError("Redis password некорректен.")
-        if self.key_prefix != "azurpilot:" or any(
-            character.isspace() for character in self.key_prefix
-        ):
-            raise StorageConfigurationError("Redis key namespace некорректен.")
         for value in (
             self.socket_connect_timeout_seconds,
             self.socket_timeout_seconds,
@@ -208,11 +205,11 @@ class RedisRuntimeCache:
             not isinstance(key, str)
             or not key
             or len(key) > 256
-            or key.startswith(self.settings.key_prefix)
+            or key.startswith(_APPLICATION_KEY_PREFIX)
             or any(character.isspace() or character == "\x00" for character in key)
         ):
             raise RuntimeCacheError(RuntimeCacheStatus.INVALID_DATA)
-        return self.settings.key_prefix + key
+        return _APPLICATION_KEY_PREFIX + key
 
     @staticmethod
     def _value(value: bytes) -> bytes:

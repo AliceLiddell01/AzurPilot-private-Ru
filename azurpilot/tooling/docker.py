@@ -307,11 +307,11 @@ class DockerDeploymentService:
                 "PGPASSFILE отсутствует или имеет небезопасный путь.",
             )
         try:
-            from deploy.docker.runtime_entrypoint import (
-                _filter_application_runtime_environment,
+            from module.persistence.local_environment_schema import (
+                filter_application_runtime_environment,
             )
 
-            staged_payload = _filter_application_runtime_environment(env_path.read_bytes())
+            staged_payload = filter_application_runtime_environment(env_path.read_bytes())
             staged_env_path = ScopedPath(root).atomic_write_bytes(
                 _RUNTIME_APPLICATION_ENV_PATH,
                 staged_payload,
