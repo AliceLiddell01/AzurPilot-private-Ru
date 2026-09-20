@@ -207,6 +207,7 @@ def test_redis_runtime_cache_and_redisinsight_are_authenticated_and_loopback_onl
         "redis/redisinsight:3.8.0@sha256:"
         "b5e19ee240abef6edb435871b90ff8a210995422e8e018ab61c0339d318a1f84"
     )
+    assert redisinsight["entrypoint"] == ["/usr/src/app/docker-entry.sh"]
     assert redisinsight["depends_on"] == {
         "redis": {"condition": "service_healthy"}
     }
@@ -216,12 +217,14 @@ def test_redis_runtime_cache_and_redisinsight_are_authenticated_and_loopback_onl
     assert redisinsight["environment"] == {
         "RI_APP_HOST": "0.0.0.0",
         "RI_APP_PORT": "5540",
-        "RI_ENCRYPTION_KEY": "${AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY:?AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY is required}",
+        "RI_ENCRYPTION_KEY": "${AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY:-}",
         "RI_REDIS_HOST": "redis",
         "RI_REDIS_PORT": "6379",
         "RI_REDIS_ALIAS": "AzurPilot Redis",
         "RI_REDIS_USERNAME": "azurpilot_admin",
     }
+    assert redisinsight["command"][:2] == ["/bin/sh", "-ec"]
+    assert "encryption key is required" in redisinsight["command"][2]
     assert "RI_REDIS_PASSWORD" not in redisinsight["environment"]
     assert redisinsight["healthcheck"]["test"][-1] == (
         "http://127.0.0.1:5540/api/health/"

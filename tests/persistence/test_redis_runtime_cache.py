@@ -32,6 +32,16 @@ class _ResponseError(Exception):
     pass
 
 
+class _NoBackoff:
+    pass
+
+
+class _Retry:
+    def __init__(self, backoff: object, retries: int) -> None:
+        self.backoff = backoff
+        self.retries = retries
+
+
 class _FakeRedis:
     instances: ClassVar[list[_FakeRedis]] = []
     ping_error: BaseException | None = None
@@ -78,6 +88,12 @@ def _install_fake_redis(monkeypatch: pytest.MonkeyPatch) -> None:
         ConnectionError=_ConnectionError,
         ResponseError=_ResponseError,
     )
+    backoff = ModuleType("redis.backoff")
+    backoff.NoBackoff = _NoBackoff  # type: ignore[attr-defined]
+    retry = ModuleType("redis.retry")
+    retry.Retry = _Retry  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "redis.backoff", backoff)
+    monkeypatch.setitem(sys.modules, "redis.retry", retry)
     monkeypatch.setitem(sys.modules, "redis", module)
 
 
@@ -103,6 +119,7 @@ def test_runtime_cache_is_lazy_namespaced_and_uses_absolute_expiry(
     cache.set("task-state", b"value", expires_at=expires_at)
 
     client = _FakeRedis.instances[0]
+    assert client.kwargs["retry"].retries == 0
     assert client.set_calls[0][0] == "azurpilot:task-state"
     assert client.set_calls[0][1] == b"value"
     assert client.set_calls[0][2] == ceil(expires_at.timestamp())

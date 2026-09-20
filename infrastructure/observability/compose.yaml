@@ -183,16 +183,26 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    entrypoint: ["/usr/src/app/docker-entry.sh"]
     ports:
       - "127.0.0.1:${AZURPILOT_REDISINSIGHT_PORT:-5540}:5540"
     environment:
       RI_APP_HOST: 0.0.0.0
       RI_APP_PORT: "5540"
-      RI_ENCRYPTION_KEY: ${AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY:?AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY is required}
+      RI_ENCRYPTION_KEY: ${AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY:-}
       RI_REDIS_HOST: redis
       RI_REDIS_PORT: "6379"
       RI_REDIS_ALIAS: AzurPilot Redis
       RI_REDIS_USERNAME: azurpilot_admin
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -z "$${RI_ENCRYPTION_KEY}" ]; then
+          echo "RedisInsight encryption key is required" >&2
+          exit 1
+        fi
+        exec node redisinsight/api/dist/src/main
     volumes:
       - type: volume
         source: redisinsight-data

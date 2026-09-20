@@ -1,6 +1,6 @@
 {
   "name": "azurpilot",
-  "version": "0.1.0+codex.28969345741796",
+  "version": "0.1.0+codex.26755063833494",
   "description": "Единый workflow для project-scoped Development Runtime и Game MCP AzurPilot.",
   "author": {
     "name": "AzurPilot",

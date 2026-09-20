@@ -13,7 +13,7 @@
 | postgres | каноническое production-хранилище AzurPilot | postgres:18 |
 | postgres-bootstrap | одноразовое создание app/migrator ролей и прав | postgres:18 |
 | redis | ephemeral runtime cache без доменных данных | redis:8.10.1 |
-| redisinsight | локальная диагностика Redis | redis/redisinsight:3.8.0 |
+| redisinsight | постоянная локальная диагностика Redis | redis/redisinsight:3.8.0 |
 | loki | хранение logs | grafana/loki:3.7.4 |
 | prometheus | хранение metrics и remote-write receiver | prom/prometheus:v3.14.0 |
 | tempo | хранение traces и OTLP receiver | grafana/tempo:3.0.3 |
@@ -211,14 +211,18 @@ Caddy/container/healthcheck и опубликованных портов, а
 собственную loopback-конфигурацию. Команда `probe` дополнительно проверяет OAuth
 metadata, DNS/TLS и read-only MCP contract через публичные endpoints.
 
-Для штатного старта только базы используйте:
+Обычный `up` запускает постоянные PostgreSQL, Redis и RedisInsight рядом с
+остальными сервисами:
 
-    docker compose --env-file ../../.env up --detach --wait postgres
-    docker compose --env-file ../../.env up --detach --wait redis redisinsight
+    docker compose --env-file ../../.env up --detach
     docker compose --env-file ../../.env run --rm --no-deps postgres-bootstrap
 
 `postgres-bootstrap` — одноразовый шаг выдачи app/migrator ролей и прав;
 повторный запуск идемпотентен.
+Если `AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY` отсутствует, RedisInsight остаётся
+в fail-closed состоянии и не блокирует PostgreSQL или Redis; после добавления
+ключа достаточно повторить `docker compose ... up --detach redisinsight`.
+Сервис не является зависимостью приложения или runtime cache.
 Владелец lifecycle — Docker Compose/Docker Desktop; Arch WSL2 сохраняется только
 как rollback safety и не требует `systemctl start postgresql`.
 Для восстановления Caddy после входа в Windows в Docker Desktop должна быть

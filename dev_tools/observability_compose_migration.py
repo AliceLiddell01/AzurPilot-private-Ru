@@ -27,6 +27,7 @@ VOLUME_SERVICES = {
     "azurpilot-observability_prometheus-data": "prometheus",
     "azurpilot-observability_tempo-data": "tempo",
 }
+OPTIONAL_SERVICES = {"redisinsight"}
 
 
 class ComposeMigrationError(RuntimeError):
@@ -280,7 +281,6 @@ def _verify_canonical_project(repository_root: Path) -> list[dict[str, Any]]:
         "postgres",
         "pgadmin",
         "redis",
-        "redisinsight",
         *VOLUME_SERVICES.values(),
     }
     observed_services = {
@@ -289,7 +289,10 @@ def _verify_canonical_project(repository_root: Path) -> list[dict[str, Any]]:
     if not expected_services.issubset(observed_services):
         raise ComposeMigrationError("CANONICAL_SERVICE_MISSING")
     for record in records:
-        if record.get("Service") not in expected_services:
+        service = record.get("Service")
+        if service in OPTIONAL_SERVICES:
+            continue
+        if service not in expected_services:
             continue
         state = str(record.get("State", "")).casefold()
         health = str(record.get("Health", "")).casefold()
@@ -312,7 +315,24 @@ def migrate(repository_root: Path) -> dict[str, Any]:
         mode = "migration"
 
     _run_compose(repository_root, "config", "--quiet", timeout=60)
-    _run_compose(repository_root, "up", "--detach", "--wait", timeout=360)
+    required_services = (
+        "postgres",
+        "pgadmin",
+        "redis",
+        *VOLUME_SERVICES.values(),
+    )
+    _run_compose(
+        repository_root,
+        "up",
+        "--detach",
+        "--wait",
+        *required_services,
+        timeout=360,
+    )
+    # RedisInsight остаётся постоянным canonical service, но его operator UI
+    # не может блокировать готовность игрового runtime: проверка его health
+    # выполняется отдельным typed doctor capability.
+    _run_compose(repository_root, "up", "--detach", "redisinsight", timeout=120)
     records = _verify_canonical_project(repository_root)
     final_state = inventory()
     if (

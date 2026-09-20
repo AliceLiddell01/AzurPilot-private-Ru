@@ -149,6 +149,8 @@ class RedisRuntimeCache:
         if self._client is None:
             try:
                 import redis
+                from redis.backoff import NoBackoff
+                from redis.retry import Retry
 
                 self._client = redis.Redis(
                     host=self.settings.host,
@@ -157,7 +159,7 @@ class RedisRuntimeCache:
                     password=self.settings.password,
                     socket_connect_timeout=self.settings.socket_connect_timeout_seconds,
                     socket_timeout=self.settings.socket_timeout_seconds,
-                    retry_on_timeout=False,
+                    retry=Retry(NoBackoff(), retries=0),
                     health_check_interval=30,
                     decode_responses=False,
                 )

@@ -331,12 +331,13 @@ class InfrastructureService:
                 timeout_seconds=budget(240.0),
             )
             caddy_status = CapabilityStatus.READY
+        redisinsight_status = self.inspect(root, settings).redisinsight
         return InfrastructureOutcome(
             postgres=CapabilityStatus.READY,
             caddy=caddy_status,
             migration="canonical_compose_verified",
             redis=CapabilityStatus.READY,
-            redisinsight=CapabilityStatus.READY,
+            redisinsight=redisinsight_status,
         )
 
     def inspect(
@@ -389,7 +390,7 @@ class InfrastructureService:
             redis_ready = bool(
                 redis
                 and str(redis.get("State", "")).casefold() in {"running", "up"}
-                and str(redis.get("Health", "")).casefold() in {"", "healthy"}
+                and str(redis.get("Health", "")).casefold() == "healthy"
             )
             redisinsight = next(
                 (item for item in records if item.get("Service") == "redisinsight"),
@@ -398,7 +399,7 @@ class InfrastructureService:
             redisinsight_ready = bool(
                 redisinsight
                 and str(redisinsight.get("State", "")).casefold() in {"running", "up"}
-                and str(redisinsight.get("Health", "")).casefold() in {"", "healthy"}
+                and str(redisinsight.get("Health", "")).casefold() == "healthy"
             )
             return InfrastructureInspection(
                 postgres=CapabilityStatus.READY
