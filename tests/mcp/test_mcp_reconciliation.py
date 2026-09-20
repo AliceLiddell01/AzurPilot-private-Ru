@@ -466,7 +466,7 @@ def test_reconcile_rejects_unknown_restart_postcondition(
     with pytest.raises(ToolingError) as error:
         service.reconcile(REPOSITORY_ROOT)
 
-    assert error.value.code is ResultCode.MCP_RUNTIME_STALE
+    assert error.value.code is ResultCode.MCP_RUNTIME_UNAVAILABLE
 
 
 def test_shared_registration_model_reports_stdio_and_loopback_routes() -> None:

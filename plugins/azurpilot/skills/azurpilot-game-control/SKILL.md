@@ -14,7 +14,7 @@ redacted config, sanitized logs или screenshot, получить справк
 разрешённый параметр или выполнить опубликованное runtime-control действие.
 
 В standalone Codex CLI источник действий — project-scoped `azurpilot-game`,
-зарегистрированный в `.codex/config.toml`; lifecycle этого route проверяется и
+зарегистрированный в `.codex/config.toml` как direct local stdio route; lifecycle этого route проверяется и
 восстанавливается только через буквальные `azur mcp ...` команды из PATH. Не
 запускай `module.game_mcp` или другой внутренний module напрямую. Codex Desktop также явно
 поддерживает first-class authenticated loopback route `azurpilot_game`; protocol
