@@ -1,17 +1,15 @@
 """Контракт изолированного отказа, recovery и ограниченной конфигурации collector."""
 
-from tests.support.paths import REPOSITORY_ROOT
-
 import copy
 import json
 import re
 import subprocess
-from pathlib import Path
 
 import pytest
 import yaml
 
 from dev_tools import observability_reliability as target
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 
@@ -83,19 +81,21 @@ def docker_state(monkeypatch):
     ],
 )
 def test_denied_services_never_reach_docker(docker_state, tmp_path, services):
-    with pytest.raises(target.ReliabilityError, match="SERVICE_DENIED"):
-        with target.outage(services, tmp_path / "recovery.json"):
-            pytest.fail("Недопустимый service был разрешён")
+    with pytest.raises(target.ReliabilityError, match="SERVICE_DENIED"), target.outage(
+        services, tmp_path / "recovery.json"
+    ):
+        pytest.fail("Недопустимый service был разрешён")
     _, calls, _ = docker_state
     assert calls == []
 
 
 def test_failed_probe_restores_only_attempted_services(docker_state, tmp_path):
     state, calls, _ = docker_state
-    with pytest.raises(ValueError, match="исходная ошибка"):
-        with target.outage(("tempo", "loki"), tmp_path / "recovery.json"):
-            assert state["tempo"]["status"] == "exited"
-            raise ValueError("исходная ошибка")
+    with pytest.raises(ValueError, match="исходная ошибка"), target.outage(
+        ("tempo", "loki"), tmp_path / "recovery.json"
+    ):
+        assert state["tempo"]["status"] == "exited"
+        raise ValueError("исходная ошибка")
     assert calls == [
         ("stop", "--time", "10", "tempo"),
         ("stop", "--time", "10", "loki"),
@@ -116,9 +116,10 @@ def test_stop_timeout_after_side_effect_still_recovers(
             raise TimeoutError("таймаут после stop")
 
     monkeypatch.setattr(target, "docker", failing)
-    with pytest.raises(TimeoutError):
-        with target.outage(("tempo", "loki"), tmp_path / "recovery.json"):
-            pytest.fail("После timeout нельзя продолжать probe")
+    with pytest.raises(TimeoutError), target.outage(
+        ("tempo", "loki"), tmp_path / "recovery.json"
+    ):
+        pytest.fail("После timeout нельзя продолжать probe")
     assert calls[-1] == ("start", "tempo")
     assert state["tempo"]["status"] == "running"
     assert not any("loki" in call for call in calls)
@@ -134,9 +135,10 @@ def test_recovery_error_does_not_mask_original(docker_state, monkeypatch, tmp_pa
 
     monkeypatch.setattr(target, "docker", failing)
     journal = tmp_path / "recovery.json"
-    with pytest.raises(ValueError, match="исходная ошибка") as error_info:
-        with target.outage(("tempo", "loki"), journal):
-            raise ValueError("исходная ошибка")
+    with pytest.raises(ValueError, match="исходная ошибка") as error_info, target.outage(
+        ("tempo", "loki"), journal
+    ):
+        raise ValueError("исходная ошибка")
     assert calls[-1] == ("start", "tempo")
     assert any(
         "OBSERVABILITY_RECOVERY_FAILED" in note
@@ -150,9 +152,8 @@ def test_recovery_error_does_not_mask_original(docker_state, monkeypatch, tmp_pa
 def test_existing_journal_prevents_mutation(docker_state, tmp_path):
     journal = tmp_path / "recovery.json"
     journal.write_text("{}")
-    with pytest.raises(FileExistsError):
-        with target.outage(("tempo",), journal):
-            pass
+    with pytest.raises(FileExistsError), target.outage(("tempo",), journal):
+        pass
     _, calls, _ = docker_state
     assert calls == []
 
@@ -169,9 +170,8 @@ def test_recovery_journal_failure_prevents_first_stop(
 
     with pytest.raises(
         target.ReliabilityError, match="OBSERVABILITY_RECOVERY_JOURNAL_WRITE_FAILED"
-    ):
-        with target.outage(("tempo",), journal):
-            pytest.fail("До durable journal нельзя выполнять outage")
+    ), target.outage(("tempo",), journal):
+        pytest.fail("До durable journal нельзя выполнять outage")
 
     _, calls, _ = docker_state
     assert calls == []
@@ -195,7 +195,7 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
 
     calls = []
 
-    def gateway(name, arguments):
+    def grafana_call(name, arguments):
         calls.append(name)
         if name == "check_datasources_health":
             return {
@@ -215,7 +215,9 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
             }
         }
 
-    monkeypatch.setattr(observability_mcp, "_gateway_tool_call", gateway)
+    monkeypatch.setattr(
+        observability_mcp, "read_only_grafana_tool_call", grafana_call
+    )
     result = target.mcp_signals(
         {"environment": "probe", "marker": "marker", "trace_ids": ["trace"]}
     )
@@ -237,7 +239,7 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
     assert result["operator_checks"] == {"skipped": "DATASOURCE_UNAVAILABLE"}
 
 
-def test_mcp_signal_nonempty_accepts_gateway_list_response_shape():
+def test_mcp_signal_nonempty_accepts_direct_list_response_shape():
     emission = {
         "environment": "probe-environment",
         "marker": "probe-marker",
@@ -324,12 +326,11 @@ def test_mcp_post_recovery_requires_operator_reads_and_all_signals():
         "tempo": {"responded": True, "nonempty": True},
         "operator_checks": {
             "dashboard": {"responded": True, "operation_ok": True},
-            "dashboard_queries": {"responded": True, "operation_ok": True},
-            "alerts": {"responded": True, "operation_ok": False},
+            "dashboard_queries": {"responded": True, "operation_ok": False},
         },
     }
 
-    with pytest.raises(target.ReliabilityError, match="MCP_NOT_RECOVERED"):
+    with pytest.raises(target.ReliabilityError, match="OBSERVABILITY_MCP_NOT_RECOVERED"):
         target.assert_mcp_after_recovery(result)
 
 

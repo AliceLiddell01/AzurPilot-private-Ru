@@ -13,3 +13,41 @@ dist
 debug_img
 ocr_debug
 toolkit
+
+# Пользовательские секреты и локальные учётные данные никогда не входят в
+# контекст сборки корня репозитория. Подключение во время запуска выполняет
+# типизированный Docker-сервис.
+.env
+.env.*
+*.env
+**/*.env
+**/.env.*
+!.env.example
+!.env.template
+.pgpass
+*.pgpass
+**/.pgpass
+**/*.pgpass
+*.pass
+**/*.pass
+password.txt
+**/password.txt
+*.secret
+**/*.secret
+credentials.json
+**/credentials.json
+credentials.*
+**/credentials.*
+credential*.json
+**/credential*.json
+credential*.toml
+**/credential*.toml
+credential*.yaml
+**/credential*.yaml
+credential*.yml
+**/credential*.yml
+secrets.*
+**/secrets.*
+# Производственный маркер и остальные локальные файлы состояния подключаются
+# только во время запуска типизированного Docker-сервиса.
+config/state/

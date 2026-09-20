@@ -35,6 +35,35 @@ def _find_absolute_local_path(value: str) -> re.Match[str] | None:
     return _ABSOLUTE_LOCAL_PATH.search(_URL.sub("", value))
 
 
+def _normalize_contract(value: str) -> str:
+    # Убираем markdown-разметку (backtick и bold), но сохраняем wildcard вроде codex/*.
+    return " ".join(value.lower().replace("`", "").replace("**", "").split())
+
+
+def _section(value: str, start: str, end: str) -> str:
+    assert start in value
+    tail = value.split(start, maxsplit=1)[1]
+    assert end in tail
+    return tail.split(end, maxsplit=1)[0]
+
+
+def _numbered_contract_items(value: str) -> tuple[str, ...]:
+    items: list[list[str]] = []
+    current: list[str] | None = None
+    for line in value.splitlines():
+        match = re.match(r"^\s*\d+\.\s+(.*)$", line)
+        if match:
+            if current is not None:
+                items.append(current)
+            current = [match.group(1)]
+            continue
+        if current is not None and line.strip():
+            current.append(line.strip())
+    if current is not None:
+        items.append(current)
+    return tuple(_normalize_contract(" ".join(item)) for item in items)
+
+
 def test_repo_scoped_skills_have_unique_valid_frontmatter() -> None:
     skill_files = sorted(_SKILLS_ROOT.glob("*/SKILL.md"))
     discovered_skill_dirs = {path.parent.name for path in skill_files}
@@ -77,24 +106,25 @@ def test_development_description_has_positive_and_negative_routing() -> None:
     frontmatter, _ = _frontmatter(_SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md")
     description = str(frontmatter["description"]).lower()
     for trigger in (
-        "feature",
-        "bugfix",
-        "refactor",
-        "ci/test",
+        "разработ",
+        "исправлен",
+        "рефактор",
+        "инфраструктур",
+        "ci/тест",
         "upstream",
         "pr",
         "merge",
         "cleanup",
     ):
         assert trigger in description
-    for boundary in ("read-only", "перевода текста", "без изменения репозитория"):
+    for boundary in ("read-only", "объяснен", "без изменения"):
         assert boundary in description
 
 
 def test_coderabbit_description_routes_review_requests() -> None:
     frontmatter, _ = _frontmatter(_SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md")
     description = str(frontmatter["description"]).lower()
-    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "wsl2 arch"):
+    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "wsl2 linux"):
         assert trigger in description
     for delegated_trigger in ("делегации", "canonical", "checkpoint"):
         assert delegated_trigger in description
@@ -118,8 +148,9 @@ def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
     ):
         assert required in review_content
     for required in (
-        "на canonical coderabbit review checkpoint",
-        "явно делегируй sibling skill `azurpilot-coderabbit-review`",
+        "coderabbit review checkpoint",
+        "явно делегируй",
+        "sibling skill `azurpilot-coderabbit-review`",
         "не требует повторного пользовательского coderabbit-запроса",
     ):
         assert required in development_content
@@ -164,39 +195,32 @@ def test_implicit_invocation_is_not_disabled() -> None:
         assert "allow_implicit_invocation: false" not in content
 
 
-def test_required_references_and_workflow_guardrails_are_present() -> None:
+def test_development_skill_routes_to_canonical_workflow_owners() -> None:
     development_dir = _SKILLS_ROOT / "azurpilot-repository-development"
-    development_content = " ".join(
-        (development_dir / "SKILL.md").read_text(encoding="utf-8").split()
+    development_content = (development_dir / "SKILL.md").read_text(encoding="utf-8")
+
+    linked_references = set(
+        re.findall(r"\]\((references/[^)]+\.md)\)", development_content)
     )
-    for reference in (
-        "references/engineering-contract.md",
-        "references/ci-and-verification.md",
-        "references/browser-and-live-testing.md",
-        "references/pr-merge-cleanup.md",
-    ):
+    reference_files = {
+        path.relative_to(development_dir).as_posix()
+        for path in (development_dir / "references").glob("*.md")
+    }
+    assert linked_references == reference_files
+    assert linked_references
+    for reference in linked_references:
         assert (development_dir / reference).is_file()
-        assert reference in development_content
-    for required in (
-        "task-specific",
-        "stage-agnostic",
-        "русским",
-        "текущем основном checkout",
-        "WSL2",
-        "Browser/Computer Use",
-        "GIT-WORKFLOW.md",
-        "canonical CodeRabbit review checkpoint",
-        "делегируй sibling skill",
-        "upstream sync",
-        "sync/*",
-        "codex/port-upstream",
-        "READY_FOR_CHATGPT_REVIEW",
-        "ChatGPT 5.6 Sol",
-        "явная команда",
-        "post-merge verification",
-        "rate limit",
+
+    normalized = _normalize_contract(development_content)
+    assert ".codex/context/git-workflow.md" in normalized
+    assert ".codex/context/08-verification.md" in normalized
+    for duplicated_policy in (
+        "merge-authorized",
+        "exact-head revalidation",
+        "required ci",
+        "ready_for_chatgpt_review",
     ):
-        assert required.lower() in development_content.lower()
+        assert duplicated_policy not in normalized
 
     review_dir = _SKILLS_ROOT / "azurpilot-coderabbit-review"
     review_content = " ".join((review_dir / "SKILL.md").read_text(encoding="utf-8").split())
@@ -209,30 +233,11 @@ def test_required_references_and_workflow_guardrails_are_present() -> None:
         "если PR существует",
         "partially confirmed",
         "insufficient evidence",
-        "WSL2 Arch",
+        "WSL2 Linux",
         "false positive",
         "rate limit",
-        "READY_FOR_CHATGPT_REVIEW",
     ):
         assert required.lower() in review_content.lower()
-    reference_content = review_reference.read_text(encoding="utf-8").lower()
-    for required in (
-        "coderabbit review --help",
-        "agent mode",
-        "committed-only review scope",
-        "explicit base commit",
-        "canonical example",
-        "версия внешнего cli не закреплена в репозитории",
-        "не угадывай",
-    ):
-        assert required in reference_content
-    assert "отсутствие pr само по себе не блокирует" in reference_content
-    assert "partially confirmed" in reference_content
-    assert "insufficient evidence" in reference_content
-    assert "другой canonical review checkout" not in reference_content
-    assert "другую среду для coderabbit review" in reference_content
-    assert "linked worktree" in reference_content
-
 
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
     for path in _SKILLS_ROOT.rglob("*"):
@@ -247,57 +252,61 @@ def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
 
 
 def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
-    canonical_paths = (
-        _REPOSITORY_ROOT / "AGENTS.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md",
+    workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
+        encoding="utf-8"
     )
-    merge_guards = {
-        _REPOSITORY_ROOT / "AGENTS.md": (
-            "только новое текущее сообщение пользователя",
-            "не выполняет merge без",
-        ),
-        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md": (
-            "до такой команды",
-            "отдельной текущей команды",
-        ),
-        _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md": (
-            "merge не выполняется без отдельной текущей команды пользователя",
-            "не является разрешением на merge",
-        ),
-    }
-    for path in canonical_paths:
-        content = path.read_text(encoding="utf-8").lower()
-        assert "ready_for_chatgpt_review" in content
-        assert "chatgpt 5.6 sol" in content
-        assert merge_guards[path][0] in content
-        assert merge_guards[path][1] in content
-    combined = "\n".join(path.read_text(encoding="utf-8") for path in canonical_paths)
-    assert "100% технического цикла" not in combined
-    assert "auto-merge допустим после зелёных gates" not in combined
-    assert "завершить прогон как ожидающий review" not in combined
-    assert "READY_FOR_CHATGPT_REVIEW" in combined
+    raw_merge_section = _section(workflow, "### Merge", "## 21.")
+    merge_section = _normalize_contract(raw_merge_section)
+    items = _numbered_contract_items(raw_merge_section)
+    assert len(items) >= 3
 
+    final_review_index = next(
+        (
+            index
+            for index, item in enumerate(items)
+            if "финаль" in item and "пользоват" in item and "ревью" in item
+        ),
+        None,
+    )
+    assert final_review_index is not None, "В разделе Merge отсутствует финальное пользовательское ревью."
+    authorization_index = next(
+        (
+            index
+            for index, item in enumerate(items)
+            if "разреш" in item and "отдельн" in item and "текущ" in item and "pr" in item
+        ),
+        None,
+    )
+    assert authorization_index is not None, "В разделе Merge отсутствует отдельное разрешение для текущего PR."
+    merge_action_index = next(
+        (
+            index
+            for index, item in enumerate(items)
+            if "merge" in item and ("провер" in item or "revalidation" in item)
+        ),
+        None,
+    )
+    assert merge_action_index is not None, "В разделе Merge отсутствует проверка merge/revalidation."
+    assert final_review_index < authorization_index < merge_action_index
+
+    assert "старое разрешение" in merge_section
+    assert "разрешение для другого pr" in merge_section
+    assert "недостаточ" in merge_section
+    assert all(token in merge_section for token in ("ci", "coderabbit", "self-review"))
+    assert "не являются разрешением на merge" in merge_section
+    assert "ready_for_chatgpt_review" in merge_section
+    assert "merge-authorized" in merge_section
 
 def test_new_capability_branch_contract_does_not_restore_codex_default() -> None:
-    current_sources = (
-        _REPOSITORY_ROOT / "AGENTS.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md",
-        _SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md",
-        _SKILLS_ROOT
-        / "azurpilot-repository-development"
-        / "references"
-        / "pr-merge-cleanup.md",
-    )
-    combined = "\n".join(path.read_text(encoding="utf-8") for path in current_sources)
-    normalized = " ".join(combined.lower().replace("`", "").split())
+    workflow = (
+        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md"
+    ).read_text(encoding="utf-8")
+    normalized = _normalize_contract(workflow)
     assert "<domain>/<unique-capability-name>" in normalized
     assert "codex/*" in normalized
     assert "compatibility/legacy" in normalized
-    assert "codex/* не является default" in normalized
     assert "новые обычные задачи этот namespace не используют" in normalized
     assert "sync/*" in normalized
-    assert "new ordinary task" not in normalized
 
 
 def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
@@ -313,43 +322,25 @@ def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
     workflow_flat = " ".join(workflow.split())
     for required in (
         "после исчерпания бюджета retry для обязательного product/security gate merge блокируется",
-        "coderabbit rate limit/cooldown не является product/security gate",
-        "не блокирует `ready_for_chatgpt_review`",
-        "не обходит required ci, security/secret scan",
+        "если coderabbit skill вернул `rate_limited`",
+        "git lifecycle может достичь `ready_for_chatgpt_review`",
+        "не отменяет required ci, security/secret scan, mandatory product/live acceptance или blocking review threads",
+        "правила ожидания, retry и triage провайдера принадлежат coderabbit skill/reference",
     ):
         assert required in workflow_flat
 
 
 def test_rate_limit_cannot_reopen_merge_authorized_or_merged_lifecycle() -> None:
-    development = (_SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    cleanup = (
-        _SKILLS_ROOT
-        / "azurpilot-repository-development"
-        / "references"
-        / "pr-merge-cleanup.md"
-    ).read_text(encoding="utf-8")
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     )
-    development_after_merge = " ".join(development.split()).split(
-        "После отдельной текущей команды пользователя:", maxsplit=1
-    )[1]
-    cleanup_after_merge = cleanup.split("## Post-merge cleanup", maxsplit=1)[1]
-    workflow_post_merge = workflow.split("## 24. Post-merge и rollback", maxsplit=1)[1].split(
-        "## 25. Branch protection", maxsplit=1
+    workflow_post_merge = workflow.split("## 23. Post-merge и rollback", maxsplit=1)[1].split(
+        "## 24. Branch protection", maxsplit=1
     )[0]
-
-    combined = f"{development}\n{cleanup}\n{workflow}".lower()
-    assert "merge-authorized" in combined
-    assert "merged" in combined
-    for post_merge_content in (
-        development_after_merge,
-        cleanup_after_merge,
-        workflow_post_merge,
-    ):
-        assert "ready_for_chatgpt_review" not in post_merge_content.lower()
+    normalized = _normalize_contract(workflow)
+    assert "merge-authorized" in normalized
+    assert "merged" in normalized
+    assert "ready_for_chatgpt_review" not in _normalize_contract(workflow_post_merge)
 
 
 def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow() -> None:
@@ -357,9 +348,10 @@ def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow(
     workflow_content = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     ).lower()
-    assert "implementation checkout/worktree" in agents_content
-    assert ".codex/context/git-workflow.md" in agents_content
-    assert "отдельный wsl2 arch checkout разрешён только для независимого coderabbit review" not in agents_content
+    assert "git-workflow.md" in agents_content
+    assert "для любых git/pr-операций следуй только" in agents_content
+    assert "параллельная разработка" not in agents_content
+    assert "опасный reproduction/experiment" not in agents_content
     for exception in (
         "параллельная разработка",
         "опасный reproduction/experiment",
@@ -368,7 +360,7 @@ def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow(
         assert exception in workflow_content
 
 
-def test_ci_contract_keeps_stable_stage_agnostic_required_contexts() -> None:
+def test_ci_contract_runs_for_any_pr_and_stable_push() -> None:
     workflow = yaml.safe_load(
         (_REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     )
@@ -376,14 +368,26 @@ def test_ci_contract_keeps_stable_stage_agnostic_required_contexts() -> None:
     assert isinstance(workflow, dict)
     triggers = workflow.get("on", workflow.get(True))
     assert isinstance(triggers, dict)
-    for event_name in ("pull_request", "push"):
-        event = triggers.get(event_name)
-        assert isinstance(event, dict)
-        assert event.get("branches") == ["personal/stable"]
+    pull_request = triggers.get("pull_request")
+    assert isinstance(pull_request, dict)
+    assert "branches" not in pull_request
+
+    push = triggers.get("push")
+    assert isinstance(push, dict)
+    assert push.get("branches") == ["personal/stable"]
+
+    assert "независимо от target branch" in ci_doc
+    assert "push-trigger" in ci_doc.lower()
+
     for event in triggers.values():
         if isinstance(event, dict):
             assert "paths" not in event
             assert "paths-ignore" not in event
+
+    assert workflow.get("permissions") == {"contents": "read"}
+    concurrency = workflow.get("concurrency")
+    assert isinstance(concurrency, dict)
+    assert "github.event.pull_request.number" in str(concurrency.get("group", ""))
 
     jobs = workflow.get("jobs")
     assert isinstance(jobs, dict)

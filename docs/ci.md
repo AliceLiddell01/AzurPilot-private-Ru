@@ -2,7 +2,11 @@
 
 ## Назначение
 
-Постоянный CI AzurPilot Private RU проверяет текущее продуктовое поведение, а не историю этапов разработки. Единственный обязательный pull-request workflow находится в `.github/workflows/ci.yml` и запускается без `paths`-фильтров для каждого PR в `personal/stable`.
+Постоянный CI AzurPilot Private RU проверяет текущее продуктовое поведение, а не
+историю этапов разработки. Единственный pull-request workflow находится в
+`.github/workflows/ci.yml` и запускается без `paths`-фильтров для каждого pull
+request независимо от target branch. Push-trigger имеет отдельную branch policy
+и остаётся ограничен `personal/stable`.
 
 CI не использует исторические SHA, committed evidence, stage-specific baselines или временные migration gates как источник истины. Источниками истины являются текущий код, исполняемые тесты и фактическое состояние ветки.
 
@@ -97,6 +101,7 @@ uv sync --locked --group ci
 uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
   --base-commit <full-base-sha>
+uv run --locked --no-sync python -m dev_tools.integration_contract_gate
 ```
 
 В pull request job передаёт в gate точный `github.event.pull_request.base.sha`;
@@ -111,6 +116,11 @@ uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
 [`postgresql-migration-tooling.md`](postgresql-migration-tooling.md).
 
 Job `Python` не содержит ручного реестра модулей: `pytest` автоматически собирает весь каталог `tests/`. Тесты, которым требуется реальное устройство, эмулятор или игровой аккаунт, должны проверять только локальный контракт либо оставаться в `tools/acceptance/`.
+
+Permanent integration contract gate проверяет закрытый реестр шести direct
+families, прямые записи `.codex/config.toml`, отсутствие retired profiles и
+сохранность Compose observability services/volumes. Gate не использует
+исторический snapshot, live credentials или machine-specific values.
 
 ## Test platform
 
@@ -245,18 +255,18 @@ context не создаётся.
 
 ## Windows
 
-Job выполняется на `windows-latest` с PowerShell и Python `3.14.6`:
+Job выполняется на `windows-latest` с PowerShell runner glue и Python `3.14.6`:
 
-- парсит каждый tracked `.ps1` и `.psm1` через PowerShell Parser;
-- запускает PSScriptAnalyzer `1.25.0` с уровнями `Error` и `Warning`;
-- выполняет Windows-регрессии WebUI, device acceptance contract и эксплуатационных PowerShell-скриптов;
+- проверяет `azur` CLI и JSON contracts;
+- выполняет Windows-регрессии WebUI, device acceptance contract и Python tooling;
 - выполняет изолированные lifecycle-регрессии repository-scoped mutex/event,
   exact ownership и защиты foreign process от принудительной остановки;
 - импортирует SQLAlchemy/Psycopg/Alembic wheels на Python 3.14 и проверяет
   lazy engine, PID/spawn, pool, config и redaction без сетевого подключения;
 - требует чистое рабочее дерево.
 
-Локальные проверки должны выполняться через `pwsh`, а не через Windows PowerShell 5.1. Правила написания Git-команд находятся в `.codex/context/POWERSHELL-GIT-RULES.md`.
+PowerShell в Windows job используется только как синтаксис runner glue; product
+операции принадлежат `azur` и Python services.
 
 ## Security
 

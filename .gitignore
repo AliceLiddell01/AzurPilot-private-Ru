@@ -315,12 +315,6 @@ cursor-helper/**/review/reports/files/
 
 RTK.md
 
-# AzurPilot Stage 2 tracked launcher infrastructure
-!/scripts/lib/
-/scripts/lib/*
-!/scripts/lib/AzurPilot.Shortcut.psm1
-!/scripts/lib/AzurPilot.Lifecycle.psm1
-
 # Неиспользуемые локальные конфигурации AI-инструментов
 .cursor/
 .claude/

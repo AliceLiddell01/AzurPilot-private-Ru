@@ -1,17 +1,22 @@
-# Проверки и Definition of Done
+# Проверки и критерии готовности
+
+Этот файл — единственный владелец общей матрицы проверок и критериев готовности.
+Проверки выбираются по фактическому diff и изменённой архитектурной границе;
+соседние документы и skills только направляют сюда, а не создают вторую матрицу.
 
 ## Нулевая проверка
 
 До изменения файлов выполнить только дешёвый минимальный preflight:
 
 - подтвердить репозиторий, целевую ветку и base SHA;
-- подтвердить, что рабочая среда соответствует заявленному checkout, а пользовательские изменения не будут затронуты; для штатной последовательной разработки допустим основной checkout `C:\AzurPilot`;
+- подтвердить, что рабочая среда соответствует заявленному checkout, а пользовательские изменения не будут затронуты; для штатной последовательной разработки используется основной checkout;
 - проверить инструменты, без которых нельзя начать именно эту задачу.
 
 Остальные capabilities проверяются **лениво, непосредственно перед первым gate, которому они нужны**:
 
 - GitHub push/PR/checks/merge — перед соответствующей GitHub-операцией;
-- PowerShell Parser/PSScriptAnalyzer — перед проверкой затронутого PowerShell;
+- Windows-native runtime checks — только если затронут соответствующий Python
+  adapter или Windows integration;
 - secret/security scanner — перед соответствующим verification checkpoint;
 - browser/GUI/emulator/game — только если изменение реально требует такого acceptance;
 - production/network capabilities — только перед production/network gate.
@@ -22,7 +27,10 @@
 
 ## Постоянный CI
 
-Единственный постоянный pull-request workflow — `.github/workflows/ci.yml`. Он должен запускаться для каждого PR в `personal/stable` без `paths`-фильтров и публиковать три устойчивых context, которые ruleset обязан сделать required:
+Единственный постоянный pull-request workflow — `.github/workflows/ci.yml`. Он
+запускается для каждого pull request независимо от target/base branch и без
+`paths`-фильтров. Для защищённой `personal/stable` ruleset делает required три
+устойчивых context:
 
 - `Python`;
 - `Windows`;
@@ -86,20 +94,18 @@
 6. Новый внешний review нужен, если после прошлого checkpoint появился существенный новый code diff, изменился контракт/архитектура/безопасность или предыдущий reviewer явно требует повторной проверки.
 7. Незначительные правки документации, тестовых ожиданий или механические fixes сами по себе не запускают полный внешний review заново.
 
-До финального ChatGPT review, если обязательный внешний reviewer упёрся в rate
-limit/cooldown, **не ждать cooldown внутри активного прогона**. Для CodeRabbit
-это не product blocker: зафиксировать последний exact head, продолжить остальные
-gates и передать draft PR в состоянии `READY_FOR_CHATGPT_REVIEW` с явной пометкой
-об ограничении. Другой внешний gate считать `blocked`, если его нельзя безопасно
-подтвердить.
+Если внешний reviewer недоступен, зафиксируй это как ограничение проверки.
+Специфичные для провайдера правила triage/retry/rate limit принадлежат
+соответствующему review skill; влияние результата CodeRabbit на Git lifecycle определяется только
+`GIT-WORKFLOW.md`. Остальные обязательные gates продолжают выполняться.
 
 ## Pre-merge и post-merge outcomes
 
 Pre-merge Definition of Done заканчивается после commit/push draft PR, проверки
 required `Python`, `Windows`, `Security` на exact head, secret scan, self-review
 и разрешения blocking review threads. Итоговый статус —
-`READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь через
-ChatGPT 5.6 Sol, а merge не выполняется без отдельной текущей команды пользователя.
+`READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь, а merge не
+выполняется без отдельной текущей команды пользователя.
 
 Post-merge verification и cleanup являются отдельным этапом и выполняются только
 после подтверждённого merge. Перед ним нужно повторно проверить exact head,
@@ -127,7 +133,7 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - загрузка старого config;
 - migration idempotency;
 - ru-RU keys/placeholders;
-- server variants.
+- текущий EN runtime; унаследованные варианты других регионов проверяются только при явной задаче совместимости.
 
 ### Распознавание
 
@@ -135,14 +141,14 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - отрицательные screenshots;
 - thresholds;
 - переходные кадры;
-- server/theme variants;
+- варианты темы; fixtures других регионов — только при явной задаче совместимости;
 - range validation OCR.
 
 Для UI-driven Formation/Fleet scanner дополнительно проверять:
 
 - одиночный переходный detector-positive кадр не запускает физический scanner;
 - открытие Info требует ограниченной последовательности свежих подтверждений состояния;
-- закрытие Info требует устойчивой Formation boundary до выбора следующего флота;
+- закрытие Info требует устойчивой границы Formation до выбора следующего флота;
 - scanner-layer exception сохраняет физическую диагностику слоя и типа;
 - структурный `complete == False` остаётся отдельным результатом распознавания и не превращается в physical failure;
 - recoverable continuation разрешён только после доказанного восстановления детерминированного UI состояния;
@@ -157,17 +163,16 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 
 Общий pytest suite запускает `tests/contracts/localization/test_runtime_russianization_audit.py`. Тест выполняет permanent semantic audit текущих production consumer sites и Global/EN identity, а self-tests обязаны доказывать обе стороны контракта:
 
-- FAIL: CJK operator prose, обычное untranslated English предложение, foreign locale/server/package/assets/OCR alias;
+- FAIL: CJK operator prose, обычное непереведённое английское предложение, locale/server/package/assets/OCR alias другого региона;
 - PASS: русский контекст, ADB/OCR/API/URL/path/package/game identifiers, deferred exception text и feature structure вне display sink.
 
 Для explicit translation PR этот guard дополняет, но не заменяет dynamic base→head structural gate. Для feature/bugfix/refactor structural parity не применяется, permanent integrity остаётся обязательной частью обычных product tests.
 
-### PowerShell
+### Windows Python tooling
 
-- Parser через фактический `pwsh` для tracked затронутых `.ps1`/`.psm1` и для полного набора, если этого требует CI;
-- PSScriptAnalyzer зафиксированной версии как обязательный gate;
-- статический аудит правил;
-- disposable smoke для изменённой Git-логики;
+- `azur` CLI и JSON envelope на Windows;
+- lifecycle, update, repair, build, shortcut и Docker capability checks через
+  Python services;
 - идемпотентный повторный запуск там, где идемпотентность является контрактом.
 
 ### WebUI
@@ -187,7 +192,7 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - create-only migration валидного marker в `config/state/`, rejection повреждённого legacy marker и отсутствие runtime-state JSON в profile discovery;
 - `.env`/passfile contract, distinct app/migrator secrets и old-credential negative auth;
 - app DML положительно, DDL/role/database отрицательно;
-- Start/Update/Repair/Build ownership и PowerShell gates;
+- Start/Update/Repair/Build ownership и Windows Python tooling gates;
 - final import, repeat zero-delta, dump/list, scratch restore и reconciliation;
 - после canary legacy `.db` и canonical CSV не создаются повторно.
 
@@ -244,13 +249,14 @@ CI, security/secret scan, CodeRabbit disposition, rollback/migration и
 ограничения. Короткие общие абзацы без фактов и маркированных списков не
 принимаются renderer-ом.
 
-В конце feature acceptance должны быть фактически выполнены оба интерфейса:
-человекочитаемый `azur delivery ...`/`azur pr ...` и agent-oriented invocation
-с `--json`; JSON обязан содержать ровно один закрытый result envelope. Это
-отдельное live-доказательство не заменяет required `Python`, `Windows`,
-`Security` CI на exact PR head.
+Только если diff затрагивает `azur delivery`, `azur pr`, общий контракт CLI/
+tooling или семантику публикации, приёмка включает человекочитаемый вызов и
+вызов для агента с `--json`. JSON обязан содержать ровно один закрытый
+результирующий конверт. Для несвязанного combat/OCR/documentation-исправления
+этот CLI-gate не применяется. Эта живая проверка не заменяет CI-контексты
+`Python`, `Windows`, `Security` на точном head PR.
 
-## Definition of Done
+## Критерии готовности
 
 ### Pre-merge `READY_FOR_CHATGPT_REVIEW`
 
@@ -270,15 +276,17 @@ CI, security/secret scan, CodeRabbit disposition, rollback/migration и
 - открытые blocking review threads отсутствуют;
 - документация обновлена;
 - draft PR создан или обновлён и содержит актуальный scope, base SHA, gates и ограничения;
-- финальное ревью ChatGPT 5.6 Sol ожидает пользователя;
-- merge не выполнялся без отдельной текущей команды пользователя;
+- PR ожидает финального пользовательского ревью;
+- дальнейший Git/PR lifecycle определяется только `GIT-WORKFLOW.md`;
 - ограничения перечислены;
 - от пользователя не требуется рутинных технических действий.
 
-### Post-merge completion
+### После подтверждённого merge
 
-После отдельной текущей команды пользователя дополнительно обязательны:
+Для уже слитой задачи дополнительно обязательны:
 
-- exact-head preflight и merge разрешённой стратегией;
-- post-merge verification завершён для слитой задачи;
-- cleanup только принадлежащих задаче веток, checkout и временных ресурсов.
+- проверка фактического merged head;
+- относящиеся к изменению проверки после merge;
+- подтверждение отсутствия новой регрессии в затронутой области.
+
+Правила разрешения merge и cleanup принадлежат `GIT-WORKFLOW.md`.

@@ -25,8 +25,8 @@ from typing import Any
 
 import psutil
 
-from azurpilot.tooling.coordination import FileLock
-from azurpilot.tooling.process import (
+from azurpilot.tooling.mcp_coordination import FileLock
+from azurpilot.tooling.process_core import (
     MCP_LOCAL_TEST_ENVIRONMENT_PREFIX,
     ProcessController,
     ProcessIdentity,

@@ -35,22 +35,22 @@ paths, serials, account identifiers и необработанные логи. Ev
 ## Разрешённые внешние read-only MCP
 
 Для диагностики AzurPilot Codex может без отдельного запроса пользователю
-использовать уже настроенные read-only MCP-поверхности, когда они доступны в
-текущем catalog: прямой `context7_mcp` для документации библиотек, Docker Docs
-MCP через `fetch_docker_docs`, локальный Semgrep MCP через
-`semgrep_scan_local`/`semgrep_scan` и существующий Grafana MCP для Loki, Tempo,
-Prometheus и datasource evidence. Это дополнительное разрешение для
-диагностического чтения; оно не расширяет права собственных AzurPilot plugins
-и не разрешает mutation.
+использовать настроенные direct read-only adapters, когда они доступны в
+текущей конфигурации: `context7_direct`, `docker_docs_direct`,
+`semgrep_local_direct`, Grafana, Docker Hub и CodeRabbit. Это дополнительное
+разрешение для диагностического чтения; оно не расширяет права собственных
+AzurPilot plugins и не разрешает mutation. Retired MCP intermediary routes не
+используются как маршрут или fallback.
 
-Различай direct backend и Docker MCP Gateway: каталог profile, public-edge
-metadata и фактический negotiated discovery/`tools/list`/read-only call являются
-разными доказательствами. При наличии прямого callable маршрута предпочитай
-его проблемному Gateway. Если нужный сервер или tool не опубликован текущей
-сессией, верни fail-closed `unavailable/not_observable` с точной причиной и не
-создавай retry loop. Не меняй profiles, secret store, OAuth/grants, исходники,
-Grafana dashboards/alerts, runtime или игровое состояние в рамках этого
-разрешения.
+Различай repository source, user-configured direct adapter и фактический
+negotiated discovery/`tools/list`/read-only call: это разные доказательства.
+Для внешних интеграций используй закрытый `IntegrationRegistry` и
+`azur integrations status|doctor`; retired MCP intermediary не является
+fallback или source of truth. Если нужный direct server или tool не наблюдаем,
+верни fail-closed `NOT_CONFIGURED`, `UNAVAILABLE`, `UNAUTHENTICATED`, `RATE_LIMITED`,
+`INCOMPATIBLE` или `DEGRADED` с точной причиной и не создавай retry loop. Не
+меняй user config, OAuth/grants, исходники, Grafana dashboards/alerts, runtime
+или игровое состояние в рамках этого разрешения.
 
 ## Рабочий процесс с приоритетом evidence
 

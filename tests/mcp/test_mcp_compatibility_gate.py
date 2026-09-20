@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-import dev_tools.mcp_compatibility_gate as gate
 import azurpilot.tooling.mcp as mcp_tooling
-from azurpilot.tooling.git import GitClient
+import dev_tools.mcp_compatibility_gate as gate
 from azurpilot.tooling.errors import ToolingError
+from azurpilot.tooling.git import GitClient
 from module.mcp_shared.versioning import load_mcp_bundle
 from tests.support.paths import REPOSITORY_ROOT
 
@@ -242,6 +241,13 @@ def test_gate_rejects_stale_current_generated_metadata(
     error = ToolingError(
         mcp_tooling.ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
         "stale generated metadata",
+        details=mcp_tooling.McpSourceDriftDetails(
+            artifact="config/mcp-versions.toml",
+            changed_source_sets=("SHARED_MCP_SOURCE_SET",),
+            affected_servers=("azurpilot-dev", "azurpilot-game"),
+            expected_source_digests={"SHARED_MCP_SOURCE_SET": "a" * 64},
+            actual_source_digests={"SHARED_MCP_SOURCE_SET": "b" * 64},
+        ),
     )
 
     def fail_current_check(_self, _root):
@@ -261,3 +267,10 @@ def test_gate_rejects_stale_current_generated_metadata(
 
     assert code != 0
     assert payload["code"] == "MCP_SOURCE_BUNDLE_DRIFT"
+    assert payload["details"] == {
+        "artifact": "config/mcp-versions.toml",
+        "changed_source_sets": ["SHARED_MCP_SOURCE_SET"],
+        "affected_servers": ["azurpilot-dev", "azurpilot-game"],
+        "expected_source_digests": {"SHARED_MCP_SOURCE_SET": "a" * 64},
+        "actual_source_digests": {"SHARED_MCP_SOURCE_SET": "b" * 64},
+    }

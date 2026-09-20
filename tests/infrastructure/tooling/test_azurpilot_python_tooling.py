@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 import azurpilot.tooling.coordination as tooling_coordination
 import azurpilot.tooling.path as tooling_path
-import azurpilot.tooling.process as tooling_process
+import azurpilot.tooling.process_core as tooling_process
 from azurpilot.cli import main
 from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
@@ -191,6 +191,16 @@ def test_process_environment_policy_requires_explicit_test_opt_in() -> None:
         allow_test_environment=True,
     )
     assert spec.launch_environment[test_key] == "azurpilot-dev"
+
+
+def test_process_environment_keeps_credential_file_reference_typed() -> None:
+    environment = safe_environment(
+        {"GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE": "C:/private/grafana-token"}
+    )
+
+    assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE"] == (
+        "C:/private/grafana-token"
+    )
 
 
 def test_process_runner_classifies_timeout() -> None:

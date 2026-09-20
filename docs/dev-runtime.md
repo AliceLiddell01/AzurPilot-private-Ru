@@ -125,27 +125,23 @@ output `codex mcp list` и не подменяет отсутствующее ef
 Reconnect не являются fallback для direct local stdio; они проверяются только
 для явно выбранного ChatGPT/public маршрута.
 
-Для задач репозитория рядом разрешены direct read-only routes, не проходящие
-через Docker MCP Gateway: `docker_docs_direct` использует официальный Docker
-Docs endpoint, а `semgrep_local_direct` запускает локальный `semgrep mcp -t
-stdio`. Context7 остаётся user-scoped `context7_mcp`, потому что его API key не
-должен попадать в repository config. `MCP_DOCKER` сохраняется как отдельный
-canonical profile path для Gateway acceptance и Grafana; direct route и
-Gateway evidence не смешиваются.
+Для задач репозитория рядом разрешены direct read-only routes: `docker_docs_direct`
+использует официальный Docker Docs endpoint, `context7_direct` — официальный
+Context7 endpoint, а `semgrep_local_direct` запускает локальный `semgrep mcp -t
+stdio`. Grafana и Docker Hub запускаются как отдельные immutable container
+servers, если их endpoint/image подтверждены локальной конфигурацией; для
+Grafana credential требуется, а Docker Hub допускает public read-only probe. CodeRabbit использует отдельный read-only review adapter. Все
+шесть поверхностей собираются общим
+`azurpilot.integrations.IntegrationRegistry`; промежуточный MCP-маршрутизатор и
+общий secret owner для них не используются.
 
 Каноническая route policy для AzurPilot фиксирована так: standalone route
 `azurpilot-dev` и `azurpilot-game` использует project-scoped local stdio, а
 Codex Desktop явно выбирает их отдельные first-class local HTTP routes
-`azurpilot_dev` и `azurpilot_game`; Context7 — прямой
-user-scoped Codex MCP; Docker Docs — прямой project-scoped MCP; Semgrep —
-локальный `semgrep mcp -t stdio`; через Docker MCP Gateway обязательно
-проверяются только Grafana и Docker Hub. Записи Context7, Docker Docs и
-Semgrep в экспортированном Docker profile сохраняются как pilot/rollback
-artifact и могут иметь только optional Gateway observation. Их Gateway drift,
-отсутствие catalog или profile mismatch не меняют canonical health и `--strict`.
-Context7 acceptance из текущей Codex-сессии не наблюдаем репозиторным
-collector-ом и поэтому в JSON явно отмечается как внешнее evidence, а не
-синтетический `ready`.
+`azurpilot_dev` и `azurpilot_game`; внешние documentation, security и
+observability integrations используют свои direct adapters. Configuration
+source и effective live registration фиксируются раздельно, а недоступный или
+неподтверждённый provider не маскируется под `ready`.
 
 Базовые инструменты Dev Runtime (без Smoke Harness и Runtime Control): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
@@ -202,11 +198,14 @@ Source sets являются bounded explicit mapping фактических MCP
 `DEV_MCP_SOURCE_SET` включает Dev MCP, Dev Runtime и вызываемые application,
 persistence и operational dependencies; `GAME_MCP_SOURCE_SET` включает Game MCP,
 Game application/control/read services, legacy adapters и persistence
-dependencies; `SHARED_MCP_SOURCE_SET` содержит только общие transport/process/
-filesystem primitives и tooling contracts. Management-only reconciler, Git и
-repository tooling не являются backend runtime identity. Plugin metadata и
-skills вынесены в отдельные `PLUGIN_BUNDLE_SOURCE_SET` и
-`SKILL_BUNDLE_SOURCE_SET`.
+dependencies. `SHARED_MCP_SOURCE_SET` ограничен dedicated runtime-модулями:
+`module/mcp_shared`, `mcp_coordination.py`, `mcp_contracts.py`,
+`mcp_errors.py`, `mcp_filesystem.py`, `process_core.py` и `result.py`.
+Management-only фасады `contracts.py`, `errors.py`, `filesystem.py`,
+`coordination.py`, `process.py`, reconciler, Git и repository tooling не являются
+backend runtime identity; изменение Docker, delivery или PR DTO через эти фасады
+не должно инвалидировать MCP bundle. Plugin metadata и skills вынесены в
+отдельные `PLUGIN_BUNDLE_SOURCE_SET` и `SKILL_BUNDLE_SOURCE_SET`.
 
 Политика изменения SemVer для server identity фиксирована отдельно от
 protocol/schema версий:
@@ -249,9 +248,9 @@ uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
 ```
 
 Без `--json` вывод предназначен для оператора: сначала показывается таблица
-ожидаемых и наблюдаемых transport surfaces, затем отдельные блоки Docker MCP
-Gateway, canonical direct routes, Secrets и ChatGPT action cache. Неготовые поверхности получают
-короткий статус `UNKNOWN`, `UNAVAILABLE` или `DEGRADED`, а точный
+ожидаемых и наблюдаемых transport surfaces, затем отдельные блоки first-party
+MCP и direct external integrations. Неготовые поверхности получают короткий
+статус `UNKNOWN`, `UNAVAILABLE`, `NOT CONFIGURED` или `PARTIAL`, а точный
 `reason_code` выводится только в компактном блоке `Notes`.
 
 `--strict` возвращает non-zero для подтверждённого drift или недоступной
@@ -261,16 +260,13 @@ source сохраняются как `source_status=modified` и дают `PARTI
 смешивать их с подтверждённым version drift.
 
 Collector выполняет negotiated local discovery/`tools/list` и
-`dev_get_contract`/`game_get_contract`, backend discovery/`tools/list` и
-bounded contract read для настроенных authenticated remote surfaces, HTTPS GET
-protected-resource metadata без credentials, локальный Semgrep MCP probe, а
-также read-only Docker MCP Toolkit profile/catalog queries и bounded Gateway
-tool calls. Profile config, Gateway runtime и client connection фиксируются
-раздельно; статическое описание сервера не считается runtime readiness. В JSON
-не попадают URL, headers, secrets, paths или полное окружение. Snapshot
-операций ChatGPT намеренно имеет состояние
-`CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE`; его нельзя заменять synthetic или
-локальным evidence.
+`dev_get_contract`/`game_get_contract`, а `IntegrationRegistry` — bounded
+direct probes для шести внешних adapters с их отдельными transport/config
+evidence. Статическое описание server или endpoint не считается runtime
+readiness. В JSON не попадают URL credentials, headers, secrets, paths или
+полное окружение. Состояние `effective_codex_registration` намеренно может
+оставаться `CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE`; его нельзя заменять
+synthetic или локальным evidence.
 
 Для bounded периодического наблюдения используй operator-owned foreground
 `--watch` с интервалом `10..3600` секунд. Он не создаёт daemon, не запускает
@@ -279,14 +275,11 @@ tool calls. Profile config, Gateway runtime и client connection фиксиру�
 runtime и публикует только low-cardinality status samples; последний timestamp
 означает только последний успешный canonical probe.
 
-Проверка Docker secret store внутри collector выполняет только read-only
-команды `docker pass --help`, `docker pass ls` и `docker pass plugins ls`.
-Они проверяют CLI/keychain и Secrets Engine RPC, но не раскрывают значения
-секретов и не доказывают отдельный `se://` injection в контейнер или Gateway.
-Host-side `docker pass` visibility является auxiliary observation и не входит
-в strict/global readiness. Для Grafana authoritative credential evidence —
-успешный bounded read-only tool call через Gateway; для публичного Docker Hub
-probe наличие credential не утверждается.
+Collector не проверяет и не изменяет внешние secret stores. Credential boundary
+публикует только `CredentialRef`: configured/source/auth state без token,
+header, cookie или содержимого файла. Для Grafana и Docker Hub authoritative
+evidence — успешный bounded read-only call через соответствующий direct
+adapter; public unauthenticated probe не утверждает authenticated readiness.
 
 Для stdio stdout зарезервирован JSON-RPC протоколом и не содержит журналов оператора,
 баннеров или отладочного вывода. Диагностические сообщения идут только в stderr.
@@ -740,7 +733,7 @@ uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository
 ```
 
 Если `AZURPILOT_CADDY_HOST` удалён из `.env`, следующий запуск через
-`Start-AzurPilot.ps1` останавливает только принадлежащий этому Compose project
+`azur start` останавливает только принадлежащий этому Compose project
 service `caddy`. Named volumes и остальные инфраструктурные services не трогаются;
 при ошибке остановки startup завершается с ошибкой.
 

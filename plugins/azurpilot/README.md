@@ -127,9 +127,10 @@ capability hash и contract revision. Development Runtime
 используется профиль по умолчанию из target policy (`ap` при успешной
 структурной проверке), а смена target требует явного согласия пользователя.
 Backend source sets — bounded explicit mapping реальных MCP application и
-persistence dependencies; management-only reconciliation/Git tooling не входит
-в identity backend. Plugin и skills имеют отдельные source revisions. Для CI и
-ручной проверки policy используй
+persistence dependencies. Shared identity состоит только из dedicated MCP
+runtime-модулей; management-only фасады, reconciliation/Git tooling и Docker,
+delivery или PR DTO не входят в identity backend. Plugin и skills имеют
+отдельные source revisions. Для CI и ручной проверки policy используй
 `uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate
 --base-commit <full-base-sha>`: gate отдельно проверяет current-tree integrity и
 base-to-head compatibility.

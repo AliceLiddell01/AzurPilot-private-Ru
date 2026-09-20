@@ -89,35 +89,11 @@ CWD сам по себе не считается доказательством 
 штатное обнаружение и управление, предусмотренное для POSIX, а отсутствие
 настроенного ADB обозначается как `not_configured`.
 
-Ниже перечислены сохраняемые legacy PowerShell wrappers. Они пока остаются
-слоем совместимости и паритета Windows, но служба Python не делегирует им операции
-среды выполнения. Удаление wrappers требует отдельного двойного запуска, проверки
-паритета и переключения.
-
-```text
-scripts/
-├── Start-AzurPilot.ps1
-├── Stop-AzurPilot.ps1
-├── Update-AzurPilot.ps1
-├── Repair-AzurPilot.ps1
-└── Build-AzurPilot.ps1
-```
-
-| Команда | Назначение | Чего она не делает |
-|---|---|---|
-| `Start-AzurPilot.ps1` | Запускает подготовленную установку и контролирует backend | Не обновляет Git и не перестраивает `.venv` |
-| `Stop-AzurPilot.ps1` | Штатно останавливает backend только текущего checkout | Не останавливает PostgreSQL и не завершает посторонние процессы |
-| `Update-AzurPilot.ps1` | Получает безопасное fast-forward обновление | Не выполняет rebase, reset или force push |
-| `Repair-AzurPilot.ps1` | Диагностирует и восстанавливает существующую `.venv` | Не меняет ветки, remotes и пользовательские данные |
-| `Build-AzurPilot.ps1` | Подготавливает уже полученный checkout | Не клонирует репозиторий и не обновляет HEAD |
-
 Обычный запуск не зависит от `alas-launcher.exe` и не выполняет скрытое обновление.
 
 ### Один владелец обновления
 
 Обновление пользовательской установки выполняет только сервис `azur update`.
-`Update-AzurPilot.ps1` временно сохраняется как Windows parity-wrapper до
-отдельного dual-run/cutover решения.
 
 Из WebUI и Python runtime удалены:
 
@@ -302,15 +278,8 @@ azur repair --shortcut-only
 azur build
 ```
 
-Legacy wrappers доступны для parity-проверок Windows:
-
-```powershell
-pwsh -NoLogo -NoProfile -File "scripts/Start-AzurPilot.ps1"
-pwsh -NoLogo -NoProfile -File "scripts/Stop-AzurPilot.ps1"
-pwsh -NoLogo -NoProfile -File "scripts/Update-AzurPilot.ps1"
-pwsh -NoLogo -NoProfile -File "scripts/Repair-AzurPilot.ps1"
-pwsh -NoLogo -NoProfile -File "scripts/Build-AzurPilot.ps1"
-```
+Windows lifecycle, update, repair, build и shortcut acceptance выполняются
+через те же typed Python services, что и `azur` CLI.
 
 ## Основные гарантии
 

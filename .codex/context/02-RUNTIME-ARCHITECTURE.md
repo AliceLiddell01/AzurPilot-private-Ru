@@ -77,17 +77,18 @@ gui.py
 - restart event;
 - корректное завершение Uvicorn;
 - различие между остановкой WebUI и экземпляра задачи;
-- совместимость со `Start-AzurPilot.ps1`.
+- совместимость с typed `azurpilot.tooling.lifecycle` и `azur start`.
 
-Windows lifecycle пользовательской установки симметричен:
+Windows lifecycle пользовательской установки симметричен и принадлежит
+`azurpilot.tooling.lifecycle`:
 
 ```text
-Start-AzurPilot.ps1
-  → repository-scoped owner mutex
+azur start
+  → repository-scoped mutex владельца
   → repository-scoped kernel stop event
   → project Python + gui.py
 
-Stop-AzurPilot.ps1
+azur stop
   → exact checkout/process ownership
   → stop event владельцу Start
   → bounded wait и только exact-owned fallback
@@ -114,9 +115,13 @@ target identity и fingerprint критической конфигурации; 
 Обычный runtime запускается только через project `.venv` Python и штатный
 `gui.py --run <configured-target>`. Preflight требует уже подготовленное окружение: наличие
 pending dependency-sync marker блокирует старт, поэтому Dev Runtime сам не
-запускает `uv sync`, upgrade или repair. Готовность подтверждается не таймером,
-а связкой exact-owned root process → WebUI owner из read-only registry snapshot
-→ принадлежность локального listen socket → worker настроенного target → HTTP readiness.
+запускает `uv sync`, upgrade или repair. Готовность подтверждается не таймером.
+В standalone-режиме readiness доказывает принадлежность WebUI/worker дереву
+`session.process`, владение локальным listen socket и HTTP readiness. В
+shared WebUI-режиме текущая read-only проверка подтверждает зарегистрированного
+живого WebUI owner, worker назначенного target и свежий снимок состояния с
+совпадающими `session_id` и identity worker. Связь shared WebUI owner с
+`session.process` этим путём отдельно не доказывается.
 
 DevSession хранит repository-scoped marker и lock под `config/state/`. Marker
 также сохраняет назначенный profile сессии: уже запущенный процесс и его Evidence
@@ -132,7 +137,7 @@ control operation сериализуется общей repository-scoped coordi
 
 Этот слой остаётся основой Dev MCP и не меняет жизненный цикл игрового
 планировщика и рабочих задач.
-Stage 4 добавляет подтверждающие данные в пределах сессии в отдельном
+Dev Runtime хранит подтверждающие данные текущей сессии в отдельном
 `module.dev_runtime.evidence`: игнорируемые артефакты живут под
 `config/state/dev-runtime-runs/<session-id>/`, используют атомарные метаданные,
 межпроцессную блокировку, ограниченное хранение и типизированное состояние. Снимок Git,
@@ -185,7 +190,7 @@ reconciliation и owned lifecycle; runtime reconciliation не редактир�
 source, а stale plugin/session классифицируется как `RELOAD_REQUIRED`. Source
 sets — bounded explicit mapping фактических application/persistence call graph;
 management-only MCP/Git/repository tooling из backend identity исключено.
-Permanent compatibility gate отдельно проверяет current-tree integrity и
+Постоянный compatibility gate отдельно проверяет целостность текущего дерева и
 base-to-head policy по переданному exact base SHA.
 
 Текущий development-контур предоставляет developer-only односторонний Game
@@ -241,13 +246,13 @@ reconciliation связывает их с физическим slot set-based и
 Dorm observation хранит baseline/rate/floor; complete двухэтажное отсутствие
 хранит `unknown` morale с доказанным outside-Dorm recovery, не fake baseline.
 Partial scan, замена occupant, смена формы, stale Fleet State или неоднозначный
-slot не переносят состояние. Legacy Combat path этим этапом не подключён.
+slot не переносят состояние. Legacy Combat path к этой границе persistence не подключён.
 Canonical marker и другие runtime-state JSON находятся под `config/state/`, а
 корневой `config/*.json` является только пространством кандидатов: игровым
 профилем считается безопасный regular JSON, прошедший единый structural
-classifier `module.config.profile`; произвольный report/state JSON профилем не
+classifier `module.config.profile`; произвольный JSON отчёта/состояния профилем не
 становится. Runtime state хранится только в `config/state/`.
-Локальный `.env` загружается одним persistence owner и направляет libpq к
+Локальный `.env` загружается одним владельцем persistence и направляет libpq к
 защищённым app/migrator passfiles без постоянного `PGPASSWORD`.
 
 Offline migration pipeline проходит через application-owned порты. Legacy

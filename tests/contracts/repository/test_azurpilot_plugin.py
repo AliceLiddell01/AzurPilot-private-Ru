@@ -1,6 +1,4 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
-
 
 import json
 import re
@@ -18,6 +16,7 @@ from module.dev_mcp.contract import (
 from module.dev_runtime.smoke import SMOKE_SCHEMA_VERSION, SMOKE_STATE_SCHEMA_VERSION
 from module.game_mcp.contract import contract_payload as game_contract_payload
 from module.mcp_shared.versioning import SemVer, version_satisfies
+from tests.support.paths import REPOSITORY_ROOT
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
 _PLUGIN_ROOT = _REPOSITORY_ROOT / "plugins" / "azurpilot"
@@ -150,6 +149,40 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
     assert set(compatibility["required_capability_families"]).issubset(runtime["capability_families"])
     assert set(compatibility["result_outcomes"]).issubset(runtime["result_outcomes"])
     assert contract_compatibility_issues(compatibility, runtime) == ()
+
+
+def test_contract_compatibility_is_scoped_to_server_family() -> None:
+    compatibility = _json(_COMPATIBILITY_PATH)
+    dev_runtime = contract_payload()
+    game_runtime = game_contract_payload()
+
+    assert contract_compatibility_issues(compatibility, dev_runtime) == ()
+    assert contract_compatibility_issues(compatibility, game_runtime) == ()
+
+    dev_runtime["smoke_result_schema_version"] = 999
+    assert "smoke_result_schema_version" in contract_compatibility_issues(
+        compatibility, dev_runtime
+    )
+    assert contract_compatibility_issues(compatibility, game_runtime) == ()
+
+    game_runtime["result_states"] = ["ready"]
+    game_issues = contract_compatibility_issues(compatibility, game_runtime)
+    assert "servers.azurpilot-game.result_vocabulary" in game_issues
+    assert contract_compatibility_issues(compatibility, contract_payload()) == ()
+
+
+def test_game_contract_does_not_inherit_dev_only_metadata() -> None:
+    compatibility = _json(_COMPATIBILITY_PATH)
+    game_runtime = game_contract_payload()
+    game_runtime["smoke_spec_schema_version"] = 999
+    game_runtime["smoke_result_schema_version"] = 999
+    game_runtime["result_outcomes"] = ["PRODUCT_FAILED"]
+
+    issues = contract_compatibility_issues(compatibility, game_runtime)
+
+    assert "smoke_spec_schema_version" not in issues
+    assert "smoke_result_schema_version" not in issues
+    assert "result_outcomes" not in issues
 
 
 def test_plugin_compatibility_accepts_version_inside_semver_range() -> None:

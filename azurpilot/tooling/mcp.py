@@ -6,12 +6,14 @@ import hashlib
 import json
 import os
 import re
-import tomllib
 import time
+import tomllib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from module.mcp_shared.catalog import (
     canonical_json,
@@ -149,11 +151,12 @@ SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
     ),
     "SHARED_MCP_SOURCE_SET": (
         Path("module/mcp_shared"),
-        Path("azurpilot/tooling/coordination.py"),
-        Path("azurpilot/tooling/contracts.py"),
-        Path("azurpilot/tooling/errors.py"),
-        Path("azurpilot/tooling/filesystem.py"),
-        Path("azurpilot/tooling/process.py"),
+        Path("azurpilot/tooling/mcp_coordination.py"),
+        Path("azurpilot/tooling/mcp_contracts.py"),
+        Path("azurpilot/tooling/mcp_errors.py"),
+        Path("azurpilot/tooling/mcp_filesystem.py"),
+        Path("azurpilot/tooling/process_core.py"),
+        Path("azurpilot/tooling/result.py"),
     ),
     "PLUGIN_BUNDLE_SOURCE_SET": (
         Path("plugins/azurpilot/.codex-plugin"),
@@ -213,6 +216,48 @@ class _McpBaseline:
     plugin_version: str | None = None
     bundle_revision: str | None = None
     skill_bundle_revision: str | None = None
+
+
+class McpSourceDriftDetails(BaseModel):
+    """Bounded evidence for one generated MCP artifact mismatch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    artifact: str = Field(min_length=1, max_length=256)
+    changed_source_sets: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+    affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    expected_source_digests: dict[str, str] = Field(default_factory=dict, max_length=8)
+    actual_source_digests: dict[str, str] = Field(default_factory=dict, max_length=8)
+
+
+def _source_drift_details(
+    root: Path,
+    artifact: Path,
+    build: _BundleBuild,
+    current: McpBundle,
+) -> McpSourceDriftDetails:
+    """Сформировать bounded evidence без diff, путей окружения и секретов."""
+
+    changed = tuple(
+        name
+        for name in SOURCE_SET_NAMES
+        if current.source_digests.get(name) != build.bundle.source_digests.get(name)
+    )
+    return McpSourceDriftDetails(
+        artifact=artifact.relative_to(root).as_posix(),
+        changed_source_sets=changed or build.changed_components,
+        affected_servers=build.affected_servers,
+        expected_source_digests={
+            name: build.bundle.source_digests[name]
+            for name in changed
+            if name in build.bundle.source_digests
+        },
+        actual_source_digests={
+            name: current.source_digests[name]
+            for name in changed
+            if name in current.source_digests
+        },
+    )
 
 
 def _files_for_source_set(root: Path, source_paths: Iterable[Path]) -> tuple[Path, ...]:
@@ -1068,6 +1113,7 @@ class McpSourceReconciler:
                 raise ToolingError(
                     ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
                     "Производный MCP artifact отсутствует.",
+                    details=_source_drift_details(resolved, path, build, current),
                 ) from exc
             if actual != expected:
                 code = (
@@ -1075,11 +1121,21 @@ class McpSourceReconciler:
                     if build.required_bump_servers
                     else ResultCode.MCP_SOURCE_BUNDLE_DRIFT
                 )
-                raise ToolingError(code, "Производный MCP artifact устарел.")
+                raise ToolingError(
+                    code,
+                    "Производный MCP artifact устарел.",
+                    details=_source_drift_details(resolved, path, build, current),
+                )
         if current.bundle_revision != build.bundle.bundle_revision:
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
                 "Bundle revision не совпадает с содержимым исходников.",
+                details=_source_drift_details(
+                    resolved,
+                    PLUGIN_COMPATIBILITY_PATH,
+                    build,
+                    current,
+                ),
             )
         return build
 
@@ -1398,10 +1454,13 @@ class McpService:
                 "server_name": name,
                 "ready": False,
             }
-            if bundle is not None and code == "LOCAL_MCP_SUPERVISOR_READY":
-                if not _runtime_service_matches(service, bundle.servers[name]):
-                    service["ready"] = False
-                    service["reason_code"] = "MCP_RUNTIME_CONTRACT_DRIFT"
+            if (
+                bundle is not None
+                and code == "LOCAL_MCP_SUPERVISOR_READY"
+                and not _runtime_service_matches(service, bundle.servers[name])
+            ):
+                service["ready"] = False
+                service["reason_code"] = "MCP_RUNTIME_CONTRACT_DRIFT"
             services.append(service)
 
         codes = tuple(str(status.get("code")) for status in supervisors.values())
@@ -2019,8 +2078,9 @@ __all__ = [
     "SERVER_SOURCE_SETS",
     "SOURCE_SET_NAMES",
     "SOURCE_SET_PATHS",
-    "McpService",
     "McpBaseCompatibility",
+    "McpService",
+    "McpSourceDriftDetails",
     "McpSourceReconciler",
     "SourceChangeClassification",
     "classify_source_changes",

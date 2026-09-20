@@ -1,11 +1,9 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
 
-
+import ast
 import asyncio
 import json
 import os
-import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -28,6 +26,7 @@ from module.persistence.config import (
 from module.persistence.local_environment import DEFAULT_LOCAL_ENV_PATH
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from module.statistics import postgresql_stats
+from tests.support.paths import REPOSITORY_ROOT
 from tests.support.repository.import_inspection import imports_for_path
 
 ROOT = REPOSITORY_ROOT
@@ -257,6 +256,45 @@ dispose_runtime_storage()
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_docker_transport_override_is_ephemeral_and_exact(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=55432,
+        database="azurpilot",
+        user="azurpilot_app",
+        sslmode="disable",
+        runtime_timezone="Asia/Novosibirsk",
+    )
+    monkeypatch.delenv("AZURPILOT_DOCKER_POSTGRES_HOST", raising=False)
+    monkeypatch.delenv("AZURPILOT_DOCKER_POSTGRES_PORT", raising=False)
+
+    assert persistence_runtime._docker_postgres_transport() is None
+    assert (
+        persistence_runtime._apply_docker_postgres_transport(
+            settings, None, None
+        ).host
+        == "127.0.0.1"
+    )
+
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_HOST", "postgres")
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_PORT", "5432")
+    transport = persistence_runtime._docker_postgres_transport()
+    effective = persistence_runtime._apply_docker_postgres_transport(
+        settings, object(), transport
+    )
+
+    assert effective.host == "postgres"
+    assert effective.port == 5432
+    assert settings.host == "127.0.0.1"
+    assert settings.port == 55432
+
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_HOST", "host.docker.internal")
+    with pytest.raises(StorageConfigurationError):
+        persistence_runtime._docker_postgres_transport()
 
 
 def test_database_diagnostics_builds_standalone_read_only_engine_without_production_mutation(
@@ -491,31 +529,37 @@ def test_production_modules_do_not_import_sqlite_or_legacy_database():
     assert "np.loadtxt" not in azurstats
 
 
-def test_lifecycle_scripts_encode_postgresql_ownership():
-    start = (ROOT / "scripts" / "Start-AzurPilot.ps1").read_text(encoding="utf-8")
-    update = (ROOT / "scripts" / "Update-AzurPilot.ps1").read_text(encoding="utf-8")
-    repair = (ROOT / "scripts" / "Repair-AzurPilot.ps1").read_text(encoding="utf-8")
-    build = (ROOT / "scripts" / "Build-AzurPilot.ps1").read_text(encoding="utf-8")
+def test_python_services_encode_postgresql_and_lifecycle_ownership():
+    lifecycle = (ROOT / "azurpilot" / "tooling" / "lifecycle.py").read_text(
+        encoding="utf-8"
+    )
+    update = (ROOT / "azurpilot" / "tooling" / "update.py").read_text(
+        encoding="utf-8"
+    )
+    repair = (ROOT / "azurpilot" / "tooling" / "repair.py").read_text(
+        encoding="utf-8"
+    )
+    infrastructure = (ROOT / "azurpilot" / "tooling" / "infrastructure.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert re.search(r"'compose'\s+'--env-file'", start)
-    assert re.search(r"'config'\s+'--quiet'", start)
-    assert "dev_tools.observability_compose_migration" in start
-    assert "'migrate'" in start
-    assert re.search(r"'up'\s+'--detach'\s+'--wait'\s+'postgres'", start)
-    assert "dev_tools.postgresql_runtime" in start
-    backup_call = update.index("\n        $postgresqlBackupPath = Backup-ProductionPostgreSql\n")
-    merge_call = update.index("'merge'", backup_call)
-    assert backup_call < merge_call
-    assert "Invoke-ProductionPostgreSqlSchemaUpgrade" in update
-    assert "Repair не изменяет БД" in repair
-    assert "dev_tools.postgresql_security" in repair
-    assert "dev_tools.postgresql_runtime" not in build
-    assert "Get-Command -Name 'docker.exe'" in start
-    assert "foreach ($dockerName in @('docker.exe', 'docker'))" in repair
-    assert re.search(r"'--deployment'\s+'docker'", repair)
-    assert "Select-Object -First 1" in start
-    assert "Select-Object -First 1" in repair
-    assert "-TimeoutMilliseconds 30000" in repair
+    assert "InfrastructureService" in lifecycle
+    assert "ensure_started" in lifecycle
+    assert "fetch_branch" in update
+    assert "merge_ff_only" in update
+    assert "PostgreSqlBackupService" in update
+    repair_tree = ast.parse(repair)
+    git_calls = [
+        node
+        for node in ast.walk(repair_tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "attr", getattr(node.func, "id", "")).casefold()
+        in {"git", "git_command", "git_run"}
+    ]
+    assert not git_calls
+    assert "JournalStore" in repair
+    assert "StructuredProcessRunner" in infrastructure
+    assert "def _run_docker" in infrastructure
 
 
 def test_webui_rejects_database_upload_before_read():

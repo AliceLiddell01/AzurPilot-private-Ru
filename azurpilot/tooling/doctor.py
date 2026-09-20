@@ -7,12 +7,16 @@ import shutil
 import sys
 from pathlib import Path
 
+from azurpilot.integrations import IntegrationService
+from azurpilot.integrations.contracts import IntegrationState
+
 from .config import load_deploy_settings, project_adb, project_python, project_uv
 from .contracts import (
     CapabilityCheck,
     CapabilityStatus,
     DoctorDetails,
     DoctorEvidence,
+    IntegrationSummary,
     OperationState,
     ResultCode,
     ToolingResult,
@@ -32,6 +36,18 @@ def _check(name: str, status: CapabilityStatus, message: str) -> CapabilityCheck
     return CapabilityCheck(name=name, status=status, message=message)
 
 
+_INTEGRATION_CAPABILITY_STATUS: dict[IntegrationState, CapabilityStatus] = {
+    IntegrationState.READY: CapabilityStatus.READY,
+    IntegrationState.NOT_CONFIGURED: CapabilityStatus.NOT_CONFIGURED,
+    IntegrationState.UNAUTHENTICATED: CapabilityStatus.UNAVAILABLE,
+    IntegrationState.UNAVAILABLE: CapabilityStatus.UNAVAILABLE,
+    IntegrationState.INCOMPATIBLE: CapabilityStatus.FAILED,
+    IntegrationState.RATE_LIMITED: CapabilityStatus.UNAVAILABLE,
+    IntegrationState.DEGRADED: CapabilityStatus.UNKNOWN,
+    IntegrationState.UNKNOWN: CapabilityStatus.UNKNOWN,
+}
+
+
 class DoctorService:
     """Диагностика проекта, Git, среды выполнения и инфраструктуры без изменений."""
 
@@ -40,10 +56,12 @@ class DoctorService:
         resolver: RepositoryResolver | None = None,
         runner: StructuredProcessRunner | None = None,
         infrastructure: InfrastructureService | None = None,
+        integrations: IntegrationService | None = None,
     ) -> None:
         self.resolver = resolver or RepositoryResolver()
         self.runner = runner or self.resolver.runner
         self.infrastructure = infrastructure or InfrastructureService(self.runner)
+        self.integrations = integrations or IntegrationService(resolver=self.resolver)
 
     def _git_check(self, root: Path, settings) -> tuple[CapabilityStatus, str]:
         try:
@@ -122,7 +140,10 @@ class DoctorService:
         return CapabilityStatus.FAILED, result.message
 
     def run(
-        self, repository_root: str | Path | None = None
+        self,
+        repository_root: str | Path | None = None,
+        *,
+        include_external_integrations: bool = False,
     ) -> ToolingResult[DoctorDetails, DoctorEvidence]:
         resolved = self.resolver.resolve(repository_root)
         root = resolved.path
@@ -251,6 +272,56 @@ class DoctorService:
             )
         )
 
+        external_integrations: tuple[IntegrationSummary, ...] = ()
+        if include_external_integrations:
+            try:
+                integration_result = self.integrations.status(root)
+                integration_details = integration_result.details
+                records = integration_details.integrations
+                summaries: list[IntegrationSummary] = []
+                for record in records:
+                    status_text = record.state.value
+                    capability_status = _INTEGRATION_CAPABILITY_STATUS.get(
+                        record.state, CapabilityStatus.UNKNOWN
+                    )
+                    name = record.name.value
+                    message = record.message
+                    route = record.evidence.route
+                    reason_code = record.reason_code
+                    summaries.append(
+                        IntegrationSummary(
+                            name=name,
+                            status=status_text,
+                            reason_code=reason_code,
+                            route=route,
+                            message=message[:300],
+                        )
+                    )
+                    checks.append(
+                        _check(
+                            f"external_{name}",
+                            capability_status,
+                            message[:240],
+                        )
+                    )
+                external_integrations = tuple(summaries)
+            except (ToolingError, OSError, ValueError, TypeError):
+                checks.append(
+                    _check(
+                        "external_integrations",
+                        CapabilityStatus.UNKNOWN,
+                        "Сводку внешних интеграций не удалось получить.",
+                    )
+                )
+        else:
+            checks.append(
+                _check(
+                    "external_integrations",
+                    CapabilityStatus.NOT_CONFIGURED,
+                    "Полная проверка внешних интеграций доступна через azur doctor --full.",
+                )
+            )
+
         required_names = {
             "repository",
             "project_markers",
@@ -313,7 +384,11 @@ class DoctorService:
             code=result_code,
             state=result_state,
             message=result_message,
-            details=DoctorDetails(checks=tuple(checks), healthy=healthy),
+            details=DoctorDetails(
+                checks=tuple(checks),
+                healthy=healthy,
+                external_integrations=external_integrations,
+            ),
             warnings=tuple(warnings),
             evidence=DoctorEvidence(
                 repository=resolved.evidence,

@@ -7,96 +7,13 @@
 
 from __future__ import annotations
 
-from enum import IntEnum, StrEnum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
-class ExitCode(IntEnum):
-    """Категории завершения CLI."""
-
-    SUCCESS = 0
-    INVOCATION = 2
-    PRECONDITION = 20
-    OWNERSHIP_CONFLICT = 21
-    TIMEOUT = 22
-    DEPENDENCY_UNAVAILABLE = 23
-    ROLLED_BACK = 24
-    ROLLBACK_UNKNOWN = 25
-    UNEXPECTED = 30
-
-
-class ResultCode(StrEnum):
-    """Стабильные machine-readable причины результата."""
-
-    OK = "OK"
-    TOOLING_INVALID_INVOCATION = "TOOLING_INVALID_INVOCATION"
-    TOOLING_REPOSITORY_NOT_FOUND = "TOOLING_REPOSITORY_NOT_FOUND"
-    TOOLING_REPOSITORY_INVALID = "TOOLING_REPOSITORY_INVALID"
-    TOOLING_REPOSITORY_AMBIGUOUS = "TOOLING_REPOSITORY_AMBIGUOUS"
-    TOOLING_PRECONDITION_FAILED = "TOOLING_PRECONDITION_FAILED"
-    TOOLING_REMOTE_IDENTITY_UNVERIFIED = "TOOLING_REMOTE_IDENTITY_UNVERIFIED"
-    TOOLING_BACKUP_REQUIRED = "TOOLING_BACKUP_REQUIRED"
-    TOOLING_BACKUP_FAILED = "TOOLING_BACKUP_FAILED"
-    TOOLING_CAPABILITY_UNAVAILABLE = "TOOLING_CAPABILITY_UNAVAILABLE"
-    TOOLING_CAPABILITY_UNSUPPORTED = "TOOLING_CAPABILITY_UNSUPPORTED"
-    TOOLING_OPERATION_CONFLICT = "TOOLING_OPERATION_CONFLICT"
-    TOOLING_TRANSACTION_RECOVERY_REQUIRED = "TOOLING_TRANSACTION_RECOVERY_REQUIRED"
-    TOOLING_PORT_CONFLICT = "TOOLING_PORT_CONFLICT"
-    TOOLING_TIMEOUT = "TOOLING_TIMEOUT"
-    TOOLING_CANCELLED = "TOOLING_CANCELLED"
-    TOOLING_PROCESS_EXITED = "TOOLING_PROCESS_EXITED"
-    TOOLING_CLEANUP_UNKNOWN = "TOOLING_CLEANUP_UNKNOWN"
-    TOOLING_INFRASTRUCTURE_FAILED = "TOOLING_INFRASTRUCTURE_FAILED"
-    TOOLING_ADB_FAILED = "TOOLING_ADB_FAILED"
-    TOOLING_SHORTCUT_FAILED = "TOOLING_SHORTCUT_FAILED"
-    TOOLING_DEPENDENCY_UNAVAILABLE = "TOOLING_DEPENDENCY_UNAVAILABLE"
-    TOOLING_APPLY_FAILED_ROLLED_BACK = "TOOLING_APPLY_FAILED_ROLLED_BACK"
-    TOOLING_REPAIR_REQUIRED = "TOOLING_REPAIR_REQUIRED"
-    TOOLING_REPAIR_FAILED = "TOOLING_REPAIR_FAILED"
-    TOOLING_UPDATE_DIRTY = "TOOLING_UPDATE_DIRTY"
-    TOOLING_UPDATE_LOCAL_AHEAD = "TOOLING_UPDATE_LOCAL_AHEAD"
-    TOOLING_UPDATE_DIVERGED = "TOOLING_UPDATE_DIVERGED"
-    TOOLING_GIT_FAILED = "TOOLING_GIT_FAILED"
-    TOOLING_ROLLBACK_UNKNOWN = "TOOLING_ROLLBACK_UNKNOWN"
-    TOOLING_VERIFICATION_UNKNOWN = "TOOLING_VERIFICATION_UNKNOWN"
-    TOOLING_MANIFEST_INVALID = "TOOLING_MANIFEST_INVALID"
-    TOOLING_DELIVERY_SCOPE_INVALID = "TOOLING_DELIVERY_SCOPE_INVALID"
-    TOOLING_SECRET_SCAN_FAILED = "TOOLING_SECRET_SCAN_FAILED"
-    TOOLING_SECRET_SCANNER_UNAVAILABLE = "TOOLING_SECRET_SCANNER_UNAVAILABLE"
-    TOOLING_PUSH_UNKNOWN = "TOOLING_PUSH_UNKNOWN"
-    TOOLING_REMOTE_REF_CONFLICT = "TOOLING_REMOTE_REF_CONFLICT"
-    TOOLING_PR_BODY_INVALID = "TOOLING_PR_BODY_INVALID"
-    TOOLING_PR_IDENTITY_MISMATCH = "TOOLING_PR_IDENTITY_MISMATCH"
-    TOOLING_PR_PUBLICATION_UNKNOWN = "TOOLING_PR_PUBLICATION_UNKNOWN"
-    TOOLING_PROVIDER_UNAVAILABLE = "TOOLING_PROVIDER_UNAVAILABLE"
-    TOOLING_PROVIDER_FAILED = "TOOLING_PROVIDER_FAILED"
-    MCP_SOURCE_BUNDLE_INVALID = "MCP_SOURCE_BUNDLE_INVALID"
-    MCP_SOURCE_BUNDLE_DRIFT = "MCP_SOURCE_BUNDLE_DRIFT"
-    MCP_VERSION_BUMP_REQUIRED = "MCP_VERSION_BUMP_REQUIRED"
-    MCP_RUNTIME_STALE = "MCP_RUNTIME_STALE"
-    MCP_PLUGIN_RUNTIME_INCOMPATIBLE = "MCP_PLUGIN_RUNTIME_INCOMPATIBLE"
-    MCP_RELOAD_REQUIRED = "MCP_RELOAD_REQUIRED"
-    MCP_ENVIRONMENT_STALE = "MCP_ENVIRONMENT_STALE"
-    MCP_AUTH_NOT_CONFIGURED = "MCP_AUTH_NOT_CONFIGURED"
-    MCP_RUNTIME_UNAVAILABLE = "MCP_RUNTIME_UNAVAILABLE"
-    TOOLING_UNEXPECTED = "TOOLING_UNEXPECTED"
-
-
-class OperationState(StrEnum):
-    """Состояние операции в общем envelope."""
-
-    READY = "ready"
-    RUNNING = "running"
-    STOPPED = "stopped"
-    NOT_CONFIGURED = "not_configured"
-    DIAGNOSTIC = "diagnostic"
-    CONFLICT = "conflict"
-    FAILED = "failed"
-    ROLLED_BACK = "rolled_back"
-    IN_FLIGHT = "in_flight"
-    UNKNOWN = "unknown"
+from .mcp_contracts import ProcessEvidence
+from .result import ExitCode, OperationState, ResultCode, exit_code_for
 
 
 class CapabilityStatus(StrEnum):
@@ -232,6 +149,14 @@ class AnalysisScope(ClosedModel):
     git_range: GitRange | None = None
     mode: Literal["staged", "committed_range"]
 
+    @model_validator(mode="after")
+    def validate_mode(self) -> AnalysisScope:
+        if self.mode == "committed_range" and self.git_range is None:
+            raise ValueError("committed_range требует exact Git range")
+        if self.mode == "staged" and self.git_range is not None:
+            raise ValueError("staged не принимает Git range")
+        return self
+
 
 class GitSnapshot(ClosedModel):
     """Bounded snapshot Git-состояния перед mutating delivery."""
@@ -346,6 +271,50 @@ class DeliveryEvidence(ClosedModel):
     branch: BranchIdentity | None = None
 
 
+class DockerDeploymentDetails(ClosedModel):
+    """Типизированный результат явного развёртывания образа/контейнера Docker."""
+
+    action: Literal["deploy"] = "deploy"
+    image: str = Field(min_length=1, max_length=256)
+    container: str = Field(min_length=1, max_length=128)
+    port: int = Field(ge=1, le=65535)
+    source: str = Field(min_length=1, max_length=80)
+    build_confirmed: bool
+    container_started: bool
+    readiness_confirmed: bool
+    replace_performed: bool = False
+    runtime_secret_mode: Literal[
+        "not_configured",
+        "readonly_env_file",
+        "readonly_backend_marker",
+        "readonly_env_and_backend_marker",
+    ] = "not_configured"
+    postgres_compose_project: str = "azurpilot-infrastructure"
+    postgres_compose_service: str = "postgres"
+    postgres_network: str = Field(default="", max_length=256)
+    postgres_endpoint: Literal["postgres:5432"] = "postgres:5432"
+
+
+class DockerDeploymentEvidence(ClosedModel):
+    """Ограниченное evidence развёртывания без секретов и public-IP discovery."""
+
+    docker_cli: str = Field(min_length=1, max_length=80)
+    capability: CapabilityStatus
+    image: str = Field(min_length=1, max_length=256)
+    container: str = Field(min_length=1, max_length=128)
+    readiness_probe: str = Field(min_length=1, max_length=80)
+    runtime_secret_mode: Literal[
+        "not_configured",
+        "readonly_env_file",
+        "readonly_backend_marker",
+        "readonly_env_and_backend_marker",
+    ] = "not_configured"
+    postgres_compose_project: str = "azurpilot-infrastructure"
+    postgres_compose_service: str = "postgres"
+    postgres_network: str = Field(default="", max_length=256)
+    postgres_endpoint: Literal["postgres:5432"] = "postgres:5432"
+
+
 class PullRequestIdentity(ClosedModel):
     """Полная repository-qualified identity PR."""
 
@@ -366,18 +335,28 @@ class CodeRabbitFinding(ClosedModel):
 
     severity: FindingSeverity
     path: str = Field(min_length=1, max_length=512)
+    title: str | None = Field(default=None, max_length=160)
+    line: int | None = Field(default=None, ge=1, le=10_000_000)
+    line_end: int | None = Field(default=None, ge=1, le=10_000_000)
     impact: str = Field(min_length=1, max_length=1200)
     disposition: FindingDisposition
     resolution: str = Field(min_length=1, max_length=1200)
     fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
 
+    @model_validator(mode="after")
+    def validate_line_range(self) -> CodeRabbitFinding:
+        if self.line is not None and self.line_end is not None and self.line_end < self.line:
+            raise ValueError("line_end не может быть меньше line")
+        return self
+
 
 class CodeRabbitReview(ClosedModel):
-    """Evidence CodeRabbit, включая явный zero/rate-limit результат."""
+    """Evidence CodeRabbit, включая append-only историю итераций."""
 
     reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     findings: tuple[CodeRabbitFinding, ...] = Field(max_length=128)
+    history: str | None = Field(default=None, max_length=20_000)
     rate_limit: str | None = Field(default=None, max_length=500)
 
 
@@ -458,9 +437,22 @@ class CapabilityCheck(ClosedModel):
     message: str = Field(min_length=1, max_length=240)
 
 
+class IntegrationSummary(ClosedModel):
+    """Внешняя integration summary, добавляемая read-only Doctor."""
+
+    name: str = Field(min_length=1, max_length=80)
+    status: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,31}$")
+    reason_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,127}$")
+    route: str = Field(min_length=1, max_length=80)
+    message: str = Field(min_length=1, max_length=300)
+
+
 class DoctorDetails(ClosedModel):
     checks: tuple[CapabilityCheck, ...] = Field(max_length=32)
     healthy: bool
+    external_integrations: tuple[IntegrationSummary, ...] = Field(
+        default_factory=tuple, max_length=6
+    )
 
 
 class DoctorEvidence(ClosedModel):
@@ -489,15 +481,6 @@ class PostgreSqlBackupEvidence(ClosedModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     pre_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     provenance: str = Field(min_length=16, max_length=64)
-
-
-class ProcessEvidence(ClosedModel):
-    pid: int | None = Field(default=None, ge=1)
-    started_at: float | None = None
-    executable_name: str = Field(min_length=1, max_length=120)
-    argv: tuple[str, ...] = Field(max_length=32)
-    working_directory_name: str = Field(min_length=1, max_length=120)
-    identity_confirmed: bool
 
 
 class LifecycleRecord(ClosedModel):
@@ -733,72 +716,6 @@ class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
     evidence: TEvidence | None = None
 
 
-def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
-    """Преобразовать код результата в стабильную категорию процесса."""
-
-    if ok or code is ResultCode.OK:
-        return ExitCode.SUCCESS
-    if code is ResultCode.TOOLING_INVALID_INVOCATION:
-        return ExitCode.INVOCATION
-    if code in {
-        ResultCode.TOOLING_OPERATION_CONFLICT,
-        ResultCode.TOOLING_PORT_CONFLICT,
-        ResultCode.TOOLING_UPDATE_LOCAL_AHEAD,
-        ResultCode.TOOLING_UPDATE_DIVERGED,
-        ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
-        ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
-        ResultCode.TOOLING_REMOTE_REF_CONFLICT,
-        ResultCode.TOOLING_PR_IDENTITY_MISMATCH,
-        ResultCode.TOOLING_TRANSACTION_RECOVERY_REQUIRED,
-        ResultCode.TOOLING_CLEANUP_UNKNOWN,
-        ResultCode.MCP_RUNTIME_STALE,
-        ResultCode.MCP_PLUGIN_RUNTIME_INCOMPATIBLE,
-        ResultCode.MCP_RELOAD_REQUIRED,
-    }:
-        return ExitCode.OWNERSHIP_CONFLICT
-    if code in {
-        ResultCode.TOOLING_TIMEOUT,
-        ResultCode.TOOLING_CANCELLED,
-        ResultCode.TOOLING_PUSH_UNKNOWN,
-        ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN,
-    }:
-        return ExitCode.TIMEOUT
-    if code in {
-        ResultCode.TOOLING_DEPENDENCY_UNAVAILABLE,
-        ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
-        ResultCode.TOOLING_CAPABILITY_UNSUPPORTED,
-        ResultCode.TOOLING_SECRET_SCANNER_UNAVAILABLE,
-        ResultCode.TOOLING_PROVIDER_UNAVAILABLE,
-        ResultCode.TOOLING_BACKUP_REQUIRED,
-        ResultCode.TOOLING_BACKUP_FAILED,
-        ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
-        ResultCode.TOOLING_ADB_FAILED,
-        ResultCode.TOOLING_SHORTCUT_FAILED,
-        ResultCode.MCP_AUTH_NOT_CONFIGURED,
-        ResultCode.MCP_RUNTIME_UNAVAILABLE,
-    }:
-        return ExitCode.DEPENDENCY_UNAVAILABLE
-    if code is ResultCode.TOOLING_APPLY_FAILED_ROLLED_BACK:
-        return ExitCode.ROLLED_BACK
-    if code in {
-        ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-        ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
-        ResultCode.MCP_VERSION_BUMP_REQUIRED,
-    }:
-        return ExitCode.PRECONDITION
-    if code in {
-        ResultCode.TOOLING_ROLLBACK_UNKNOWN,
-        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-        ResultCode.TOOLING_SECRET_SCAN_FAILED,
-    }:
-        return ExitCode.ROLLBACK_UNKNOWN
-    if code is ResultCode.MCP_ENVIRONMENT_STALE:
-        return ExitCode.PRECONDITION
-    if code is ResultCode.TOOLING_UNEXPECTED:
-        return ExitCode.UNEXPECTED
-    return ExitCode.PRECONDITION
-
-
 __all__ = [
     "AnalysisScope",
     "BranchIdentity",
@@ -826,6 +743,7 @@ __all__ = [
     "GitEvidence",
     "GitRange",
     "GitSnapshot",
+    "IntegrationSummary",
     "LifecycleDetails",
     "LifecycleEvidence",
     "LifecycleRecord",

@@ -496,22 +496,6 @@ def test_schema_upgrade_process_uses_isolated_python_child(tmp_path: Path) -> No
     assert options["check"] is False
 
 
-def test_start_preflight_uses_prepare_for_schema_reconciliation() -> None:
-    script = (
-        postgresql_runtime._REPOSITORY_ROOT / "scripts" / "Start-AzurPilot.ps1"
-    ).read_text(encoding="utf-8-sig")
-
-    assert (
-        "Arguments = @('-X', 'utf8', '-m', 'dev_tools.postgresql_runtime', 'prepare')"
-        in script
-    )
-    assert "TimeoutMilliseconds = 210000" in script
-    assert (
-        "Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health."
-        in script
-    )
-
-
 def test_runtime_command_redacts_sqlalchemy_diagnostics(capsys):
     diagnostic = OperationalError(
         "SELECT secret_value",
