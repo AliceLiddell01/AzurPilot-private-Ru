@@ -101,7 +101,7 @@ services:
         source: redis-data
         target: /data
     tmpfs:
-      - /run/redis:rw,noexec,nosuid,nodev,mode=1777
+      - /run/redis:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700
     healthcheck:
       test:
         - CMD-SHELL

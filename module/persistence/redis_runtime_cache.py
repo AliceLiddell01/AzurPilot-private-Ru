@@ -16,6 +16,12 @@ from module.application.runtime_cache import (
     RuntimeCacheHealth,
     RuntimeCacheStatus,
 )
+from module.persistence.local_environment_schema import (
+    REDIS_APPLICATION_USERNAME,
+    REDIS_SERVICE_HOST,
+    REDIS_SERVICE_PORT,
+    validate_redis_application_contract,
+)
 
 _REDIS_KEYS = frozenset(
     {
@@ -42,7 +48,11 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         raise StorageConfigurationError("Локальный Redis env невозможно прочитать.") from exc
     if local is None:
         raise StorageConfigurationError("Локальный Redis env отсутствует или небезопасен.")
-    return {key: local.values[key] for key in _REDIS_KEYS if key in local.values}
+    return {
+        key: local.infrastructure_values[key]
+        for key in _REDIS_KEYS
+        if key in local.infrastructure_values
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +72,9 @@ class RuntimeCacheSettings:
             raise StorageConfigurationError("Redis host некорректен.")
         if not 1 <= self.port <= 65_535:
             raise StorageConfigurationError("Redis port некорректен.")
-        if not self.username or any(character.isspace() for character in self.username):
+        if self.username != REDIS_APPLICATION_USERNAME or any(
+            character.isspace() for character in self.username
+        ):
             raise StorageConfigurationError("Redis username некорректен.")
         if not self.password or any(character in self.password for character in "\x00\r\n"):
             raise StorageConfigurationError("Redis password некорректен.")
@@ -94,25 +106,31 @@ class RuntimeCacheSettings:
                 "Docker Redis transport должен задавать host и port вместе."
             )
         if docker_host is not None:
-            if docker_host != "redis" or docker_port != "6379":
+            if docker_host != REDIS_SERVICE_HOST or docker_port != str(REDIS_SERVICE_PORT):
                 raise StorageConfigurationError(
                     "Docker Redis transport не соответствует canonical Compose service."
                 )
-            host, port = docker_host, 6379
+            host, port = docker_host, REDIS_SERVICE_PORT
         else:
             host = source.get("AZURPILOT_REDIS_HOST")
             if not host:
                 raise StorageConfigurationError("Переменная AZURPILOT_REDIS_HOST не задана.")
-            raw_port = source.get("AZURPILOT_REDIS_PORT", "6379")
-            try:
-                port = int(raw_port)
-            except (TypeError, ValueError) as exc:
-                raise StorageConfigurationError("Redis port некорректен.") from exc
+            port = source.get("AZURPILOT_REDIS_PORT", "6379")
 
         username = source.get("AZURPILOT_REDIS_USERNAME")
         password = source.get("AZURPILOT_REDIS_PASSWORD")
         if not username or not password:
             raise StorageConfigurationError("Redis app credentials не настроены.")
+        try:
+            port = validate_redis_application_contract(
+                host=host,
+                port=port,
+                username=username,
+                password=password,
+                allow_service_transport=docker_host is not None,
+            )
+        except ValueError as exc:
+            raise StorageConfigurationError(str(exc)) from exc
         return cls(host=host, port=port, username=username, password=password)
 
 

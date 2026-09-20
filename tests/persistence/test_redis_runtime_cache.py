@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from math import ceil
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import ClassVar
 
@@ -114,6 +117,77 @@ def _settings() -> RuntimeCacheSettings:
         username="azurpilot_app",
         password="app-secret",
     )
+
+
+def _write_secure_env(path: Path) -> None:
+    path.write_text(
+        """AZURPILOT_POSTGRES_HOST=127.0.0.1
+AZURPILOT_POSTGRES_PORT=5432
+AZURPILOT_POSTGRES_DATABASE=azurpilot
+AZURPILOT_POSTGRES_USER=azurpilot_app
+AZURPILOT_POSTGRES_PASSWORD=app-secret
+AZURPILOT_POSTGRES_SSLMODE=disable
+AZURPILOT_POSTGRES_RUNTIME_TIMEZONE=Asia/Novosibirsk
+AZURPILOT_POSTGRES_PGPASSFILE=C:/secure/pgpass.conf
+AZURPILOT_POSTGRES_MIGRATOR_HOST=127.0.0.1
+AZURPILOT_POSTGRES_MIGRATOR_PORT=5432
+AZURPILOT_POSTGRES_MIGRATOR_DATABASE=azurpilot
+AZURPILOT_POSTGRES_MIGRATOR_USER=azurpilot_migrator
+AZURPILOT_POSTGRES_MIGRATOR_PASSWORD=migrator-secret
+AZURPILOT_POSTGRES_MIGRATOR_SSLMODE=disable
+AZURPILOT_POSTGRES_MIGRATOR_RUNTIME_TIMEZONE=Asia/Novosibirsk
+AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/pgpass.conf
+AZURPILOT_WSL_DISTRO=archlinux
+AZURPILOT_WSL_PGPASSFILE=/etc/azurpilot/pgpass
+AZURPILOT_REDIS_HOST=127.0.0.1
+AZURPILOT_REDIS_PORT=6379
+AZURPILOT_REDIS_USERNAME=azurpilot_app
+AZURPILOT_REDIS_PASSWORD=redis-app-secret
+AZURPILOT_REDIS_ADMIN_PASSWORD=redis-admin-secret
+AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY=redis-insight-key
+AZURPILOT_REDISINSIGHT_PORT=5540
+""",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        identity = subprocess.run(
+            ["whoami.exe"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        subprocess.run(
+            [
+                "icacls.exe",
+                str(path),
+                "/inheritance:r",
+                "/grant:r",
+                f"{identity}:(F)",
+                "/grant:r",
+                "SYSTEM:(F)",
+            ],
+            check=True,
+            capture_output=True,
+        )
+    else:
+        path.chmod(0o600)
+
+
+def test_runtime_cache_settings_read_staged_env_file(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    _write_secure_env(env_file)
+
+    settings = RuntimeCacheSettings.from_environment(
+        {
+            "AZURPILOT_DOCKER_REDIS_HOST": "redis",
+            "AZURPILOT_DOCKER_REDIS_PORT": "6379",
+        },
+        env_file=env_file,
+    )
+
+    assert (settings.host, settings.port) == ("redis", 6379)
+    assert settings.username == "azurpilot_app"
+    assert settings.password == "redis-app-secret"
 
 
 def test_runtime_cache_is_lazy_namespaced_and_uses_absolute_expiry(

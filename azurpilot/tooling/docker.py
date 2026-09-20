@@ -236,23 +236,22 @@ class DockerDeploymentService:
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Локальный Docker env не содержит полный Redis app contract.",
             )
-        if values["AZURPILOT_REDIS_HOST"] not in {"127.0.0.1", "localhost", "::1"}:
-            raise ToolingError(
-                ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Локальный Docker env использует недопустимый Redis host.",
-            )
         try:
-            port = int(values["AZURPILOT_REDIS_PORT"])
-        except ValueError as exc:
-            raise ToolingError(
-                ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Локальный Docker env содержит некорректный Redis port.",
-            ) from exc
-        if not 1 <= port <= 65_535 or values["AZURPILOT_REDIS_USERNAME"] != "azurpilot_app":
-            raise ToolingError(
-                ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Локальный Docker env не соответствует Redis app contract.",
+            from module.persistence.local_environment_schema import (
+                validate_redis_application_contract,
             )
+
+            validate_redis_application_contract(
+                host=values["AZURPILOT_REDIS_HOST"],
+                port=values["AZURPILOT_REDIS_PORT"],
+                username=values["AZURPILOT_REDIS_USERNAME"],
+                password=values["AZURPILOT_REDIS_PASSWORD"],
+            )
+        except (ImportError, ValueError) as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                str(exc),
+            ) from exc
 
     @staticmethod
     def _runtime_secret_mount(root: Path) -> tuple[tuple[str, ...], str]:

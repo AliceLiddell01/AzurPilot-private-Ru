@@ -50,11 +50,18 @@ _SECRET_KEYS = SECRET_ENVIRONMENT_KEYS & _ALLOWED_KEYS
 class LocalPostgresEnvironment:
     path: Path
     values: dict[str, str] = field(repr=False)
+    infrastructure_values: dict[str, str] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         if frozenset(self.values) != _ALLOWED_KEYS:
             raise StorageConfigurationError(
                 "Локальный PostgreSQL env не содержит полный production contract."
+            )
+        if not frozenset(self.infrastructure_values).issubset(
+            INFRASTRUCTURE_ENVIRONMENT_KEYS
+        ):
+            raise StorageConfigurationError(
+                "Локальный environment содержит неизвестный infrastructure key."
             )
 
     def install(
@@ -260,6 +267,7 @@ def read_local_postgres_environment(
         ) from exc
 
     values: dict[str, str] = {}
+    infrastructure_values: dict[str, str] = {}
     seen_keys: set[str] = set()
     for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
@@ -282,7 +290,7 @@ def read_local_postgres_environment(
             # Compose и боевой PostgreSQL используют один защищённый локальный
             # файл окружения. Registry перечисляет инфраструктурные ключи
             # явно: опечатка внутри namespace не должна пройти незамеченной.
-            _parse_value(raw_value, line_number)
+            infrastructure_values[key] = _parse_value(raw_value, line_number)
         else:
             raise StorageConfigurationError(
                 f"Ключ локального PostgreSQL env в строке {line_number} некорректен."
@@ -327,7 +335,11 @@ def read_local_postgres_environment(
             raise StorageConfigurationError(
                 "App и migrator используют разные PostgreSQL endpoints."
             )
-    return LocalPostgresEnvironment(path=env_path, values=values)
+    return LocalPostgresEnvironment(
+        path=env_path,
+        values=values,
+        infrastructure_values=infrastructure_values,
+    )
 
 
 def load_local_postgres_environment(

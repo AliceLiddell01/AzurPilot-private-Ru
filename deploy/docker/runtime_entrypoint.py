@@ -8,6 +8,7 @@ from pathlib import Path
 
 from module.persistence.local_environment_schema import (
     filter_application_runtime_environment,
+    validate_redis_application_contract,
 )
 
 _MAX_RUNTIME_FILE_SIZE = 65_536
@@ -40,6 +41,11 @@ _PASSFILE_IDENTITIES = {
 _REDIS_TRANSPORT_IDENTITIES = {
     "AZURPILOT_REDIS_HOST",
     "AZURPILOT_REDIS_PORT",
+}
+_REDIS_APPLICATION_IDENTITIES = {
+    *_REDIS_TRANSPORT_IDENTITIES,
+    "AZURPILOT_REDIS_USERNAME",
+    "AZURPILOT_REDIS_PASSWORD",
 }
 
 
@@ -98,32 +104,33 @@ def _replace_redis_transport(payload: bytes) -> bytes:
             continue
         key, raw_value = line.split("=", 1)
         key = key.strip()
-        if key not in _REDIS_TRANSPORT_IDENTITIES:
+        if key not in _REDIS_APPLICATION_IDENTITIES:
             lines.append(raw_line)
             continue
         if key in values:
-            raise RuntimeError("Локальный Docker env содержит дублирующийся Redis endpoint.")
+            raise RuntimeError("Локальный Docker env содержит дублирующийся Redis app key.")
         value = raw_value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
         if not value or any(character in value for character in "\x00\r\n"):
-            raise RuntimeError("Локальный Docker env содержит некорректный Redis endpoint.")
+            raise RuntimeError("Локальный Docker env содержит пустой Redis contract value.")
         values[key] = value
-        if key == "AZURPILOT_REDIS_HOST":
-            if value not in _LOOPBACK_HOSTS:
-                raise RuntimeError("Локальный Docker env использует недопустимый Redis host.")
-            replacement = transport[0]
+        if key in _REDIS_TRANSPORT_IDENTITIES:
+            replacement = transport[0] if key == "AZURPILOT_REDIS_HOST" else str(transport[1])
+            lines.append(f"{key}={replacement}{ending}")
         else:
-            try:
-                port = int(value)
-            except ValueError as exc:
-                raise RuntimeError("Локальный Docker env содержит некорректный Redis port.") from exc
-            if not 1 <= port <= 65_535:
-                raise RuntimeError("Локальный Docker env содержит некорректный Redis port.")
-            replacement = str(transport[1])
-        lines.append(f"{key}={replacement}{ending}")
-    if _REDIS_TRANSPORT_IDENTITIES.difference(values):
-        raise RuntimeError("Локальный Docker env не содержит полный Redis endpoint contract.")
+            lines.append(raw_line)
+    if _REDIS_APPLICATION_IDENTITIES.difference(values):
+        raise RuntimeError("Локальный Docker env не содержит полный Redis app contract.")
+    try:
+        validate_redis_application_contract(
+            host=values["AZURPILOT_REDIS_HOST"],
+            port=values["AZURPILOT_REDIS_PORT"],
+            username=values["AZURPILOT_REDIS_USERNAME"],
+            password=values["AZURPILOT_REDIS_PASSWORD"],
+        )
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
     return "".join(lines).encode("utf-8")
 
 

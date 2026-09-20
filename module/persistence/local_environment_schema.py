@@ -161,6 +161,41 @@ APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS = frozenset(
 if not APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS.issubset(LOCAL_ENVIRONMENT_KEYS):
     raise RuntimeError("Registry локального environment не описывает operator-only keys.")
 
+REDIS_APPLICATION_USERNAME = "azurpilot_app"
+REDIS_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+REDIS_SERVICE_HOST = "redis"
+REDIS_SERVICE_PORT = 6379
+
+
+def validate_redis_application_contract(
+    *,
+    host: str,
+    port: str | int,
+    username: str,
+    password: str,
+    allow_service_transport: bool = False,
+) -> int:
+    """Проверить общий Redis app contract и вернуть нормализованный port."""
+
+    try:
+        port_value = int(port)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Локальный Docker env содержит некорректный Redis port.") from exc
+    service_transport = (
+        allow_service_transport
+        and host == REDIS_SERVICE_HOST
+        and port_value == REDIS_SERVICE_PORT
+    )
+    if not (host in REDIS_LOOPBACK_HOSTS or service_transport):
+        raise ValueError("Локальный Docker env использует недопустимый Redis host.")
+    if not 1 <= port_value <= 65_535:
+        raise ValueError("Локальный Docker env содержит некорректный Redis port.")
+    if username != REDIS_APPLICATION_USERNAME:
+        raise ValueError("Локальный Docker env не соответствует Redis app contract.")
+    if not password or any(character in password for character in "\x00\r\n"):
+        raise ValueError("Локальный Docker env содержит пустой Redis contract value.")
+    return port_value
+
 
 def filter_application_runtime_environment(payload: bytes) -> bytes:
     """Удалить operator-only Redis values из application runtime payload."""
