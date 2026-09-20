@@ -377,6 +377,20 @@ def test_rate_limit_metadata_and_budget_remain_bounded():
     assert not coderabbit.review_iteration_allowed(0, terminal=True)
 
 
+def test_parse_provider_findings_output_without_suggested_fix() -> None:
+    findings = coderabbit.parse_provider_findings_output(
+        """major [Без блока исправления]
+→ azurpilot/tooling/git.py:12
+Описание проблемы без отдельного блока исправления.
+"""
+    )
+
+    assert len(findings) == 1
+    assert findings[0].path == "azurpilot/tooling/git.py"
+    assert findings[0].impact == "Описание проблемы без отдельного блока исправления."
+    assert findings[0].resolution == coderabbit._DEFAULT_FINDING_RESOLUTION
+
+
 def test_obsolete_reconcile_route_is_not_in_provider_cli():
     from azurpilot.cli import CliInvocationError, build_parser
 

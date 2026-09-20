@@ -33,6 +33,7 @@ from azurpilot.tooling.filesystem import path_identity
 from azurpilot.tooling.git import (
     GitClient,
     canonical_remote_identity,
+    is_ad_hoc_remote_ref,
     repository_identity_from_remote,
 )
 from azurpilot.tooling.pull_request import (
@@ -80,6 +81,14 @@ def _fixture_repository(tmp_path: Path) -> tuple[Path, Path, str, str, Repositor
     _git(root, "switch", "-c", "cli/fixture-delivery")
     identity = repository_identity_from_remote(str(bare))
     return root, bare, base_sha, str(bare), identity
+
+
+def test_ad_hoc_ref_detection_preserves_hyphenated_product_branches() -> None:
+    assert is_ad_hoc_remote_ref("codex/base-review")
+    assert is_ad_hoc_remote_ref("feature/temporary/review")
+    assert is_ad_hoc_remote_ref("feature/transport/review")
+    assert not is_ad_hoc_remote_ref("fix/transport-timeout")
+    assert not is_ad_hoc_remote_ref("feature/temporary-cache")
 
 
 def _resolved(root: Path) -> ResolvedRepository:

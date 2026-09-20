@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 
+from dev_tools.integration_contract_gate import _OPERATOR_POLICY_MARKERS
 from tests.support.paths import REPOSITORY_ROOT
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
@@ -275,16 +276,9 @@ def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -
         / "mcp-routing.md",
     )
     content = " ".join(path.read_text(encoding="utf-8").lower() for path in policy_paths)
-    for required in (
-        "literal",
-        "azur ...",
-        "source_reconciled",
-        "runtime_ready",
-        "local_mcp_supervisor_stopped",
-        "codex/base-*",
-        "tooling_stacked_parent_unpublished",
-    ):
-        assert required in content
+    for required in _OPERATOR_POLICY_MARKERS:
+        assert required.casefold() in content
+    assert "local_mcp_supervisor_stopped" in content
 
     development_skill = (
         _REPOSITORY_ROOT

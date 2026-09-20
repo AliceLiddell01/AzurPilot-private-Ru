@@ -89,7 +89,7 @@ _OPERATOR_POLICY_PATHS = (
 _OPERATOR_POLICY_MARKERS = (
     "source_reconciled",
     "runtime_ready",
-    "literal",
+    "буквальн",
     "azur ...",
     "codex/base-*",
     "TOOLING_STACKED_PARENT_UNPUBLISHED",
@@ -314,20 +314,18 @@ def _check_coderabbit_native_boundary(root: Path, errors: list[str]) -> None:
     adapter_source = root / "azurpilot" / "integrations" / "coderabbit.py"
     for path in (config_source, adapter_source):
         try:
-            content = path.read_text(encoding="utf-8").casefold()
+            raw = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             errors.append(f"{_relative(root, path)}: native boundary source не прочитан")
             continue
+        content = raw.casefold()
         for marker in _CODERABBIT_RETIRED_MARKERS:
             if marker in content:
                 errors.append(f"{_relative(root, path)}: найден retired CodeRabbit marker {marker}")
-    try:
-        integration_config = root / "azurpilot" / "integrations" / "config.py"
-        content = integration_config.read_text(encoding="utf-8")
-        if "AZURPILOT_CODERABBIT_WSL_DISTRIBUTION" in content or "AZURPILOT_CODERABBIT_REVIEW_CLONE" in content:
+        if "azurpilot_coderabbit_wsl_distribution" in content or (
+            "azurpilot_coderabbit_review_clone" in content
+        ):
             errors.append("coderabbit: retired host environment overrides остаются активными")
-    except (OSError, UnicodeError):
-        return
 
 
 def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:

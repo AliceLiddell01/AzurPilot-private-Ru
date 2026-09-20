@@ -367,8 +367,15 @@ class RunningProcess:
 
         self.collected = True
         max_output_bytes = spec.max_output_bytes if spec else DEFAULT_OUTPUT_LIMIT
-        stdout_data = bytes(self.stdout_buffer or b"")
-        stderr_data = bytes(self.stderr_buffer or b"")
+        locks = self.output_locks
+        if locks is None:
+            stdout_data = bytes(self.stdout_buffer or b"")
+            stderr_data = bytes(self.stderr_buffer or b"")
+        else:
+            with locks[0]:
+                stdout_data = bytes(self.stdout_buffer or b"")
+            with locks[1]:
+                stderr_data = bytes(self.stderr_buffer or b"")
         stdout, stdout_truncated = _bounded_text(stdout_data, max_output_bytes)
         stderr, stderr_truncated = _bounded_text(stderr_data, max_output_bytes)
         return ProcessResult(

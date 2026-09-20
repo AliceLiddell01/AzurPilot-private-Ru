@@ -578,6 +578,7 @@ def parse_provider_findings_output(output: str) -> tuple[CodeRabbitFinding, ...]
                 for index, line in enumerate(cleaned)
                 if "предлагаемое исправление" in line.casefold()
             ),
+            None,
         )
         impact_lines = cleaned if suggestion_index is None else cleaned[:suggestion_index]
         resolution_lines = cleaned[suggestion_index + 1 :] if suggestion_index is not None else []
@@ -1057,6 +1058,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if not _SHA_RE.fullmatch(head_sha):
                 return None, "CODERABBIT_HEAD_INVALID", "Текущий HEAD не является exact commit SHA."
             status = git.status_z()
+            status_digest = hashlib.sha256(status.encode("utf-8")).hexdigest()
             if status:
                 return None, "CODERABBIT_CANDIDATE_DIRTY", "Canonical checkout должен иметь clean index и worktree."
             return (
@@ -1064,7 +1066,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     root_identity=path_identity(canonical_root),
                     repository_identity=repository_identity,
                     head_sha=head_sha,
-                    status_digest=hashlib.sha256(status.encode("utf-8")).hexdigest(),
+                    status_digest=status_digest,
                 ),
                 None,
                 None,
