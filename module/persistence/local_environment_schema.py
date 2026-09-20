@@ -50,6 +50,19 @@ LOCAL_ENVIRONMENT_REGISTRY = (
         "infrastructure",
         secret=True,
     ),
+    LocalEnvironmentKey("AZURPILOT_REDIS_HOST", "infrastructure"),
+    LocalEnvironmentKey("AZURPILOT_REDIS_PORT", "infrastructure"),
+    LocalEnvironmentKey("AZURPILOT_REDIS_USERNAME", "infrastructure"),
+    LocalEnvironmentKey("AZURPILOT_REDIS_PASSWORD", "infrastructure", secret=True),
+    LocalEnvironmentKey(
+        "AZURPILOT_REDIS_ADMIN_PASSWORD", "infrastructure", secret=True
+    ),
+    LocalEnvironmentKey(
+        "AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY",
+        "infrastructure",
+        secret=True,
+    ),
+    LocalEnvironmentKey("AZURPILOT_REDISINSIGHT_PORT", "infrastructure"),
     LocalEnvironmentKey("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER", "infrastructure"),
     LocalEnvironmentKey(
         "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD",

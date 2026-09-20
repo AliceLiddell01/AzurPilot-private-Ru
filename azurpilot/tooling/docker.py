@@ -39,12 +39,17 @@ _BACKEND_MARKER_PATH = Path("config/state/storage_backend.json")
 _COMPOSE_FILE_PATH = Path("infrastructure/observability/compose.yaml")
 _COMPOSE_PROJECT = "azurpilot-infrastructure"
 _COMPOSE_POSTGRES_SERVICE = "postgres"
+_COMPOSE_REDIS_SERVICE = "redis"
 _DOCKER_POSTGRES_HOST = "postgres"
 _DOCKER_POSTGRES_PORT = 5432
+_DOCKER_REDIS_HOST = "redis"
+_DOCKER_REDIS_PORT = 6379
 _DOCKER_WEBUI_BIND_HOST = "0.0.0.0"
 _DOCKER_RUNTIME_PYTHON = "/app/AzurPilot/.venv/bin/python"
 _DOCKER_POSTGRES_HOST_ENV = "AZURPILOT_DOCKER_POSTGRES_HOST"
 _DOCKER_POSTGRES_PORT_ENV = "AZURPILOT_DOCKER_POSTGRES_PORT"
+_DOCKER_REDIS_HOST_ENV = "AZURPILOT_DOCKER_REDIS_HOST"
+_DOCKER_REDIS_PORT_ENV = "AZURPILOT_DOCKER_REDIS_PORT"
 _CONTAINER_ID_RE = re.compile(r"^[0-9a-f]{12,64}$")
 _ContainerState = Literal["found", "not_found", "unknown"]
 
@@ -56,6 +61,22 @@ class _DockerPostgresRuntime:
     network: str
     host: Literal["postgres"] = _DOCKER_POSTGRES_HOST
     port: Literal[5432] = _DOCKER_POSTGRES_PORT
+
+
+@dataclass(frozen=True, slots=True)
+class _DockerRedisRuntime:
+    """Проверенный ephemeral transport для канонического Compose Redis."""
+
+    network: str
+    host: Literal["redis"] = _DOCKER_REDIS_HOST
+    port: Literal[6379] = _DOCKER_REDIS_PORT
+
+
+@dataclass(frozen=True, slots=True)
+class _DockerServiceRuntime:
+    network: str
+    host: str
+    port: int
 
 
 def _within(path: Path, parent: Path) -> bool:
@@ -194,6 +215,62 @@ class DockerDeploymentService:
         return Path(values[0])
 
     @staticmethod
+    def _runtime_redis_endpoint(env_path: Path) -> None:
+        """Проверить host-side Redis app transport без чтения секрета в результат."""
+
+        required = {
+            "AZURPILOT_REDIS_HOST",
+            "AZURPILOT_REDIS_PORT",
+            "AZURPILOT_REDIS_USERNAME",
+            "AZURPILOT_REDIS_PASSWORD",
+        }
+        values: dict[str, str] = {}
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, raw_value = line.split("=", 1)
+            key = key.strip()
+            if key not in required:
+                continue
+            if key in values:
+                raise ToolingError(
+                    ResultCode.TOOLING_PRECONDITION_FAILED,
+                    "Локальный Docker env содержит дублирующийся Redis key.",
+                )
+            value = raw_value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                value = value[1:-1]
+            if not value or any(character in value for character in "\x00\r\n"):
+                raise ToolingError(
+                    ResultCode.TOOLING_PRECONDITION_FAILED,
+                    "Локальный Docker env содержит пустой Redis contract value.",
+                )
+            values[key] = value
+        if required.difference(values):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Локальный Docker env не содержит полный Redis app contract.",
+            )
+        if values["AZURPILOT_REDIS_HOST"] not in {"127.0.0.1", "localhost", "::1"}:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Локальный Docker env использует недопустимый Redis host.",
+            )
+        try:
+            port = int(values["AZURPILOT_REDIS_PORT"])
+        except ValueError as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Локальный Docker env содержит некорректный Redis port.",
+            ) from exc
+        if not 1 <= port <= 65_535 or values["AZURPILOT_REDIS_USERNAME"] != "azurpilot_app":
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Локальный Docker env не соответствует Redis app contract.",
+            )
+
+    @staticmethod
     def _runtime_secret_mount(root: Path) -> tuple[tuple[str, ...], str]:
         """Подготовить источники только для чтения и tmpfs для запуска."""
 
@@ -228,6 +305,7 @@ class DockerDeploymentService:
             )
         try:
             passfile_path = DockerDeploymentService._runtime_passfile_path(env_path)
+            DockerDeploymentService._runtime_redis_endpoint(env_path)
         except (OSError, UnicodeError) as exc:
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
@@ -318,10 +396,17 @@ class DockerDeploymentService:
             raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, message)
         return value
 
-    def _resolve_postgres_runtime(
-        self, docker: Path, root: Path
-    ) -> _DockerPostgresRuntime:
-        """Доказать Compose ownership и вернуть только фактическую сеть сервиса."""
+    def _resolve_compose_runtime(
+        self,
+        docker: Path,
+        root: Path,
+        *,
+        service_name: str,
+        display_name: str,
+        host: str,
+        port: int,
+    ) -> _DockerServiceRuntime:
+        """Доказать ownership, health и network alias одного Compose service."""
 
         compose_path, env_path = self._canonical_compose_paths(root)
         compose = self._run(
@@ -338,24 +423,20 @@ class DockerDeploymentService:
             "--all",
             "--format",
             "json",
-            _COMPOSE_POSTGRES_SERVICE,
+            service_name,
             timeout_seconds=60,
             allow_nonzero=True,
         )
-        if (
-            compose.returncode != 0
-            or compose.stdout_truncated
-            or compose.stderr_truncated
-        ):
+        if compose.returncode != 0 or compose.stdout_truncated or compose.stderr_truncated:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker Compose не подтвердил состояние канонического PostgreSQL.",
+                f"Docker Compose не подтвердил состояние канонического {display_name}.",
             )
         records = self._compose_records(compose.stdout)
         if len(records) != 1:
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Канонический Compose PostgreSQL отсутствует или неоднозначен.",
+                f"Канонический Compose {display_name} отсутствует или неоднозначен.",
             )
         record = records[0]
         project = record.get("Project")
@@ -370,27 +451,27 @@ class DockerDeploymentService:
         ):
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker Compose не вернул доказуемую identity PostgreSQL.",
+                f"Docker Compose не вернул доказуемую identity {display_name}.",
             )
-        if project != _COMPOSE_PROJECT or service != _COMPOSE_POSTGRES_SERVICE:
+        if project != _COMPOSE_PROJECT or service != service_name:
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Compose service PostgreSQL принадлежит другому project или service.",
+                f"Compose service {display_name} принадлежит другому project или service.",
             )
         if not _CONTAINER_ID_RE.fullmatch(container_id):
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker Compose вернул некорректный идентификатор PostgreSQL.",
+                f"Docker Compose вернул некорректный идентификатор {display_name}.",
             )
         if not _CONTAINER_RE.fullmatch(container_name.lstrip("/")):
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker Compose вернул некорректное имя PostgreSQL.",
+                f"Docker Compose вернул некорректное имя {display_name}.",
             )
         if state.casefold() != "running" or health.casefold() != "healthy":
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Канонический PostgreSQL Compose не находится в состоянии healthy.",
+                f"Канонический {display_name} Compose не находится в состоянии healthy.",
             )
 
         inspect = self._run(
@@ -405,54 +486,47 @@ class DockerDeploymentService:
             timeout_seconds=30,
             allow_nonzero=True,
         )
-        if (
-            inspect.returncode != 0
-            or inspect.stdout_truncated
-            or inspect.stderr_truncated
-        ):
+        if inspect.returncode != 0 or inspect.stdout_truncated or inspect.stderr_truncated:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker inspect не подтвердил canonical PostgreSQL.",
+                f"Docker inspect не подтвердил canonical {display_name}.",
             )
         fields = inspect.stdout.strip().split("\t")
         if len(fields) != 6:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker inspect вернул неполную identity PostgreSQL.",
+                f"Docker inspect вернул неполную identity {display_name}.",
             )
         inspected_id, inspected_name, inspected_state, inspected_health = fields[:4]
         labels = self._decode_object(
-            fields[4], "Docker inspect вернул некорректные labels PostgreSQL."
+            fields[4], f"Docker inspect вернул некорректные labels {display_name}."
         )
         networks = self._decode_object(
-            fields[5], "Docker inspect вернул некорректные networks PostgreSQL."
+            fields[5], f"Docker inspect вернул некорректные networks {display_name}."
         )
         if (
             not _CONTAINER_ID_RE.fullmatch(inspected_id)
-            or not (
-                inspected_id.startswith(container_id)
-                or container_id.startswith(inspected_id)
-            )
+            or not (inspected_id.startswith(container_id) or container_id.startswith(inspected_id))
             or inspected_name.lstrip("/") != container_name.lstrip("/")
             or inspected_state.casefold() != "running"
             or inspected_health.casefold() != "healthy"
         ):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Docker inspect identity PostgreSQL не совпадает с Compose.",
+                f"Docker inspect identity {display_name} не совпадает с Compose.",
             )
         if (
             labels.get("com.docker.compose.project") != _COMPOSE_PROJECT
-            or labels.get("com.docker.compose.service") != _COMPOSE_POSTGRES_SERVICE
+            or labels.get("com.docker.compose.service") != service_name
         ):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Docker container PostgreSQL принадлежит другому Compose project или service.",
+                f"Docker container {display_name} принадлежит другому Compose project или service.",
             )
         if len(networks) != 1:
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Сеть канонического PostgreSQL отсутствует или неоднозначна.",
+                f"Сеть канонического {display_name} отсутствует или неоднозначна.",
             )
         network_name, network_config = next(iter(networks.items()))
         network_aliases = network_config.get("Aliases") if isinstance(network_config, dict) else None
@@ -461,11 +535,11 @@ class DockerDeploymentService:
             or not _NAME_RE.fullmatch(network_name)
             or not isinstance(network_config, dict)
             or not isinstance(network_aliases, list)
-            or "postgres" not in network_aliases
+            or service_name not in network_aliases
         ):
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker inspect вернул небезопасную сеть PostgreSQL.",
+                f"Docker inspect вернул небезопасную сеть {display_name}.",
             )
 
         network = self._run(
@@ -479,20 +553,16 @@ class DockerDeploymentService:
             timeout_seconds=30,
             allow_nonzero=True,
         )
-        if (
-            network.returncode != 0
-            or network.stdout_truncated
-            or network.stderr_truncated
-        ):
+        if network.returncode != 0 or network.stdout_truncated or network.stderr_truncated:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker inspect не подтвердил сеть canonical PostgreSQL.",
+                f"Docker inspect не подтвердил сеть canonical {display_name}.",
             )
         network_fields = network.stdout.strip().split("\t")
         if len(network_fields) != 4:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker inspect вернул неполную сеть PostgreSQL.",
+                f"Docker inspect вернул неполную сеть {display_name}.",
             )
         network_id, inspected_network_name = network_fields[:2]
         network_labels = self._decode_object(
@@ -507,18 +577,41 @@ class DockerDeploymentService:
             or network_labels.get("com.docker.compose.project") != _COMPOSE_PROJECT
             or not any(
                 isinstance(member_id, str)
-                and (
-                    member_id.startswith(inspected_id)
-                    or inspected_id.startswith(member_id)
-                )
+                and (member_id.startswith(inspected_id) or inspected_id.startswith(member_id))
                 for member_id in network_containers
             )
         ):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Сеть PostgreSQL не доказана как сеть канонического Compose project.",
+                f"Сеть {display_name} не доказана как сеть канонического Compose project.",
             )
-        return _DockerPostgresRuntime(network=network_name)
+        return _DockerServiceRuntime(network=network_name, host=host, port=port)
+
+    def _resolve_postgres_runtime(
+        self, docker: Path, root: Path
+    ) -> _DockerPostgresRuntime:
+        runtime = self._resolve_compose_runtime(
+            docker,
+            root,
+            service_name=_COMPOSE_POSTGRES_SERVICE,
+            display_name="PostgreSQL",
+            host=_DOCKER_POSTGRES_HOST,
+            port=_DOCKER_POSTGRES_PORT,
+        )
+        return _DockerPostgresRuntime(network=runtime.network)
+
+    def _resolve_redis_runtime(
+        self, docker: Path, root: Path
+    ) -> _DockerRedisRuntime:
+        runtime = self._resolve_compose_runtime(
+            docker,
+            root,
+            service_name=_COMPOSE_REDIS_SERVICE,
+            display_name="Redis",
+            host=_DOCKER_REDIS_HOST,
+            port=_DOCKER_REDIS_PORT,
+        )
+        return _DockerRedisRuntime(network=runtime.network)
 
     @staticmethod
     def _wait_readiness(host: str, port: int, timeout_seconds: float) -> bool:
@@ -645,6 +738,12 @@ class DockerDeploymentService:
         if not dockerfile.is_file() or path_has_link(dockerfile):
             raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "Канонический Dockerfile отсутствует или небезопасен.")
         postgres_runtime = self._resolve_postgres_runtime(docker, root)
+        redis_runtime = self._resolve_redis_runtime(docker, root)
+        if redis_runtime.network != postgres_runtime.network:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "PostgreSQL и Redis не доказаны в одной canonical Compose network.",
+            )
         runtime_mount, runtime_secret_mode = self._runtime_secret_mount(root)
         self._run(
             docker,
@@ -745,6 +844,10 @@ class DockerDeploymentService:
                 f"{_DOCKER_POSTGRES_HOST_ENV}={postgres_runtime.host}",
                 "--env",
                 f"{_DOCKER_POSTGRES_PORT_ENV}={postgres_runtime.port}",
+                "--env",
+                f"{_DOCKER_REDIS_HOST_ENV}={redis_runtime.host}",
+                "--env",
+                f"{_DOCKER_REDIS_PORT_ENV}={redis_runtime.port}",
                 "--workdir",
                 "/app/AzurPilot",
                 *runtime_mount,
@@ -802,6 +905,7 @@ class DockerDeploymentService:
                 replace_performed=replacement,
                 runtime_secret_mode=runtime_secret_mode,
                 postgres_network=postgres_runtime.network,
+                redis_network=redis_runtime.network,
             ),
             evidence=DockerDeploymentEvidence(
                 docker_cli=docker.name,
@@ -811,6 +915,7 @@ class DockerDeploymentService:
                 readiness_probe="loopback_http",
                 runtime_secret_mode=runtime_secret_mode,
                 postgres_network=postgres_runtime.network,
+                redis_network=redis_runtime.network,
             ),
         )
 

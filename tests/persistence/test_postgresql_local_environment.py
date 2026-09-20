@@ -34,6 +34,13 @@ AZURPILOT_POSTGRES_MIGRATOR_RUNTIME_TIMEZONE=Asia/Novosibirsk
 AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/pgpass.conf
 AZURPILOT_WSL_DISTRO=archlinux
 AZURPILOT_WSL_PGPASSFILE=/etc/azurpilot/pgpass
+AZURPILOT_REDIS_HOST=127.0.0.1
+AZURPILOT_REDIS_PORT=6379
+AZURPILOT_REDIS_USERNAME=azurpilot_app
+AZURPILOT_REDIS_PASSWORD=redis-app-secret
+AZURPILOT_REDIS_ADMIN_PASSWORD=redis-admin-secret
+AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY=redis-insight-key
+AZURPILOT_REDISINSIGHT_PORT=5540
 """
 
 
@@ -173,6 +180,7 @@ def test_local_env_rejects_bare_docker_namespace_key(tmp_path: Path):
         "AZURPILOT_OBSERVABILITY_PGADMIN_PORTX",
         "AZURPILOT_CADDY_HOSTX",
         "AZURPILOT_GAME_MCP_PUBLIC_HOSTX",
+        "AZURPILOT_REDIS_PASWORD",
     ),
 )
 def test_local_env_rejects_typo_inside_infrastructure_namespace(

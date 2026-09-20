@@ -133,6 +133,8 @@ def test_env_merge_preserves_unrelated_namespace_and_replaces_postgres(
         b"AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL=operator@example.test\n"
         b"AZURPILOT_OBSERVABILITY_PGADMIN_PORT=5051\n"
         b"AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=keep-bootstrap\n"
+        b"AZURPILOT_REDIS_HOST=127.0.0.1\n"
+        b"AZURPILOT_REDIS_PASSWORD=keep-redis\n"
         b"AZURPILOT_POSTGRES_HOST=old-host\n"
         b"AZURPILOT_WSL_DISTRO=old-distro\n"
     )
@@ -145,6 +147,8 @@ def test_env_merge_preserves_unrelated_namespace_and_replaces_postgres(
     assert "AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL=operator@example.test" in merged
     assert "AZURPILOT_OBSERVABILITY_PGADMIN_PORT=5051" in merged
     assert "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=keep-bootstrap" in merged
+    assert "AZURPILOT_REDIS_HOST=127.0.0.1" in merged
+    assert "AZURPILOT_REDIS_PASSWORD=keep-redis" in merged
     assert "AZURPILOT_POSTGRES_HOST=127.0.0.1" in merged
     assert "AZURPILOT_WSL_DISTRO=archlinux" in merged
     assert "old-host" not in merged

@@ -12,6 +12,8 @@
 | alloy | loopback OTLP endpoint и маршрутизация telemetry | grafana/alloy:v1.19.2 |
 | postgres | каноническое production-хранилище AzurPilot | postgres:18 |
 | postgres-bootstrap | одноразовое создание app/migrator ролей и прав | postgres:18 |
+| redis | ephemeral runtime cache без доменных данных | redis:8.10.1 |
+| redisinsight | локальная диагностика Redis | redis/redisinsight:3.8.0 |
 | loki | хранение logs | grafana/loki:3.7.4 |
 | prometheus | хранение metrics и remote-write receiver | prom/prometheus:v3.14.0 |
 | tempo | хранение traces и OTLP receiver | grafana/tempo:3.0.3 |
@@ -25,7 +27,9 @@ Alloy принимает OTLP по 127.0.0.1:4317 (gRPC) и 127.0.0.1:4318 (HTTP
 Grafana доступна по 127.0.0.1:3000. Loki, Prometheus и Tempo не публикуются
 на host: Alloy и Grafana обращаются к ним через стандартную Compose network и
 service DNS.
-pgAdmin доступен только по 127.0.0.1:5050.
+pgAdmin доступен только по 127.0.0.1:5050. Redis публикуется только на
+127.0.0.1:6379, а RedisInsight — только на 127.0.0.1:5540. RedisInsight не
+является зависимостью приложения или runtime cache.
 Caddy включается отдельным профилем `remote-ingress`, потому что публичный
 endpoint является opt-in конфигурацией. Он работает в том же Compose project,
 использует read-only bind `infrastructure/caddy` и обращается к host-side
@@ -44,6 +48,8 @@ host-side WebUI (по умолчанию `host.docker.internal:25548`) чере�
 Состояние хранится в именованных volumes:
 
 - azurpilot-postgres-data;
+- azurpilot-redis-data;
+- azurpilot-redisinsight-data;
 - azurpilot-observability_alloy-data;
 - azurpilot-observability_loki-data;
 - azurpilot-observability_prometheus-data;
@@ -139,6 +145,23 @@ adapter не изменяет admin password, named volumes или Compose state
     Set-Content -LiteralPath $envFile -Value $lines -Encoding utf8NoBOM
     Remove-Variable password
 
+Для Redis задайте отдельные app/admin secrets и ключ шифрования RedisInsight:
+
+    AZURPILOT_REDIS_HOST=127.0.0.1
+    AZURPILOT_REDIS_PORT=6379
+    AZURPILOT_REDIS_USERNAME=azurpilot_app
+    AZURPILOT_REDIS_PASSWORD=<случайный_секрет_приложения>
+    AZURPILOT_REDIS_ADMIN_PASSWORD=<отдельный_секрет_администратора>
+    AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY=<случайный_ключ_шифрования>
+    AZURPILOT_REDISINSIGHT_PORT=5540
+
+Redis secrets не передаются в argv и не записываются в Compose evidence. App
+пользователь ограничен namespace `azurpilot:*` и командами cache; admin secret
+нужен только для операторского подключения. RedisInsight получает endpoint и
+username через официальные environment-параметры, а пароль вводится в его UI
+при первом подключении. Все строки выше относятся к защищённому локальному
+`.env` и не должны попадать в Git, логи или скриншоты `docker inspect`.
+
 ## Запуск и обслуживание
 
 Из этой папки:
@@ -191,6 +214,7 @@ metadata, DNS/TLS и read-only MCP contract через публичные endpoi
 Для штатного старта только базы используйте:
 
     docker compose --env-file ../../.env up --detach --wait postgres
+    docker compose --env-file ../../.env up --detach --wait redis redisinsight
     docker compose --env-file ../../.env run --rm --no-deps postgres-bootstrap
 
 `postgres-bootstrap` — одноразовый шаг выдачи app/migrator ролей и прав;
@@ -201,6 +225,47 @@ metadata, DNS/TLS и read-only MCP contract через публичные endpoi
 включена настройка General → Start Docker Desktop when you sign in. Команда
 `azur start` не изменяет эту пользовательскую настройку; после её
 включения перезагрузка проверяет Docker Desktop → Compose project → Caddy.
+
+### Redis runtime cache
+
+Redis — reconstructable cache, а не durable source of truth: PostgreSQL остаётся
+единственным владельцем доменных данных. В Redis не размещаются Commission,
+AP/RewardDorm, Main fallback или другие игровые схемы. При cache miss приложение
+получает `None`; недоступность Redis не превращается в silent in-memory fallback.
+Ошибки boundary различаются как `NOT_CONFIGURED`, `UNAVAILABLE`, `TIMEOUT`,
+`AUTH_FAILED`, `INVALID_DATA` и `UNKNOWN`. Клиент создаётся lazy для текущего
+PID, после fork/spawn соединения не переиспользуются, timeout ограничен, а
+retry-on-timeout выключен.
+
+Внутри Compose приложение использует `redis:6379`, а host-side runtime —
+`127.0.0.1:${AZURPILOT_REDIS_PORT:-6379}`. Docker deployment доказывает
+canonical project, healthy Redis container, Compose network и DNS alias до
+передачи transport overrides приложению. Redis включён с AOF и
+`appendfsync everysec`; named volume `azurpilot-redis-data` сохраняет cache
+между обычным restart Redis, но данные всё равно считаются временными и могут
+быть пересозданы приложением.
+
+Проверка без публикации secret:
+
+    docker compose --env-file ../../.env exec -T redis sh -c 'REDISCLI_AUTH="$$(cat /run/secrets/redis_app_password)" redis-cli --user azurpilot_app ping'
+    docker compose --env-file ../../.env ps redis redisinsight
+    Invoke-WebRequest http://127.0.0.1:5540/api/health/
+
+В RedisInsight откройте [http://127.0.0.1:5540](http://127.0.0.1:5540), выберите
+предложенное подключение `AzurPilot Redis`, при необходимости укажите username
+`azurpilot_admin` и введите admin secret из локального `.env`. Endpoint должен
+оставаться `redis:6379`, не опубликованный host-порт. `/api/health/` — штатный
+health endpoint RedisInsight.
+
+Удаление cache volume является осознанной destructive операцией и не требуется
+для обычного restart:
+
+    docker compose --env-file ../../.env stop redis redisinsight
+    docker volume rm azurpilot-redis-data azurpilot-redisinsight-data
+
+После удаления выполните `up --detach --wait redis redisinsight`; Redis ACL и
+пустой cache будут созданы заново из локальных secrets. Не используйте
+`docker volume prune` или `docker system prune`.
 
 ### pgAdmin
 

@@ -276,7 +276,13 @@ def _verify_canonical_mounts(repository_root: Path) -> None:
 
 def _verify_canonical_project(repository_root: Path) -> list[dict[str, Any]]:
     records = _compose_records(repository_root)
-    expected_services = {"postgres", "pgadmin", *VOLUME_SERVICES.values()}
+    expected_services = {
+        "postgres",
+        "pgadmin",
+        "redis",
+        "redisinsight",
+        *VOLUME_SERVICES.values(),
+    }
     observed_services = {
         record.get("Service") for record in records if record.get("Service")
     }

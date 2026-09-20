@@ -70,6 +70,10 @@ def _prepare_runtime_sources(root: Path) -> None:
             (
                 "AZURPILOT_POSTGRES_PGPASSFILE=" + str(passfile),
                 "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=" + str(passfile),
+                "AZURPILOT_REDIS_HOST=127.0.0.1",
+                "AZURPILOT_REDIS_PORT=6379",
+                "AZURPILOT_REDIS_USERNAME=azurpilot_app",
+                "AZURPILOT_REDIS_PASSWORD=runtime-redis-secret",
             )
         )
         + "\n",
@@ -84,6 +88,11 @@ def _patch_postgres_runtime(
         service,
         "_resolve_postgres_runtime",
         lambda *_args: SimpleNamespace(network="azurpilot-test-network", host="postgres", port=5432),
+    )
+    monkeypatch.setattr(
+        service,
+        "_resolve_redis_runtime",
+        lambda *_args: SimpleNamespace(network="azurpilot-test-network", host="redis", port=6379),
     )
 
 
@@ -177,6 +186,10 @@ def test_docker_runtime_secret_is_mount_only_and_never_evidence(tmp_path: Path):
                 f"AZURPILOT_POSTGRES_PASSWORD={secret_value}",
                 f"AZURPILOT_POSTGRES_PGPASSFILE={passfile}",
                 f"AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE={passfile}",
+                "AZURPILOT_REDIS_HOST=127.0.0.1",
+                "AZURPILOT_REDIS_PORT=6379",
+                "AZURPILOT_REDIS_USERNAME=azurpilot_app",
+                "AZURPILOT_REDIS_PASSWORD=runtime-redis-secret",
             )
         )
         + "\n",
@@ -220,6 +233,10 @@ def test_docker_runtime_entrypoint_stages_bind_sources_without_exposing_values(
                 f"AZURPILOT_POSTGRES_PASSWORD={secret_value}",
                 "AZURPILOT_POSTGRES_PGPASSFILE=C:/host/pgpass.conf",
                 "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/host/pgpass.conf",
+                "AZURPILOT_REDIS_HOST=127.0.0.1",
+                "AZURPILOT_REDIS_PORT=6379",
+                "AZURPILOT_REDIS_USERNAME=azurpilot_app",
+                "AZURPILOT_REDIS_PASSWORD=runtime-redis-secret",
             )
         )
         + "\n",
@@ -415,7 +432,7 @@ def _compose_ps_record(
             "Project": project,
             "Service": service,
             "ID": container_id[:12],
-            "Name": "azurpilot-infrastructure-postgres-1",
+            "Name": f"azurpilot-infrastructure-{service}-1",
             "State": "running",
             "Health": "healthy",
         }
@@ -436,13 +453,13 @@ def _container_inspect_record(
     return "\t".join(
         (
             container_id,
-            "/azurpilot-infrastructure-postgres-1",
+            f"/azurpilot-infrastructure-{service}-1",
             "running",
             "healthy",
             json.dumps(labels),
             json.dumps(
                 networks
-                or {"azurpilot-test-network": {"Aliases": ["postgres"]}}
+                or {"azurpilot-test-network": {"Aliases": [service]}}
             ),
         )
     )
@@ -453,6 +470,7 @@ def _network_inspect_record(
     project: str = "azurpilot-infrastructure",
     name: str = "azurpilot-test-network",
     container_id: str = "a" * 64,
+    service: str = "postgres",
 ) -> str:
     labels = {"com.docker.compose.project": project}
     return "\t".join(
@@ -460,7 +478,7 @@ def _network_inspect_record(
             "b" * 64,
             name,
             json.dumps(labels),
-            json.dumps({container_id: {"Name": "azurpilot-infrastructure-postgres-1"}}),
+            json.dumps({container_id: {"Name": f"azurpilot-infrastructure-{service}-1"}}),
         )
     )
 
@@ -482,6 +500,25 @@ def test_docker_resolves_only_healthy_canonical_compose_network(tmp_path: Path):
     assert "--project-name" in runner.calls[0]
     assert "postgres" in runner.calls[0]
     assert "azurpilot-test-network" in runner.calls[2]
+
+
+def test_docker_resolves_redis_on_healthy_canonical_compose_network(tmp_path: Path):
+    root = _compose_root(tmp_path)
+    runner = _FakeDockerRunner(
+        [
+            _process_result(stdout=_compose_ps_record(service="redis")),
+            _process_result(stdout=_container_inspect_record(service="redis")),
+            _process_result(stdout=_network_inspect_record(service="redis")),
+        ]
+    )
+    service = DockerDeploymentService(runner=runner)
+
+    runtime = service._resolve_redis_runtime(Path(sys.executable), root)
+
+    assert runtime.network == "azurpilot-test-network"
+    assert runtime.host == "redis"
+    assert runtime.port == 6379
+    assert "redis" in runner.calls[0]
 
 
 @pytest.mark.parametrize(
@@ -612,6 +649,26 @@ def test_docker_pgpass_staging_uses_service_endpoint_and_keeps_only_roles(
         "postgres:5432:*:azurpilot_migrator:migrator-secret\n"
     )
     assert "remote.example" not in staged
+    assert "55432" not in staged
+
+
+def test_docker_redis_staging_uses_service_endpoint_without_touching_password(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("AZURPILOT_DOCKER_REDIS_HOST", "redis")
+    monkeypatch.setenv("AZURPILOT_DOCKER_REDIS_PORT", "6379")
+    payload = (
+        b"AZURPILOT_REDIS_HOST=127.0.0.1\n"
+        b"AZURPILOT_REDIS_PORT=55432\n"
+        b"AZURPILOT_REDIS_USERNAME=azurpilot_app\n"
+        b"AZURPILOT_REDIS_PASSWORD=redis-secret\n"
+    )
+
+    staged = runtime_entrypoint._replace_redis_transport(payload).decode()
+
+    assert "AZURPILOT_REDIS_HOST=redis" in staged
+    assert "AZURPILOT_REDIS_PORT=6379" in staged
+    assert "AZURPILOT_REDIS_PASSWORD=redis-secret" in staged
     assert "55432" not in staged
 
 

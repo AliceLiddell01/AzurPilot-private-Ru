@@ -18,6 +18,8 @@ _ENV_PATH_VARIABLE = "AZURPILOT_LOCAL_ENV_PATH"
 _MARKER_PATH_VARIABLE = "AZURPILOT_BACKEND_MARKER_PATH"
 _DOCKER_POSTGRES_HOST_VARIABLE = "AZURPILOT_DOCKER_POSTGRES_HOST"
 _DOCKER_POSTGRES_PORT_VARIABLE = "AZURPILOT_DOCKER_POSTGRES_PORT"
+_DOCKER_REDIS_HOST_VARIABLE = "AZURPILOT_DOCKER_REDIS_HOST"
+_DOCKER_REDIS_PORT_VARIABLE = "AZURPILOT_DOCKER_REDIS_PORT"
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _APP_ROLE = "azurpilot_app"
 _MIGRATOR_ROLE = "azurpilot_migrator"
@@ -30,6 +32,10 @@ _PASSFILE_IDENTITIES = {
     "AZURPILOT_POSTGRES_MIGRATOR_PORT",
     "AZURPILOT_POSTGRES_MIGRATOR_DATABASE",
     "AZURPILOT_POSTGRES_MIGRATOR_USER",
+}
+_REDIS_TRANSPORT_IDENTITIES = {
+    "AZURPILOT_REDIS_HOST",
+    "AZURPILOT_REDIS_PORT",
 }
 
 
@@ -68,6 +74,55 @@ def _replace_passfile_paths(payload: bytes) -> bytes:
     return "".join(lines).encode("utf-8")
 
 
+def _replace_redis_transport(payload: bytes) -> bytes:
+    """Перевести staged Redis endpoint на service DNS без изменения credentials."""
+
+    transport = _docker_redis_transport()
+    if transport is None:
+        return payload
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeError as exc:
+        raise RuntimeError("Локальный Docker env невозможно безопасно прочитать.") from exc
+    values: dict[str, str] = {}
+    lines: list[str] = []
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        ending = raw_line[len(line) :]
+        if line.lstrip().startswith("#") or "=" not in line:
+            lines.append(raw_line)
+            continue
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        if key not in _REDIS_TRANSPORT_IDENTITIES:
+            lines.append(raw_line)
+            continue
+        if key in values:
+            raise RuntimeError("Локальный Docker env содержит дублирующийся Redis endpoint.")
+        value = raw_value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if not value or any(character in value for character in "\x00\r\n"):
+            raise RuntimeError("Локальный Docker env содержит некорректный Redis endpoint.")
+        values[key] = value
+        if key == "AZURPILOT_REDIS_HOST":
+            if value not in _LOOPBACK_HOSTS:
+                raise RuntimeError("Локальный Docker env использует недопустимый Redis host.")
+            replacement = transport[0]
+        else:
+            try:
+                port = int(value)
+            except ValueError as exc:
+                raise RuntimeError("Локальный Docker env содержит некорректный Redis port.") from exc
+            if not 1 <= port <= 65_535:
+                raise RuntimeError("Локальный Docker env содержит некорректный Redis port.")
+            replacement = str(transport[1])
+        lines.append(f"{key}={replacement}{ending}")
+    if _REDIS_TRANSPORT_IDENTITIES.difference(values):
+        raise RuntimeError("Локальный Docker env не содержит полный Redis endpoint contract.")
+    return "".join(lines).encode("utf-8")
+
+
 def _docker_postgres_transport() -> tuple[str, int] | None:
     host = os.environ.get(_DOCKER_POSTGRES_HOST_VARIABLE)
     port = os.environ.get(_DOCKER_POSTGRES_PORT_VARIABLE)
@@ -78,6 +133,18 @@ def _docker_postgres_transport() -> tuple[str, int] | None:
             "Docker PostgreSQL transport не соответствует каноническому Compose service."
         )
     return host, 5432
+
+
+def _docker_redis_transport() -> tuple[str, int] | None:
+    host = os.environ.get(_DOCKER_REDIS_HOST_VARIABLE)
+    port = os.environ.get(_DOCKER_REDIS_PORT_VARIABLE)
+    if host is None and port is None:
+        return None
+    if host != "redis" or port != "6379":
+        raise RuntimeError(
+            "Docker Redis transport не соответствует каноническому Compose service."
+        )
+    return host, 6379
 
 
 def _env_identity(payload: bytes) -> dict[str, str]:
@@ -260,6 +327,7 @@ def _write_runtime_file(path: Path, payload: bytes) -> None:
 
 def _prepare_runtime_files() -> None:
     transport = _docker_postgres_transport()
+    redis_transport = _docker_redis_transport()
     if _ENV_SOURCE.exists() or _ENV_SOURCE.is_symlink():
         env_payload = _read_source(_ENV_SOURCE)
         if not (_PASSFILE_SOURCE.exists() and not _PASSFILE_SOURCE.is_symlink()):
@@ -272,6 +340,8 @@ def _prepare_runtime_files() -> None:
             b"/run/secrets/azurpilot.pgpass",
             str(_PASSFILE_TARGET).encode("ascii"),
         )
+        if redis_transport is not None:
+            env_payload = _replace_redis_transport(env_payload)
         _write_runtime_file(_ENV_TARGET, env_payload)
         os.environ[_ENV_PATH_VARIABLE] = str(_ENV_TARGET)
 

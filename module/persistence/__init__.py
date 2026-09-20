@@ -3,6 +3,7 @@
 from module.persistence.config import DatabaseSettings, PoolSettings
 from module.persistence.database import LazyEngine, StorageHealthChecker
 from module.persistence.notification_repositories import PostgresNotificationRepository
+from module.persistence.redis_runtime_cache import RedisRuntimeCache, RuntimeCacheSettings
 from module.persistence.unit_of_work import PostgresUnitOfWork
 
 __all__ = (
@@ -11,5 +12,7 @@ __all__ = (
     "PoolSettings",
     "PostgresNotificationRepository",
     "PostgresUnitOfWork",
+    "RedisRuntimeCache",
+    "RuntimeCacheSettings",
     "StorageHealthChecker",
 )

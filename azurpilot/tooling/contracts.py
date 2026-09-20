@@ -83,6 +83,7 @@ class WarningCode(StrEnum):
     TOOLING_CLI_NOT_ON_PATH = "TOOLING_CLI_NOT_ON_PATH"
     TOOLING_SHORTCUT_UNSUPPORTED = "TOOLING_SHORTCUT_UNSUPPORTED"
     TOOLING_POSTGRES_UNAVAILABLE = "TOOLING_POSTGRES_UNAVAILABLE"
+    TOOLING_REDIS_UNAVAILABLE = "TOOLING_REDIS_UNAVAILABLE"
     TOOLING_POSTGRES_BACKUP_NOT_RUN = "TOOLING_POSTGRES_BACKUP_NOT_RUN"
     TOOLING_CADDY_NOT_CONFIGURED = "TOOLING_CADDY_NOT_CONFIGURED"
     TOOLING_BROWSER_NOT_OPENED = "TOOLING_BROWSER_NOT_OPENED"
@@ -293,6 +294,10 @@ class DockerDeploymentDetails(ClosedModel):
     postgres_compose_service: str = "postgres"
     postgres_network: str = Field(default="", max_length=256)
     postgres_endpoint: Literal["postgres:5432"] = "postgres:5432"
+    redis_compose_project: str = "azurpilot-infrastructure"
+    redis_compose_service: str = "redis"
+    redis_network: str = Field(default="", max_length=256)
+    redis_endpoint: Literal["redis:6379"] = "redis:6379"
 
 
 class DockerDeploymentEvidence(ClosedModel):
@@ -313,6 +318,10 @@ class DockerDeploymentEvidence(ClosedModel):
     postgres_compose_service: str = "postgres"
     postgres_network: str = Field(default="", max_length=256)
     postgres_endpoint: Literal["postgres:5432"] = "postgres:5432"
+    redis_compose_project: str = "azurpilot-infrastructure"
+    redis_compose_service: str = "redis"
+    redis_network: str = Field(default="", max_length=256)
+    redis_endpoint: Literal["redis:6379"] = "redis:6379"
 
 
 class PullRequestIdentity(ClosedModel):

@@ -178,6 +178,58 @@ def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
     }
 
 
+def test_redis_runtime_cache_and_redisinsight_are_authenticated_and_loopback_only():
+    compose = (ROOT / "infrastructure/observability/compose.yaml").read_text(
+        encoding="utf-8"
+    )
+    compose_data = yaml.safe_load(compose)
+    redis = compose_data["services"]["redis"]
+    redisinsight = compose_data["services"]["redisinsight"]
+
+    assert redis["image"] == (
+        "redis:8.10.1@sha256:"
+        "8a1efc5f479551822b47424ccae982026b633f28818eab0387348120a61e10e2"
+    )
+    assert redis["ports"] == ["127.0.0.1:${AZURPILOT_REDIS_PORT:-6379}:6379"]
+    assert redis["secrets"] == ["redis_app_password", "redis_admin_password"]
+    assert "appendonly yes" in redis["command"][-1]
+    assert "appendfsync everysec" in redis["command"][-1]
+    assert "user default off" in redis["command"][-1]
+    assert "user azurpilot_app" in redis["command"][-1]
+    assert redis["healthcheck"]["test"][0:1] == ["CMD-SHELL"]
+    assert "REDISCLI_AUTH" in redis["healthcheck"]["test"][1]
+    assert compose_data["volumes"]["redis-data"]["name"] == "azurpilot-redis-data"
+
+    assert redisinsight["image"] == (
+        "redis/redisinsight:3.8.0@sha256:"
+        "b5e19ee240abef6edb435871b90ff8a210995422e8e018ab61c0339d318a1f84"
+    )
+    assert redisinsight["depends_on"] == {
+        "redis": {"condition": "service_healthy"}
+    }
+    assert redisinsight["ports"] == [
+        "127.0.0.1:${AZURPILOT_REDISINSIGHT_PORT:-5540}:5540"
+    ]
+    assert redisinsight["environment"] == {
+        "RI_APP_HOST": "0.0.0.0",
+        "RI_APP_PORT": "5540",
+        "RI_ENCRYPTION_KEY": "${AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY:?AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY is required}",
+        "RI_REDIS_HOST": "redis",
+        "RI_REDIS_PORT": "6379",
+        "RI_REDIS_ALIAS": "AzurPilot Redis",
+        "RI_REDIS_USERNAME": "azurpilot_admin",
+    }
+    assert "RI_REDIS_PASSWORD" not in redisinsight["environment"]
+    assert redisinsight["healthcheck"]["test"][-1] == (
+        "http://127.0.0.1:5540/api/health/"
+    )
+    assert compose_data["volumes"]["redisinsight-data"]["name"] == (
+        "azurpilot-redisinsight-data"
+    )
+    assert "redis_app_password" in compose_data["secrets"]
+    assert "redis_admin_password" in compose_data["secrets"]
+
+
 def test_grafana_datasources_provision_loki_tempo_incident_correlation():
     datasource_path = (
         ROOT

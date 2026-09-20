@@ -25,6 +25,8 @@ class InfrastructureOutcome:
     postgres: CapabilityStatus
     caddy: CapabilityStatus
     migration: str
+    redis: CapabilityStatus = CapabilityStatus.NOT_CONFIGURED
+    redisinsight: CapabilityStatus = CapabilityStatus.NOT_CONFIGURED
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,8 @@ class InfrastructureInspection:
     caddy: CapabilityStatus
     compose: CapabilityStatus
     message: str
+    redis: CapabilityStatus = CapabilityStatus.NOT_CONFIGURED
+    redisinsight: CapabilityStatus = CapabilityStatus.NOT_CONFIGURED
 
 
 class InfrastructureService:
@@ -101,7 +105,7 @@ class InfrastructureService:
         if executable is None:
             raise ToolingError(
                 ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
-                "Docker CLI не найден; инфраструктуру PostgreSQL нельзя проверить.",
+                "Docker CLI не найден; инфраструктуру PostgreSQL и Redis нельзя проверить.",
             )
         return Path(executable)
 
@@ -278,6 +282,16 @@ class InfrastructureService:
             root,
             compose,
             env_file,
+            "up",
+            "--detach",
+            "--wait",
+            "redis",
+            timeout_seconds=budget(240.0),
+        )
+        self._run_docker(
+            root,
+            compose,
+            env_file,
             "run",
             "--rm",
             "--no-deps",
@@ -321,6 +335,8 @@ class InfrastructureService:
             postgres=CapabilityStatus.READY,
             caddy=caddy_status,
             migration="canonical_compose_verified",
+            redis=CapabilityStatus.READY,
+            redisinsight=CapabilityStatus.READY,
         )
 
     def inspect(
@@ -366,6 +382,24 @@ class InfrastructureService:
                 and str(caddy.get("State", "")).casefold() in {"running", "up"}
                 and str(caddy.get("Health", "")).casefold() in {"", "healthy"}
             )
+            redis = next(
+                (item for item in records if item.get("Service") == "redis"),
+                None,
+            )
+            redis_ready = bool(
+                redis
+                and str(redis.get("State", "")).casefold() in {"running", "up"}
+                and str(redis.get("Health", "")).casefold() in {"", "healthy"}
+            )
+            redisinsight = next(
+                (item for item in records if item.get("Service") == "redisinsight"),
+                None,
+            )
+            redisinsight_ready = bool(
+                redisinsight
+                and str(redisinsight.get("State", "")).casefold() in {"running", "up"}
+                and str(redisinsight.get("Health", "")).casefold() in {"", "healthy"}
+            )
             return InfrastructureInspection(
                 postgres=CapabilityStatus.READY
                 if postgres_ready
@@ -379,6 +413,16 @@ class InfrastructureService:
                 ),
                 compose=CapabilityStatus.READY,
                 message="Конфигурация Docker Compose и состояние служб прочитаны.",
+                redis=(
+                    CapabilityStatus.READY
+                    if redis_ready
+                    else CapabilityStatus.UNAVAILABLE
+                ),
+                redisinsight=(
+                    CapabilityStatus.READY
+                    if redisinsight_ready
+                    else CapabilityStatus.UNAVAILABLE
+                ),
             )
         except ToolingError as error:
             return InfrastructureInspection(
@@ -386,6 +430,8 @@ class InfrastructureService:
                 caddy=CapabilityStatus.UNAVAILABLE,
                 compose=CapabilityStatus.FAILED,
                 message=error.message,
+                redis=CapabilityStatus.UNAVAILABLE,
+                redisinsight=CapabilityStatus.UNAVAILABLE,
             )
 
 
