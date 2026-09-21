@@ -23,14 +23,14 @@
 ## Задачи автоматизации
 
 * [Обзор задач автоматизации](automation/README.md)
-* [Умный порт+](automation/smart-port.md)
-* [Боевой выход+](automation/combat-sortie.md)
-* [События+](automation/events.md)
+* [Порт](automation/smart-port.md)
+* [Боевой выход](automation/combat-sortie.md)
+* [События](automation/events.md)
 * [Автосбор наград](automation/rewards.md)
 * [Ежедневные задания](automation/daily.md)
-* [Операция «Сирена»+](automation/operation-siren.md)
+* [Операция «Сирена»](automation/operation-siren.md)
 * [План острова](automation/island.md)
-* [Инструменты+](automation/tools.md)
+* [Инструменты](automation/tools.md)
 
 ## Обслуживание
 
