@@ -281,6 +281,63 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
     ):
         assert required.lower() in reference_flat
 
+    branch_contract = _section(
+        reference,
+        "### Канонический branch-based запуск",
+        "### Неиспользуемый working-tree маршрут",
+    )
+    branch_contract_flat = " ".join(branch_contract.lower().split())
+    for required in (
+        "startingstate.type=branch",
+        "branchname",
+        "branch tip",
+        "expected head",
+        "exact head",
+    ):
+        assert required in branch_contract_flat
+
+    non_canonical_contract = _section(
+        reference,
+        "### Неиспользуемый working-tree маршрут",
+        "`create_thread` асинхронен",
+    )
+    non_canonical_contract_flat = " ".join(non_canonical_contract.lower().split())
+    assert "startingstate.type=working-tree" in non_canonical_contract_flat
+    assert "не является exact-head continuation" in non_canonical_contract_flat
+    assert "git switch" in non_canonical_contract_flat
+    assert "git checkout" in non_canonical_contract_flat
+
+    post_create_checks = _section(
+        reference,
+        "Перед любым MCP или live acceptance",
+        "Fresh task обязана использовать",
+    )
+    post_create_checks_flat = " ".join(post_create_checks.lower().split())
+    for required in (
+        "фактический exact head",
+        "expected head",
+        "detached head допустим",
+        "post-create `git switch`",
+        "post-create `git checkout`",
+        "blocked_precondition",
+    ):
+        assert required in post_create_checks_flat
+
+    sequence = _section(
+        reference,
+        "## Каноническая последовательность",
+        "Fresh task не исправляет",
+    )
+    sequence_items = _numbered_contract_items(sequence)
+    assert len(sequence_items) == 8
+    assert "branch tip" in sequence_items[1]
+    assert "не создаёт task" in sequence_items[1]
+    assert "startingstate.type=branch" in sequence_items[2]
+    assert "фактический exact head" in sequence_items[3]
+    assert "detached head допустим" in sequence_items[3]
+    assert "post-create switch/checkout" in sequence_items[3]
+    assert "blocked_precondition" in sequence_items[7]
+
     for relative in (
         Path(".codex/context/08-VERIFICATION.md"),
         Path(".codex/context/11-PYTHON-TOOLING.md"),
