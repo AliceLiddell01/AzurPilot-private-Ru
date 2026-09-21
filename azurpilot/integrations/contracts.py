@@ -12,7 +12,11 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from azurpilot.tooling.contracts import AnalysisScope, ClosedModel
+from azurpilot.tooling.contracts import (
+    AnalysisScope,
+    ClosedModel,
+    CodeRabbitDeferredBacklog,
+)
 
 MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE = 3
 MAX_RETAINED_REVIEW_CYCLES = 8
@@ -115,6 +119,7 @@ class IntegrationFinding(ClosedModel):
     decision_reason: str | None = Field(default=None, max_length=2000)
     change_summary: str | None = Field(default=None, max_length=2000)
     conflict_kind: str | None = Field(default=None, max_length=80)
+    deferral_reason: str | None = Field(default=None, max_length=80)
     authoritative_source: str | None = Field(default=None, max_length=1200)
 
     @model_validator(mode="after")
@@ -161,6 +166,7 @@ class IntegrationDetails(ClosedModel):
     scope: AnalysisScope | None = None
     findings: tuple[IntegrationFinding, ...] = Field(default_factory=tuple, max_length=128)
     coderabbit_cycle: CodeRabbitCycleSummary | None = None
+    coderabbit_backlog: CodeRabbitDeferredBacklog | None = None
 
 
 class IntegrationEvidenceBundle(ClosedModel):
@@ -177,6 +183,7 @@ __all__ = [
     "MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE",
     "TASK_ID_PATTERN",
     "CodeRabbitCycleSummary",
+    "CodeRabbitDeferredBacklog",
     "CredentialRef",
     "CredentialSource",
     "IntegrationDetails",

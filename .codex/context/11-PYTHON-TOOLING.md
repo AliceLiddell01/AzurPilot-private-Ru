@@ -187,11 +187,14 @@ CodeRabbit — консультативный reviewer, а не источник
 - `insufficient evidence` удалён из disposition model; provider не может
   автоматически назначить ни эту, ни любую другую verified classification;
 - triage фиксируется typed manifest-ом через прямой `azur integrations
-  coderabbit triage`; review с findings остаётся `triage_required`;
-- после каждого findings review обязателен individual handling всех findings;
-  applicable findings требуют fix, а typed conflict rejection при оставшемся
-  budget всё равно ведёт к следующему exact-head review; early stop допустим
-  только для authoritative `0 findings`, максимум — `3/3`;
+  coderabbit triage`; provider findings до этого остаются `triage_required`;
+- `confirmed`/`partially confirmed` требуют fix и нового exact-head review;
+  технически правдоподобный finding вне scope получает отдельный `deferred`
+  с `task_scope`, а не `false positive`, и сохраняется в ignored
+  `.codex/local/coderabbit-deferred-findings.json`;
+- если после individual triage actionable findings нет, текущий cycle terminal
+  без no-op commit и нового review; backlog читается через
+  `azur integrations coderabbit backlog`, максимум substantive budget — `3/3`;
 - repository `.coderabbit.yaml` является auto-discovered repository source;
   `--config .coderabbit.yaml` не является обязательным и не должен добавляться
   ради включения этого файла. Project-owned `config validate` проверяет сам

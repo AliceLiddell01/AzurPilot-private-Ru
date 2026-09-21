@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Literal
 
@@ -73,6 +74,13 @@ class FindingDisposition(StrEnum):
     CONFIRMED = "confirmed"
     PARTIALLY_CONFIRMED = "partially confirmed"
     FALSE_POSITIVE = "false positive"
+    DEFERRED = "deferred"
+
+
+class CodeRabbitDeferralReason(StrEnum):
+    """Типизированная причина отложить подтверждённый, но вне scope finding."""
+
+    TASK_SCOPE = "task_scope"
 
 
 class CodeRabbitConflictKind(StrEnum):
@@ -359,6 +367,7 @@ class CodeRabbitFindingTriage(ClosedModel):
     decision_reason: str = Field(min_length=12, max_length=2000)
     change_summary: str = Field(min_length=12, max_length=2000)
     conflict_kind: CodeRabbitConflictKind | None = None
+    deferral_reason: CodeRabbitDeferralReason | None = None
     authoritative_source: str | None = Field(default=None, max_length=1200)
 
     @model_validator(mode="after")
@@ -381,13 +390,40 @@ class CodeRabbitFindingTriage(ClosedModel):
                 raise ValueError(
                     "false positive требует typed repository/task/dependency conflict"
                 )
+            if self.conflict_kind is CodeRabbitConflictKind.TASK_PROMPT_CONFLICT:
+                raise ValueError(
+                    "task_prompt_conflict должен быть deferred/task_scope, а не false positive"
+                )
             if not self.authoritative_source or len(self.authoritative_source.strip()) < 8:
                 raise ValueError(
                     "conflict rejection требует authoritative source"
                 )
-        elif self.conflict_kind is not None or self.authoritative_source is not None:
+            if self.deferral_reason is not None:
+                raise ValueError(
+                    "false positive не может иметь deferral_reason"
+                )
+        elif self.disposition is FindingDisposition.DEFERRED:
+            if self.deferral_reason is None:
+                raise ValueError(
+                    "deferred finding требует typed deferral_reason"
+                )
+            if self.deferral_reason is not CodeRabbitDeferralReason.TASK_SCOPE:
+                raise ValueError("неподдерживаемая причина deferred finding")
+            if self.conflict_kind is not None:
+                raise ValueError(
+                    "deferred finding не должен использовать conflict_kind"
+                )
+            if not self.authoritative_source or len(self.authoritative_source.strip()) < 8:
+                raise ValueError(
+                    "deferred finding требует authoritative task/prompt source"
+                )
+        elif (
+            self.conflict_kind is not None
+            or self.deferral_reason is not None
+            or self.authoritative_source is not None
+        ):
             raise ValueError(
-                "conflict evidence допустимо только для false positive rejection"
+                "conflict/deferral evidence допустимо только для соответствующего disposition"
             )
         return self
 
@@ -429,10 +465,13 @@ class CodeRabbitTriageEntry(ClosedModel):
     @model_validator(mode="after")
     def validate_fix_head_owner(self) -> CodeRabbitTriageEntry:
         if (
-            self.triage.disposition is FindingDisposition.FALSE_POSITIVE
+            self.triage.disposition
+            in {FindingDisposition.FALSE_POSITIVE, FindingDisposition.DEFERRED}
             and self.fix_head is not None
         ):
-            raise ValueError("rejected conflict finding не должен иметь fix_head")
+            raise ValueError(
+                "false positive или deferred finding не должен иметь fix_head"
+            )
         return self
 
 
@@ -460,6 +499,91 @@ class CodeRabbitReview(ClosedModel):
     findings: tuple[CodeRabbitFinding, ...] = Field(max_length=128)
     history: str | None = Field(default=None, max_length=20_000)
     rate_limit: str | None = Field(default=None, max_length=500)
+
+
+class CodeRabbitDeferredOccurrence(ClosedModel):
+    """Ограниченная история повторного появления deferred finding."""
+
+    timestamp: str = Field(min_length=1, max_length=40)
+    branch: str = Field(min_length=1, max_length=120)
+    reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+
+
+class CodeRabbitDeferredFinding(ClosedModel):
+    """Одна запись repository-local ignored backlog без provider log."""
+
+    backlog_id: str = Field(pattern=r"^coderabbit-deferred-[0-9a-f]{16,64}$")
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: Literal["open", "resolved"] = "open"
+    repository_identity: str = Field(min_length=1, max_length=256)
+    first_seen_at: str = Field(min_length=1, max_length=40)
+    last_seen_at: str = Field(min_length=1, max_length=40)
+    reviewed_branch: str = Field(min_length=1, max_length=120)
+    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    cycle_id: str = Field(min_length=1, max_length=80)
+    logical_task_id: str | None = Field(default=None, max_length=128)
+    provider_version: str | None = Field(default=None, max_length=80)
+    path: str = Field(min_length=1, max_length=512)
+    line: int | None = Field(default=None, ge=1, le=10_000_000)
+    line_end: int | None = Field(default=None, ge=1, le=10_000_000)
+    severity: FindingSeverity
+    title: str | None = Field(default=None, max_length=160)
+    impact: str = Field(min_length=1, max_length=1200)
+    resolution: str = Field(min_length=1, max_length=4000)
+    codegen_instructions: str | None = Field(default=None, max_length=4000)
+    suggestions: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
+    deferral_reason: CodeRabbitDeferralReason
+    authoritative_source: str = Field(min_length=8, max_length=1200)
+    decision_reason: str = Field(min_length=12, max_length=2000)
+    occurrence_count: int = Field(default=1, ge=1, le=1_000_000)
+    occurrence_history: tuple[CodeRabbitDeferredOccurrence, ...] = Field(
+        default_factory=tuple, max_length=8
+    )
+    resolved_at: str | None = Field(default=None, max_length=40)
+    fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+    resolution_summary: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_backlog_entry(self) -> CodeRabbitDeferredFinding:
+        normalized_path = self.path.replace("\\", "/")
+        if (
+            normalized_path.startswith("/")
+            or re.match(r"^[A-Za-z]:/", normalized_path)
+            or any(part == ".." for part in normalized_path.split("/"))
+        ):
+            raise ValueError("deferred backlog path должен быть repository-relative")
+        if self.line is not None and self.line_end is not None and self.line_end < self.line:
+            raise ValueError("line_end не может быть меньше line")
+        if self.occurrence_count < len(self.occurrence_history):
+            raise ValueError("occurrence_count меньше сохранённой bounded history")
+        resolved_fields = (self.resolved_at, self.fix_head, self.resolution_summary)
+        if self.status == "open" and any(value is not None for value in resolved_fields):
+            raise ValueError("open deferred finding не должен иметь resolution metadata")
+        if self.status == "resolved" and any(value is None for value in resolved_fields):
+            raise ValueError("resolved deferred finding требует resolution metadata")
+        return self
+
+
+class CodeRabbitDeferredBacklog(ClosedModel):
+    """Закрытый bounded document repository-local deferred findings."""
+
+    schema_version: Literal[1] = 1
+    repository_identity: str = Field(min_length=1, max_length=256)
+    updated_at: str = Field(min_length=1, max_length=40)
+    findings: tuple[CodeRabbitDeferredFinding, ...] = Field(max_length=128)
+
+    @model_validator(mode="after")
+    def validate_unique_findings(self) -> CodeRabbitDeferredBacklog:
+        backlog_ids = tuple(entry.backlog_id for entry in self.findings)
+        fingerprints = tuple(entry.fingerprint for entry in self.findings)
+        if len(backlog_ids) != len(set(backlog_ids)):
+            raise ValueError("deferred backlog содержит дублирующиеся backlog id")
+        if len(fingerprints) != len(set(fingerprints)):
+            raise ValueError("deferred backlog содержит дублирующиеся fingerprints")
+        if any(entry.repository_identity != self.repository_identity for entry in self.findings):
+            raise ValueError("deferred backlog содержит другую repository identity")
+        return self
 
 
 class MandatoryGateState(StrEnum):
@@ -977,6 +1101,10 @@ __all__ = [
     "CapabilityStatus",
     "ClosedModel",
     "CodeRabbitConflictKind",
+    "CodeRabbitDeferralReason",
+    "CodeRabbitDeferredBacklog",
+    "CodeRabbitDeferredFinding",
+    "CodeRabbitDeferredOccurrence",
     "CodeRabbitFinding",
     "CodeRabbitFindingTriage",
     "CodeRabbitReview",

@@ -72,13 +72,20 @@ azur integrations coderabbit triage --manifest <absolute-json-manifest>
 Manifest обязан содержать одну evidence-запись на каждый finding и exact
 reviewed head. Applicable finding по умолчанию требует `confirmed` или
 `partially confirmed` и исправления независимо от severity, trivial/refactor или
-cleanup характера. `false positive` допустим только с typed
-`repository_contract_conflict`, `task_prompt_conflict` или
+cleanup характера. `false positive` допустим только с typed conflict kind
+`repository_contract_conflict` или
 `dependency_version_conflict`, authoritative source и подробным decision reason.
 
 `confirmed` и `partially confirmed` требуют исправления, проверки и нового exact
 commit head. Findings связывай с exact reviewed head и сохраняй bounded
 severity, path, impact, triage evidence, disposition, resolution и fix head.
+`deferred` означает технически правдоподобный finding вне scope текущей logical
+task и требует `deferral_reason=task_scope`, authoritative task/prompt source и
+индивидуального объяснения. `task_prompt_conflict` больше не является
+основанием для `false positive`: `false positive` означает только доказанную
+ошибочность provider claim. Deferred findings автоматически сохраняются в
+ignored repository-local `.codex/local/coderabbit-deferred-findings.json`;
+это отдельный maintenance backlog, а не lifecycle state `coderabbit-review.json`.
 
 ## Iteration policy
 
@@ -92,14 +99,19 @@ early-stop без triage. При `findings > 0` workflow остаётся нез
 `CODERABBIT_TRIAGE_REQUIRED`; нельзя завершать cycle или переходить к следующей
 iteration только потому, что adapter сохранил provider findings.
 
-После individual triage каждого finding внеси applicable fixes и проверь их;
-даже если все findings отклонены typed conflict, при оставшемся budget нужен
-новый exact head и следующий review. Единственный normal early stop —
-authoritative `0 findings`; triage findings не является terminal success. На
-`3/3` зафиксируй budget exhausted и отсутствие post-fix provider confirmation;
-`4/3` запрещён. При rate limit зафиксируй bounded
+После individual triage каждого finding внеси applicable fixes и проверь их.
+Если есть `confirmed`/`partially confirmed`, cycle остаётся `fixes_required` и
+новый exact-head review допустим только после substantive diff. Если actionable
+findings нет, `deferred` и/или настоящие `false positive` завершают текущую
+logical task terminal-состоянием без no-op commit и нового provider review;
+deferred остаётся видимым в backlog. На `3/3` зафиксируй budget exhausted и
+отсутствие post-fix provider confirmation; `4/3` запрещён. При rate limit зафиксируй bounded
 provider state, retry metadata и последний фактически reviewed head; не
 выполняй polling, blind retry или синтетическое восстановление quota.
+
+Открытый backlog читай через `azur integrations coderabbit backlog` или
+`--json`. Закрытие выполняй только typed `backlog resolve` с stable backlog id,
+clean exact fix HEAD и bounded resolution summary; JSON вручную не редактируй.
 
 Repository `.coderabbit.yaml` CodeRabbit подхватывает автоматически. Не добавляй
 `--config .coderabbit.yaml` в review только ради включения repository config:

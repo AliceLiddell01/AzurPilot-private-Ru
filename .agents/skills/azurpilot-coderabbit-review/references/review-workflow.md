@@ -83,21 +83,33 @@ azur integrations coderabbit triage --manifest <absolute-json-manifest>
 ```
 
 Только typed triage manifest с exact reviewed head может установить
-`confirmed`, `partially confirmed` или `false positive`. Каждый applicable
-finding требует fix независимо от severity/refactor/trivial/cleanup; `false
-positive` допустим только при typed repository/task/dependency conflict с
-authoritative source и подробным decision reason.
+`confirmed`, `partially confirmed`, `false positive` или `deferred`. Каждый
+applicable finding требует fix независимо от severity/refactor/trivial/cleanup;
+`false positive` означает доказанно неверный provider claim и допустим только
+при typed repository/dependency conflict с authoritative source и подробным
+decision reason. Out-of-scope, но технически правдоподобный finding получает
+`deferred` с `deferral_reason=task_scope`, authoritative task/prompt source и
+индивидуальным decision reason. `task_prompt_conflict` не используется как
+synonym для `false positive`.
+
+При `deferred` adapter атомарно upsert-ит ignored repository-local
+`.codex/local/coderabbit-deferred-findings.json`. Этот bounded maintenance
+backlog не смешивается с внешним lifecycle state `coderabbit-review.json`, не
+попадает в Git tracking и доступен read-only через
+`azur integrations coderabbit backlog`; закрытие выполняется typed `backlog
+resolve` с clean exact fix HEAD.
 
 Максимум — `3/3` substantive iterations в одном cycle. Completed `0 findings`
-означает early stop. Completed `findings > 0` означает `triage_required`, а не
-terminal success: workflow нельзя завершить на сохранении provider findings.
-Для `confirmed`/`partially confirmed` обязательны fix, проверка и новый exact
-commit head; после любого findings review, включая all-conflict rejection,
-следующий substantive review запускай при оставшемся budget. Единственный
-normal early stop — authoritative `0 findings`; на `3/3` фиксируй budget
-exhausted и не запускай `4/3`. Auth/network/process/parse failure, incomplete
-output и rate limit до authoritative `complete` budget не потребляют. При rate
-limit немедленно верни typed result без wait/retry loop.
+означает clean terminal. Completed `findings > 0` сначала означает
+`triage_required`. После complete individual triage
+`confirmed`/`partially confirmed` оставляют `fixes_required`, а если actionable
+findings нет, все `deferred` и/или реальные `false positive` дают terminal
+outcome текущей task без no-op commit и нового exact-head review. Для
+`confirmed`/`partially confirmed` обязательны fix, проверка и новый exact commit
+head; на `3/3` фиксируй budget exhausted и не запускай `4/3`. Auth/network/
+process/parse failure, incomplete output и rate limit до authoritative
+`complete` budget не потребляют. При rate limit немедленно верни typed result
+без wait/retry loop.
 
 Repository `.coderabbit.yaml` является штатным auto-discovered repository source.
 Не передавай `--config .coderabbit.yaml` в review: `-c/--config` означает

@@ -481,6 +481,29 @@ def build_parser() -> argparse.ArgumentParser:
             triage.add_argument(
                 "--manifest", required=True, metavar="MANIFEST", help="absolute JSON triage manifest"
             )
+            backlog = provider_subparsers.add_parser(
+                "backlog", help="прочитать repository-local deferred CodeRabbit backlog"
+            )
+            _add_common_options(backlog, suppress_defaults=True)
+            backlog_subparsers = backlog.add_subparsers(
+                dest="coderabbit_backlog_action", metavar="ACTION"
+            )
+            backlog_resolve = backlog_subparsers.add_parser(
+                "resolve", help="закрыть deferred finding после exact fix"
+            )
+            _add_common_options(backlog_resolve, suppress_defaults=True)
+            backlog_resolve.add_argument(
+                "--id", required=True, dest="backlog_id", help="stable deferred backlog id"
+            )
+            backlog_resolve.add_argument(
+                "--fix-head", required=True, help="exact committed fix HEAD"
+            )
+            backlog_resolve.add_argument(
+                "--resolution",
+                required=True,
+                dest="resolution_summary",
+                help="bounded summary фактического ремонта",
+            )
             cycle = provider_subparsers.add_parser(
                 "cycle", help="управлять bounded CodeRabbit review cycles"
             )
@@ -809,6 +832,7 @@ def _render_human(
                     "confirmed": "подтверждено",
                     "partially confirmed": "частично подтверждено",
                     "false positive": "отклонено по conflict",
+                    "deferred": "отложено вне scope",
                     "untriaged": "не проверено",
                 }
                 for index, finding in enumerate(findings, start=1):
@@ -852,15 +876,53 @@ def _render_human(
                         ("decision_reason", "Причина решения"),
                         ("change_summary", "Сводка изменения"),
                         ("conflict_kind", "Тип конфликта"),
+                        ("deferral_reason", "Причина отложения"),
                         ("authoritative_source", "Авторитетный источник"),
                     ):
                         value = getattr(finding, field, None)
                         if value:
                             finding_table.add_row(label, Text(str(value)))
                     finding_table.add_row("Независимая классификация", Text(disposition_labels.get(disposition, disposition or "не классифицировано")))
-                    accepted = "принято" if disposition in {"confirmed", "partially confirmed"} else "не принято"
+                    accepted = (
+                        "принято"
+                        if disposition in {"confirmed", "partially confirmed"}
+                        else "отложено"
+                        if disposition == "deferred"
+                        else "не принято"
+                    )
                     finding_table.add_row("Принятое решение", Text(accepted))
                     console.print(finding_table)
+            backlog = getattr(result.details, "coderabbit_backlog", None)
+            if backlog is not None:
+                backlog_table = Table(
+                    title="Deferred CodeRabbit backlog",
+                    expand=True,
+                )
+                backlog_table.add_column("ID", no_wrap=True)
+                backlog_table.add_column("Статус", no_wrap=True)
+                backlog_table.add_column("First seen", no_wrap=True)
+                backlog_table.add_column("Branch / HEAD", overflow="fold")
+                backlog_table.add_column("Severity", no_wrap=True)
+                backlog_table.add_column("Path", overflow="fold")
+                backlog_table.add_column("Title", overflow="fold")
+                for entry in getattr(backlog, "findings", ()):
+                    backlog_table.add_row(
+                        str(entry.backlog_id),
+                        str(entry.status),
+                        str(entry.first_seen_at),
+                        f"{entry.reviewed_branch} / {_short_sha(entry.reviewed_head)}",
+                        str(entry.severity.value),
+                        (
+                            f"{entry.path}:{entry.line}"
+                            if entry.line is not None
+                            else str(entry.path)
+                        ),
+                        str(entry.title or "не указано"),
+                    )
+                if getattr(backlog, "findings", ()):
+                    console.print(backlog_table)
+                else:
+                    console.print("Deferred CodeRabbit backlog пуст.")
             console.print(f"{'✓' if result.ok else '✗'} {result.message}")
         elif checks is not None:
             from rich.table import Table
@@ -1143,6 +1205,15 @@ def _dispatch(
                 manifest_path=args.manifest,
                 repository_root=root,
             )
+        if target == IntegrationName.CODERABBIT.value and action == "backlog":
+            if getattr(args, "coderabbit_backlog_action", None) == "resolve":
+                return services.integrations.resolve_coderabbit_backlog(
+                    backlog_id=args.backlog_id,
+                    fix_head=args.fix_head,
+                    resolution_summary=args.resolution_summary,
+                    repository_root=root,
+                )
+            return services.integrations.backlog(repository_root=root)
         if (
             target == IntegrationName.CODERABBIT.value
             and action == "cycle"

@@ -23,6 +23,9 @@ from typing import Literal
 
 from azurpilot.tooling.config import load_deploy_settings
 from azurpilot.tooling.contracts import (
+    CodeRabbitDeferredBacklog,
+    CodeRabbitDeferredFinding,
+    CodeRabbitDeferredOccurrence,
     CodeRabbitFinding,
     CodeRabbitTriageManifest,
     FindingDisposition,
@@ -80,18 +83,27 @@ _MAX_REVIEW_BYTES = 4 * 1024 * 1024
 _MAX_REVIEW_LINES = 512
 _MAX_STATE_BYTES = _MAX_REVIEW_BYTES
 _MAX_TRIAGE_MANIFEST_BYTES = 128 * 1024
+_MAX_BACKLOG_BYTES = 2 * 1024 * 1024
 _MAX_REVIEW_ATTEMPTS = 128
 _MAX_RETAINED_FINDINGS = 128
+_MAX_BACKLOG_OCCURRENCES = 8
 _RATE_LIMIT_MAX_SECONDS = 7 * 24 * 60 * 60
 _HEARTBEAT_INTERVAL_SECONDS = 15.0
 _REVIEW_TIMEOUT_SECONDS = 20 * 60
 _STATE_FILE_NAME = "coderabbit-review.json"
-_REVIEW_SCHEMA_VERSION = 5
+_REVIEW_SCHEMA_VERSION = 6
+_BACKLOG_FILE_NAME = ".codex/local/coderabbit-deferred-findings.json"
 REVIEW_STATE_SCHEMA_VERSION = _REVIEW_SCHEMA_VERSION
 CODERABBIT_STATE_SCHEMA = REVIEW_STATE_SCHEMA_VERSION
 _RATE_LIMIT_WAITING = "rate_limited_waiting"
 _RATE_LIMIT_RETRY_ALLOWED = "rate_limited_retry_allowed"
 _RETRY_SOURCES = frozenset({"provider", "unknown"})
+_BACKLOG_SECRET_RE = re.compile(
+    r"(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|credential(?:s)?|bearer|basic|token|password|secret|cookie|authorization)\s*[:=]\s*[^\s,;)]*"
+)
+_BACKLOG_PERSONAL_PATH_RE = re.compile(
+    r"(?i)(?:[A-Za-z]:[\\/]|/)(?:users|home|private|var/folders)[^\s,;)]*"
+)
 _PROVIDER_FINDING_HEADER_RE = re.compile(
     r"^\s*(critical|major|minor|trivial|info)\s+\[[^\]]{1,160}\]\s*$",
     re.IGNORECASE,
@@ -308,6 +320,16 @@ def _bounded_string(value: object, default: str, limit: int) -> str:
     if not isinstance(value, str) or not value.strip():
         return default
     return " ".join(value.split())[:limit]
+
+
+def _redact_backlog_text(value: object, default: str, limit: int) -> str:
+    """Сохранить только bounded claim без очевидных secret/path payloads."""
+
+    text = _bounded_string(value, default, limit)
+    if not text:
+        return text
+    text = _BACKLOG_SECRET_RE.sub("<redacted>", text)
+    return _BACKLOG_PERSONAL_PATH_RE.sub("<path-redacted>", text)[:limit]
 
 
 def _parse_provider_retry_metadata(
@@ -799,6 +821,7 @@ def _default_review_state() -> dict[str, object]:
         "base_sha": None,
         "last_head": None,
         "reviewed_head": None,
+        "reviewed_branch": None,
         "provider_state": None,
         "provider_version": None,
         "reservation_state": "idle",
@@ -995,6 +1018,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
         state["base_sha"] = CodeRabbitAdapter._safe_sha(payload.get("base_sha"))
         state["last_head"] = CodeRabbitAdapter._safe_sha(payload.get("last_head"))
         state["reviewed_head"] = CodeRabbitAdapter._safe_sha(payload.get("reviewed_head"))
+        state["reviewed_branch"] = (
+            _bounded_string(payload.get("reviewed_branch"), "", 120) or None
+        )
         state["repository_identity"] = (
             str(payload.get("repository_identity"))[:256]
             if isinstance(payload.get("repository_identity"), str)
@@ -1042,6 +1068,15 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 legacy_disposition = candidate.get("disposition") == "insufficient evidence"
                 legacy_triage = candidate.get("triage")
                 if isinstance(legacy_triage, Mapping) and legacy_triage.get("disposition") == "insufficient evidence":
+                    legacy_disposition = True
+                if (
+                    isinstance(legacy_triage, Mapping)
+                    and legacy_triage.get("disposition") == FindingDisposition.FALSE_POSITIVE.value
+                    and legacy_triage.get("conflict_kind") == "task_prompt_conflict"
+                ):
+                    # До появления deferred/task_scope такой записью ошибочно
+                    # называли scope mismatch. Лишаем её authority и оставляем
+                    # provider finding для нового typed triage.
                     legacy_disposition = True
                 if migrated and isinstance(legacy_triage, Mapping) and not {
                     "decision_reason",
@@ -1171,7 +1206,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "CodeRabbit state должен быть JSON object.",
             )
         schema = payload.get("schema_version", 1)
-        if not isinstance(schema, int) or schema not in {1, 2, 3, 4, _REVIEW_SCHEMA_VERSION}:
+        if not isinstance(schema, int) or schema not in {
+            1,
+            2,
+            3,
+            4,
+            5,
+            _REVIEW_SCHEMA_VERSION,
+        }:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "CodeRabbit state имеет неподдерживаемую schema.",
@@ -1287,6 +1329,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
             ResultCode.TOOLING_VERIFICATION_UNKNOWN: "CODERABBIT_CANDIDATE_VERIFICATION_UNKNOWN",
         }
         return mapping.get(error.code, "CODERABBIT_CANDIDATE_PRECHECK_FAILED"), error.message
+
+    @staticmethod
+    def _current_branch(root: Path) -> str | None:
+        try:
+            branch = GitClient(root).branch()
+        except (OSError, ToolingError):
+            return None
+        return branch[:120] or None
 
     @staticmethod
     def _canonical_checkout_preflight(
@@ -1880,6 +1930,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
                         and finding.triage.conflict_kind is not None
                         else None
                     ),
+                    deferral_reason=(
+                        finding.triage.deferral_reason.value
+                        if finding.triage is not None
+                        and finding.triage.deferral_reason is not None
+                        else None
+                    ),
                     authoritative_source=(
                         finding.triage.authoritative_source
                         if finding.triage is not None
@@ -1888,6 +1944,320 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 )
             )
         return tuple(result)
+
+    @staticmethod
+    def _backlog_path(root: Path) -> Path:
+        return root.resolve(strict=False) / _BACKLOG_FILE_NAME
+
+    @staticmethod
+    def _backlog_repository_identity(root: Path, state: Mapping[str, object]) -> str:
+        stored = state.get("repository_identity")
+        if isinstance(stored, str) and stored.strip():
+            return stored.strip()[:256]
+        return GitClient(root).remote_identity("origin")
+
+    @classmethod
+    def _load_deferred_backlog(
+        cls, root: Path, *, repository_identity: str
+    ) -> CodeRabbitDeferredBacklog:
+        path = cls._backlog_path(root)
+        if path_has_link(path):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "CodeRabbit deferred backlog содержит symlink или reparse point.",
+            )
+        if not path.exists():
+            return CodeRabbitDeferredBacklog(
+                repository_identity=repository_identity,
+                updated_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                findings=(),
+            )
+        if not path.is_file():
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "CodeRabbit deferred backlog не является обычным файлом.",
+            )
+        try:
+            backlog = CodeRabbitDeferredBacklog.model_validate_json(
+                bounded_read_text(path, max_bytes=_MAX_BACKLOG_BYTES)
+            )
+        except (OSError, UnicodeError, ValueError, TypeError) as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "CodeRabbit deferred backlog повреждён или имеет неизвестную схему.",
+            ) from exc
+        if backlog.repository_identity != repository_identity:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "CodeRabbit deferred backlog относится к другой repository identity.",
+            )
+        return backlog
+
+    @classmethod
+    def _save_deferred_backlog(
+        cls, root: Path, backlog: CodeRabbitDeferredBacklog
+    ) -> None:
+        payload = backlog.model_dump_json(indent=2, exclude_none=True)
+        if len(payload.encode("utf-8")) > _MAX_BACKLOG_BYTES:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "CodeRabbit deferred backlog превышает bounded размер.",
+            )
+        ScopedPath(root).atomic_write_text(_BACKLOG_FILE_NAME, payload)
+
+    @staticmethod
+    def _backlog_record(
+        code: str, message: str, *, state: IntegrationState = IntegrationState.READY
+    ) -> IntegrationRecord:
+        return build_record(
+            IntegrationName.CODERABBIT,
+            state,
+            code,
+            message,
+            build_evidence(
+                config={"route": "repository_local", "transport": "filesystem"},
+                credential=CredentialRef(),
+                configured=True,
+                reachable=True,
+                diagnostics=("source=.codex/local/coderabbit-deferred-findings.json",),
+            ),
+        )
+
+    @staticmethod
+    def _review_branch(root: Path, state: Mapping[str, object]) -> str:
+        stored = state.get("reviewed_branch")
+        if isinstance(stored, str) and stored.strip():
+            return stored.strip()[:120]
+        return GitClient(root).branch()[:120]
+
+    @staticmethod
+    def _deferred_entry_fingerprint(finding: CodeRabbitFinding) -> str:
+        return _normalized_findings_digest((finding,))
+
+    @classmethod
+    def _upsert_deferred_backlog(
+        cls,
+        root: Path,
+        state: Mapping[str, object],
+        findings: Iterable[CodeRabbitFinding],
+    ) -> CodeRabbitDeferredBacklog:
+        deferred = tuple(
+            finding
+            for finding in findings
+            if finding.disposition is FindingDisposition.DEFERRED
+            and finding.triage is not None
+            and finding.triage.deferral_reason is not None
+        )
+        repository_identity = cls._backlog_repository_identity(root, state)
+        backlog = cls._load_deferred_backlog(
+            root, repository_identity=repository_identity
+        )
+        if not deferred:
+            return backlog
+        branch = cls._review_branch(root, state)
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        current_head = state.get("reviewed_head")
+        current_base = state.get("base_sha")
+        if not isinstance(current_head, str) or not _SHA_RE.fullmatch(current_head):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Deferred backlog требует exact reviewed HEAD.",
+            )
+        if not isinstance(current_base, str) or not _SHA_RE.fullmatch(current_base):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Deferred backlog требует exact base SHA.",
+            )
+        cycle_id = state.get("current_cycle_id")
+        cycle_id = cycle_id if isinstance(cycle_id, str) and cycle_id else "not-started"
+        task_id = state.get("logical_task_id")
+        task_id = task_id if isinstance(task_id, str) and task_id else None
+        provider_version = state.get("provider_version")
+        provider_version = (
+            provider_version if isinstance(provider_version, str) and provider_version else None
+        )
+        entries = {entry.fingerprint: entry for entry in backlog.findings}
+        for finding in deferred:
+            triage = finding.triage
+            assert triage is not None
+            assert triage.deferral_reason is not None
+            fingerprint = cls._deferred_entry_fingerprint(finding)
+            previous = entries.get(fingerprint)
+            seen = bool(
+                previous
+                and any(
+                    occurrence.reviewed_head == current_head
+                    and occurrence.branch == branch
+                    for occurrence in previous.occurrence_history
+                )
+            )
+            history = list(previous.occurrence_history if previous else ())
+            if not seen:
+                history.append(
+                    CodeRabbitDeferredOccurrence(
+                        timestamp=now,
+                        branch=branch,
+                        reviewed_head=current_head,
+                    )
+                )
+                history = history[-_MAX_BACKLOG_OCCURRENCES:]
+            occurrence_count = (previous.occurrence_count if previous else 0) + (
+                0 if seen else 1
+            )
+            entries[fingerprint] = CodeRabbitDeferredFinding(
+                backlog_id=(
+                    previous.backlog_id
+                    if previous
+                    else f"coderabbit-deferred-{fingerprint[:16]}"
+                ),
+                fingerprint=fingerprint,
+                status="open",
+                repository_identity=repository_identity,
+                first_seen_at=previous.first_seen_at if previous else now,
+                last_seen_at=now,
+                reviewed_branch=branch,
+                base_sha=current_base,
+                reviewed_head=current_head,
+                cycle_id=cycle_id,
+                logical_task_id=task_id,
+                provider_version=provider_version,
+                path=finding.path,
+                line=finding.line,
+                line_end=finding.line_end,
+                severity=finding.severity,
+                title=_redact_backlog_text(finding.title, "", 160) or None,
+                impact=_redact_backlog_text(finding.impact, "", 1200),
+                resolution=_redact_backlog_text(finding.resolution, "", 4000),
+                codegen_instructions=(
+                    _redact_backlog_text(finding.codegen_instructions, "", 4000)
+                    if finding.codegen_instructions
+                    else None
+                ),
+                suggestions=tuple(
+                    _redact_backlog_text(item, "", 1200)
+                    for item in finding.suggestions
+                ),
+                deferral_reason=triage.deferral_reason,
+                authoritative_source=_redact_backlog_text(
+                    triage.authoritative_source, "task prompt", 1200
+                ),
+                decision_reason=_redact_backlog_text(
+                    triage.decision_reason, "deferred by task scope", 2000
+                ),
+                occurrence_count=occurrence_count,
+                occurrence_history=tuple(history),
+            )
+        if len(entries) > 128:
+            raise ToolingError(
+                ResultCode.TOOLING_OPERATION_CONFLICT,
+                "Число CodeRabbit deferred findings превышает bounded предел.",
+            )
+        updated = CodeRabbitDeferredBacklog(
+            repository_identity=repository_identity,
+            updated_at=now,
+            findings=tuple(sorted(entries.values(), key=lambda item: item.backlog_id)),
+        )
+        cls._save_deferred_backlog(root, updated)
+        return updated
+
+    def backlog(
+        self, root: Path, config: IntegrationConfig
+    ) -> AdapterOutcome:
+        del config
+        state = self._load_review_state(root)
+        repository_identity = self._backlog_repository_identity(root, state)
+        backlog = self._load_deferred_backlog(
+            root, repository_identity=repository_identity
+        )
+        return AdapterOutcome(
+            self._backlog_record(
+                "CODERABBIT_BACKLOG_READ",
+                "Repository-local deferred CodeRabbit backlog прочитан.",
+            ),
+            (),
+            self._cycle_summary(state),
+            backlog,
+        )
+
+    def resolve_deferred_finding(
+        self,
+        root: Path,
+        config: IntegrationConfig,
+        *,
+        backlog_id: str,
+        fix_head: str,
+        resolution_summary: str,
+    ) -> AdapterOutcome:
+        del config
+        if not re.fullmatch(r"^coderabbit-deferred-[0-9a-f]{16,64}$", backlog_id):
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "backlog id имеет неверный формат.",
+            )
+        if not _SHA_RE.fullmatch(fix_head):
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "fix head должен быть exact commit SHA.",
+            )
+        if len(resolution_summary.strip()) < 12 or len(resolution_summary) > 2000:
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "resolution summary должен быть bounded и содержательным.",
+            )
+        git = GitClient(root)
+        if git.head() != fix_head or git.status_z():
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Для закрытия deferred finding нужен clean exact fix HEAD текущего checkout.",
+            )
+        state = self._load_review_state(root)
+        repository_identity = self._backlog_repository_identity(root, state)
+        backlog = self._load_deferred_backlog(
+            root, repository_identity=repository_identity
+        )
+        selected = next(
+            (entry for entry in backlog.findings if entry.backlog_id == backlog_id),
+            None,
+        )
+        if selected is None:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Указанный deferred finding отсутствует в repository-local backlog.",
+            )
+        if selected.status == "resolved":
+            raise ToolingError(
+                ResultCode.TOOLING_OPERATION_CONFLICT,
+                "Указанный deferred finding уже закрыт.",
+            )
+        resolved = selected.model_copy(
+            update={
+                "status": "resolved",
+                "resolved_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "fix_head": fix_head,
+                "resolution_summary": _redact_backlog_text(
+                    resolution_summary, "resolved", 2000
+                ),
+            }
+        )
+        resolved_entries = tuple(
+            resolved if entry.backlog_id == backlog_id else entry
+            for entry in backlog.findings
+        )
+        updated = CodeRabbitDeferredBacklog(
+            repository_identity=repository_identity,
+            updated_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            findings=resolved_entries,
+        )
+        self._save_deferred_backlog(root, updated)
+        return AdapterOutcome(
+            self._backlog_record(
+                "CODERABBIT_BACKLOG_RESOLVED",
+                "Deferred CodeRabbit finding закрыт по exact fix HEAD.",
+            ),
+            (),
+            self._cycle_summary(state),
+            updated,
+        )
 
     def findings(
         self,
@@ -2022,21 +2392,39 @@ class CodeRabbitAdapter(IntegrationAdapter):
             )
 
         requires_fix = any(_finding_requires_fix(finding) for finding in updated)
+        deferred_count = sum(
+            finding.disposition is FindingDisposition.DEFERRED for finding in updated
+        )
         iterations = state.get("substantive_iterations", 0)
         iterations = iterations if isinstance(iterations, int) else 0
         budget_exhausted = iterations >= MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE
-        next_cycle_status = (
-            "budget_exhausted"
-            if budget_exhausted
-            else ("fixes_required" if requires_fix else "review_required")
+        if budget_exhausted:
+            next_cycle_status = "budget_exhausted"
+            terminal = True
+        elif requires_fix:
+            next_cycle_status = "fixes_required"
+            terminal = False
+        elif deferred_count:
+            next_cycle_status = "complete_with_deferred_findings"
+            terminal = True
+        else:
+            next_cycle_status = "complete_for_current_task"
+            terminal = True
+        deferred_backlog = (
+            self._upsert_deferred_backlog(root, state, updated)
+            if deferred_count
+            else None
         )
         state.update(
             {
                 "findings": [finding.model_dump(mode="json") for finding in updated],
+                # После индивидуального typed triage legacy-копии этого же
+                # exact-head набора больше не являются неподтверждёнными.
+                "historical_non_authoritative_findings": [],
                 "triage_complete": True,
-                "terminal": budget_exhausted,
+                "terminal": terminal,
                 "cycle_status": next_cycle_status,
-                "phase": "terminal" if budget_exhausted else "complete",
+                "phase": "terminal" if terminal else "complete",
                 "last_event_type": "triage_complete",
             }
         )
@@ -2052,12 +2440,19 @@ class CodeRabbitAdapter(IntegrationAdapter):
             reason_code = "CODERABBIT_TRIAGE_COMPLETE_FIXES_REQUIRED"
             integration_state = IntegrationState.DEGRADED
             message = "Каждый finding проверен; подтверждённые findings требуют исправления и нового exact head."
-        else:
-            reason_code = "CODERABBIT_TRIAGE_COMPLETE_REVIEW_REQUIRED"
-            integration_state = IntegrationState.DEGRADED
+        elif deferred_count:
+            reason_code = "CODERABBIT_TRIAGE_COMPLETE_WITH_DEFERRED"
+            integration_state = IntegrationState.READY
             message = (
-                "Каждый finding проверен; даже conflict rejection требует следующей "
-                "substantive review на новом exact head при оставшемся budget."
+                "Каждый finding проверен; применимых к текущей task findings нет, "
+                "отложенные findings сохранены в repository-local backlog."
+            )
+        else:
+            reason_code = "CODERABBIT_TRIAGE_COMPLETE_FOR_TASK"
+            integration_state = IntegrationState.READY
+            message = (
+                "Каждый finding проверен и отклонён как false positive; "
+                "текущая logical task завершена без нового exact head."
             )
         record = self._record_from_error(
             settings,
@@ -2076,6 +2471,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             record,
             self._stored_findings(state, manifest.base_sha, manifest.reviewed_head),
             self._cycle_summary(state),
+            deferred_backlog,
         )
 
     def recover_interrupted_review(
@@ -2500,6 +2896,41 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     self._stored_findings(state, state.get("base_sha"), state.get("reviewed_head")),
                     self._cycle_summary(state),
                 )
+            if state.get("terminal") and state.get("cycle_status") in {
+                "zero_findings",
+                "complete_with_deferred_findings",
+                "complete_for_current_task",
+            }:
+                deferred_backlog = None
+                if state.get("cycle_status") == "complete_with_deferred_findings":
+                    repository_identity = self._backlog_repository_identity(root, state)
+                    deferred_backlog = self._load_deferred_backlog(
+                        root, repository_identity=repository_identity
+                    )
+                if state.get("cycle_status") == "complete_with_deferred_findings":
+                    reason_code = "CODERABBIT_REVIEW_COMPLETE_WITH_DEFERRED"
+                    message = (
+                        "Текущая logical task завершена; deferred findings сохранены "
+                        "в repository-local backlog, новый exact head не требуется."
+                    )
+                else:
+                    reason_code = "CODERABBIT_REVIEW_COMPLETE"
+                    message = "Текущая logical task завершена без нового CodeRabbit review."
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        reason_code,
+                        state=IntegrationState.READY,
+                        message=message,
+                        configured=True,
+                        authenticated=True,
+                    ),
+                    self._stored_findings(
+                        state, state.get("base_sha"), state.get("reviewed_head")
+                    ),
+                    self._cycle_summary(state),
+                    deferred_backlog,
+                )
             if state.get("cycle_status") in {"fixes_required", "review_required"} and state.get("reviewed_head") == head_sha:
                 same_head_reason = (
                     "CODERABBIT_FIX_REQUIRED"
@@ -2583,12 +3014,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
             operation_id = "coderabbit-" + secrets.token_hex(8)
             attempt = int(state.get("attempt", 0)) + 1 if isinstance(state.get("attempt", 0), int) else 1
             started_at = datetime.now(UTC).isoformat(timespec="seconds")
+            reviewed_branch = self._current_branch(root) or state.get("reviewed_branch")
             state.update(
                 {
                     "repository_identity": fingerprint.repository_identity,
                     "root_identity": fingerprint.root_identity,
                     "base_sha": base_sha,
                     "last_head": head_sha,
+                    "reviewed_branch": reviewed_branch,
                     "provider_version": provider.version,
                     "provider_state": "starting",
                     "active": True,
@@ -2771,6 +3204,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     "complete_received": parsed.complete,
                     "last_event_type": "complete",
                     "reviewed_head": head_sha,
+                    "reviewed_branch": reviewed_branch,
                     "substantive_iterations": min(iterations + 1, MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE),
                     "iterations": min(iterations + 1, MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE),
                     "findings": [finding.model_dump(mode="json") for finding in findings],

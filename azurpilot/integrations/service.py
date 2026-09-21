@@ -10,6 +10,7 @@ from pathlib import Path
 
 from azurpilot.tooling.contracts import (
     AnalysisScope,
+    CodeRabbitDeferredBacklog,
     OperationState,
     ResultCode,
     ToolingResult,
@@ -230,6 +231,7 @@ class IntegrationService:
         scope: AnalysisScope | None = None,
         findings: tuple[IntegrationFinding, ...] = (),
         coderabbit_cycle: CodeRabbitCycleSummary | None = None,
+        coderabbit_backlog: CodeRabbitDeferredBacklog | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
         aggregate = self._state(records)
         return ToolingResult[IntegrationDetails, IntegrationEvidenceBundle](
@@ -246,6 +248,7 @@ class IntegrationService:
                 scope=scope,
                 findings=findings,
                 coderabbit_cycle=coderabbit_cycle,
+                coderabbit_backlog=coderabbit_backlog,
             ),
             evidence=IntegrationEvidenceBundle(generated_at=_now()),
         )
@@ -376,6 +379,7 @@ class IntegrationService:
             target=IntegrationName.CODERABBIT,
             findings=outcome.findings,
             coderabbit_cycle=cycle_summary,
+            coderabbit_backlog=outcome.coderabbit_backlog,
         )
 
     def validate_coderabbit_config(
@@ -412,7 +416,14 @@ class IntegrationService:
         if not isinstance(adapter, CodeRabbitAdapter):
             raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "CodeRabbit adapter имеет неверный тип.")
         outcome = adapter.findings(root, config, base_sha=base_sha, head_sha=head_sha)
-        return self._result("findings", (outcome.record,), target=IntegrationName.CODERABBIT, findings=outcome.findings, coderabbit_cycle=outcome.coderabbit_cycle)
+        return self._result(
+            "findings",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            findings=outcome.findings,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+            coderabbit_backlog=outcome.coderabbit_backlog,
+        )
 
     def triage(
         self,
@@ -426,7 +437,65 @@ class IntegrationService:
         if not isinstance(adapter, CodeRabbitAdapter):
             raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "CodeRabbit adapter имеет неверный тип.")
         outcome = adapter.triage(root, config, manifest_path=manifest_path)
-        return self._result("triage", (outcome.record,), target=IntegrationName.CODERABBIT, findings=outcome.findings, coderabbit_cycle=outcome.coderabbit_cycle)
+        return self._result(
+            "triage",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            findings=outcome.findings,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+            coderabbit_backlog=outcome.coderabbit_backlog,
+        )
+
+    def backlog(
+        self, *, repository_root: str | Path | None = None
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        root = self.resolve_root(repository_root)
+        config = load_integration_config(root)
+        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
+        if not isinstance(adapter, CodeRabbitAdapter):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "CodeRabbit adapter имеет неверный тип.",
+            )
+        outcome = adapter.backlog(root, config)
+        return self._result(
+            "backlog",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+            coderabbit_backlog=outcome.coderabbit_backlog,
+        )
+
+    def resolve_coderabbit_backlog(
+        self,
+        *,
+        backlog_id: str,
+        fix_head: str,
+        resolution_summary: str,
+        repository_root: str | Path | None = None,
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        root = self.resolve_root(repository_root)
+        config = load_integration_config(root)
+        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
+        if not isinstance(adapter, CodeRabbitAdapter):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "CodeRabbit adapter имеет неверный тип.",
+            )
+        outcome = adapter.resolve_deferred_finding(
+            root,
+            config,
+            backlog_id=backlog_id,
+            fix_head=fix_head,
+            resolution_summary=resolution_summary,
+        )
+        return self._result(
+            "backlog-resolve",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+            coderabbit_backlog=outcome.coderabbit_backlog,
+        )
 
     def recover_coderabbit_review(
         self, *, repository_root: str | Path | None = None

@@ -198,7 +198,18 @@ class PullRequestBodyRenderer:
                                 f"- Authoritative source: {_table_cell(triage.authoritative_source or '—')}",
                                 (
                                     "- Rejection basis: conflict rejection; finding не исполняется "
-                                    "только из-за доказанного authoritative conflict."
+                                "только из-за доказанного authoritative conflict."
+                                ),
+                            )
+                        )
+                    elif triage.deferral_reason is not None:
+                        lines.extend(
+                            (
+                                f"- Deferral reason: `{triage.deferral_reason.value}`",
+                                f"- Authoritative task/prompt source: {_table_cell(triage.authoritative_source or '—')}",
+                                (
+                                    "- Deferral basis: finding сохранён для отдельной remediation task; "
+                                    "он не объявлен ложным и не относится к текущему scope."
                                 ),
                             )
                         )
