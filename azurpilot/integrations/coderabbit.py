@@ -1996,6 +1996,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     update={
                         "disposition": entry.triage.disposition,
                         "triage": entry.triage,
+                        "fix_head": entry.fix_head,
                     }
                 )
             )

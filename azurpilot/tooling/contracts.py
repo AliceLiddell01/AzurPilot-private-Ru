@@ -424,6 +424,16 @@ class CodeRabbitTriageEntry(ClosedModel):
 
     index: int = Field(ge=1, le=128)
     triage: CodeRabbitFindingTriage
+    fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+
+    @model_validator(mode="after")
+    def validate_fix_head_owner(self) -> CodeRabbitTriageEntry:
+        if (
+            self.triage.disposition is FindingDisposition.FALSE_POSITIVE
+            and self.fix_head is not None
+        ):
+            raise ValueError("rejected conflict finding не должен иметь fix_head")
+        return self
 
 
 class CodeRabbitTriageManifest(ClosedModel):
