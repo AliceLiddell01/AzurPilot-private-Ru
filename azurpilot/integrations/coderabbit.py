@@ -78,7 +78,7 @@ _CYCLE_ID_RE = re.compile(CYCLE_ID_PATTERN)
 _TASK_ID_RE = re.compile(TASK_ID_PATTERN)
 _MAX_REVIEW_BYTES = 4 * 1024 * 1024
 _MAX_REVIEW_LINES = 512
-_MAX_STATE_BYTES = 32 * 1024
+_MAX_STATE_BYTES = _MAX_REVIEW_BYTES
 _MAX_TRIAGE_MANIFEST_BYTES = 128 * 1024
 _MAX_REVIEW_ATTEMPTS = 128
 _MAX_RETAINED_FINDINGS = 128
@@ -106,7 +106,7 @@ _POSIX_PROVIDER_NAME = "coderabbit"
 _RESERVATION_STATES = frozenset({"idle", "pre_spawn", "retryable", "owned", "unknown"})
 
 
-def _host_platform(host_os: str | None = None) -> Literal["windows", "posix", "unsupported"]:
+def host_platform(host_os: str | None = None) -> Literal["windows", "posix", "unsupported"]:
     """Определить host platform без изменения process-wide platform state."""
 
     value = os.name if host_os is None else host_os
@@ -117,8 +117,8 @@ def _host_platform(host_os: str | None = None) -> Literal["windows", "posix", "u
     return "unsupported"
 
 
-def _provider_name(host_os: str | None = None) -> str:
-    platform = _host_platform(host_os)
+def provider_name(host_os: str | None = None) -> str:
+    platform = host_platform(host_os)
     if platform == "windows":
         return _WINDOWS_PROVIDER_NAME
     return _POSIX_PROVIDER_NAME
@@ -642,7 +642,7 @@ def parse_provider_findings_output(output: str) -> tuple[CodeRabbitFinding, ...]
             and not _PROVIDER_FINDING_SEPARATOR_RE.fullmatch(line)
         ]
         if not cleaned:
-            raise CodeRabbitStreamError("CODERABBIT_FINDING_INCOMPLETE")
+            return
         suggestion_index = next(
             (
                 index
@@ -660,7 +660,7 @@ def parse_provider_findings_output(output: str) -> tuple[CodeRabbitFinding, ...]
             4000,
         )
         if not impact or not resolution:
-            raise CodeRabbitStreamError("CODERABBIT_FINDING_INCOMPLETE")
+            return
         findings.append(
             CodeRabbitFinding(
                 severity=_severity(current.get("severity")),
@@ -1246,7 +1246,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         if provider is not None:
             result["command"] = provider.display_name
         elif not isinstance(result.get("command"), str):
-            result["command"] = _provider_name(self.host_os)
+            result["command"] = provider_name(self.host_os)
         result.pop("executable", None)
         return result
 
@@ -1379,7 +1379,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
     ) -> tuple[Path | None, str | None, bool]:
         configured = settings.get("executable")
         explicitly_configured = isinstance(configured, str) and bool(configured.strip())
-        raw = configured.strip() if explicitly_configured else _provider_name(host_os)
+        raw = configured.strip() if explicitly_configured else provider_name(host_os)
         candidate: Path | None
         raw_path = Path(raw)
         if raw_path.is_absolute() or raw_path.parent != Path("."):
@@ -1393,7 +1393,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 if explicitly_configured
                 else "CODERABBIT_NATIVE_EXECUTABLE_UNAVAILABLE"
             ), explicitly_configured
-        platform = _host_platform(host_os)
+        platform = host_platform(host_os)
         path_entry_symlink = (
             not explicitly_configured
             and platform == "posix"
@@ -1407,7 +1407,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
         if candidate.suffix.casefold() in _PROVIDER_WRAPPER_SUFFIXES:
             return None, "CODERABBIT_EXECUTABLE_WRAPPER_REJECTED", explicitly_configured
-        if candidate.name.casefold() != _provider_name(host_os):
+        if candidate.name.casefold() != provider_name(host_os):
             return None, "CODERABBIT_EXECUTABLE_NOT_NATIVE", explicitly_configured
         if path_has_link(candidate) or not candidate.is_file():
             return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
@@ -1422,7 +1422,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         return candidate, None, explicitly_configured
 
     def _discover_provider(self, root: Path, settings: Mapping[str, object]) -> ProviderCheck:
-        platform = _host_platform(self.host_os)
+        platform = host_platform(self.host_os)
         if platform == "unsupported":
             return ProviderCheck(
                 IntegrationState.INCOMPATIBLE,
@@ -2770,8 +2770,10 @@ __all__ = [
     "CodeRabbitProgress",
     "CodeRabbitStreamError",
     "ParsedCodeRabbitReview",
+    "host_platform",
     "load_coderabbit_triage_manifest",
     "parse_agent_ndjson",
     "parse_provider_findings_output",
+    "provider_name",
     "review_iteration_allowed",
 ]

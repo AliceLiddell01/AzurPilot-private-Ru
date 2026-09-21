@@ -178,14 +178,13 @@ def test_stop_without_unfinished_state_does_not_block(
     _write_project(root)
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
     event = _stop_event(root)
-    event["mcp"] = {"source_reconciled": True, "runtime_state": "stopped"}
     assert guards.process_event(event) == {}
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        {"schema_version": 4, "cycle_status": "triage_required", "findings_count": 2},
+        {"schema_version": 5, "cycle_status": "triage_required", "findings_count": 2},
         {"schema_version": 4, "active": True, "phase": "provider"},
         {"schema_version": 4, "provider_state": "running", "phase": "provider"},
         {"schema_version": 4, "cycle_status": "recovery_required"},

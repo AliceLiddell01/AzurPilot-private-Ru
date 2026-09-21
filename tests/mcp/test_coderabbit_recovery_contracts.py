@@ -97,6 +97,43 @@ def _ready_provider(root: Path, runner: _DiscoveryRunner) -> coderabbit.NativeCo
     )
 
 
+def _prepared_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    root: Path,
+    *,
+    results: tuple[ProcessResult, ...],
+    fingerprints: tuple[coderabbit.CandidateFingerprint, ...],
+) -> coderabbit.CodeRabbitAdapter:
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    result_iterator = iter(results)
+    fingerprint_iterator = iter(fingerprints)
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (next(fingerprint_iterator), None, None),
+    )
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(next(result_iterator)),
+    )
+    return adapter
+
+
 def test_native_discovery_requires_binary_syntax_auth_and_doctor(tmp_path: Path):
     executable = tmp_path / "coderabbit.exe"
     executable.write_bytes(b"native")
@@ -460,6 +497,38 @@ def test_legacy_default_finding_disposition_is_not_verified_triage(
     assert state["terminal"] is False
 
 
+def test_large_finding_state_remains_readable_for_project_owned_queries(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    layout = StateLayout.for_repository(root)
+    layout.ensure()
+    long_text = "provider finding " * 40
+    layout.path("coderabbit-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": coderabbit.REVIEW_STATE_SCHEMA_VERSION,
+                "findings": [
+                    {
+                        "severity": "minor",
+                        "path": "azurpilot/integrations/coderabbit.py",
+                        "impact": long_text,
+                        "resolution": long_text,
+                    }
+                    for _ in range(32)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = coderabbit.CodeRabbitAdapter._load_review_state(root)
+
+    assert len(state["findings"]) == 32
+
+
 def test_corrupted_finding_state_fails_closed(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
     root = tmp_path / "checkout"
@@ -566,9 +635,6 @@ def test_review_persists_native_identity_then_clears_it_after_exact_postconditio
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
     root = tmp_path / "checkout"
     root.mkdir()
-    runner = _DiscoveryRunner(root)
-    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
-    provider = _ready_provider(root, runner)
     fingerprint = coderabbit.CandidateFingerprint(
         root_identity="a" * 24,
         repository_identity="hosted:github.com/example/project",
@@ -577,10 +643,12 @@ def test_review_persists_native_identity_then_clears_it_after_exact_postconditio
         status_digest="c" * 64,
     )
     review_result = _result(root, stdout=json.dumps({"type": "complete", "findings": []}) + "\n")
-    monkeypatch.setattr(adapter, "_discover_provider", lambda *_args: coderabbit.ProviderCheck(IntegrationState.READY, "CODERABBIT_NATIVE_READY", "ready", provider=provider, configured=True, authenticated=True))
-    candidate_calls = iter(((fingerprint, None, None), (fingerprint, None, None)))
-    monkeypatch.setattr(adapter, "_candidate_preflight", lambda *_args, **_kwargs: next(candidate_calls))
-    monkeypatch.setattr(coderabbit.NativeCodeRabbit, "start_review", lambda _self, _base: _Running(review_result))
+    adapter = _prepared_adapter(
+        monkeypatch,
+        root,
+        results=(review_result,),
+        fingerprints=(fingerprint, fingerprint),
+    )
 
     outcome = adapter.review(root, IntegrationConfig(), base_sha="a" * 40, head_sha="b" * 40, task_id="task-1")
     state = adapter._load_review_state(root)
@@ -598,8 +666,6 @@ def test_incomplete_provider_finding_does_not_consume_substantive_budget(
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
     root = tmp_path / "checkout"
     root.mkdir()
-    adapter = coderabbit.CodeRabbitAdapter()
-    provider = _ready_provider(root, _DiscoveryRunner(root))
     fingerprint = coderabbit.CandidateFingerprint(
         root_identity="a" * 24,
         repository_identity="hosted:github.com/example/project",
@@ -624,28 +690,11 @@ def test_incomplete_provider_finding_does_not_consume_substantive_budget(
             + "\n"
         ),
     )
-    monkeypatch.setattr(
-        adapter,
-        "_discover_provider",
-        lambda *_args: coderabbit.ProviderCheck(
-            IntegrationState.READY,
-            "CODERABBIT_NATIVE_READY",
-            "ready",
-            provider=provider,
-            configured=True,
-            authenticated=True,
-        ),
-    )
-    candidate_calls = iter(((fingerprint, None, None), (fingerprint, None, None)))
-    monkeypatch.setattr(
-        adapter,
-        "_candidate_preflight",
-        lambda *_args, **_kwargs: next(candidate_calls),
-    )
-    monkeypatch.setattr(
-        coderabbit.NativeCodeRabbit,
-        "start_review",
-        lambda _self, _base: _Running(incomplete_result),
+    adapter = _prepared_adapter(
+        monkeypatch,
+        root,
+        results=(incomplete_result,),
+        fingerprints=(fingerprint, fingerprint),
     )
 
     outcome = adapter.review(
@@ -1225,6 +1274,9 @@ def test_triage_requires_evidence_and_new_exact_head_for_confirmed_findings(
 
 
 def test_triage_respects_shared_lifecycle_lock(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
     class BusyLock:
         def acquire(self, _timeout: float) -> bool:
             return False
@@ -1256,7 +1308,7 @@ def test_triage_respects_shared_lifecycle_lock(monkeypatch, tmp_path: Path):
     )
 
     outcome = coderabbit.CodeRabbitAdapter().triage(
-        tmp_path,
+        root,
         IntegrationConfig(),
         manifest_path=manifest,
     )

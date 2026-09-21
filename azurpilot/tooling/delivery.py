@@ -669,11 +669,22 @@ class DeliveryService:
             )
         base_sha = git.remote_ref(manifest.base_remote_name, manifest.base_branch)
         if base_sha != manifest.expected_base_sha:
+            parent_is_local = False
+            parent_remote_is_behind = False
             try:
                 parent_is_local = git.object_exists(manifest.expected_base_sha)
+                if parent_is_local:
+                    parent_remote_is_behind = not git.is_ancestor(
+                        manifest.expected_base_sha, base_sha
+                    )
             except ToolingError:
                 parent_is_local = False
-            if parent_is_local and manifest.base_branch != manifest.expected_branch:
+                parent_remote_is_behind = False
+            if (
+                parent_is_local
+                and parent_remote_is_behind
+                and manifest.base_branch != manifest.expected_branch
+            ):
                 raise _error(
                     ResultCode.TOOLING_STACKED_PARENT_UNPUBLISHED,
                     "Exact parent branch remote SHA отличается от local parent HEAD; "

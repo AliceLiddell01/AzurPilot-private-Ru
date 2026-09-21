@@ -776,11 +776,18 @@ class PullRequestService:
             raise _error(ResultCode.TOOLING_PRECONDITION_FAILED, "Local HEAD не совпадает с PR spec head_sha.")
         remote_base_sha = git.remote_ref(spec.remote_name, spec.base_ref)
         if remote_base_sha != spec.base_sha:
+            parent_is_local = False
+            parent_remote_is_behind = False
             try:
                 parent_is_local = git.object_exists(spec.base_sha)
+                if parent_is_local:
+                    parent_remote_is_behind = not git.is_ancestor(
+                        spec.base_sha, remote_base_sha
+                    )
             except ToolingError:
                 parent_is_local = False
-            if parent_is_local:
+                parent_remote_is_behind = False
+            if parent_is_local and parent_remote_is_behind:
                 raise _error(
                     ResultCode.TOOLING_STACKED_PARENT_UNPUBLISHED,
                     "Exact parent branch remote SHA отличается от local parent HEAD; "

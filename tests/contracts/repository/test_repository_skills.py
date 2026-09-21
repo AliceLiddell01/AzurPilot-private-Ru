@@ -5,6 +5,10 @@ from pathlib import Path
 
 import yaml
 
+from dev_tools.integration_contract_gate import (
+    _OPERATOR_POLICY_MARKERS,
+    _OPERATOR_POLICY_PATHS,
+)
 from tests.support.paths import REPOSITORY_ROOT
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
@@ -13,28 +17,6 @@ _PLUGIN_SKILL_PATH = _REPOSITORY_ROOT / "plugins" / "azurpilot" / "skills" / "az
 _SKILL_NAMES = (
     "azurpilot-repository-development",
     "azurpilot-coderabbit-review",
-)
-_OPERATOR_POLICY_PATHS = (
-    Path("AGENTS.md"),
-    Path(".codex/context/11-PYTHON-TOOLING.md"),
-    Path(".codex/context/GIT-WORKFLOW.md"),
-    Path(".agents/skills/azurpilot-repository-development/SKILL.md"),
-    Path(".agents/skills/azurpilot-coderabbit-review/SKILL.md"),
-    Path(".agents/skills/azurpilot-coderabbit-review/references/review-workflow.md"),
-    Path("plugins/azurpilot/skills/azurpilot-development/SKILL.md"),
-    Path("plugins/azurpilot/skills/azurpilot-game-control/SKILL.md"),
-    Path("plugins/azurpilot/skills/azurpilot-troubleshooting/SKILL.md"),
-    Path("plugins/azurpilot/references/mcp-routing.md"),
-)
-_OPERATOR_POLICY_MARKERS = (
-    "source_reconciled",
-    "runtime_ready",
-    "буквальн",
-    "azur ...",
-    "codex/base-*",
-    "temporary/scratch/transport/helper",
-    "host-native",
-    "TOOLING_STACKED_PARENT_UNPUBLISHED",
 )
 _ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![\w/:.`])(?:[A-Za-z]:[\\/]|\\\\|/(?!/))")
 _URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s`]+")

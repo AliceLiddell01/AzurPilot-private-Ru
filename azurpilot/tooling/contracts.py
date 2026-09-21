@@ -503,7 +503,9 @@ class ReadinessState(ClosedModel):
 
     implementation_status: Literal["IN_PROGRESS", "COMPLETE", "BLOCKED"] = "IN_PROGRESS"
     mandatory_gates: tuple[MandatoryGate, ...] = Field(default_factory=tuple, max_length=32)
-    mcp_impact: Literal["NOT_REQUIRED", "REQUIRED"] | None = None
+    # Readiness builders must classify MCP impact explicitly before lifecycle
+    # validation; omission must fail closed instead of bypassing the fresh gate.
+    mcp_impact: Literal["NOT_REQUIRED", "REQUIRED"]
     external_reviewer_status: Literal[
         "NOT_RUN", "SUBSTANTIVE", "LIMITED", "RATE_LIMITED"
     ] = "NOT_RUN"
@@ -581,7 +583,9 @@ class PullRequestBody(ClosedModel):
     ci: str = Field(min_length=1, max_length=4000)
     security_secret_scan: str = Field(min_length=1, max_length=4000)
     coderabbit_review: CodeRabbitReview | None = None
-    readiness: ReadinessState = Field(default_factory=ReadinessState)
+    readiness: ReadinessState = Field(
+        default_factory=lambda: ReadinessState(mcp_impact="NOT_REQUIRED")
+    )
     migration_rollback: str = Field(min_length=1, max_length=4000)
     limitations: str = Field(min_length=1, max_length=4000)
     merge_method: Literal["squash", "merge", "rebase"] = "squash"

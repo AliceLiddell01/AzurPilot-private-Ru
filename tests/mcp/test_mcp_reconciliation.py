@@ -643,84 +643,43 @@ def test_runtime_source_revision_is_sanitized_before_status_model() -> None:
     assert status.source_revision is None
 
 
-def test_runtime_reconcile_can_start_service_with_stopped_supervisor(
+@pytest.mark.parametrize(
+    "stopped_servers",
+    [
+        pytest.param(("azurpilot-dev",), id="one-stopped-supervisor"),
+        pytest.param(mcp_tooling.MCP_SERVER_NAMES, id="all-stopped-supervisors"),
+    ],
+)
+def test_runtime_reconcile_starts_stopped_owned_supervisors(
     monkeypatch: pytest.MonkeyPatch,
+    stopped_servers: tuple[str, ...],
 ) -> None:
     service = mcp_tooling.McpService()
     bundle = load_mcp_bundle(REPOSITORY_ROOT)
-    runtime_results = [
-        (
-            "stale",
-            {
-                "services": [
-                    {"server_name": "azurpilot-dev", "ready": False},
-                    {"server_name": "azurpilot-game", "ready": True},
-                ],
-                "supervisors": {
-                    "azurpilot-dev": {
-                        "code": "LOCAL_MCP_SUPERVISOR_STOPPED"
-                    },
-                    "azurpilot-game": {
-                        "code": "LOCAL_MCP_SUPERVISOR_READY"
-                    },
-                },
-            },
-        ),
-        (
-            "ready",
-            {
-                "services": [
-                    {"server_name": "azurpilot-dev", "ready": True},
-                    {"server_name": "azurpilot-game", "ready": True},
-                ],
-                "supervisors": {},
-            },
-        ),
-    ]
-    start_calls: list[tuple[str, ...]] = []
-
-    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
-    monkeypatch.setattr(
-        service,
-        "_runtime_status",
-        lambda _root, _bundle: runtime_results.pop(0),
+    initial_services = (
+        []
+        if stopped_servers == mcp_tooling.MCP_SERVER_NAMES
+        else [
+            {"server_name": name, "ready": name not in stopped_servers}
+            for name in mcp_tooling.MCP_SERVER_NAMES
+        ]
     )
-
-    def start_owned(
-        _root: Path,
-        _bundle: object,
-        *,
-        server_names: tuple[str, ...],
-    ) -> tuple[bool, dict[str, object]]:
-        start_calls.append(server_names)
-        return True, {}
-
-    monkeypatch.setattr(service, "_start_owned", start_owned)
-
-    result = service.reconcile(REPOSITORY_ROOT)
-
-    assert result.ok
-    assert start_calls == [("azurpilot-dev",)]
-    assert result.details is not None
-    assert result.details.source_reconciled is True
-    assert result.details.runtime_ready is True
-    assert result.details.restarted_servers == ("azurpilot-dev",)
-
-
-def test_runtime_reconcile_starts_all_stopped_owned_supervisors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = mcp_tooling.McpService()
-    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    initial_supervisors = {
+        name: {
+            "code": (
+                "LOCAL_MCP_SUPERVISOR_STOPPED"
+                if name in stopped_servers
+                else "LOCAL_MCP_SUPERVISOR_READY"
+            )
+        }
+        for name in mcp_tooling.MCP_SERVER_NAMES
+    }
     runtime_results = [
         (
-            "stopped",
+            "stopped" if stopped_servers == mcp_tooling.MCP_SERVER_NAMES else "stale",
             {
-                "services": [],
-                "supervisors": {
-                    name: {"code": "LOCAL_MCP_SUPERVISOR_STOPPED"}
-                    for name in mcp_tooling.MCP_SERVER_NAMES
-                },
+                "services": initial_services,
+                "supervisors": initial_supervisors,
             },
         ),
         (
@@ -758,11 +717,11 @@ def test_runtime_reconcile_starts_all_stopped_owned_supervisors(
     result = service.reconcile(REPOSITORY_ROOT)
 
     assert result.ok
-    assert start_calls == [mcp_tooling.MCP_SERVER_NAMES]
+    assert start_calls == [stopped_servers]
     assert result.details is not None
     assert result.details.source_reconciled is True
     assert result.details.runtime_ready is True
-    assert result.details.restarted_servers == mcp_tooling.MCP_SERVER_NAMES
+    assert result.details.restarted_servers == stopped_servers
 
 
 def test_reconciler_detects_unreconciled_source_without_mutating_repository(

@@ -39,6 +39,34 @@ coordinator ждёт terminal outcome через штатное ожидание
 просите пользователя вручную создавать новый чат и не используйте shell,
 browser или remote app как замену task orchestration.
 
+## Codex Desktop orchestration boundary
+
+В Codex Desktop coordinator создаёт именно новый stored task через
+`mcp__codex_app__create_thread`, а не через `fork_thread`, subagent или
+same-directory child. Перед созданием он разрешает project через
+`list_projects` и выбирает проект AzurPilot с `isGitRepository=true`; для
+независимой проверки используется `target.type=project` с worktree и
+`startingState.type=working-tree`, чтобы task получила тот же committed exact
+HEAD без права менять coordinator checkout. В prompt передаются repository
+identity, exact HEAD, bounded acceptance scope и запрет на изменение code,
+branch, PR и lifecycle.
+
+`create_thread` асинхронен: готовый результат содержит настоящий `threadId`
+и `hostId`, а промежуточный `clientThreadId` нельзя передавать в ожидание,
+чтение или follow-up tools. Coordinator ждёт ready task через
+`wait_threads` с настоящим `threadId`, затем читает её terminal turn через
+`read_thread` с outputs; создание task, промежуточный progress или отсутствие
+ошибки не являются acceptance evidence. Если setup вернул только
+`clientThreadId`, coordinator сначала наблюдает появление ready `threadId` и
+только после этого начинает bounded wait.
+
+Fresh task обязана использовать фактически callable `azurpilot-dev` MCP
+surface: первым read-only вызовом выполнить `dev_get_contract`, затем
+проверить `dev_list_smoke_capabilities` и `dev_validate_smoke`, запустить
+разрешённый `dev_start_smoke`, дождаться immutable terminal outcome через
+`dev_get_smoke` и вернуть проверяемое end-to-end evidence. Shell/HTTP/ADB,
+прямой внутренний module и source snapshot не заменяют MCP acceptance.
+
 ## Каноническая последовательность
 
 1. Coordinator фиксирует bounded context: repository identity, exact expected

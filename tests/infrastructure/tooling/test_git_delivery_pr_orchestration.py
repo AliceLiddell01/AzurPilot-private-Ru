@@ -1343,6 +1343,7 @@ def test_readiness_state_blocks_ready_when_mandatory_gate_is_blocked() -> None:
     )
     blocked = ReadinessState(
         implementation_status="COMPLETE",
+        mcp_impact="NOT_REQUIRED",
         mandatory_gates=(gate,),
         overall_outcome="BLOCKED",
     )
@@ -1352,12 +1353,14 @@ def test_readiness_state_blocks_ready_when_mandatory_gate_is_blocked() -> None:
     with pytest.raises(ValueError):
         ReadinessState(
             implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
             mandatory_gates=(gate,),
             overall_outcome="IN_PROGRESS",
         )
     with pytest.raises(ValueError):
         ReadinessState(
             implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
             mandatory_gates=(gate,),
             overall_outcome="BLOCKED",
             ready_for_chatgpt_review=True,
@@ -1367,6 +1370,7 @@ def test_readiness_state_blocks_ready_when_mandatory_gate_is_blocked() -> None:
 def test_readiness_rate_limit_is_independent_from_product_gate() -> None:
     readiness = ReadinessState(
         implementation_status="COMPLETE",
+        mcp_impact="NOT_REQUIRED",
         mandatory_gates=(
             MandatoryGate(
                 name="product_live_acceptance",
@@ -1398,6 +1402,13 @@ def test_required_mcp_impact_requires_delegated_fresh_gate() -> None:
         ready_for_chatgpt_review=True,
     )
     assert readiness.mcp_impact == "REQUIRED"
+
+    with pytest.raises(ValueError):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mandatory_gates=(),
+            overall_outcome="BLOCKED",
+        )
 
     with pytest.raises(ValueError):
         ReadinessState(

@@ -32,11 +32,11 @@ def _native_coderabbit_name(host_os: str | None = None) -> str | None:
 
     # Import lazily: coderabbit.py owns the native platform/name mapping and
     # imports IntegrationConfig from this module.
-    from .coderabbit import _host_platform, _provider_name
+    from .coderabbit import host_platform, provider_name
 
-    if _host_platform(host_os) == "unsupported":
+    if host_platform(host_os) == "unsupported":
         return None
-    return _provider_name(host_os)
+    return provider_name(host_os)
 
 # Это vendor defaults, а не credentials или machine identity. Image refs
 # намеренно immutable; изменять их можно только через явную конфигурацию.

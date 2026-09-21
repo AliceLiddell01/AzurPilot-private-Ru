@@ -46,8 +46,9 @@ Connected App не подменяет Codex route.
 производные plugin metadata после проверки source sets и возвращает только
 `source_reconciled`; `runtime_ready` подтверждается отдельным `azur mcp status`.
 Если live runtime обязателен, при `LOCAL_MCP_SUPERVISOR_STOPPED` выполни
-`azur mcp start`/`azur mcp restart`, затем повтори status. `reconcile --runtime`
-не изменяет tracked source. После успешного `azur update` reconciliation
+`azur mcp start`/`azur mcp restart`, затем повтори status. Вызов
+`azur mcp reconcile` без `--source` согласует только runtime и не изменяет
+tracked source. После успешного `azur update` reconciliation
 выполняется автоматически и является обязательным postcondition: ошибка source,
 runtime, ownership, port или readiness делает Update неуспешным. Изменение
 plugin/skill snapshot не маскируется под hot reload: session получает

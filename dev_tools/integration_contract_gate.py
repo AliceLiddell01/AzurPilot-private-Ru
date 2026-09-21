@@ -354,6 +354,10 @@ def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:
     try:
         development_text = development_skill.read_text(encoding="utf-8").casefold()
     except (OSError, UnicodeError):
+        errors.append(
+            "plugins/azurpilot/skills/azurpilot-development/SKILL.md: "
+            "development skill source не прочитан"
+        )
         return
     if "каноническая codex-команда: uv run" in development_text:
         errors.append(

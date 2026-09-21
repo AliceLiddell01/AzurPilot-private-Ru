@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -271,13 +272,13 @@ def test_agent_ndjson_rejects_incomplete_mixed_findings_without_budget_claim():
 def test_coderabbit_triage_rejects_legacy_or_untyped_rejection():
     common = {
         "reviewed_head": "a" * 40,
-        "affected_code": "affected implementation",
-        "call_sites": "nearest call sites",
-        "nearest_tests": "nearest tests",
-        "relevant_contracts": "repository contract",
-        "claimed_impact": "independent impact analysis",
-        "decision_reason": "Detailed independent decision based on the contract.",
-        "change_summary": "The applicable remediation is tracked for this head.",
+        "affected_code": "затронутая реализация",
+        "call_sites": "ближайшие call sites",
+        "nearest_tests": "ближайшие тесты",
+        "relevant_contracts": "контракт репозитория",
+        "claimed_impact": "независимый анализ влияния",
+        "decision_reason": "Решение основано на независимой проверке контракта.",
+        "change_summary": "Применимое исправление отслеживается для этого head.",
     }
     with pytest.raises(ValidationError):
         CodeRabbitFindingTriage(
@@ -925,13 +926,13 @@ def test_coderabbit_rate_limit_metadata_is_bounded_and_typed():
     assert error.retry_source == "provider"
     retry_at, source = coderabbit._parse_provider_retry_metadata(
         {"metadata": {"retry_after_seconds": 120}},
-        now=coderabbit.datetime(2026, 9, 16, tzinfo=coderabbit.UTC),
+        now=datetime(2026, 9, 16, tzinfo=UTC),
     )
     assert retry_at == "2026-09-16T00:02:00+00:00"
     assert source == "provider"
     unknown, unknown_source = coderabbit._parse_provider_retry_metadata(
         {"metadata": {"retry_after_seconds": 0}},
-        now=coderabbit.datetime(2026, 9, 16, tzinfo=coderabbit.UTC),
+        now=datetime(2026, 9, 16, tzinfo=UTC),
     )
     assert unknown is None
     assert unknown_source == "unknown"

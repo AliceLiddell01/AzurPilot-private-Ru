@@ -363,7 +363,9 @@ class RunningProcess:
         if self.collected:
             raise RuntimeError("Результат процесса уже был собран")
         spec = self.spec
-        timeout = timeout_seconds or (spec.timeout_seconds if spec else DEFAULT_PROCESS_TIMEOUT)
+        timeout = timeout_seconds if timeout_seconds is not None else (
+            spec.timeout_seconds if spec else DEFAULT_PROCESS_TIMEOUT
+        )
         timed_out = False
         termination_state: Literal["alive", "absent", "unknown"] | None = None
         try:
@@ -854,7 +856,10 @@ class ProcessController:
         """Различить exact live process, доказанно отсутствующий PID и unknown.
 
         В отличие от boolean `inspect`, этот результат нельзя трактовать как
-        разрешение на recovery при недоступных полях процесса.
+        разрешение на recovery при недоступных полях процесса. `absent` также
+        означает, что найденный PID не совпал с ожидаемыми start_time,
+        executable, argv или cwd; это может быть PID reuse, а не доказательство
+        отсутствия процесса с таким PID.
         """
 
         try:
