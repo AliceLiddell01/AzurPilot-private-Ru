@@ -870,6 +870,46 @@ def test_triage_requires_evidence_and_new_exact_head_for_confirmed_findings(
     assert final_state["terminal"] is True
 
 
+def test_triage_respects_shared_lifecycle_lock(monkeypatch, tmp_path: Path):
+    class BusyLock:
+        def acquire(self, _timeout: float) -> bool:
+            return False
+
+        def release(self) -> None:
+            raise AssertionError("busy lock must not be released")
+
+    class Coordinator:
+        def lock(self, operation: str) -> BusyLock:
+            assert operation == "coderabbit-review"
+            return BusyLock()
+
+    monkeypatch.setattr(
+        coderabbit.RepositoryCoordinator,
+        "for_root",
+        lambda _root: Coordinator(),
+    )
+    manifest = tmp_path / "triage.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "base_sha": "a" * 40,
+                "reviewed_head": "b" * 40,
+                "findings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    outcome = coderabbit.CodeRabbitAdapter().triage(
+        tmp_path,
+        IntegrationConfig(),
+        manifest_path=manifest,
+    )
+
+    assert outcome.record.reason_code == "CODERABBIT_REVIEW_IN_PROGRESS"
+
+
 def test_review_postcondition_mismatch_is_not_substantive_success(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
     root = tmp_path / "checkout"

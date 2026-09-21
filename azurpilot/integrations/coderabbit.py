@@ -1664,6 +1664,29 @@ class CodeRabbitAdapter(IntegrationAdapter):
 
         settings = config.provider("coderabbit")
         manifest = load_coderabbit_triage_manifest(manifest_path)
+        coordinator = RepositoryCoordinator.for_root(root)
+        lock = coordinator.lock("coderabbit-review")
+        if not lock.acquire(0):
+            record = self._record_from_error(
+                settings,
+                "CODERABBIT_REVIEW_IN_PROGRESS",
+                state=IntegrationState.DEGRADED,
+                message="CodeRabbit lifecycle lock занят другой операцией.",
+            )
+            return AdapterOutcome(record, (), self.cycle_summary(root))
+        try:
+            return self._triage_unlocked(root, config, manifest=manifest)
+        finally:
+            lock.release()
+
+    def _triage_unlocked(
+        self,
+        root: Path,
+        config: IntegrationConfig,
+        *,
+        manifest: CodeRabbitTriageManifest,
+    ) -> AdapterOutcome:
+        settings = config.provider("coderabbit")
         state = self._load_review_state(root)
         if (
             state.get("base_sha") != manifest.base_sha
