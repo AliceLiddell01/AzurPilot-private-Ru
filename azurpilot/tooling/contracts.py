@@ -499,6 +499,7 @@ class CodeRabbitReview(ClosedModel):
     findings: tuple[CodeRabbitFinding, ...] = Field(max_length=128)
     history: str | None = Field(default=None, max_length=20_000)
     rate_limit: str | None = Field(default=None, max_length=500)
+    review_deferred_reason: str | None = Field(default=None, max_length=500)
 
 
 class CodeRabbitDeferredOccurrence(ClosedModel):

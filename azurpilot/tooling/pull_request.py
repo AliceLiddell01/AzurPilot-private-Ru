@@ -145,6 +145,10 @@ class PullRequestBodyRenderer:
                 )
             if review.rate_limit:
                 lines.append(f"Ограничение rate limit: {review.rate_limit}")
+            if review.review_deferred_reason:
+                lines.append(
+                    f"Review отложен по contract boundary: {review.review_deferred_reason}"
+                )
             if review.history:
                 lines.extend(("", review.history))
             if findings:
@@ -296,13 +300,13 @@ class PullRequestBodyRenderer:
             review.base_sha != base_sha
             or (
                 review.reviewed_head != head_sha
-                and not review.rate_limit
+                and not (review.rate_limit or review.review_deferred_reason)
             )
         ):
             raise _error(
                 ResultCode.TOOLING_PR_BODY_INVALID,
                 "CodeRabbit evidence в PR body не относится к exact base/head spec "
-                "и не содержит явного rate-limit объяснения.",
+                "и не содержит явного rate-limit или contract deferral объяснения.",
             )
         # ReadinessState itself enforces the cross-field invariant; keep this
         # explicit at the renderer boundary so a future model replacement does
