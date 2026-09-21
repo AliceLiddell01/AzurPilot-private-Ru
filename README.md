@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki">
-    <img src="https://img.shields.io/badge/Wiki-документация-2f81f7?style=flat-square" alt="Русская Wiki">
+  <a href="https://azurpilotru.gitbook.io/azurpilotru-docs">
+    <img src="https://img.shields.io/badge/GitBook-документация-2f81f7?style=flat-square" alt="Русская документация GitBook">
   </a>
   <a href="https://deepwiki.com/AliceLiddell01/AzurPilot-private-Ru">
     <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
@@ -328,21 +328,15 @@ Repair, Build и ярлык используют отдельные катало
 
 ## Документация
 
-Вся пользовательская и эксплуатационная документация хранится в GitHub Wiki. Отдельная папка `docs/` в персональной ветке намеренно не используется.
+Пользовательская документация AzurPilotRu публикуется в GitBook:
 
-| Раздел | Ссылка |
-|---|---|
-| Главная страница | [Русская Wiki](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki) |
-| Запуск и обслуживание | [Запуск и обслуживание AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Запуск-и-обслуживание-AzurPilot) |
-| Архитектура запуска и обслуживания | [Архитектура запуска и обслуживания](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Архитектура-запуска-и-обслуживания) |
-| Русский интерфейс и миграция языка | [Русский интерфейс и миграция языка](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Русский-интерфейс-и-миграция-языка) |
-| Инфраструктурные журналы | [Русские инфраструктурные журналы](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Русские-инфраструктурные-журналы) |
-| Диагностика WebUI | [Безопасный traceback в WebUI](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Безопасный-traceback-в-WebUI) |
-| Обновление | [Обновление AzurPilot](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Обновление-AzurPilot) |
-| Ошибки обновления | [Ошибки при обновлении](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Ошибки-при-обновлении) |
-| Приватность и сетевое поведение | [Приватность и сетевое поведение](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Приватность-и-сетевое-поведение) |
-| Отличия персональной версии | [Отличия персональной версии](https://github.com/AliceLiddell01/AzurPilot-private-Ru/wiki/Отличия-персональной-версии) |
+**https://azurpilotru.gitbook.io/azurpilotru-docs**
 
+Её исходники хранятся в каталоге `documentation/` этого репозитория и синхронизируются с GitBook через Site Git Sync.
+
+Начните с [обзора документации](https://azurpilotru.gitbook.io/azurpilotru-docs) и раздела «Начало работы».
+
+Каталог `docs/` используется отдельно для глубоких инженерных документов, migration notes и внутренних технических контрактов; он не является пользовательской Wiki. Agent-only контекст в `.codex/context/` также не заменяет публичную документацию.
 ## Модель веток
 
 | Ветка или remote | Назначение |
