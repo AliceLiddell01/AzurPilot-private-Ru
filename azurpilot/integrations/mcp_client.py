@@ -177,6 +177,24 @@ def _structured_payload(result: object) -> Mapping[str, object] | None:
     return structured if isinstance(structured, Mapping) else None
 
 
+def _bounded_result_diagnostic(
+    tool_name: str,
+    result: object,
+    payload: Mapping[str, object] | None,
+) -> str:
+    """Вернуть только безопасный код результата для bounded acceptance evidence."""
+
+    if payload is None:
+        return f"{tool_name}:transport_error" if _result_has_error(result) else f"{tool_name}:structured_payload_missing"
+    code = payload.get("code")
+    if not isinstance(code, str) or _IDENTIFIER_RE.fullmatch(code) is None:
+        return f"{tool_name}:payload_code_invalid"
+    state = payload.get("state")
+    if isinstance(state, str) and _IDENTIFIER_RE.fullmatch(state):
+        return f"{tool_name}:{code}:{state}"
+    return f"{tool_name}:{code}"
+
+
 async def _accept_fresh_session(
     session: object,
     *,
@@ -343,7 +361,7 @@ async def _accept_fresh_session(
                     else None
                 ),
                 called_tools=(*called_tools, tool_name),
-                diagnostics=(tool_name,),
+                diagnostics=(_bounded_result_diagnostic(tool_name, result, payload),),
             )
         called_tools.append(tool_name)
 
