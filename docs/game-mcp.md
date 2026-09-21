@@ -160,7 +160,11 @@ initialize negotiation сохраняется только как совмест
 `MCP_RELOAD_REQUIRED` с `reload_required=true`. `azur mcp reconcile` без
 `--source` — канонический typed runtime repair path: при stale/stopped он
 перезапускает только доказанные exact-owned services и подтверждает
-`runtime_ready=true`; session не считается перезагруженной. Отдельного
+`runtime_ready=true`; для `LOCAL_MCP_SUPERVISOR_STALE` это включает только
+валидный same-repository marker, recorded exact-identity cleanup, unchanged
+marker и STOPPED/no-conflict postcondition. Foreign/invalid marker, unknown
+liveness, port conflict или failure остаются fail-closed. Session не считается
+перезагруженной. Отдельного
 устаревшего runtime-флага в текущем CLI нет. Если runtime готов, а
 `session_state=not_observable`, это отдельная граница effective Codex
 registration и повод для fresh-task verification, а не runtime failure.

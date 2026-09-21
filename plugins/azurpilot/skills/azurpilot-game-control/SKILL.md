@@ -77,7 +77,9 @@ fallback для обычного Codex route. Если выбранный route,
 `runtime_ready=true`. При `runtime_state=stale` или `runtime_state=stopped`
 используй `azur mcp reconcile` без `--source` как единственный typed runtime
 repair path; он должен подтвердить exact ownership и postcondition. Unknown
-ownership, port conflict или readiness failure остаются fail-closed.
+ownership, invalid marker/liveness, port conflict или readiness failure остаются
+fail-closed; same-repository stale marker допускает только recorded
+exact-identity cleanup с unchanged marker и STOPPED/no-conflict postcondition.
 `MCP_RUNTIME_UNAVAILABLE` не является live acceptance.
 
 ## Модель состояния

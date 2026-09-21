@@ -336,7 +336,9 @@ reconciliation делает предыдущий результат stale. Gener
 `runtime_state=stopped` выполни единственный typed runtime repair path
 `azur mcp reconcile` без `--source`, затем повторный status с
 `runtime_ready=true`. Исходный stale/stopped status до этой попытки не
-является финальным blocker-ом; unknown/foreign ownership, port conflict,
+является финальным blocker-ом; same-repository stale marker допустимо
+восстанавливать только typed recorded-identity cleanup с unchanged marker и
+STOPPED/no-conflict postcondition. Unknown/foreign ownership, port conflict,
 failure stop/start или mismatch postcondition остаются fail-closed. Source-only result и
 `MCP_RUNTIME_UNAVAILABLE` не закрывают live acceptance. Внутренние
 `module.*_mcp`, supervisor scripts и Python module launchers напрямую не

@@ -1555,6 +1555,9 @@ class McpService:
         elif all(code == "LOCAL_MCP_SUPERVISOR_STOPPED" for code in codes):
             state = "stopped"
             aggregate_code = "LOCAL_MCP_SUPERVISOR_STOPPED"
+        elif any(code == "LOCAL_MCP_SUPERVISOR_UNKNOWN" for code in codes):
+            state = "unknown"
+            aggregate_code = "LOCAL_MCP_SUPERVISOR_UNKNOWN"
         elif all(item.get("ready") is True for item in services):
             state = "ready"
             aggregate_code = "LOCAL_MCP_SUPERVISOR_READY"
@@ -1944,6 +1947,27 @@ class McpService:
             "Локальный MCP supervisor не достиг readiness.",
         )
 
+    def _stop_owned_supervisor(self, root: Path, server_name: str) -> object:
+        """Остановить supervisor по typed exact/stale recovery result."""
+
+        from module.mcp_shared.local_http_supervisor import (
+            LocalHttpSupervisorStopOutcome,
+        )
+
+        result = self._supervisor(root, server_name).stop_result()
+        if result.outcome is LocalHttpSupervisorStopOutcome.PORT_CONFLICT:
+            raise ToolingError(
+                ResultCode.TOOLING_PORT_CONFLICT,
+                "Порт локального first-party MCP уже занят чужим процессом.",
+            )
+        if not result.ok:
+            raise ToolingError(
+                ResultCode.MCP_RUNTIME_STALE,
+                "Владение локальным MCP не подтверждено: "
+                f"{result.outcome.value}; {result.detail}",
+            )
+        return result
+
     def start(self, repository_root: str | Path | None = None) -> ToolingResult[McpLifecycleDetails, McpLifecycleDetails]:
         root = self._root(repository_root)
         self.source.check(root)
@@ -1975,11 +1999,7 @@ class McpService:
                         "Порт локального first-party MCP уже занят чужим процессом.",
                     )
                 continue
-            if not supervisor.stop():
-                raise ToolingError(
-                    ResultCode.MCP_RUNTIME_STALE,
-                    "Владение локальным MCP при остановке не подтверждено.",
-                )
+            self._stop_owned_supervisor(root, name)
         _runtime_state, runtime = self._runtime_status(root, bundle)
         details = self._lifecycle_details(bundle, "stop", runtime, ownership=True)
         return ToolingResult(
@@ -2004,11 +2024,7 @@ class McpService:
                         "Порт локального first-party MCP уже занят чужим процессом.",
                     )
                 continue
-            if not supervisor.stop():
-                raise ToolingError(
-                    ResultCode.MCP_RUNTIME_STALE,
-                    "Перед restart владение локальным MCP не подтверждено.",
-                )
+            self._stop_owned_supervisor(root, name)
         _changed, runtime = self._start_owned(root, bundle)
         details = self._lifecycle_details(bundle, "restart", runtime, ownership=True)
         return ToolingResult(
@@ -2101,6 +2117,7 @@ class McpService:
                 in {
                     "LOCAL_MCP_SUPERVISOR_READY",
                     "LOCAL_MCP_SUPERVISOR_STOPPED",
+                    "LOCAL_MCP_SUPERVISOR_STALE",
                 }
             )
             if not repair_names:
@@ -2111,11 +2128,7 @@ class McpService:
             for name in repair_names:
                 if supervisors[name].get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED":
                     continue
-                if not self._supervisor(root, name).stop():
-                    raise ToolingError(
-                        ResultCode.MCP_RUNTIME_STALE,
-                        "Устаревший локальный MCP runtime нельзя безопасно остановить.",
-                    )
+                self._stop_owned_supervisor(root, name)
             _changed, runtime = self._start_owned(
                 root, bundle, server_names=repair_names
             )

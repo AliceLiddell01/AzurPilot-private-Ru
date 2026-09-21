@@ -42,8 +42,11 @@ absolute `azur.exe` path или PowerShell/cmd wrapper. Если `azur` недо
 согласует source/generated metadata, но не завершает live gate. После него
 вызови `azur mcp status`; при `runtime_state=stale` или `runtime_state=stopped`
 выполни `azur mcp reconcile` без `--source`, затем повтори status и требуй
-`runtime_ready=true`. Только typed failure/ambiguous ownership, foreign port
-owner или нарушенный postcondition оставляют gate blocked. Не запускай
+`runtime_ready=true`. Same-repository stale marker может быть восстановлен
+только typed recorded-identity cleanup с unchanged marker и STOPPED/no-conflict
+postcondition. Только typed failure/ambiguous ownership, invalid/foreign
+marker, unknown liveness, foreign port owner или нарушенный postcondition
+оставляют gate blocked. Не запускай
 внутренние `module.*_mcp` или supervisor scripts напрямую и не называй
 source-only result live acceptance. `session_state=not_observable` при готовом
 runtime направляет workflow в fresh-task registration verification.

@@ -404,6 +404,9 @@ def test_mcp_lifecycle_contract_uses_typed_runtime_reconcile() -> None:
     assert "azur mcp reconcile --runtime" not in content
     assert "session_state=not_observable" in content
     assert "runtime_ready=true" in content
+    assert "recorded exact" in content
+    assert "STOPPED/no-conflict" in content
+    assert "invalid/foreign" in content
 
 
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:

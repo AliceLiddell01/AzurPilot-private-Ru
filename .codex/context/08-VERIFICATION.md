@@ -112,7 +112,10 @@ reconciliation инвалидирует прежнее evidence.
 status. Только доказанный failure/ambiguous ownership, foreign port owner,
 ошибка stop/start или нарушенный postcondition оставляет live gate в
 `BLOCKED_PRECONDITION`; исходный stale/stopped status до этой попытки не является
-финальным blocker-ом. При `runtime_ready=true` и
+финальным blocker-ом. Same-repository `LOCAL_MCP_SUPERVISOR_STALE` допустимо
+восстанавливать только typed recorded-identity cleanup с unchanged marker и
+STOPPED/no-conflict postcondition; foreign/invalid/unknown ownership остаётся
+fail-closed. При `runtime_ready=true` и
 `session_state=not_observable` runtime gate не считается failed: workflow
 переходит к fresh-task effective-registration verification.
 

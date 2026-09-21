@@ -13,11 +13,35 @@ from azurpilot.tooling.errors import ToolingError
 from dev_tools import mcp_status
 from dev_tools.mcp_status import first_party_source_registration
 from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
+from module.mcp_shared.local_http_supervisor import (
+    LocalHttpSupervisorStopOutcome,
+    LocalHttpSupervisorStopResult,
+)
 from module.mcp_shared.versioning import (
     VersioningError,
     load_mcp_bundle,
 )
 from tests.support.paths import REPOSITORY_ROOT
+
+
+def _successful_stop_result() -> LocalHttpSupervisorStopResult:
+    return LocalHttpSupervisorStopResult(
+        outcome=LocalHttpSupervisorStopOutcome.EXACT_LIVE_OWNER_STOPPED,
+        marker_present=True,
+        marker_removed=True,
+        ownership_confirmed=True,
+        postcondition_confirmed=True,
+    )
+
+
+def _stale_recovery_stop_result() -> LocalHttpSupervisorStopResult:
+    return LocalHttpSupervisorStopResult(
+        outcome=LocalHttpSupervisorStopOutcome.STALE_RECORDED_OWNER_RECOVERED,
+        marker_present=True,
+        marker_removed=True,
+        ownership_confirmed=True,
+        postcondition_confirmed=True,
+    )
 
 
 def test_canonical_bundle_is_strict_and_reconciled() -> None:
@@ -465,7 +489,9 @@ def test_reconcile_rejects_unknown_restart_postcondition(
     monkeypatch.setattr(
         service,
         "_supervisor",
-        lambda _root, _server_name: SimpleNamespace(stop=lambda: True),
+        lambda _root, _server_name: SimpleNamespace(
+            stop_result=_successful_stop_result
+        ),
     )
 
     with pytest.raises(ToolingError) as error:
@@ -490,7 +516,7 @@ def test_runtime_reconcile_repairs_only_stale_owned_service(
                     {"server_name": ready_name, "ready": True},
                 ],
                 "supervisors": {
-                    stale_name: {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                    stale_name: {"code": "LOCAL_MCP_SUPERVISOR_STALE"},
                     ready_name: {"code": "LOCAL_MCP_SUPERVISOR_READY"},
                 },
             },
@@ -522,7 +548,8 @@ def test_runtime_reconcile_repairs_only_stale_owned_service(
         service,
         "_supervisor",
         lambda _root, name: SimpleNamespace(
-            stop=lambda: stopped.append(name) or True
+            stop_result=lambda: stopped.append(name)
+            or _stale_recovery_stop_result()
         ),
     )
 
@@ -552,7 +579,6 @@ def test_runtime_reconcile_repairs_only_stale_owned_service(
     "supervisor_code",
     (
         "LOCAL_MCP_SUPERVISOR_OWNERSHIP_MISMATCH",
-        "LOCAL_MCP_SUPERVISOR_STALE",
         "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
         "LOCAL_MCP_SUPERVISOR_UNKNOWN",
     ),
@@ -589,7 +615,7 @@ def test_runtime_reconcile_fails_closed_for_unowned_stale_service(
         service,
         "_supervisor",
         lambda _root, name: SimpleNamespace(
-            stop=lambda: stopped.append(name) or True
+            stop_result=lambda: stopped.append(name) or _successful_stop_result()
         ),
     )
 

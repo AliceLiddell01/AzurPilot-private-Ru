@@ -47,8 +47,11 @@ gates. После `azur mcp reconcile --source --bump auto` обязательн
 выполни единственный runtime repair path `azur mcp reconcile` без `--source`,
 после чего status должен подтвердить `runtime_ready=true`. Source-only success
 не закрывает live gate; исходный stale/stopped status не является финальным
-blocker-ом до typed repair. Unknown/foreign ownership, port conflict, failure
-stop/start или mismatch postcondition остаются fail-closed. Внутренние
+blocker-ом до typed repair. Same-repository stale marker допустимо очищать
+только через recorded exact identities, unchanged marker и STOPPED/no-conflict
+postcondition. Unknown/foreign ownership, invalid marker/liveness, port
+conflict, failure stop/start или mismatch postcondition остаются fail-closed.
+Внутренние
 `module.*_mcp` и supervisor scripts напрямую не запускай.
 
 ## Запуск и postcondition

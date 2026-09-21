@@ -41,11 +41,13 @@ Git lifecycle или общей матрицы проверок.
    канонический runtime repair path — `azur mcp reconcile` без `--source`,
    затем снова вызови `azur mcp status` и требуй `runtime_ready=true`. До этой
    typed попытки stale/stopped является recoverable precondition, а не
-   конечным blocker-ом. `McpService.reconcile` останавливает только
-   доказанного exact owner, запускает нужные owned services и проверяет
-   postcondition. При unknown ownership, invalid marker/liveness, port
-   conflict, failure stop/start или mismatch postcondition обязательный live
-   gate остаётся typed blocked/failed; его нельзя выдать за завершённый. Не
+   конечным blocker-ом. `McpService.reconcile` использует typed supervisor
+   result: валидный same-repository stale marker может быть bounded recovered
+   только через recorded exact identities, unchanged marker и STOPPED/no-conflict
+   postcondition, затем запускает canonical owned services. При unknown/foreign
+   ownership, invalid marker/liveness, port conflict, failure stop/start или
+   mismatch postcondition обязательный live gate остаётся typed blocked/failed;
+   его нельзя выдать за завершённый. Не
    запускай `module.*_mcp`, внутренние supervisor scripts или Python module
    entrypoints напрямую. Любое новое изменение затронутого source set после
    reconciliation делает прежний результат stale и требует повторной

@@ -18,8 +18,10 @@ client/session registration. Он не создаёт новую feature, вет
 3. При `runtime_state=stale` или `runtime_state=stopped` coordinator сначала
    вызывает единственный typed runtime repair path `azur mcp reconcile` без
    `--source`, после чего status нужно прочитать повторно. Этот path использует
-   существующий `McpService.reconcile`: останавливает только доказанного exact
-   owner, запускает нужные owned services и проверяет `runtime_ready=true`.
+   существующий `McpService.reconcile`: typed supervisor result допускает только
+   валидный same-repository stale marker с recorded exact-identity cleanup,
+   unchanged marker и STOPPED/no-conflict postcondition; затем запускаются
+   нужные owned services и проверяется `runtime_ready=true`.
    Само stale/stopped состояние не является причиной создавать новую task.
    `LOCAL_MCP_SUPERVISOR_STOPPED` — один из typed сигналов такого состояния,
    а не отдельный shortcut для обхода `azur mcp reconcile`.

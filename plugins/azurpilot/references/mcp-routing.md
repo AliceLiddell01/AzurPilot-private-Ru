@@ -54,9 +54,10 @@ azur mcp status
 `reconcile --source` означает только `source_reconciled`; live acceptance
 требует повторного `azur mcp status` с `runtime_ready=true`. Если status
 сообщает `runtime_state=stale` или `runtime_state=stopped`, единственный
-канонический runtime repair path — `azur mcp reconcile` без `--source`; он
-останавливает только доказанного exact owner, запускает нужные services и
-проверяет postcondition. Unknown/foreign ownership, port conflict или failure
+канонический runtime repair path — `azur mcp reconcile` без `--source`; для
+same-repository stale marker он использует recorded exact-identity cleanup,
+unchanged marker и STOPPED/no-conflict postcondition, затем запускает нужные
+services. Invalid/unknown/foreign ownership, port conflict или failure
 stop/start остаются fail-closed. Внутренние
 `module.*_mcp` и supervisor modules являются implementation details и напрямую
 не запускаются. Если `azur` отсутствует в PATH, workflow fail-closed; `uv run`,

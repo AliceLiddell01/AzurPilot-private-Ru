@@ -56,7 +56,10 @@ reconcile --source --bump auto` даёт `source_reconciled`, но не
 `runtime_ready`; если live runtime обязателен, после него вызови `azur mcp
 status`. При `runtime_state=stale` или `runtime_state=stopped` выполни
 `azur mcp reconcile` без `--source`, затем повторный status с
-`runtime_ready=true`. Не запускай внутренние MCP modules/scripts напрямую.
+`runtime_ready=true`. Same-repository stale marker допускает только typed
+recorded-identity cleanup с unchanged marker и STOPPED/no-conflict postcondition;
+invalid/foreign marker, unknown liveness, port conflict и failure остаются
+fail-closed. Не запускай внутренние MCP modules/scripts напрямую.
 
 ## Универсальный Smoke Harness
 

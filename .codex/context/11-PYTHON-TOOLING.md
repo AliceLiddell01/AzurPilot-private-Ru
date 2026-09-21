@@ -249,7 +249,9 @@ source reconcile напрямую через PATH вызови `azur mcp status`
 `runtime_state=stale` или `runtime_state=stopped` выполни единственный
 канонический runtime repair path `azur mcp reconcile` без `--source`, затем
 повтори status и требуй `runtime_ready=true`. До этой typed попытки stale/stopped
-является recoverable precondition, а не конечным blocker-ом. `MCP_RUNTIME_UNAVAILABLE`
+является recoverable precondition, а не конечным blocker-ом. Same-repository
+stale marker восстанавливается только typed recorded-identity cleanup с
+unchanged marker и STOPPED/no-conflict postcondition. `MCP_RUNTIME_UNAVAILABLE`
 после repair, unknown/foreign ownership, invalid marker/liveness, port conflict,
 ошибка stop/start или mismatch postcondition остаются blocker/limitation.
 `session_state=not_observable` при `runtime_ready=true` не является runtime

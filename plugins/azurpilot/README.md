@@ -47,7 +47,10 @@ Connected App не подменяет Codex route.
 `source_reconciled`; `runtime_ready` подтверждается отдельным `azur mcp status`.
 Если live runtime обязателен и status сообщает `runtime_state=stale` или
 `runtime_state=stopped`, выполни `azur mcp reconcile` без `--source`, затем
-повтори status. Вызов
+повтори status. Для same-repository stale marker этот путь использует только
+typed cleanup записанных exact identities, неизменившийся marker и
+STOPPED/no-conflict postcondition; invalid/foreign marker, unknown liveness,
+port conflict и failure остаются fail-closed. Вызов
 `azur mcp reconcile` без `--source` согласует только runtime и не изменяет
 tracked source. После успешного `azur update` reconciliation
 выполняется автоматически и является обязательным postcondition: ошибка source,

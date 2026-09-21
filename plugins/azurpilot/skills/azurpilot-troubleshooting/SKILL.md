@@ -87,6 +87,12 @@ fallback или source of truth. Если нужный direct server или tool
    compatibility validation; для Game снова вызови `game_get_contract`, если
    он callable, и сопоставь contract с текущей callable surface. При недоступном
    или несовместимом contract оставайся fail-closed.
+   Для host runtime stale marker допустим только canonical `azur mcp reconcile`:
+   same-repository marker восстанавливается через typed cleanup записанных exact
+   identities, с проверкой неизменности marker и STOPPED/no-conflict
+   postcondition. Invalid/foreign marker, unknown liveness, port conflict и
+   termination/readiness failure не являются recoverable и остаются
+   fail-closed.
 6. Только когда и callable catalog содержит требуемое действие, и
    соответствующий contract получен и признан совместимым, верни normal
    operation в `azurpilot-game-control` или `azurpilot-development`.
