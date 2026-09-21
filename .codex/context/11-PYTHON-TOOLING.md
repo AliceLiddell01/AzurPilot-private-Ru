@@ -184,13 +184,19 @@ CodeRabbit — консультативный reviewer, а не источник
 - до classification каждый finding проходит individual exact-head triage по
   affected code, call sites, ближайшим tests, relevant contracts и заявленному
   impact;
-- `insufficient evidence` не является default/fallback и допустим только при
-  доказанной невозможности подтвердить или опровергнуть finding;
+- `insufficient evidence` удалён из disposition model; provider не может
+  автоматически назначить ни эту, ни любую другую verified classification;
 - triage фиксируется typed manifest-ом через прямой `azur integrations
   coderabbit triage`; review с findings остаётся `triage_required`;
-- после confirmed / partially confirmed обязательны fix, проверка, новый exact
-  commit head и следующий review только при оставшемся budget; без code change
-  duplicate review ради `3/3` запрещён;
+- после каждого findings review обязателен individual handling всех findings;
+  applicable findings требуют fix, а typed conflict rejection при оставшемся
+  budget всё равно ведёт к следующему exact-head review; early stop допустим
+  только для authoritative `0 findings`, максимум — `3/3`;
+- repository `.coderabbit.yaml` является auto-discovered repository source;
+  `--config .coderabbit.yaml` не является обязательным и не должен добавляться
+  ради включения этого файла. Project-owned `config validate` проверяет сам
+  файл, а effective Global Override provenance считается неизвестной без
+  native evidence;
 - ограниченный цикл review ограничивает substantive iterations и сохраняет типизированное
   state;
 - pre-spawn reservation не расходует budget: доказанный `not_spawned`/`absent_after_cleanup`

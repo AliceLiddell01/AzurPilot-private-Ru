@@ -51,6 +51,7 @@ class _DiscoveryRunner:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.calls: list[tuple[str, ...]] = []
+        (root / ".coderabbit.yaml").write_text("language: ru-RU\n", encoding="utf-8")
 
     def run(self, spec):  # type: ignore[no-untyped-def]
         self.calls.append(spec.argv)
@@ -60,6 +61,7 @@ class _DiscoveryRunner:
             ("auth", "--help"): "status login\n",
             ("auth", "status"): "Signed in\n",
             ("doctor",): "Summary: 9 passed\n",
+            ("config", "validate", ".coderabbit.yaml"): "Configuration is valid\n",
         }
         return _result(self.root, stdout=outputs.get(spec.argv, ""))
 
@@ -74,6 +76,15 @@ class _Running:
         del timeout_seconds
         self.collected = True
         return self.result
+
+
+class _StartCapture:
+    def __init__(self) -> None:
+        self.argv: tuple[str, ...] | None = None
+
+    def start(self, spec):  # type: ignore[no-untyped-def]
+        self.argv = spec.argv
+        return object()
 
 
 def _ready_provider(root: Path, runner: _DiscoveryRunner) -> coderabbit.NativeCodeRabbit:
@@ -104,6 +115,9 @@ def test_native_discovery_requires_binary_syntax_auth_and_doctor(tmp_path: Path)
         "review_syntax=agent-committed-base-commit",
         "auth=ready",
         "readiness=doctor_passed",
+        "repository_config=.coderabbit.yaml",
+        "config_validation=passed",
+        "effective_config_provenance=not_observable_through_native_surface",
         "transport=native_process",
     }.issubset(check.diagnostics)
     assert runner.calls == [
@@ -112,7 +126,32 @@ def test_native_discovery_requires_binary_syntax_auth_and_doctor(tmp_path: Path)
         ("auth", "--help"),
         ("auth", "status"),
         ("doctor",),
+        ("config", "validate", ".coderabbit.yaml"),
     ]
+
+
+def test_native_review_does_not_use_config_flag_to_enable_repository_config(
+    tmp_path: Path,
+):
+    runner = _StartCapture()
+    provider = coderabbit.NativeCodeRabbit(
+        executable=Path("C:/tools/coderabbit.exe"),
+        version="0.7.8",
+        review_help="--agent --committed --base-commit",
+        root=tmp_path,
+        runner=runner,  # type: ignore[arg-type]
+    )
+
+    provider.start_review("a" * 40)
+
+    assert runner.argv == (
+        "review",
+        "--agent",
+        "--committed",
+        "--base-commit",
+        "a" * 40,
+    )
+    assert "--config" not in runner.argv
 
 
 @pytest.mark.parametrize(
@@ -551,6 +590,77 @@ def test_review_persists_native_identity_then_clears_it_after_exact_postconditio
     assert state["terminal"] is True
     assert state["active"] is False
     assert state["provider_identity"] is None
+
+
+def test_incomplete_provider_finding_does_not_consume_substantive_budget(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    adapter = coderabbit.CodeRabbitAdapter()
+    provider = _ready_provider(root, _DiscoveryRunner(root))
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    incomplete_result = _result(
+        root,
+        stdout=(
+            json.dumps(
+                {
+                    "type": "finding",
+                    "finding": {
+                        "fileName": "azurpilot/tooling/contracts.py",
+                        "severity": "minor",
+                    },
+                }
+            )
+            + "\n"
+            + json.dumps({"type": "complete", "findings": 1})
+            + "\n"
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    candidate_calls = iter(((fingerprint, None, None), (fingerprint, None, None)))
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: next(candidate_calls),
+    )
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(incomplete_result),
+    )
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-incomplete",
+    )
+    state = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == "CODERABBIT_FINDING_INCOMPLETE"
+    assert state["substantive_iterations"] == 0
+    assert state["cycle_status"] == "provider_error"
+    assert state["terminal"] is False
 
 
 def test_review_reserves_starting_state_before_provider_spawn(
@@ -1059,6 +1169,20 @@ def test_triage_requires_evidence_and_new_exact_head_for_confirmed_findings(
                             "nearest_tests": f"nearest tests {index}",
                             "relevant_contracts": f"relevant contracts {index}",
                             "claimed_impact": f"claimed impact {index}",
+                            "decision_reason": (
+                                f"Решение основано на проверке реализации, call sites и тестов для finding {index}."
+                            ),
+                            "change_summary": (
+                                f"Для finding {index} требуется применить remediation или зафиксировать conflict."
+                            ),
+                            **(
+                                {
+                                    "conflict_kind": "repository_contract_conflict",
+                                    "authoritative_source": ".codex/context/GIT-WORKFLOW.md",
+                                }
+                                if index != 1
+                                else {}
+                            ),
                         },
                     }
                     for index in range(1, 9)
@@ -1174,7 +1298,7 @@ def test_parse_provider_findings_output_without_suggested_fix() -> None:
     assert len(findings) == 1
     assert findings[0].path == "azurpilot/tooling/git.py"
     assert findings[0].impact == "Описание проблемы без отдельного блока исправления."
-    assert findings[0].resolution == coderabbit._DEFAULT_FINDING_RESOLUTION
+    assert findings[0].resolution == findings[0].impact
 
 
 def test_obsolete_reconcile_route_is_not_in_provider_cli():

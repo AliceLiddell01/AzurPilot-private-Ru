@@ -253,7 +253,7 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "exact commit",
         "если PR существует",
         "partially confirmed",
-        "insufficient evidence",
+        "typed conflict",
         "host-native",
         "false positive",
         "rate limit",

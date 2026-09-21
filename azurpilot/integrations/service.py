@@ -378,6 +378,27 @@ class IntegrationService:
             coderabbit_cycle=cycle_summary,
         )
 
+    def validate_coderabbit_config(
+        self, repository_root: str | Path | None = None
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        """Проверить repository CodeRabbit config через project-owned adapter."""
+
+        root = self.resolve_root(repository_root)
+        config = load_integration_config(root)
+        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
+        if not isinstance(adapter, CodeRabbitAdapter):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "CodeRabbit adapter имеет неверный тип.",
+            )
+        outcome = adapter.validate_config(root, config)
+        return self._result(
+            "config-validate",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+        )
+
     def findings(
         self,
         *,

@@ -109,7 +109,13 @@ class IntegrationFinding(ClosedModel):
     base_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     disposition: str | None = Field(default=None, max_length=40)
-    resolution: str | None = Field(default=None, max_length=400)
+    resolution: str | None = Field(default=None, max_length=4000)
+    codegen_instructions: str | None = Field(default=None, max_length=4000)
+    suggestions: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
+    decision_reason: str | None = Field(default=None, max_length=2000)
+    change_summary: str | None = Field(default=None, max_length=2000)
+    conflict_kind: str | None = Field(default=None, max_length=80)
+    authoritative_source: str | None = Field(default=None, max_length=1200)
 
     @model_validator(mode="after")
     def validate_line_range(self) -> IntegrationFinding:
@@ -141,6 +147,7 @@ class CodeRabbitCycleSummary(ClosedModel):
     findings_count: int = Field(ge=0, le=128)
     triaged_findings_count: int = Field(default=0, ge=0, le=128)
     triage_required: bool = False
+    historical_non_authoritative_count: int = Field(default=0, ge=0, le=128)
     terminal: bool
     active: bool
 

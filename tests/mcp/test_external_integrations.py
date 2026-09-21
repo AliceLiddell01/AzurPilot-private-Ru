@@ -45,6 +45,8 @@ from azurpilot.integrations.mcp_client import (
 from azurpilot.integrations.service import ADAPTER_ORDER, AdapterOutcome
 from azurpilot.tooling.contracts import (
     AnalysisScope,
+    CodeRabbitFindingTriage,
+    FindingDisposition,
     GitRange,
 )
 from azurpilot.tooling.errors import ToolingError
@@ -182,6 +184,119 @@ def test_agent_ndjson_preserves_top_level_finding_comment():
     )
 
     assert "уровне события" in parsed.findings[0].impact
+
+
+def test_agent_ndjson_preserves_official_codegen_instructions_shape():
+    parsed = coderabbit.parse_agent_ndjson(
+        [
+            json.dumps(
+                {
+                    "type": "finding",
+                    "finding": {
+                        "fileName": "azurpilot/integrations/coderabbit.py",
+                        "severity": "trivial",
+                        "codegenInstructions": "Сделайте bounded typed mapping и добавьте regression test.",
+                    },
+                }
+            ),
+            json.dumps({"type": "complete", "findings": 1}),
+        ]
+    )
+
+    finding = parsed.findings[0]
+    assert finding.path.endswith("coderabbit.py")
+    assert finding.codegen_instructions == finding.resolution
+    assert "regression test" in finding.impact
+    assert finding.disposition is None
+
+
+def test_agent_ndjson_preserves_official_suggestions_and_comment_fallback():
+    parsed = coderabbit.parse_agent_ndjson(
+        [
+            json.dumps(
+                {
+                    "type": "finding",
+                    "finding": {
+                        "fileName": "azurpilot/tooling/contracts.py",
+                        "severity": "minor",
+                        "comment": "Проверьте typed contract перед сериализацией.",
+                        "suggestions": [
+                            "Добавьте проверку schema.",
+                            {"text": "Добавьте тест на invalid state."},
+                        ],
+                    },
+                }
+            ),
+            json.dumps({"type": "complete", "findings": 1}),
+        ]
+    )
+
+    finding = parsed.findings[0]
+    assert finding.codegen_instructions is None
+    assert finding.resolution == finding.impact
+    assert finding.suggestions == (
+        "Добавьте проверку schema.",
+        "Добавьте тест на invalid state.",
+    )
+
+
+def test_agent_ndjson_rejects_incomplete_mixed_findings_without_budget_claim():
+    lines = [
+        json.dumps(
+            {
+                "type": "finding",
+                "finding": {
+                    "fileName": "azurpilot/tooling/contracts.py",
+                    "severity": "major",
+                    "comment": "Содержательный provider claim.",
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "finding",
+                "finding": {
+                    "fileName": "azurpilot/tooling/contracts.py",
+                    "severity": "minor",
+                },
+            }
+        ),
+        json.dumps({"type": "complete", "findings": 2}),
+    ]
+
+    with pytest.raises(coderabbit.CodeRabbitStreamError, match="CODERABBIT_FINDING_INCOMPLETE"):
+        coderabbit.parse_agent_ndjson(lines)
+
+
+def test_coderabbit_triage_rejects_legacy_or_untyped_rejection():
+    common = {
+        "reviewed_head": "a" * 40,
+        "affected_code": "affected implementation",
+        "call_sites": "nearest call sites",
+        "nearest_tests": "nearest tests",
+        "relevant_contracts": "repository contract",
+        "claimed_impact": "independent impact analysis",
+        "decision_reason": "Detailed independent decision based on the contract.",
+        "change_summary": "The applicable remediation is tracked for this head.",
+    }
+    with pytest.raises(ValidationError):
+        CodeRabbitFindingTriage(
+            disposition=FindingDisposition.FALSE_POSITIVE,
+            **common,
+        )
+    with pytest.raises(ValidationError):
+        CodeRabbitFindingTriage(
+            disposition="insufficient evidence",
+            **common,
+        )
+
+    rejected = CodeRabbitFindingTriage(
+        disposition=FindingDisposition.FALSE_POSITIVE,
+        conflict_kind="repository_contract_conflict",
+        authoritative_source=".codex/context/GIT-WORKFLOW.md",
+        **common,
+    )
+    assert rejected.conflict_kind.value == "repository_contract_conflict"
 
 
 def test_agent_ndjson_preserves_coderabbit_issue_and_suggested_fix_text():
@@ -759,6 +874,9 @@ def test_cli_exposes_typed_integration_leaves():
     cycle_args = parser.parse_args(
         ["integrations", "coderabbit", "cycle", "start", "--base", "c" * 40]
     )
+    config_args = parser.parse_args(
+        ["integrations", "coderabbit", "config", "validate", "--json"]
+    )
 
     assert status_args.integration_target == "status"
     assert paths_args.paths == ["azurpilot/cli.py"]
@@ -767,6 +885,8 @@ def test_cli_exposes_typed_integration_leaves():
     assert cycle_args.integration_action == "cycle"
     assert cycle_args.coderabbit_cycle_action == "start"
     assert cycle_args.base == "c" * 40
+    assert config_args.integration_action == "config"
+    assert config_args.coderabbit_config_action == "validate"
 
 
 def test_cli_rejects_ambiguous_semgrep_scope():

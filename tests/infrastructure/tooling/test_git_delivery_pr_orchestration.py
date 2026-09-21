@@ -11,11 +11,16 @@ import pytest
 
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling.contracts import (
+    FRESH_MCP_ACCEPTANCE_GATE_NAME,
+    CodeRabbitFinding,
+    CodeRabbitFindingTriage,
     CodeRabbitReview,
     DeliveryChange,
     DeliveryDetails,
     DeliveryEvidence,
     DeliveryPhase,
+    FindingDisposition,
+    FindingSeverity,
     GitSnapshot,
     MandatoryGate,
     MandatoryGateState,
@@ -1216,6 +1221,120 @@ def test_structured_pr_body_rejects_thin_operator_report() -> None:
     assert error.value.code is ResultCode.TOOLING_PR_BODY_INVALID
 
 
+def test_structured_pr_body_renders_each_coderabbit_decision_with_evidence() -> None:
+    triage_common = {
+        "reviewed_head": "b" * 40,
+        "affected_code": "Проверен parser и сохранение typed provider evidence.",
+        "call_sites": "Проверены adapter, service и CLI call sites.",
+        "nearest_tests": "Проверены targeted parser, migration и renderer tests.",
+        "relevant_contracts": "Сверены repository contract и текущий task scope.",
+        "claimed_impact": "Наблюдаемое влияние подтверждено по exact candidate.",
+    }
+    fixed_triage = CodeRabbitFindingTriage(
+        disposition=FindingDisposition.CONFIRMED,
+        decision_reason="Finding подтверждён сравнением provider claim с текущим кодом.",
+        change_summary="Добавлена remediation и regression coverage на этом exact head.",
+        **triage_common,
+    )
+    rejected_triage = CodeRabbitFindingTriage(
+        disposition=FindingDisposition.FALSE_POSITIVE,
+        decision_reason="Рекомендация прямо нарушает обязательный repository contract.",
+        change_summary="Изменение отклонено только по доказанному contract conflict.",
+        conflict_kind="repository_contract_conflict",
+        authoritative_source=".codex/context/GIT-WORKFLOW.md: merge policy",
+        **triage_common,
+    )
+    review = CodeRabbitReview(
+        reviewed_head="b" * 40,
+        base_sha="a" * 40,
+        findings=(
+            CodeRabbitFinding(
+                severity=FindingSeverity.MAJOR,
+                path="azurpilot/integrations/coderabbit.py",
+                line=12,
+                line_end=14,
+                title="Потеря provider context",
+                impact="Official agent context не публикуется в typed finding.",
+                resolution="Сохранить codegenInstructions и показать его оператору.",
+                codegen_instructions="Добавьте bounded agent fix context в DTO и renderer.",
+                suggestions=("Добавьте regression test.",),
+                disposition=FindingDisposition.CONFIRMED,
+                fix_head="c" * 40,
+                triage=fixed_triage,
+            ),
+            CodeRabbitFinding(
+                severity=FindingSeverity.MINOR,
+                path=".coderabbit.yaml",
+                title="Конфликт policy",
+                impact="Provider предложил нарушить repository review policy.",
+                resolution="Изменить policy согласно provider recommendation.",
+                disposition=FindingDisposition.FALSE_POSITIVE,
+                triage=rejected_triage,
+            ),
+        ),
+    )
+    body = PullRequestBody(
+        goal=(
+            "Цель изменения — сохранить полный CodeRabbit evidence и сделать каждое решение аудируемым. "
+            "Operator должен видеть provider claim, independent conclusion и точный fix head. "
+            "Это позволяет воспроизвести решение на exact candidate и отличить remediation от rejection. " * 2
+        ),
+        scope=(
+            "В scope входят typed CodeRabbit protocol, triage, state migration и PR rendering.\n"
+            "- Provider payload и independent evidence.\n"
+            "- Strict disposition и conflict basis.\n"
+            "- Exact reviewed head и bounded audit trail по каждому provider finding.\n" * 2
+        ),
+        implementation=(
+            "Adapter сохраняет official fields, state migration удаляет terminal authority legacy result, "
+            "а renderer публикует отдельный блок для каждого finding.\n"
+            "- codegenInstructions является основным fix context.\n"
+            "- conflict rejection содержит source и decision reason.\n"
+            "- Fixed finding сохраняет change summary и fix head для последующей проверки.\n" * 2
+        ),
+        checks=(
+            "Проверены parser, typed triage, renderer и exact-head invariants.\n"
+            "- Targeted tests покрывают valid, incomplete и rejected payload.\n"
+            "- Renderer regression проверяет оба disposition.\n"
+            "- Legacy migration не может выдать старый provider result за terminal clean state.\n" * 2
+        ),
+        ci=(
+            "Exact-head CI проверяет Python, Windows и Security jobs.\n"
+            "- Каждый обязательный context сверяется с текущим commit.\n"
+            "- Review и security status не подменяют друг друга.\n" * 2
+        ),
+        security_secret_scan=(
+            "Secret scan ограничен source и staged content.\n"
+            "- Provider payload остаётся bounded и untrusted.\n"
+            "- Секреты, команды и непроверенный raw output не исполняются автоматически.\n" * 2
+        ),
+        coderabbit_review=review,
+        migration_rollback=(
+            "State migration сохраняет historical evidence без terminal authority.\n"
+            "- Rollback выполняется через согласованный Git workflow.\n"
+            "- Новый logical cycle стартует только через project-owned boundary.\n" * 2
+        ),
+        limitations=(
+            "Effective organization override provenance не раскрывается native surface.\n"
+            "- Merge и Ready lifecycle остаются отдельным решением.\n"
+            "- Отсутствие provenance evidence не заменяется предположением об effective config.\n" * 2
+        ),
+    )
+
+    rendered = PullRequestBodyRenderer.render(
+        body,
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+    )
+
+    assert rendered.count("### Finding ") == 2
+    assert "Добавьте bounded agent fix context" in rendered
+    assert "Fix head: `" + "c" * 40 in rendered
+    assert "repository_contract_conflict" in rendered
+    assert ".codex/context/GIT-WORKFLOW.md: merge policy" in rendered
+    assert "Изменение отклонено только по доказанному contract conflict." in rendered
+
+
 def test_readiness_state_blocks_ready_when_mandatory_gate_is_blocked() -> None:
     gate = MandatoryGate(
         name="product_live_acceptance",
@@ -1262,6 +1381,46 @@ def test_readiness_rate_limit_is_independent_from_product_gate() -> None:
     )
     assert readiness.merge_ready is False
     assert readiness.overall_outcome == "READY"
+
+
+def test_required_mcp_impact_requires_delegated_fresh_gate() -> None:
+    fresh_gate = MandatoryGate(
+        name=FRESH_MCP_ACCEPTANCE_GATE_NAME,
+        state=MandatoryGateState.PASS,
+        evidence="Fresh independent Codex task подтвердил registration, runtime и live acceptance.",
+        evidence_kind="delegated_fresh_task",
+    )
+    readiness = ReadinessState(
+        implementation_status="COMPLETE",
+        mcp_impact="REQUIRED",
+        mandatory_gates=(fresh_gate,),
+        overall_outcome="READY",
+        ready_for_chatgpt_review=True,
+    )
+    assert readiness.mcp_impact == "REQUIRED"
+
+    with pytest.raises(ValueError):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="REQUIRED",
+            mandatory_gates=(),
+            overall_outcome="BLOCKED",
+        )
+    with pytest.raises(ValueError):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="REQUIRED",
+            mandatory_gates=(
+                MandatoryGate(
+                    name=FRESH_MCP_ACCEPTANCE_GATE_NAME,
+                    state=MandatoryGateState.PASS,
+                    evidence="Только source evidence.",
+                    evidence_kind="source",
+                ),
+            ),
+            overall_outcome="READY",
+            ready_for_chatgpt_review=True,
+        )
 
 
 def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> None:

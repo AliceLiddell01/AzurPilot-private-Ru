@@ -125,7 +125,9 @@ required `Python`, `Windows`, `Security` на exact head, secret scan, self-revi
 
 Typed readiness разделяет implementation, mandatory gates, external reviewer
 limitation, `READY_FOR_CHATGPT_REVIEW` и merge-ready. Mandatory gate имеет
-terminal state `PASS`, `FAIL`, `BLOCKED_PRECONDITION` или `NOT_REQUIRED`;
+terminal state `PASS`, `FAIL`, `BLOCKED_PRECONDITION` или `NOT_REQUIRED`; при
+`MCP impact=REQUIRED` fresh acceptance gate обязателен и `NOT_REQUIRED` для него
+недопустим;
 `FAIL`/`BLOCKED_PRECONDITION` сохраняет полезный Draft, но требует blocked
 overall outcome и запрещает readiness/merge. CodeRabbit rate limit фиксируется
 отдельно и сам по себе не блокирует readiness при остальных фактически

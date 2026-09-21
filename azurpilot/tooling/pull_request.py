@@ -148,28 +148,60 @@ class PullRequestBodyRenderer:
             if review.history:
                 lines.extend(("", review.history))
             if findings:
-                lines.extend(
-                    (
-                        "",
-                        "| Уровень | Путь | Влияние | Решение | Исправление | SHA исправления |",
-                        "| --- | --- | --- | --- | --- | --- |",
+                for index, finding in enumerate(findings, start=1):
+                    location = (
+                        f"`{_table_cell(finding.path)}:{finding.line}-{finding.line_end or finding.line}`"
+                        if finding.line is not None
+                        else f"`{_table_cell(finding.path)}`"
                     )
-                )
-                lines.extend(
-                    "| {severity} | {path} | {impact} | {disposition} | {resolution} | {fix_head} |".format(
-                        severity=finding.severity.value,
-                        path=_table_cell(finding.path),
-                        impact=_table_cell(finding.impact),
-                        disposition=(
-                            finding.disposition.value
-                            if finding.disposition is not None
-                            else "untriaged"
-                        ),
-                        resolution=_table_cell(finding.resolution),
-                        fix_head=finding.fix_head or "—",
+                    lines.extend(
+                        (
+                            "",
+                            f"### Finding {index}: `{finding.severity.value}` — {_table_cell(finding.title or 'без заголовка')}",
+                            f"- Provider path/location: {location}",
+                            f"- Provider claim: {_table_cell(finding.impact)}",
+                            f"- Agent fix context: {_table_cell(finding.codegen_instructions or finding.resolution)}",
+                            "- Provider suggestions: "
+                            + (
+                                "; ".join(_table_cell(item) for item in finding.suggestions)
+                                if finding.suggestions
+                                else "—"
+                            ),
+                            "- Independent disposition: "
+                            + (
+                                finding.disposition.value
+                                if finding.disposition is not None
+                                else "требуется individual triage"
+                            ),
+                        )
                     )
-                    for finding in findings
-                )
+                    triage = finding.triage
+                    if triage is None:
+                        continue
+                    lines.extend(
+                        (
+                            f"- Reviewed exact head: `{triage.reviewed_head}`",
+                            f"- Affected code: {_table_cell(triage.affected_code)}",
+                            f"- Call sites: {_table_cell(triage.call_sites)}",
+                            f"- Nearest tests: {_table_cell(triage.nearest_tests)}",
+                            f"- Relevant contracts: {_table_cell(triage.relevant_contracts)}",
+                            f"- Claimed impact analysis: {_table_cell(triage.claimed_impact)}",
+                            f"- Decision reason: {_table_cell(triage.decision_reason)}",
+                            f"- Change summary: {_table_cell(triage.change_summary)}",
+                            f"- Fix head: `{finding.fix_head or 'ожидается после remediation'}`",
+                        )
+                    )
+                    if triage.conflict_kind is not None:
+                        lines.extend(
+                            (
+                                f"- Conflict kind: `{triage.conflict_kind.value}`",
+                                f"- Authoritative source: {_table_cell(triage.authoritative_source or '—')}",
+                                (
+                                    "- Rejection basis: conflict rejection; finding не исполняется "
+                                    "только из-за доказанного authoritative conflict."
+                                ),
+                            )
+                        )
             else:
                 lines.append("На последнем проверенном head findings не было.")
             review_text = "\n".join(lines)
@@ -181,6 +213,8 @@ class PullRequestBodyRenderer:
             f"Merge-ready: `{str(body.readiness.merge_ready).lower()}`.",
             f"Внешний reviewer: `{body.readiness.external_reviewer_status}`.",
         ]
+        if body.readiness.mcp_impact is not None:
+            readiness_lines.append(f"MCP impact: `{body.readiness.mcp_impact}`.")
         if body.readiness.reviewer_limitation:
             readiness_lines.append(
                 f"Ограничение reviewer: {body.readiness.reviewer_limitation}"

@@ -445,6 +445,16 @@ def build_parser() -> argparse.ArgumentParser:
                 help="явный repository-relative файл; параметр можно повторять",
             )
         if name is IntegrationName.CODERABBIT:
+            config = provider_subparsers.add_parser(
+                "config", help="проверить repository CodeRabbit configuration"
+            )
+            config_subparsers = config.add_subparsers(
+                dest="coderabbit_config_action", required=True, metavar="ACTION"
+            )
+            config_validate = config_subparsers.add_parser(
+                "validate", help="проверить `.coderabbit.yaml` по official schema"
+            )
+            _add_common_options(config_validate, suppress_defaults=True)
             review = provider_subparsers.add_parser(
                 "review", help="запустить advisory CodeRabbit review"
             )
@@ -778,6 +788,10 @@ def _render_human(
                         cycle.last_reviewed_head or "не наблюдался",
                     ),
                     ("сохранённых циклов", str(cycle.previous_cycles_retained)),
+                    (
+                        "historical non-authoritative findings",
+                        str(cycle.historical_non_authoritative_count),
+                    ),
                 )
                 for label, value in cycle_rows:
                     cycle_table.add_row(Text(str(label)), Text(str(value)))
@@ -794,8 +808,7 @@ def _render_human(
                 disposition_labels = {
                     "confirmed": "подтверждено",
                     "partially confirmed": "частично подтверждено",
-                    "false positive": "ложное срабатывание",
-                    "insufficient evidence": "недостаточно данных",
+                    "false positive": "отклонено по conflict",
                     "untriaged": "не проверено",
                 }
                 for index, finding in enumerate(findings, start=1):
@@ -823,6 +836,27 @@ def _render_human(
                     finding_table.add_row("Воздействие", Text(str(getattr(finding, "message", "не указано"))))
                     resolution = getattr(finding, "resolution", None)
                     finding_table.add_row("Рекомендация CodeRabbit", Text(str(resolution or "не указано")))
+                    codegen_instructions = getattr(finding, "codegen_instructions", None)
+                    if codegen_instructions:
+                        finding_table.add_row(
+                            "Agent fix context",
+                            Text(str(codegen_instructions)),
+                        )
+                    suggestions = tuple(getattr(finding, "suggestions", ()))
+                    if suggestions:
+                        finding_table.add_row(
+                            "Suggestions",
+                            Text("\n".join(str(item) for item in suggestions)),
+                        )
+                    for field, label in (
+                        ("decision_reason", "Decision reason"),
+                        ("change_summary", "Change summary"),
+                        ("conflict_kind", "Conflict kind"),
+                        ("authoritative_source", "Authoritative source"),
+                    ):
+                        value = getattr(finding, field, None)
+                        if value:
+                            finding_table.add_row(label, Text(str(value)))
                     finding_table.add_row("Независимая классификация", Text(disposition_labels.get(disposition, disposition or "не классифицировано")))
                     accepted = "принято" if disposition in {"confirmed", "partially confirmed"} else "не принято"
                     finding_table.add_row("Принятое решение", Text(accepted))
@@ -1092,6 +1126,12 @@ def _dispatch(
                     else None
                 ),
             )
+        if (
+            target == IntegrationName.CODERABBIT.value
+            and action == "config"
+            and args.coderabbit_config_action == "validate"
+        ):
+            return services.integrations.validate_coderabbit_config(repository_root=root)
         if target == IntegrationName.CODERABBIT.value and action == "findings":
             return services.integrations.findings(
                 base_sha=args.base,

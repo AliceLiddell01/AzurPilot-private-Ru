@@ -521,7 +521,9 @@ lifecycle. Правила ожидания, retry и triage провайдера
 skill/reference.
 
 Readiness фиксируется typed state: обязательный gate имеет `PASS`, `FAIL`,
-`BLOCKED_PRECONDITION` или `NOT_REQUIRED`. `FAIL`/`BLOCKED_PRECONDITION`
+`BLOCKED_PRECONDITION` или `NOT_REQUIRED`; если MCP impact равен `REQUIRED`,
+fresh independent task acceptance является обязательным gate и не может иметь
+`NOT_REQUIRED`. `FAIL`/`BLOCKED_PRECONDITION`
 требует `overall_outcome=BLOCKED` и запрещает `READY_FOR_CHATGPT_REVIEW` и
 merge-ready, даже если implementation complete. Provider rate limit является
 review limitation и не меняет mandatory product/live gate.

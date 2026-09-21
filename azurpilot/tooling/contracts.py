@@ -73,7 +73,14 @@ class FindingDisposition(StrEnum):
     CONFIRMED = "confirmed"
     PARTIALLY_CONFIRMED = "partially confirmed"
     FALSE_POSITIVE = "false positive"
-    INSUFFICIENT_EVIDENCE = "insufficient evidence"
+
+
+class CodeRabbitConflictKind(StrEnum):
+    """Единственные основания отклонить применимый CodeRabbit finding."""
+
+    REPOSITORY_CONTRACT_CONFLICT = "repository_contract_conflict"
+    TASK_PROMPT_CONFLICT = "task_prompt_conflict"
+    DEPENDENCY_VERSION_CONFLICT = "dependency_version_conflict"
 
 
 class WarningCode(StrEnum):
@@ -349,6 +356,40 @@ class CodeRabbitFindingTriage(ClosedModel):
     nearest_tests: str = Field(min_length=1, max_length=1200)
     relevant_contracts: str = Field(min_length=1, max_length=1200)
     claimed_impact: str = Field(min_length=1, max_length=1200)
+    decision_reason: str = Field(min_length=12, max_length=2000)
+    change_summary: str = Field(min_length=12, max_length=2000)
+    conflict_kind: CodeRabbitConflictKind | None = None
+    authoritative_source: str | None = Field(default=None, max_length=1200)
+
+    @model_validator(mode="after")
+    def validate_decision_evidence(self) -> CodeRabbitFindingTriage:
+        placeholder_values = {
+            "false positive",
+            "insufficient evidence",
+            "not confirmed",
+            "не подтверждено",
+            "недостаточно данных",
+            "индивидуальная проверка выполнена",
+            "изменений не требуется",
+        }
+        normalized_reason = " ".join(self.decision_reason.casefold().split())
+        normalized_change = " ".join(self.change_summary.casefold().split())
+        if normalized_reason in placeholder_values or normalized_change in placeholder_values:
+            raise ValueError("triage evidence не может быть placeholder-only объяснением")
+        if self.disposition is FindingDisposition.FALSE_POSITIVE:
+            if self.conflict_kind is None:
+                raise ValueError(
+                    "false positive требует typed repository/task/dependency conflict"
+                )
+            if not self.authoritative_source or len(self.authoritative_source.strip()) < 8:
+                raise ValueError(
+                    "conflict rejection требует authoritative source"
+                )
+        elif self.conflict_kind is not None or self.authoritative_source is not None:
+            raise ValueError(
+                "conflict evidence допустимо только для false positive rejection"
+            )
+        return self
 
 
 class CodeRabbitFinding(ClosedModel):
@@ -361,7 +402,9 @@ class CodeRabbitFinding(ClosedModel):
     line_end: int | None = Field(default=None, ge=1, le=10_000_000)
     impact: str = Field(min_length=1, max_length=1200)
     disposition: FindingDisposition | None = None
-    resolution: str = Field(min_length=1, max_length=1200)
+    resolution: str = Field(min_length=1, max_length=4000)
+    codegen_instructions: str | None = Field(default=None, max_length=4000)
+    suggestions: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
     fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     triage: CodeRabbitFindingTriage | None = None
 
@@ -418,6 +461,9 @@ class MandatoryGateState(StrEnum):
     NOT_REQUIRED = "NOT_REQUIRED"
 
 
+FRESH_MCP_ACCEPTANCE_GATE_NAME = "fresh_mcp_task_acceptance"
+
+
 class MandatoryGate(ClosedModel):
     """Один обязательный или неприменимый gate с bounded evidence."""
 
@@ -425,11 +471,20 @@ class MandatoryGate(ClosedModel):
     state: MandatoryGateState
     required: bool = True
     evidence: str = Field(min_length=1, max_length=1000)
+    evidence_kind: Literal[
+        "source", "runtime", "delegated_fresh_task", "other"
+    ] = "other"
 
     @model_validator(mode="after")
     def validate_required_state(self) -> MandatoryGate:
         if not self.required and self.state is not MandatoryGateState.NOT_REQUIRED:
             raise ValueError("необязательный gate должен иметь state NOT_REQUIRED")
+        if self.name == FRESH_MCP_ACCEPTANCE_GATE_NAME and (
+            not self.required or self.state is MandatoryGateState.NOT_REQUIRED
+        ):
+            raise ValueError(
+                "fresh MCP task acceptance не может быть NOT_REQUIRED"
+            )
         return self
 
 
@@ -438,6 +493,7 @@ class ReadinessState(ClosedModel):
 
     implementation_status: Literal["IN_PROGRESS", "COMPLETE", "BLOCKED"] = "IN_PROGRESS"
     mandatory_gates: tuple[MandatoryGate, ...] = Field(default_factory=tuple, max_length=32)
+    mcp_impact: Literal["NOT_REQUIRED", "REQUIRED"] | None = None
     external_reviewer_status: Literal[
         "NOT_RUN", "SUBSTANTIVE", "LIMITED", "RATE_LIMITED"
     ] = "NOT_RUN"
@@ -448,6 +504,31 @@ class ReadinessState(ClosedModel):
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> ReadinessState:
+        gate_names = tuple(gate.name for gate in self.mandatory_gates)
+        if len(gate_names) != len(set(gate_names)):
+            raise ValueError("mandatory gates должны иметь уникальные имена")
+        fresh_gates = tuple(
+            gate
+            for gate in self.mandatory_gates
+            if gate.name == FRESH_MCP_ACCEPTANCE_GATE_NAME
+        )
+        if self.mcp_impact == "REQUIRED":
+            if len(fresh_gates) != 1:
+                raise ValueError(
+                    "MCP impact REQUIRED требует ровно один mandatory fresh MCP gate"
+                )
+            fresh_gate = fresh_gates[0]
+            if fresh_gate.state is MandatoryGateState.NOT_REQUIRED:
+                raise ValueError(
+                    "MCP impact REQUIRED запрещает NOT_REQUIRED для fresh MCP gate"
+                )
+            if (
+                fresh_gate.state is MandatoryGateState.PASS
+                and fresh_gate.evidence_kind != "delegated_fresh_task"
+            ):
+                raise ValueError(
+                    "PASS fresh MCP gate требует evidence новой independent task"
+                )
         blocking = any(
             gate.required
             and gate.state
@@ -721,6 +802,12 @@ class McpImpactDetails(ClosedModel):
     generated_artifacts: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
     reconciliation_required: bool
 
+    @property
+    def fresh_acceptance_required(self) -> bool:
+        """Механическая связь impact classification с mandatory acceptance."""
+
+        return self.status == "REQUIRED"
+
 
 class McpServerStatus(ClosedModel):
     """Transport-neutral status одной first-party backend family."""
@@ -867,6 +954,7 @@ class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
 
 
 __all__ = [
+    "FRESH_MCP_ACCEPTANCE_GATE_NAME",
     "AnalysisScope",
     "BranchIdentity",
     "BuildDetails",
@@ -874,6 +962,7 @@ __all__ = [
     "CapabilityCheck",
     "CapabilityStatus",
     "ClosedModel",
+    "CodeRabbitConflictKind",
     "CodeRabbitFinding",
     "CodeRabbitFindingTriage",
     "CodeRabbitReview",

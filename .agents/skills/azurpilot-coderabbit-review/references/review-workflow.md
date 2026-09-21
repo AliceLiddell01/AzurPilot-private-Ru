@@ -27,10 +27,10 @@ Legacy state нельзя автоматически присвоить ново
 
 ## Предварительные требования CLI
 
-Adapter получает live `--version`, `review --help`, `auth --help`, `auth status` и
-`doctor`. Help является источником истины для flags; версия не закрепляется
-постоянной строкой в репозитории. Требуются `--agent`, `--committed` и
-`--base-commit`.
+Adapter получает live `--version`, `review --help`, `auth --help`, `auth status`,
+`doctor` и `config validate .coderabbit.yaml`. Help является источником истины
+для flags; версия не закрепляется постоянной строкой в репозитории. Требуются
+`--agent`, `--committed` и `--base-commit`.
 
 Провайдерский вызов, подтверждённый help:
 
@@ -67,8 +67,11 @@ text.
 ## Индивидуальная проверка, бюджет и жизнеспособность
 
 Provider finding и verified finding disposition — разные сущности. Не переноси
-provider `classification`/`disposition` в verified state и не присваивай всем
-findings `insufficient evidence` как fallback.
+provider `classification`/`disposition` в verified state. Сохраняй официальные
+`fileName`, `codegenInstructions`, `suggestions` и `comment`; используй
+`codegenInstructions` первым для fix context и `comment` как fallback. Incomplete
+path-only/severity-only result не становится actionable finding и не расходует
+budget.
 
 Для каждого finding до любой classification отдельно проверь exact reviewed
 head, affected code, call sites, ближайшие tests, relevant contracts и
@@ -79,21 +82,28 @@ head, affected code, call sites, ближайшие tests, relevant contracts и
 azur integrations coderabbit triage --manifest <absolute-json-manifest>
 ```
 
-Только typed triage manifest с exact reviewed head может установить одну из
-классификаций: `confirmed`, `partially confirmed`, `false positive`,
-`insufficient evidence`. `insufficient evidence` допустим только если
-выполненная проверка объективно не позволила подтвердить или опровергнуть
-finding.
+Только typed triage manifest с exact reviewed head может установить
+`confirmed`, `partially confirmed` или `false positive`. Каждый applicable
+finding требует fix независимо от severity/refactor/trivial/cleanup; `false
+positive` допустим только при typed repository/task/dependency conflict с
+authoritative source и подробным decision reason.
 
 Максимум — `3/3` substantive iterations в одном cycle. Completed `0 findings`
 означает early stop. Completed `findings > 0` означает `triage_required`, а не
 terminal success: workflow нельзя завершить на сохранении provider findings.
 Для `confirmed`/`partially confirmed` обязательны fix, проверка и новый exact
-commit head; следующий substantive review запускай только если budget остался.
-После доказанного triage без требующих изменения кода findings не запускай
-duplicate review только ради `3/3`. Auth/network/process/parse failure и rate
-limit до authoritative `complete` budget не потребляют. При rate limit немедленно
-верни typed result без wait/retry loop.
+commit head; после любого findings review, включая all-conflict rejection,
+следующий substantive review запускай при оставшемся budget. Единственный
+normal early stop — authoritative `0 findings`; на `3/3` фиксируй budget
+exhausted и не запускай `4/3`. Auth/network/process/parse failure, incomplete
+output и rate limit до authoritative `complete` budget не потребляют. При rate
+limit немедленно верни typed result без wait/retry loop.
+
+Repository `.coderabbit.yaml` является штатным auto-discovered repository source.
+Не передавай `--config .coderabbit.yaml` в review: `-c/--config` означает
+дополнительные AI instructions. Отдельная project-owned `config validate`
+проверяет сам файл; effective merged config/provenance остаётся limitation, если
+native provider не предоставляет такую поверхность.
 
 Heartbeat сообщает только liveness и не запускает второй provider call. Exact
 `ProcessIdentity` со matching PID, start time, executable, argv и cwd означает
