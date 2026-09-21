@@ -212,7 +212,7 @@ binding до этого — другой слой и не Game/Dev backend failu
 | fork/subtask/same-directory fork без гарантированного catalog refresh | не считать refresh и не считать действия выполненными. |
 
 Если source/runtime уже подтверждены, а устарела только task/session registration,
-действуй по [единому контракту cross-thread continuation](../../../../.agents/azurpilot-repository-development/references/cross-thread-task-delegation.md):
+действуй по [единому контракту cross-thread continuation](../../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md):
 coordinator создаёт свежую независимую task/thread и получает terminal evidence,
 а не просит пользователя открыть новый чат. Это не Reconnect Connected App и
 не subagent/fork/same-session retry.

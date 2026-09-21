@@ -1000,6 +1000,10 @@ def test_provider_findings_require_individual_triage_before_next_review(
         }
     )
     adapter._save_review_state(root, state)
+    long_provider_claim = (
+        "Длинный provider claim должен сохраниться в bounded IntegrationFinding без "
+        "обрезания до старого лимита DTO. "
+    ) * 8
     provider_findings = "\n".join(
         json.dumps(
             {
@@ -1007,7 +1011,11 @@ def test_provider_findings_require_individual_triage_before_next_review(
                 "finding": {
                     "path": f"azurpilot/module_{index}.py",
                     "severity": "major",
-                    "comment": f"Проверить finding {index}.",
+                    "comment": (
+                        long_provider_claim
+                        if index == 1
+                        else f"Проверить finding {index}."
+                    ),
                     "classification": "confirmed",
                 },
             },
@@ -1056,6 +1064,7 @@ def test_provider_findings_require_individual_triage_before_next_review(
     assert outcome.record.state is IntegrationState.DEGRADED
     assert len(outcome.findings) == 8
     assert all(finding.disposition is None for finding in outcome.findings)
+    assert outcome.findings[0].message == long_provider_claim.strip()
     assert saved["substantive_iterations"] == 2
     assert saved["cycle_status"] == "triage_required"
     assert saved["terminal"] is False

@@ -103,7 +103,7 @@ class IntegrationFinding(ClosedModel):
     line_end: int | None = Field(default=None, ge=1, le=10_000_000)
     title: str | None = Field(default=None, max_length=160)
     severity: str = Field(min_length=1, max_length=40)
-    message: str = Field(min_length=1, max_length=400)
+    message: str = Field(min_length=1, max_length=1200)
     fingerprint: str | None = Field(default=None, max_length=128)
     reviewed_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     base_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")

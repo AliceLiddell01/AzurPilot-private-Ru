@@ -309,7 +309,17 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
         Path("plugins/azurpilot/references/mcp-routing.md"),
         Path("plugins/azurpilot/skills/azurpilot-troubleshooting/SKILL.md"),
     ):
-        content = (_REPOSITORY_ROOT / relative).read_text(encoding="utf-8").lower()
+        document_path = _REPOSITORY_ROOT / relative
+        raw_content = document_path.read_text(encoding="utf-8")
+        content = raw_content.lower()
+        targets = re.findall(
+            r"\]\(([^)\s]*cross-thread-task-delegation\.md)\)",
+            raw_content,
+            flags=re.IGNORECASE,
+        )
+        assert targets
+        for target in targets:
+            assert (document_path.parent / target).is_file()
         assert "cross-thread continuation" in content
         assert (
             "fresh independent" in content

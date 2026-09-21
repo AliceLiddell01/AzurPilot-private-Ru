@@ -27,19 +27,16 @@ _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS: dict[str, str] = {
     "grafana": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
     "docker-hub": "DOCKERHUB_PAT",
 }
-_WINDOWS_CODERABBIT_NAME = "coderabbit.exe"
-_POSIX_CODERABBIT_NAME = "coderabbit"
-
-
 def _native_coderabbit_name(host_os: str | None = None) -> str | None:
     """Вернуть допустимое имя host-native provider для указанной host OS."""
 
-    value = os.name if host_os is None else host_os
-    if value in {"nt", "windows"}:
-        return _WINDOWS_CODERABBIT_NAME
-    if value in {"posix", "posix-host", "linux", "darwin", "macos"}:
-        return _POSIX_CODERABBIT_NAME
-    return None
+    # Import lazily: coderabbit.py owns the native platform/name mapping and
+    # imports IntegrationConfig from this module.
+    from .coderabbit import _host_platform, _provider_name
+
+    if _host_platform(host_os) == "unsupported":
+        return None
+    return _provider_name(host_os)
 
 # Это vendor defaults, а не credentials или machine identity. Image refs
 # намеренно immutable; изменять их можно только через явную конфигурацию.

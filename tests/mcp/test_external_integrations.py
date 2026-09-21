@@ -913,6 +913,8 @@ def test_integration_finding_rejects_reversed_line_range():
             severity="minor",
             message="Некорректный диапазон.",
         )
+
+
 def test_coderabbit_rate_limit_metadata_is_bounded_and_typed():
     error = coderabbit.CodeRabbitStreamError(
         "CODERABBIT_RATE_LIMITED",
