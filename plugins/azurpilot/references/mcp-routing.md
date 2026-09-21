@@ -46,11 +46,18 @@ project trust и effective registration должны быть подтвержд
 ```text
 azur mcp status
 azur mcp reconcile --source --bump auto
-azur mcp start | azur mcp restart
+azur mcp status
+azur mcp reconcile
+azur mcp status
 ```
 
 `reconcile --source` означает только `source_reconciled`; live acceptance
-требует повторного `azur mcp status` с `runtime_ready=true`. Внутренние
+требует повторного `azur mcp status` с `runtime_ready=true`. Если status
+сообщает `runtime_state=stale` или `runtime_state=stopped`, единственный
+канонический runtime repair path — `azur mcp reconcile` без `--source`; он
+останавливает только доказанного exact owner, запускает нужные services и
+проверяет postcondition. Unknown/foreign ownership, port conflict или failure
+stop/start остаются fail-closed. Внутренние
 `module.*_mcp` и supervisor modules являются implementation details и напрямую
 не запускаются. Если `azur` отсутствует в PATH, workflow fail-closed; `uv run`,
 Python module entrypoint и shell wrapper не являются fallback.

@@ -12,13 +12,22 @@ client/session registration. Он не создаёт новую feature, вет
 
 1. `azur mcp reconcile --source --bump auto` подтверждает только
    `source_reconciled`.
-2. `azur mcp status` должен подтвердить `runtime_ready=true`, если live gate
-   входит в scope.
-3. При `LOCAL_MCP_SUPERVISOR_STOPPED` сначала разрешены только доказанный owned
-   `azur mcp start` или `azur mcp restart`, после чего status нужно прочитать
-   повторно. Само это состояние не является причиной создавать новую task.
+2. `azur mcp status` читает текущее source/runtime состояние; итоговый status
+   после возможного repair должен подтвердить `runtime_ready=true`, если live
+   gate входит в scope.
+3. При `runtime_state=stale` или `runtime_state=stopped` coordinator сначала
+   вызывает единственный typed runtime repair path `azur mcp reconcile` без
+   `--source`, после чего status нужно прочитать повторно. Этот path использует
+   существующий `McpService.reconcile`: останавливает только доказанного exact
+   owner, запускает нужные owned services и проверяет `runtime_ready=true`.
+   Само stale/stopped состояние не является причиной создавать новую task.
+   `LOCAL_MCP_SUPERVISOR_STOPPED` — один из typed сигналов такого состояния,
+   а не отдельный shortcut для обхода `azur mcp reconcile`.
+   `LOCAL_MCP_SUPERVISOR_OWNERSHIP_MISMATCH`, неизвестная identity/liveness,
+   чужой port owner, failure stop/start или нарушенный postcondition остаются
+   typed `BLOCKED_PRECONDITION`; эвристическая остановка запрещена.
 
-Если после этого текущая Codex task не может доказать свежую
+Если после доказанного `runtime_ready=true` текущая Codex task не может доказать свежую
 `effective_codex_registration` из-за task/session-scoped registration cache, это
 не конечный blocker, пока текущая Codex surface умеет создать и наблюдать
 independent task/thread. Источником истины остаются фактически callable MCP

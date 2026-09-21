@@ -40,10 +40,13 @@ absolute `azur.exe` path или PowerShell/cmd wrapper. Если `azur` недо
 Если review milestone требует live MCP evidence, сначала раздели
 `source_reconciled` и `runtime_ready`: `azur mcp reconcile --source --bump auto`
 согласует source/generated metadata, но не завершает live gate. После него
-вызови `azur mcp status`; при owned `LOCAL_MCP_SUPERVISOR_STOPPED` выполни
-`azur mcp start` или `azur mcp restart`, затем повтори status и требуй
-`runtime_ready=true`. Не запускай внутренние `module.*_mcp` или supervisor
-scripts напрямую и не называй source-only result live acceptance.
+вызови `azur mcp status`; при `runtime_state=stale` или `runtime_state=stopped`
+выполни `azur mcp reconcile` без `--source`, затем повтори status и требуй
+`runtime_ready=true`. Только typed failure/ambiguous ownership, foreign port
+owner или нарушенный postcondition оставляют gate blocked. Не запускай
+внутренние `module.*_mcp` или supervisor scripts напрямую и не называй
+source-only result live acceptance. `session_state=not_observable` при готовом
+runtime направляет workflow в fresh-task registration verification.
 
 ## Поток provider и triage
 

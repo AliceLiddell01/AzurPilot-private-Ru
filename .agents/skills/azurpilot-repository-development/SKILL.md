@@ -37,15 +37,22 @@ Git lifecycle или общей матрицы проверок.
    только `source_reconciled`; оно не доказывает `runtime_ready`. Если текущая
    verification/acceptance требует live MCP, после source reconciliation
    буквально вызови через PATH текущей shell `azur mcp status`. При
-   `runtime_state=stopped` и доказанном owned supervisor выполни канонический
-   `azur mcp start` (или `azur mcp restart` для stale runtime), затем снова
-   вызови `azur mcp status` и требуй `runtime_ready=true`. При
-   `LOCAL_MCP_SUPERVISOR_STOPPED`, unknown ownership, port conflict или
-   readiness failure обязательный live gate остаётся typed blocked/failed; его
-   нельзя выдать за завершённый. Не запускай `module.*_mcp`, внутренние
-   supervisor scripts или Python module entrypoints напрямую. Любое новое
-   изменение затронутого source set после reconciliation делает прежний
-   результат stale и требует повторной reconciliation.
+   `runtime_state=stale` или `runtime_state=stopped` выполни единственный
+   канонический runtime repair path — `azur mcp reconcile` без `--source`,
+   затем снова вызови `azur mcp status` и требуй `runtime_ready=true`. До этой
+   typed попытки stale/stopped является recoverable precondition, а не
+   конечным blocker-ом. `McpService.reconcile` останавливает только
+   доказанного exact owner, запускает нужные owned services и проверяет
+   postcondition. При unknown ownership, invalid marker/liveness, port
+   conflict, failure stop/start или mismatch postcondition обязательный live
+   gate остаётся typed blocked/failed; его нельзя выдать за завершённый. Не
+   запускай `module.*_mcp`, внутренние supervisor scripts или Python module
+   entrypoints напрямую. Любое новое изменение затронутого source set после
+   reconciliation делает прежний результат stale и требует повторной
+   reconciliation. `runtime_ready=true` вместе с
+   `session_state=not_observable` не является runtime failure: это trigger для
+   branch-based fresh-task continuation и отдельной проверки effective
+   registration.
    Если mandatory live continuation упирается только в task/session-scoped stale
    MCP registration после доказанного source/runtime state, следуй
    [каноническому контракту cross-thread continuation](references/cross-thread-task-delegation.md):

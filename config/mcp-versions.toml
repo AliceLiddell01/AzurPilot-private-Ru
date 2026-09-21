@@ -1,7 +1,7 @@
 schema_version = 2
-bundle_revision = "b463726ca13531777bcd4d8db814d037a1c2099dd2ca332359130ccca880c849"
-plugin_version = "0.1.0+codex.52415899283281"
-skill_bundle_revision = "3a985ec52901c533dd86f3d3a00d35c19d49ac45b298072afdf91019f36fd91e"
+bundle_revision = "225d3fa69645c51224de7ce46aefbbba885045509d8d1371af3a386b1ec81392"
+plugin_version = "0.1.0+codex.84649955626781"
+skill_bundle_revision = "07a2060c9fbef08daef6a924f3fae11186459079b8c7591fcce788e3ca1e9bfe"
 
 [servers.azurpilot-dev]
 version = "4.0.8"
@@ -52,5 +52,5 @@ result_vocabulary = ["ready", "running", "idle", "stopped", "warning", "updating
 DEV_MCP_SOURCE_SET = "1050f8d63ea179259330aae7d9b36e1722204813af9ea36cde62c551ab2401df"
 GAME_MCP_SOURCE_SET = "c540073fc9e517021f9bc4d1cd1505fb6837fdd8d97046f829db5dd61171bf98"
 SHARED_MCP_SOURCE_SET = "cca3ddaa1159b1745a7cd01880f8abcb3d5fd04f3f647c4b0330f5b97a25a787"
-PLUGIN_BUNDLE_SOURCE_SET = "037d2edca58fea53fd0839c21e0298c4d03b659f535ec1175dd7757b6b302f27"
-SKILL_BUNDLE_SOURCE_SET = "3a985ec52901c533dd86f3d3a00d35c19d49ac45b298072afdf91019f36fd91e"
+PLUGIN_BUNDLE_SOURCE_SET = "5d98142e6dd96e5f12c5bae145642744006f0d1c531ab29194636e1e729ac3cc"
+SKILL_BUNDLE_SOURCE_SET = "07a2060c9fbef08daef6a924f3fae11186459079b8c7591fcce788e3ca1e9bfe"

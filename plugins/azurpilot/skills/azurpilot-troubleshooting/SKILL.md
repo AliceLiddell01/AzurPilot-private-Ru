@@ -185,10 +185,12 @@ capability gap, а не доказанный stale client. Зафиксируй 
 `MCP_RELOAD_REQUIRED` требуют read-only фиксации source/runtime/plugin-source/session
 расхождения. `azur mcp reconcile --source --bump auto` доказывает только
 `source_reconciled`; для обязательного live gate после него вызови `azur mcp
-status` и требуй `runtime_ready=true`. Для доказанно owned runtime разрешён
-штатный `azur mcp start` при `LOCAL_MCP_SUPERVISOR_STOPPED` или `azur mcp
-restart` при stale runtime, после чего нужен повторный status. При unknown
-ownership, port conflict или readiness failure остановись typed fail-closed.
+status` и требуй `runtime_ready=true`. При `runtime_state=stale` или
+`runtime_state=stopped` выполни `azur mcp reconcile` без `--source`, после чего
+снова прочитай status. До этой typed попытки stale/stopped является
+recoverable precondition, а не конечным blocker-ом. При unknown/foreign
+ownership, invalid marker/liveness, port conflict, failure stop/start или
+нарушенном postcondition остановись typed fail-closed.
 Не запускай внутренние MCP modules/scripts напрямую; не используй `uv`, Python
 module entrypoint или wrapper вместо доступного literal `azur`.
 

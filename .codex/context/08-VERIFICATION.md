@@ -106,6 +106,16 @@ classification: `azur mcp impact --base <exact-base-sha>`. Команда дол
 base-to-head compatibility check; изменение соответствующего source set после
 reconciliation инвалидирует прежнее evidence.
 
+После source reconciliation coordinator обязан прочитать `azur mcp status`.
+Если он сообщает `runtime_state=stale` или `runtime_state=stopped`, обязательна
+одна попытка typed repair через `azur mcp reconcile` без `--source` и повторный
+status. Только доказанный failure/ambiguous ownership, foreign port owner,
+ошибка stop/start или нарушенный postcondition оставляет live gate в
+`BLOCKED_PRECONDITION`; исходный stale/stopped status до этой попытки не является
+финальным blocker-ом. При `runtime_ready=true` и
+`session_state=not_observable` runtime gate не считается failed: workflow
+переходит к fresh-task effective-registration verification.
+
 Если после доказанного source/runtime state текущая task видит только
 устаревшую task/session-scoped MCP registration, это не terminal blocker при
 доступной независимой Codex task/thread orchestration. В таком случае применяй

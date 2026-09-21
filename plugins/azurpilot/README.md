@@ -45,8 +45,9 @@ Connected App не подменяет Codex route.
 `azur mcp stop` и `azur mcp restart`. `reconcile --source` обновляет только
 производные plugin metadata после проверки source sets и возвращает только
 `source_reconciled`; `runtime_ready` подтверждается отдельным `azur mcp status`.
-Если live runtime обязателен, при `LOCAL_MCP_SUPERVISOR_STOPPED` выполни
-`azur mcp start`/`azur mcp restart`, затем повтори status. Вызов
+Если live runtime обязателен и status сообщает `runtime_state=stale` или
+`runtime_state=stopped`, выполни `azur mcp reconcile` без `--source`, затем
+повтори status. Вызов
 `azur mcp reconcile` без `--source` согласует только runtime и не изменяет
 tracked source. После успешного `azur update` reconciliation
 выполняется автоматически и является обязательным postcondition: ошибка source,
@@ -68,8 +69,8 @@ Marketplace создаётся Plugin Creator в `.agents/plugins/marketplace.js
 Для ChatGPT public HTTPS используй внешний OAuth/OIDC provider и Caddy reverse
 proxy. Канонический Caddyfile хранится в репозитории, а runtime state и
 credentials — вне него. Проверку и lifecycle project-owned MCP на host
-выполняй только через прямые команды `azur mcp status`, `azur mcp start` и
-`azur mcp restart`. Backend implementations принадлежат внутреннему
+выполняй только через прямые команды `azur mcp status`, `azur mcp reconcile`,
+`azur mcp start` и `azur mcp restart`. Backend implementations принадлежат внутреннему
 supervisor/deployment layer и не запускаются агентом через `uv`, `python -m`,
 `module.*` или ручной wrapper. В текущем Windows-развёртывании процессами
 Dev/Game MCP на стороне host уже владеет scheduled supervisor, поэтому второй

@@ -332,9 +332,12 @@ base-to-head compatibility checks обязательны; изменение sou
 reconciliation делает предыдущий результат stale. Generated MCP artifacts
 являются производным scope той же задачи. Source reconciliation имеет только
 `source_reconciled=true`; если live MCP входит в обязательный gate, напрямую
-вызови через PATH `azur mcp status`, а при доказанном owned
-`LOCAL_MCP_SUPERVISOR_STOPPED` — `azur mcp start`/`azur mcp restart`, затем
-повторный status с `runtime_ready=true`. Source-only result и
+вызови через PATH `azur mcp status`. При `runtime_state=stale` или
+`runtime_state=stopped` выполни единственный typed runtime repair path
+`azur mcp reconcile` без `--source`, затем повторный status с
+`runtime_ready=true`. Исходный stale/stopped status до этой попытки не
+является финальным blocker-ом; unknown/foreign ownership, port conflict,
+failure stop/start или mismatch postcondition остаются fail-closed. Source-only result и
 `MCP_RUNTIME_UNAVAILABLE` не закрывают live acceptance. Внутренние
 `module.*_mcp`, supervisor scripts и Python module launchers напрямую не
 используются.

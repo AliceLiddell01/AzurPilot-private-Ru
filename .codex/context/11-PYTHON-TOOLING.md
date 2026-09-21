@@ -245,12 +245,17 @@ MCP diagnostics должны различать:
   подтверждены через `azur mcp status`.
 
 Source reconciliation не закрывает live gate. Если live MCP обязателен, после
-source reconcile напрямую через PATH вызови `azur mcp status`; при
-`LOCAL_MCP_SUPERVISOR_STOPPED` и подтверждённом owned supervisor допустим
-`azur mcp start`/`azur mcp restart`, затем повторный status. `MCP_RUNTIME_UNAVAILABLE`,
-`runtime_state=stopped`, `session_state=not_observable` или unknown ownership
-остаются blocker/limitation. Не запускай `module.*_mcp`, supervisor modules или
-внутренние Python scripts напрямую.
+source reconcile напрямую через PATH вызови `azur mcp status`. При
+`runtime_state=stale` или `runtime_state=stopped` выполни единственный
+канонический runtime repair path `azur mcp reconcile` без `--source`, затем
+повтори status и требуй `runtime_ready=true`. До этой typed попытки stale/stopped
+является recoverable precondition, а не конечным blocker-ом. `MCP_RUNTIME_UNAVAILABLE`
+после repair, unknown/foreign ownership, invalid marker/liveness, port conflict,
+ошибка stop/start или mismatch postcondition остаются blocker/limitation.
+`session_state=not_observable` при `runtime_ready=true` не является runtime
+failure: это причина применить cross-thread continuation для fresh-task
+проверки effective registration. Не запускай `module.*_mcp`, supervisor modules
+или внутренние Python scripts напрямую.
 
 Если source/runtime уже приведены в требуемое состояние, а текущая task не
 может доказать свежую effective registration из-за session-scoped cache,

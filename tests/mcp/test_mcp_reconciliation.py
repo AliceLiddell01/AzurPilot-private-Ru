@@ -474,6 +474,140 @@ def test_reconcile_rejects_unknown_restart_postcondition(
     assert error.value.code is ResultCode.MCP_RUNTIME_UNAVAILABLE
 
 
+def test_runtime_reconcile_repairs_only_stale_owned_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    stale_name = "azurpilot-dev"
+    ready_name = "azurpilot-game"
+    runtime_results = [
+        (
+            "stale",
+            {
+                "services": [
+                    {"server_name": stale_name, "ready": False},
+                    {"server_name": ready_name, "ready": True},
+                ],
+                "supervisors": {
+                    stale_name: {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                    ready_name: {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                },
+            },
+        ),
+        (
+            "ready",
+            {
+                "services": [
+                    {"server_name": stale_name, "ready": True},
+                    {"server_name": ready_name, "ready": True},
+                ],
+                "supervisors": {
+                    stale_name: {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                    ready_name: {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                },
+            },
+        ),
+    ]
+    stopped: list[str] = []
+    started: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: runtime_results.pop(0),
+    )
+    monkeypatch.setattr(
+        service,
+        "_supervisor",
+        lambda _root, name: SimpleNamespace(
+            stop=lambda: stopped.append(name) or True
+        ),
+    )
+
+    def start_owned(
+        _root: Path,
+        _bundle: object,
+        *,
+        server_names: tuple[str, ...],
+    ) -> tuple[bool, dict[str, object]]:
+        started.append(server_names)
+        return True, {}
+
+    monkeypatch.setattr(service, "_start_owned", start_owned)
+
+    result = service.reconcile(REPOSITORY_ROOT)
+
+    assert result.ok
+    assert stopped == [stale_name]
+    assert started == [(stale_name,)]
+    assert result.details is not None
+    assert result.details.runtime_ready is True
+    assert result.details.restarted_servers == (stale_name,)
+    assert result.details.session_state == "not_observable"
+
+
+@pytest.mark.parametrize(
+    "supervisor_code",
+    (
+        "LOCAL_MCP_SUPERVISOR_OWNERSHIP_MISMATCH",
+        "LOCAL_MCP_SUPERVISOR_STALE",
+        "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
+        "LOCAL_MCP_SUPERVISOR_UNKNOWN",
+    ),
+)
+def test_runtime_reconcile_fails_closed_for_unowned_stale_service(
+    monkeypatch: pytest.MonkeyPatch,
+    supervisor_code: str,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    stale_name = "azurpilot-dev"
+    stopped: list[str] = []
+    started = False
+
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: (
+            "stale",
+            {
+                "services": [
+                    {"server_name": stale_name, "ready": False},
+                    {"server_name": "azurpilot-game", "ready": True},
+                ],
+                "supervisors": {
+                    stale_name: {"code": supervisor_code},
+                    "azurpilot-game": {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                },
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_supervisor",
+        lambda _root, name: SimpleNamespace(
+            stop=lambda: stopped.append(name) or True
+        ),
+    )
+
+    def start_owned(*_args: object, **_kwargs: object) -> tuple[bool, dict[str, object]]:
+        nonlocal started
+        started = True
+        return True, {}
+
+    monkeypatch.setattr(service, "_start_owned", start_owned)
+
+    with pytest.raises(ToolingError) as error:
+        service.reconcile(REPOSITORY_ROOT)
+
+    assert error.value.code is ResultCode.MCP_RUNTIME_STALE
+    assert stopped == []
+    assert started is False
+
+
 def test_shared_registration_model_reports_stdio_and_loopback_routes() -> None:
     registration = first_party_source_registration(REPOSITORY_ROOT)
 
@@ -722,6 +856,7 @@ def test_runtime_reconcile_starts_stopped_owned_supervisors(
     assert result.details.source_reconciled is True
     assert result.details.runtime_ready is True
     assert result.details.restarted_servers == stopped_servers
+    assert result.details.session_state == "not_observable"
 
 
 def test_reconciler_detects_unreconciled_source_without_mutating_repository(

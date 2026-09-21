@@ -21,7 +21,7 @@ from pydantic import ValidationError
 import azurpilot.tooling.coordination as tooling_coordination
 import azurpilot.tooling.path as tooling_path
 import azurpilot.tooling.process_core as tooling_process
-from azurpilot.cli import main
+from azurpilot.cli import CliInvocationError, build_parser, main
 from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
 from azurpilot.tooling import doctor as tooling_doctor
@@ -630,6 +630,25 @@ def test_cli_reconcile_rejects_bump_without_source() -> None:
     assert exit_code == 2
     assert report["code"] == ResultCode.TOOLING_INVALID_INVOCATION.value
     assert stderr.getvalue() == ""
+
+
+def test_cli_has_one_typed_mcp_runtime_reconcile_route() -> None:
+    parser = build_parser()
+
+    runtime = parser.parse_args(["mcp", "reconcile"])
+    assert runtime.mcp_command == "reconcile"
+    assert runtime.source is False
+    assert runtime.bump is None
+
+    source = parser.parse_args(
+        ["mcp", "reconcile", "--source", "--bump", "auto"]
+    )
+    assert source.mcp_command == "reconcile"
+    assert source.source is True
+    assert source.bump == "auto"
+
+    with pytest.raises(CliInvocationError):
+        parser.parse_args(["mcp", "reconcile", "--runtime"])
 
 
 def test_cli_unexpected_error_exposes_only_bounded_exception_type() -> None:

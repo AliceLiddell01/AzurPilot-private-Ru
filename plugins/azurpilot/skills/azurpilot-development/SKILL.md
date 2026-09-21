@@ -54,9 +54,9 @@ flags или catalog fingerprints в skill: их source of truth — bundle.
 результатом reconciliation, пока reload не подтверждён. `azur mcp
 reconcile --source --bump auto` даёт `source_reconciled`, но не
 `runtime_ready`; если live runtime обязателен, после него вызови `azur mcp
-status`, при owned `LOCAL_MCP_SUPERVISOR_STOPPED` — `azur mcp start` или
-`azur mcp restart`, затем повторный status с `runtime_ready=true`. Не запускай
-внутренние MCP modules/scripts напрямую.
+status`. При `runtime_state=stale` или `runtime_state=stopped` выполни
+`azur mcp reconcile` без `--source`, затем повторный status с
+`runtime_ready=true`. Не запускай внутренние MCP modules/scripts напрямую.
 
 ## Универсальный Smoke Harness
 

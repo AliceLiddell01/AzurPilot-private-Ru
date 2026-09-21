@@ -74,8 +74,11 @@ fallback для обычного Codex route. Если выбранный route,
 неуспешную reconciliation до подтверждения новой session. После
 `azur mcp reconcile --source --bump auto` source считается только
 `source_reconciled`; live workflow требует `azur mcp status` и
-`runtime_ready=true`, с `azur mcp start`/`azur mcp restart` для допустимого
-owned transition. `MCP_RUNTIME_UNAVAILABLE` не является live acceptance.
+`runtime_ready=true`. При `runtime_state=stale` или `runtime_state=stopped`
+используй `azur mcp reconcile` без `--source` как единственный typed runtime
+repair path; он должен подтвердить exact ownership и postcondition. Unknown
+ownership, port conflict или readiness failure остаются fail-closed.
+`MCP_RUNTIME_UNAVAILABLE` не является live acceptance.
 
 ## Модель состояния
 
