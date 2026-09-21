@@ -22,6 +22,8 @@ from azurpilot.tooling.contracts import (
     FindingDisposition,
     FindingSeverity,
     GitSnapshot,
+    IntegrationCheck,
+    IntegrationCheckState,
     MandatoryGate,
     MandatoryGateState,
     OperationState,
@@ -1387,12 +1389,12 @@ def test_readiness_rate_limit_is_independent_from_product_gate() -> None:
     assert readiness.overall_outcome == "READY"
 
 
-def test_required_mcp_impact_requires_delegated_fresh_gate() -> None:
+def test_required_mcp_impact_requires_fresh_mcp_client_gate() -> None:
     fresh_gate = MandatoryGate(
         name=FRESH_MCP_ACCEPTANCE_GATE_NAME,
         state=MandatoryGateState.PASS,
-        evidence="Fresh independent Codex task подтвердил registration, runtime и live acceptance.",
-        evidence_kind="delegated_fresh_task",
+        evidence="Fresh MCP client подтвердил initialize, catalog, contract и read-only calls.",
+        evidence_kind="fresh_mcp_client",
     )
     readiness = ReadinessState(
         implementation_status="COMPLETE",
@@ -1432,6 +1434,34 @@ def test_required_mcp_impact_requires_delegated_fresh_gate() -> None:
             overall_outcome="READY",
             ready_for_chatgpt_review=True,
         )
+
+
+def test_codex_registration_failure_is_separate_from_mcp_readiness() -> None:
+    readiness = ReadinessState(
+        implementation_status="COMPLETE",
+        mcp_impact="REQUIRED",
+        mandatory_gates=(
+            MandatoryGate(
+                name=FRESH_MCP_ACCEPTANCE_GATE_NAME,
+                state=MandatoryGateState.PASS,
+                evidence="Independent MCP client session доказала exact contract и catalog.",
+                evidence_kind="fresh_mcp_client",
+            ),
+        ),
+        integration_checks=(
+            IntegrationCheck(
+                name="codex_registration_check",
+                state=IntegrationCheckState.BLOCKED_PRECONDITION,
+                evidence="create_thread создал worktree на другом HEAD; MCP calls не выполнялись.",
+                evidence_kind="codex_registration",
+            ),
+        ),
+        overall_outcome="READY",
+        ready_for_chatgpt_review=True,
+    )
+
+    assert readiness.overall_outcome == "READY"
+    assert readiness.integration_checks[0].state is IntegrationCheckState.BLOCKED_PRECONDITION
 
 
 def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> None:

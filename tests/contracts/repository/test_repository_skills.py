@@ -262,10 +262,11 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
     reference_flat = " ".join(reference.lower().split())
 
     assert "references/cross-thread-task-delegation.md" in development
-    assert "task/session-scoped stale" in development
+    assert "fresh mcp client/process" in development.lower()
     for required in (
         "source_reconciled",
         "runtime_ready=true",
+        "fresh_mcp_client_acceptance",
         "LOCAL_MCP_SUPERVISOR_STOPPED",
         "Coordinator task",
         "Fresh independent task/thread",
@@ -276,6 +277,7 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
         "repository identity",
         "exact expected HEAD",
         "effective_codex_registration",
+        "codex_registration_check",
         "terminal result",
         "BLOCKED_PRECONDITION",
     ):
@@ -309,8 +311,8 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
 
     post_create_checks = _section(
         reference,
-        "Перед любым MCP или live acceptance",
-        "Fresh task обязана использовать",
+        "Перед optional registration check",
+        "Если check продолжается",
     )
     post_create_checks_flat = " ".join(post_create_checks.lower().split())
     for required in (
@@ -331,7 +333,7 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
     sequence_items = _numbered_contract_items(sequence)
     assert len(sequence_items) == 8
     assert "branch tip" in sequence_items[1]
-    assert "не создаёт task" in sequence_items[1]
+    assert "task не создаётся" in sequence_items[1]
     assert "startingstate.type=branch" in sequence_items[2]
     assert "фактический exact head" in sequence_items[3]
     assert "detached head допустим" in sequence_items[3]

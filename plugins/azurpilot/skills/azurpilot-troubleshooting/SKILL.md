@@ -79,9 +79,11 @@ fallback или source of truth. Если нужный direct server или tool
 4. Сравни source/deployment/runtime только когда это релевантно: Git HEAD,
    backend PID/start time/cwd и contract/catalog fingerprint. Новый checkout не
    означает, что уже работающий процесс загрузил новый код.
-5. Выбери ровно один refresh/recovery для доказанно stale слоя. Для direct
-   Codex route это новый project-scoped task/process или штатное обновление
-   source/plugin, а не Reconnect Connected App. После него
+5. Выбери ровно один refresh/recovery для доказанно stale слоя. Для обязательного
+   MCP acceptance это новый SDK client/process через существующий
+   `azurpilot.integrations.mcp_client`, а не Reconnect Connected App. Effective
+   Codex registration при затронутом Codex/plugin scope проверяется отдельно
+   через cross-thread contract. После этого
    повторно проверь callable catalog и соответствующий backend contract. Для
    Development снова вызови `dev_get_contract` и прогони существующую
    compatibility validation; для Game снова вызови `game_get_contract`, если

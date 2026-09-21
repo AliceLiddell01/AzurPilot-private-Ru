@@ -596,7 +596,7 @@ class MandatoryGateState(StrEnum):
     NOT_REQUIRED = "NOT_REQUIRED"
 
 
-FRESH_MCP_ACCEPTANCE_GATE_NAME = "fresh_mcp_task_acceptance"
+FRESH_MCP_ACCEPTANCE_GATE_NAME = "fresh_mcp_client_acceptance"
 
 
 class MandatoryGate(ClosedModel):
@@ -607,7 +607,7 @@ class MandatoryGate(ClosedModel):
     required: bool = True
     evidence: str = Field(min_length=1, max_length=1000)
     evidence_kind: Literal[
-        "source", "runtime", "delegated_fresh_task", "other"
+        "source", "runtime", "fresh_mcp_client", "other"
     ] = "other"
 
     @model_validator(mode="after")
@@ -618,9 +618,27 @@ class MandatoryGate(ClosedModel):
             not self.required or self.state is MandatoryGateState.NOT_REQUIRED
         ):
             raise ValueError(
-                "fresh MCP task acceptance не может быть NOT_REQUIRED"
+                "fresh MCP client acceptance не может быть NOT_REQUIRED"
             )
         return self
+
+
+class IntegrationCheckState(StrEnum):
+    """Наблюдаемое состояние необязательной внешней integration check."""
+
+    PASS = "PASS"
+    FAIL = "FAIL"
+    BLOCKED_PRECONDITION = "BLOCKED_PRECONDITION"
+    NOT_REQUIRED = "NOT_REQUIRED"
+
+
+class IntegrationCheck(ClosedModel):
+    """Отдельная bounded evidence-проверка, не являющаяся product gate."""
+
+    name: str = Field(min_length=1, max_length=80)
+    state: IntegrationCheckState
+    evidence: str = Field(min_length=1, max_length=1000)
+    evidence_kind: Literal["codex_registration", "other"] = "other"
 
 
 class ReadinessState(ClosedModel):
@@ -628,6 +646,9 @@ class ReadinessState(ClosedModel):
 
     implementation_status: Literal["IN_PROGRESS", "COMPLETE", "BLOCKED"] = "IN_PROGRESS"
     mandatory_gates: tuple[MandatoryGate, ...] = Field(default_factory=tuple, max_length=32)
+    integration_checks: tuple[IntegrationCheck, ...] = Field(
+        default_factory=tuple, max_length=32
+    )
     # Readiness builders must classify MCP impact explicitly before lifecycle
     # validation; omission must fail closed instead of bypassing the fresh gate.
     mcp_impact: Literal["NOT_REQUIRED", "REQUIRED"]
@@ -644,6 +665,9 @@ class ReadinessState(ClosedModel):
         gate_names = tuple(gate.name for gate in self.mandatory_gates)
         if len(gate_names) != len(set(gate_names)):
             raise ValueError("mandatory gates должны иметь уникальные имена")
+        integration_names = tuple(check.name for check in self.integration_checks)
+        if len(integration_names) != len(set(integration_names)):
+            raise ValueError("integration checks должны иметь уникальные имена")
         fresh_gates = tuple(
             gate
             for gate in self.mandatory_gates
@@ -661,10 +685,10 @@ class ReadinessState(ClosedModel):
                 )
             if (
                 fresh_gate.state is MandatoryGateState.PASS
-                and fresh_gate.evidence_kind != "delegated_fresh_task"
+                and fresh_gate.evidence_kind != "fresh_mcp_client"
             ):
                 raise ValueError(
-                    "PASS fresh MCP gate требует evidence новой independent task"
+                    "PASS fresh MCP gate требует evidence независимой MCP client session"
                 )
         blocking = any(
             gate.required
@@ -1128,6 +1152,8 @@ __all__ = [
     "GitEvidence",
     "GitRange",
     "GitSnapshot",
+    "IntegrationCheck",
+    "IntegrationCheckState",
     "IntegrationSummary",
     "LifecycleDetails",
     "LifecycleEvidence",

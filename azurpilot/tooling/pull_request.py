@@ -238,6 +238,11 @@ class PullRequestBodyRenderer:
             f"required=`{str(gate.required).lower()}`; evidence: {gate.evidence}"
             for gate in body.readiness.mandatory_gates
         )
+        readiness_lines.extend(
+            f"- integration check `{check.name}`: `{check.state.value}`; "
+            f"evidence kind=`{check.evidence_kind}`; evidence: {check.evidence}"
+            for check in body.readiness.integration_checks
+        )
         sections = (
             ("Цель", body.goal),
             ("Scope", body.scope),

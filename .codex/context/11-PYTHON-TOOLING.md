@@ -255,16 +255,19 @@ unchanged marker и STOPPED/no-conflict postcondition. `MCP_RUNTIME_UNAVAILABLE`
 после repair, unknown/foreign ownership, invalid marker/liveness, port conflict,
 ошибка stop/start или mismatch postcondition остаются blocker/limitation.
 `session_state=not_observable` при `runtime_ready=true` не является runtime
-failure: это причина применить cross-thread continuation для fresh-task
-проверки effective registration. Не запускай `module.*_mcp`, supervisor modules
-или внутренние Python scripts напрямую.
+failure. При `MCP impact=REQUIRED` mandatory product gate закрывается отдельным
+fresh MCP client/process через существующий SDK boundary: новая session обязана
+подтвердить initialize, negotiated catalog, contract/revision и обязательные
+read-only calls. `azur mcp status` остаётся отдельным source/runtime evidence и
+не заменяет эту acceptance.
 
-Если source/runtime уже приведены в требуемое состояние, а текущая task не
-может доказать свежую effective registration из-за session-scoped cache,
-используй [единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
-Независимая task/thread должна заново подтвердить фактически вызываемую surface,
-contract, catalog и `runtime_ready`; создание task без terminal evidence не
-закрывает mandatory gate.
+Если изменение затрагивает Codex/plugin registration, client-visible schema или
+routing, effective registration проверяется отдельной необязательной integration
+check через [единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
+Создание task без terminal evidence не доказывает registration, а wrong-HEAD или
+недоступность `create_thread` фиксируются как ограничение Codex platform и не
+блокируют уже успешный MCP client gate. Не запускай `module.*_mcp`, supervisor
+modules или внутренние Python scripts напрямую.
 
 ## 8. Базовый кроссплатформенный контракт
 

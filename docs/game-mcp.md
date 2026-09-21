@@ -167,7 +167,9 @@ liveness, port conflict или failure остаются fail-closed. Session н�
 перезагруженной. Отдельного
 устаревшего runtime-флага в текущем CLI нет. Если runtime готов, а
 `session_state=not_observable`, это отдельная граница effective Codex
-registration и повод для fresh-task verification, а не runtime failure.
+registration, а не runtime failure. Обязательный MCP acceptance выполняется
+новым SDK client/process; Codex fresh-task verification остаётся отдельной
+optional integration check.
 
 Read-инструменты имеют read-only annotations, а control-инструменты публикуют
 честные mutation/destructive/idempotency hints. Все инструменты используют

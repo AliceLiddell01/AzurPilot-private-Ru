@@ -116,17 +116,23 @@ status. Только доказанный failure/ambiguous ownership, foreign p
 восстанавливать только typed recorded-identity cleanup с unchanged marker и
 STOPPED/no-conflict postcondition; foreign/invalid/unknown ownership остаётся
 fail-closed. При `runtime_ready=true` и
-`session_state=not_observable` runtime gate не считается failed: workflow
-переходит к fresh-task effective-registration verification.
+`session_state=not_observable` runtime gate не считается failed. При
+`MCP impact=REQUIRED` workflow всё равно обязан выполнить отдельный fresh MCP
+client acceptance; effective Codex registration проверяется только отдельной
+optional integration check при затронутом Codex/plugin scope.
 
-Если после доказанного source/runtime state текущая task видит только
-устаревшую task/session-scoped MCP registration, это не terminal blocker при
-доступной независимой Codex task/thread orchestration. В таком случае применяй
-[единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md):
-fresh task обязана доказать effective registration и runtime readiness до live
-acceptance, а coordinator обязан дождаться её terminal evidence. При недоступной
-orchestration или неподтверждённом fresh state gate остаётся typed
-`BLOCKED_PRECONDITION`.
+При `MCP impact=REQUIRED` обязательный gate называется
+`fresh_mcp_client_acceptance`. Он доказывается независимым project-owned MCP
+client/process: новая SDK session должна выполнить `initialize()`, negotiated
+catalog, contract/revision checks и обязательные read-only capability calls.
+Один `azur mcp status`, source snapshot или unit tests этот gate не закрывают.
+
+Codex effective registration — отдельная необязательная integration check. Если
+изменение затрагивает Codex/plugin registration, client-visible tool schema или
+routing, её можно выполнить через [единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
+Wrong-HEAD, недоступный `create_thread` или другой platform failure фиксируется
+в этой check как external Codex limitation и не переводит успешный MCP client
+gate в `FAIL`/`BLOCKED_PRECONDITION`.
 
 ## Pre-merge и post-merge outcomes
 
@@ -139,12 +145,14 @@ required `Python`, `Windows`, `Security` на exact head, secret scan, self-revi
 Typed readiness разделяет implementation, mandatory gates, external reviewer
 limitation, `READY_FOR_CHATGPT_REVIEW` и merge-ready. Mandatory gate имеет
 terminal state `PASS`, `FAIL`, `BLOCKED_PRECONDITION` или `NOT_REQUIRED`; при
-`MCP impact=REQUIRED` fresh acceptance gate обязателен и `NOT_REQUIRED` для него
-недопустим;
+`MCP impact=REQUIRED` `fresh_mcp_client_acceptance` обязателен и `NOT_REQUIRED`
+для него недопустим; `PASS` требует evidence независимой свежей MCP client
+session;
 `FAIL`/`BLOCKED_PRECONDITION` сохраняет полезный Draft, но требует blocked
 overall outcome и запрещает readiness/merge. CodeRabbit rate limit фиксируется
 отдельно и сам по себе не блокирует readiness при остальных фактически
-пройденных обязательных gates.
+пройденных обязательных gates. Codex registration check хранится отдельно и
+сама по себе product readiness не блокирует.
 
 Post-merge verification и cleanup являются отдельным этапом и выполняются только
 после подтверждённого merge. Перед ним нужно повторно проверить exact head,

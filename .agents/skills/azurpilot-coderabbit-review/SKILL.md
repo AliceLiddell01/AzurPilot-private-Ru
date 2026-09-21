@@ -49,7 +49,9 @@ marker, unknown liveness, foreign port owner или нарушенный postcon
 оставляют gate blocked. Не запускай
 внутренние `module.*_mcp` или supervisor scripts напрямую и не называй
 source-only result live acceptance. `session_state=not_observable` при готовом
-runtime направляет workflow в fresh-task registration verification.
+runtime не заменяет обязательный fresh MCP client acceptance; Codex registration
+verification через fresh task остаётся отдельной optional integration check, если
+затронут Codex/plugin scope.
 
 ## Поток provider и triage
 

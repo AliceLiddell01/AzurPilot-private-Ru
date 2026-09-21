@@ -53,13 +53,14 @@ Git lifecycle или общей матрицы проверок.
    reconciliation делает прежний результат stale и требует повторной
    reconciliation. `runtime_ready=true` вместе с
    `session_state=not_observable` не является runtime failure: это trigger для
-   branch-based fresh-task continuation и отдельной проверки effective
-   registration.
-   Если mandatory live continuation упирается только в task/session-scoped stale
-   MCP registration после доказанного source/runtime state, следуй
-   [каноническому контракту cross-thread continuation](references/cross-thread-task-delegation.md):
-   current task не завершает workflow blocker-ом, пока доступна независимая
-   Codex task/thread orchestration.
+   отдельный fresh MCP client/process и отдельной проверки
+   `effective_codex_registration`; `azur mcp status` сам по себе acceptance не
+   закрывает.
+   Если изменение затрагивает Codex/plugin registration, client-visible schema
+   или routing, следуй [каноническому контракту cross-thread continuation](references/cross-thread-task-delegation.md)
+   как отдельной необязательной integration check. Wrong-HEAD, недоступный
+   `create_thread` или другой Codex platform failure не превращают успешный MCP
+   client gate в blocker.
 4. Перед CodeRabbit review создай или привяжи opaque logical task identity и
    передай её в canonical review flow через `--task-id`; новый head той же
    task продолжает её cycle, а другая task получает новый cycle.

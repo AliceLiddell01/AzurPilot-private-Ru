@@ -61,6 +61,17 @@ recorded-identity cleanup с unchanged marker и STOPPED/no-conflict postconditi
 invalid/foreign marker, unknown liveness, port conflict и failure остаются
 fail-closed. Не запускай внутренние MCP modules/scripts напрямую.
 
+При `MCP impact=REQUIRED` обязательный gate называется
+`fresh_mcp_client_acceptance`. Закрывай его отдельным новым SDK client/process
+через `azurpilot.integrations.mcp_client`: новая session должна выполнить
+`initialize()`, negotiated catalog, contract/revision checks и обязательные
+read-only calls. `azur mcp status`, source snapshot и текущая Codex session этот
+gate не заменяют. Effective Codex registration — отдельная optional
+`codex_registration_check`; при затронутом Codex/plugin scope используй
+[единый cross-thread contract](../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
+Wrong-HEAD или недоступный `create_thread` фиксируй только в этой optional check
+и не классифицируй как MCP client failure.
+
 ## Универсальный Smoke Harness
 
 Smoke по умолчанию выполняй только этим потоком:

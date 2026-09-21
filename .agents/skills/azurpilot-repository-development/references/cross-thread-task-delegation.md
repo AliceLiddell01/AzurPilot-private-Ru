@@ -1,54 +1,60 @@
-# Cross-thread continuation для свежей MCP-сессии
+# Optional Codex registration check
 
-Этот reference — единственный repository-level контракт для continuation через
-отдельную Codex task/thread, когда обязательная проверка требует свежей
-client/session registration. Он не создаёт новую feature, ветку или PR и не
+Этот reference — единственный repository-level контракт для проверки effective
+Codex registration через отдельную Codex task/thread, когда изменение затрагивает
+Codex/plugin registration, client-visible schema или routing. Он не является
+обязательным MCP acceptance gate, не создаёт новую feature, ветку или PR и не
 передаёт другой task ownership разработки.
+
+Обязательный продуктовый gate `fresh_mcp_client_acceptance` закрывается отдельным
+новым MCP client/process через существующий `azurpilot.integrations.mcp_client`.
+Он выполняет `initialize()`, negotiated `tools/list`, contract/catalog/revision
+проверки и обязательные read-only calls. Codex task/thread не заменяет этот
+client gate и не должен использоваться как его транспорт.
 
 ## Когда контракт применяется
 
-Сначала coordinator task обязана штатными project-owned действиями доказать
-нужное состояние source и runtime:
+Сначала coordinator task штатными project-owned действиями подтверждает source и
+runtime:
 
 1. `azur mcp reconcile --source --bump auto` подтверждает только
    `source_reconciled`.
-2. `azur mcp status` читает текущее source/runtime состояние; итоговый status
-   после возможного repair должен подтвердить `runtime_ready=true`, если live
-   gate входит в scope.
-3. При `runtime_state=stale` или `runtime_state=stopped` coordinator сначала
-   вызывает единственный typed runtime repair path `azur mcp reconcile` без
-   `--source`, после чего status нужно прочитать повторно. Этот path использует
-   существующий `McpService.reconcile`: typed supervisor result допускает только
-   валидный same-repository stale marker с recorded exact-identity cleanup,
-   unchanged marker и STOPPED/no-conflict postcondition; затем запускаются
-   нужные owned services и проверяется `runtime_ready=true`.
-   Само stale/stopped состояние не является причиной создавать новую task.
-   `LOCAL_MCP_SUPERVISOR_STOPPED` — один из typed сигналов такого состояния,
-   а не отдельный shortcut для обхода `azur mcp reconcile`.
-   `LOCAL_MCP_SUPERVISOR_OWNERSHIP_MISMATCH`, неизвестная identity/liveness,
-   чужой port owner, failure stop/start или нарушенный postcondition остаются
-   typed `BLOCKED_PRECONDITION`; эвристическая остановка запрещена.
+2. `azur mcp status` читает текущее source/runtime состояние; если live gate
+   входит в scope, итоговый status должен подтвердить `runtime_ready=true`.
+3. При `runtime_state=stale` или `runtime_state=stopped` coordinator выполняет
+   единственный typed runtime repair path `azur mcp reconcile` без `--source`,
+   затем повторно читает status. Same-repository stale marker допускает только
+   recorded exact-identity cleanup с unchanged marker и STOPPED/no-conflict
+   postcondition; unknown/foreign ownership, invalid marker/liveness, чужой
+   port owner и failure stop/start остаются typed `BLOCKED_PRECONDITION`.
+   `LOCAL_MCP_SUPERVISOR_STOPPED` — диагностический сигнал для этого typed
+   recovery path, а не самостоятельный shortcut.
+4. Если MCP impact `REQUIRED`, coordinator отдельно выполняет обязательный
+   `fresh_mcp_client_acceptance`; source snapshot, status и unit tests его не
+   заменяют.
 
-Если после доказанного `runtime_ready=true` текущая Codex task не может доказать свежую
-`effective_codex_registration` из-за task/session-scoped registration cache, это
-не конечный blocker, пока текущая Codex surface умеет создать и наблюдать
-independent task/thread. Источником истины остаются фактически callable MCP
-surface, contract и catalog, а не source config или сам факт создания task.
+Если изменение не затрагивает Codex/plugin registration, этот reference не
+требуется. `runtime_ready=true` вместе с `session_state=not_observable` не
+является runtime failure и не делает Codex registration check обязательной.
+Если check нужна, она фиксирует только `effective_codex_registration` (effective
+Codex registration); её
+отсутствие или недоступность является отдельным внешним ограничением Codex.
 
 ## Роли и границы
 
 - `Coordinator task` остаётся владельцем work item, diff, Git/PR lifecycle и
-  итогового решения.
+  итогового решения по MCP readiness.
 - `Fresh independent task/thread` — отдельная project-scoped Codex task,
-  созданная штатной orchestration surface coordinator task. Она является
-  bounded verification/live-acceptance worker и возвращает evidence coordinator.
+  созданная штатной orchestration surface coordinator task, только для bounded
+  проверки Codex registration. Она возвращает evidence coordinator и не закрывает
+  `fresh_mcp_client_acceptance`.
 - `Subagent`, fork текущей agent session, same-directory child worker и
   Connected App/remote fallback не считаются fresh independent task/thread.
 
 Создание выполняется через доступную Codex task orchestration surface, а
-coordinator ждёт terminal outcome через штатное ожидание/чтение task. Не
-просите пользователя вручную создавать новый чат и не используйте shell,
-browser или remote app как замену task orchestration.
+coordinator ждёт terminal outcome через штатное ожидание/чтение task. Не просите
+пользователя вручную создавать новый чат и не используйте shell, browser или
+remote app как замену task orchestration.
 
 ## Codex Desktop orchestration boundary
 
@@ -58,82 +64,78 @@ same-directory child. Сначала coordinator разрешает project че
 `list_projects` и выбирает проект AzurPilot с `isGitRepository=true`, затем
 определяет текущую coordinator branch и exact committed HEAD. До создания task
 он обязан проверить, что branch tip равен ожидаемому exact HEAD. Если branch не
-определяется однозначно или её tip уже расходится с ожидаемым HEAD, task не
-создаётся, а результатом остаётся typed `BLOCKED_PRECONDITION` с точной
+определяется однозначно или tip уже расходится с expected HEAD, task не
+создаётся, а optional check получает typed `BLOCKED_PRECONDITION` с точной
 причиной.
 
 ### Канонический branch-based запуск
 
-Для независимой проверки используется `target.type=project` с worktree и
+Для optional check используется `target.type=project` с worktree и
 `startingState.type=branch`, где `branchName` — фактическая branch coordinator
 work item. Перед созданием coordinator уже проверил branch tip, поэтому это
-канонический способ передать свежей task тот же committed exact HEAD; setup
-worktree остаётся автоматическим и не требует ручного
-переключения состояния. В prompt передаются repository identity, branch, exact
-expected HEAD, bounded acceptance scope и запрет на изменение code, branch, PR и
-lifecycle.
+канонический способ передать task тот же committed exact HEAD; setup worktree
+остаётся автоматическим и не требует ручного переключения состояния. В prompt
+передаются repository identity, branch, exact expected HEAD, bounded registration
+scope и запрет на изменение code, branch, PR и lifecycle.
 
 ### Неиспользуемый working-tree маршрут
 
-`startingState.type=working-tree` не является exact-head continuation: этот
-режим может создать task от другого состояния и потому не заменяет проверку
-branch tip. Нельзя компенсировать такой mismatch ручным `git switch` или
-`git checkout` после создания task.
+`startingState.type=working-tree` не является exact-head continuation: этот режим
+может создать task от другого состояния и потому не заменяет проверку branch tip.
+Нельзя компенсировать mismatch ручным `git switch` или `git checkout` после
+создания task.
 
-`create_thread` асинхронен: готовый результат содержит настоящий `threadId`
-и `hostId`, а промежуточный `clientThreadId` нельзя передавать в ожидание,
-чтение или follow-up tools. Coordinator ждёт ready task через
-`wait_threads` с настоящим `threadId`, затем читает её terminal turn через
-`read_thread` с outputs; создание task, промежуточный progress или отсутствие
-ошибки не являются acceptance evidence. Если setup вернул только
-`clientThreadId`, coordinator сначала наблюдает появление ready `threadId` и
-только после этого начинает bounded wait.
+`create_thread` асинхронен: готовый результат содержит настоящий `threadId` и
+`hostId`, а промежуточный `clientThreadId` нельзя передавать в ожидание, чтение
+или follow-up tools. Coordinator ждёт ready task через `wait_threads` с
+настоящим `threadId`, затем читает её terminal turn через `read_thread` с
+outputs; создание task, промежуточный progress или отсутствие ошибки не
+являются registration evidence. Если setup вернул только `clientThreadId`,
+coordinator сначала наблюдает появление ready `threadId` и только после этого
+начинает bounded wait.
 
-Перед любым MCP или live acceptance fresh task сначала независимо проверяет
-repository identity, фактический exact HEAD и branch state. Фактический HEAD
-обязан совпасть с переданным expected HEAD; detached HEAD допустим для
-verification worker. Fresh task не выполняет post-create `git switch` или
-post-create `git checkout` для исправления mismatch: при несовпадении
-возвращается typed
-`BLOCKED_PRECONDITION`, а до MCP/live acceptance дело не доходит.
+Перед optional registration check task сначала независимо проверяет repository
+identity, фактический exact HEAD и branch state. Фактический HEAD обязан
+совпасть с переданным expected HEAD; detached HEAD допустим для verification
+worker. Fresh task не выполняет post-create `git switch` или post-create
+`git checkout` для исправления mismatch: при несовпадении возвращается typed
+`BLOCKED_PRECONDITION`, а registration calls не выполняются.
 
-Fresh task обязана использовать фактически callable `azurpilot-dev` MCP
-surface: первым read-only вызовом выполнить `dev_get_contract`, затем
-проверить `dev_list_smoke_capabilities` и `dev_validate_smoke`, запустить
-разрешённый `dev_start_smoke`, дождаться immutable terminal outcome через
-`dev_get_smoke` и вернуть проверяемое end-to-end evidence. Shell/HTTP/ADB,
-прямой внутренний module и source snapshot не заменяют MCP acceptance.
+Если check продолжается, task использует фактически callable Codex route и
+возвращает negotiated registration, client-visible contract/catalog и runtime
+evidence только в пределах этой optional проверки. Она не запускает smoke или
+mutation без отдельного разрешения scope; shell/HTTP/ADB, прямой внутренний
+module и source snapshot не заменяют negotiated MCP evidence.
 
 ## Каноническая последовательность
 
 1. Coordinator фиксирует bounded context: repository identity, coordinator
-   branch, exact expected HEAD, требуемые MCP family/route,
-   source/plugin/compatibility state, ожидаемый runtime state, обязательные
-   capability/contract checks и точный разрешённый live acceptance scope.
+   branch, exact expected HEAD, затронутую Codex registration surface, route,
+   source/plugin/compatibility state и ожидаемый runtime state.
 2. До создания task coordinator проверяет, что branch tip совпадает с exact
-   expected HEAD. При неоднозначной branch или mismatch он возвращает typed
-   `BLOCKED_PRECONDITION` и не создаёт task.
+   expected HEAD. При неоднозначной branch или mismatch optional check получает
+   typed `BLOCKED_PRECONDITION` и task не создаётся.
 3. Coordinator создаёт fresh independent task/thread с
-   `startingState.type=branch` и передаёт этот context вместе с запретом
-   изменять production code, branch, PR или lifecycle.
-4. Fresh task до любого MCP/live acceptance заново проверяет repository
-   identity, фактический exact HEAD и branch state. Фактический HEAD должен
-   быть равен expected HEAD; detached HEAD допустим. Она не принимает source
-   config, старый snapshot или факт создания task за доказательство freshness и
-   не выполняет post-create switch/checkout.
-5. После этого fresh task проверяет effective MCP registration, negotiated
-   callable surface/contract/catalog и runtime readiness. Только после
-   подтверждения свежей registration и `runtime_ready=true` она выполняет
-   разрешённый live smoke/acceptance в указанном scope.
-6. Fresh task возвращает machine-readable или иным образом проверяемый
-   terminal result с evidence: exact identity/HEAD, route, registration,
-   contract/catalog, runtime, acceptance result и ограничениями без секретов.
+   `startingState.type=branch` и передаёт context вместе с запретом изменять
+   production code, branch, PR или lifecycle.
+4. Fresh task до registration calls заново проверяет repository identity,
+   фактический exact HEAD и branch state. HEAD должен быть равен expected HEAD;
+   detached HEAD допустим. Она не принимает source config, старый snapshot или
+   сам факт создания task за evidence и не выполняет post-create switch/checkout.
+5. После этого fresh task проверяет только effective Codex registration и
+   negotiated client-visible contract/catalog в обозначенном scope. Ошибка этой
+   проверки классифицируется как результат `codex_registration_check`, а не как
+   MCP product gate failure.
+6. Fresh task возвращает machine-readable или иным образом проверяемый terminal
+   result с evidence: exact identity/HEAD, route, registration, contract/catalog,
+   runtime, result и ограничениями без секретов.
 7. Coordinator дожидается и читает terminal result delegated task, сохраняет
-   его evidence в основном lifecycle и только после этого классифицирует gate.
+   evidence как отдельную `IntegrationCheck` и не смешивает её с обязательным
+   `fresh_mcp_client_acceptance`.
 8. Если orchestration surface недоступна, branch tip не совпал с expected HEAD
-   или fresh task не подтверждает required state, результатом остаётся typed
-   `BLOCKED_PRECONDITION` с точной причиной. Создание task без terminal evidence
-   не закрывает gate.
+   или fresh task не подтверждает registration, optional check получает typed
+   `BLOCKED_PRECONDITION` с точной причиной. Это не переводит уже успешный fresh
+   MCP client gate в `FAIL`/`BLOCKED_PRECONDITION`.
 
 Fresh task не исправляет обнаруженный defect и не становится вторым владельцем
 разработки. Если она находит проблему, она возвращает evidence coordinator;
@@ -141,8 +143,9 @@ Fresh task не исправляет обнаруженный defect и не с�
 
 ## Запрещённые сокращения
 
-Нельзя завершать workflow blocker-ом только из-за stale registration текущей
-task, если independent orchestration доступна; нельзя выполнять live acceptance
-в старой task после срабатывания fresh-session trigger; нельзя подменять новый
-task/thread subagent-ом, fork-ом, same-session retry или Connected App; нельзя
-передавать delegated task расплывчатое «проверь MCP» без exact expected state.
+Нельзя выдавать source snapshot, `azur mcp status` или факт создания task за
+mandatory fresh MCP client acceptance; нельзя передавать Codex registration
+check расплывчатое «проверь MCP» без exact expected state; нельзя подменять
+новую task/thread subagent-ом, fork-ом, same-session retry или Connected App;
+нельзя исправлять HEAD mismatch post-create `git switch`/`git checkout`; нельзя
+скрывать external Codex limitation под product MCP failure.

@@ -12,20 +12,24 @@ Trust проекта — обязательное предварительное
 automatic trust. Поэтому структурно корректный source config ещё не доказывает,
 что route зарегистрирован в текущей Codex-сессии.
 
-Read-only порядок проверки такой: trust проекта → effective registration обоих
-routes → negotiated MCP discovery через официальный SDK → `tools/list` →
-соответствующий backend contract и callable catalog. Для legacy-compatible
-server SDK сам выполняет штатный `initialize` fallback; plugin не реализует
-собственный parser и не подменяет discovery универсальным handshake.
+Read-only порядок проверки такой: trust проекта → выбранный direct route →
+negotiated MCP discovery через официальный SDK → `tools/list` → соответствующий
+backend contract и callable catalog. Обязательный fresh client acceptance
+создаётся как новый SDK process/session и дополнительно выполняет обязательные
+read-only capability calls; для legacy-compatible server SDK сам выполняет
+штатный `initialize` fallback. Plugin не реализует собственный parser и не
+подменяет discovery универсальным handshake.
 `dev_tools.mcp_status` намеренно разделяет поля
 `source_config` (доказательство tracked `.codex/config.toml`) и
 `effective_codex_registration` (только authoritative evidence из новой или
 перезагруженной trusted Codex task). Значение `not_observable` или pending для
 effective registration является честным ограничением наблюдаемости, а не
 `ready`; collector не заменяет это состояние синтетическим CLI scrape.
-При task/session-scoped stale registration после доказанного source/runtime
-state действует [единый контракт cross-thread continuation](../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md),
-а не ручной новый чат или Connected App fallback.
+Effective Codex registration — отдельная optional integration check. Если
+изменение затрагивает Codex/plugin registration, client-visible schema или
+routing, действует [единый контракт cross-thread continuation](../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md),
+а не ручной новый чат или Connected App fallback. Wrong-HEAD или недоступный
+`create_thread` не блокируют уже успешный fresh MCP client gate.
 
 При этой диагностике нельзя молча переключаться между transport routes и
 использовать Connected App, OAuth или remote surface как fallback для direct

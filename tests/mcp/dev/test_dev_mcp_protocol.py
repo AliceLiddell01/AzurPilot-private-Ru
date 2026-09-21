@@ -1,6 +1,4 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
-
 
 import asyncio
 import base64
@@ -16,6 +14,9 @@ from mcp.client.client import Client
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
+from azurpilot.integrations.contracts import IntegrationState
+from azurpilot.integrations.mcp_client import accept_fresh_stdio
+from dev_tools.mcp_acceptance import build_plan
 from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
 from module.dev_mcp.server import (
     DEV_MCP_ARGS,
@@ -31,6 +32,7 @@ from module.dev_runtime import DevEnvironment, DevSessionManager
 from module.dev_runtime.game_bridge import GameObservationCapability
 from module.dev_runtime.target import DevTarget
 from tests.support.mcp.dev_contract import EXPECTED_CONTRACT
+from tests.support.paths import REPOSITORY_ROOT
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
 _FORBIDDEN_INPUT_FIELDS = {
@@ -471,6 +473,52 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
             assert process.returncode == 0
 
     asyncio.run(scenario())
+
+
+def test_fresh_mcp_client_acceptance_checks_contract_catalog_and_capabilities() -> None:
+    result = asyncio.run(
+        accept_fresh_stdio(
+            command=DEV_MCP_COMMAND,
+            args=tuple(DEV_MCP_ARGS),
+            cwd=str(_REPOSITORY_ROOT),
+            environment={},
+            plan=build_plan("unknown"),
+            timeout_seconds=20.0,
+        )
+    )
+
+    assert result.state is IntegrationState.READY
+    assert result.initialized is True
+    assert result.server_name == SERVER_NAME
+    assert result.server_version == SERVER_VERSION
+    assert result.tool_count == len(DEV_MCP_TOOL_NAMES)
+    assert result.tool_catalog_sha256
+    assert result.capability_catalog_sha256
+    assert result.contract_revision
+    assert result.called_tools == (
+        "dev_get_contract",
+        "dev_list_smoke_capabilities",
+        "dev_get_runtime_status",
+    )
+
+
+def test_fresh_mcp_client_acceptance_fails_closed_on_contract_revision_mismatch() -> None:
+    result = asyncio.run(
+        accept_fresh_stdio(
+            command=DEV_MCP_COMMAND,
+            args=tuple(DEV_MCP_ARGS),
+            cwd=str(_REPOSITORY_ROOT),
+            environment={},
+            plan=build_plan("not-the-negotiated-source-revision"),
+            timeout_seconds=20.0,
+        )
+    )
+
+    assert result.state is IntegrationState.INCOMPATIBLE
+    assert result.reason_code == "MCP_FRESH_CLIENT_CONTRACT_DRIFT"
+    assert result.initialized is True
+    assert result.called_tools == ("dev_get_contract",)
+    assert "contract.source_revision" in result.diagnostics
 
 
 def test_modern_client_discovers_2026_server_and_calls_tool() -> None:
