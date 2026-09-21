@@ -14,7 +14,7 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPOSITORY_ROOT))
 
-from azurpilot.tooling.git import is_ad_hoc_remote_ref
+from azurpilot.tooling.ref_policy import is_ad_hoc_remote_ref
 
 _MAX_INPUT_BYTES = 128 * 1024
 _MAX_COMMAND_CHARS = 64 * 1024
@@ -426,7 +426,7 @@ def _read_json_file(
         if len(raw) > max_bytes:
             return None
         value = json.loads(raw.decode("utf-8"))
-    except OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError:
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
         return None
     return value if isinstance(value, dict) else None
 
@@ -439,7 +439,7 @@ def _repository_root(cwd: object) -> Path | None:
         if not candidate.is_absolute():
             candidate = Path.cwd() / candidate
         candidate = candidate.resolve()
-    except OSError, RuntimeError, ValueError:
+    except (OSError, RuntimeError, ValueError):
         return None
     for root in (candidate, *candidate.parents):
         hooks = root / ".codex" / "hooks.json"
@@ -456,7 +456,7 @@ def _state_base() -> Path | None:
     if configured:
         try:
             path = Path(configured).expanduser()
-        except OSError, RuntimeError, ValueError:
+        except (OSError, RuntimeError, ValueError):
             return None
         return path if path.is_absolute() else None
     if os.name == "nt":
@@ -634,7 +634,7 @@ def _read_event() -> dict[str, Any] | None:
         if len(raw) > _MAX_INPUT_BYTES:
             return None
         value = json.loads(raw.decode("utf-8"))
-    except OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError:
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
         return None
     return value if isinstance(value, dict) else None
 

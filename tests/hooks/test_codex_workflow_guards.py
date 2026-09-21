@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 from types import ModuleType
 
@@ -87,6 +90,30 @@ def test_known_workflow_bypasses_are_denied(guards: ModuleType, command: str) ->
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "deny"
     assert isinstance(output["permissionDecisionReason"], str)
+
+
+@pytest.mark.skipif(
+    os.name != "nt" or shutil.which("py") is None,
+    reason="Windows Python launcher is required for the native hook entrypoint",
+)
+def test_windows_system_python_hook_entrypoint_has_no_project_dependencies() -> None:
+    hook_path = Path(__file__).parents[2] / ".codex" / "hooks" / "codex_workflow_guards.py"
+    event = _pre_tool_event("coderabbit review --agent")
+    completed = subprocess.run(
+        ["py", "-3", str(hook_path)],
+        input=json.dumps(event),
+        text=True,
+        capture_output=True,
+        cwd=hook_path.parents[2],
+        check=False,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == ""
+    result = json.loads(completed.stdout)
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "deny"
 
 
 def test_non_bash_pre_tool_use_is_ignored(guards: ModuleType) -> None:

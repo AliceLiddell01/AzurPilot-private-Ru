@@ -14,20 +14,9 @@ from .contracts import RepositoryIdentity, ResultCode
 from .errors import ToolingError
 from .filesystem import path_has_link
 from .process import ProcessResult, ProcessSpec, StructuredProcessRunner
+from .ref_policy import is_ad_hoc_remote_ref
 
 _MAX_GIT_OBJECT_BYTES = 16 * 1024 * 1024
-_AD_HOC_REMOTE_REF_PATTERNS = (
-    re.compile(
-        r"(?i)^codex/(?:base|scratch|tmp|temporary|transport|helper|aux)(?:[-/]|$)"
-    ),
-    re.compile(r"(?i)(?:^|/)(?:temporary|scratch|transport)(?:/|$)"),
-)
-
-
-def is_ad_hoc_remote_ref(value: str) -> bool:
-    """Распознать reserved refs, которые не являются parent/feature topology."""
-
-    return any(pattern.search(value) for pattern in _AD_HOC_REMOTE_REF_PATTERNS)
 
 
 @dataclass(frozen=True)
