@@ -269,8 +269,8 @@ def test_agent_ndjson_rejects_incomplete_mixed_findings_without_budget_claim():
         coderabbit.parse_agent_ndjson(lines)
 
 
-def test_coderabbit_triage_rejects_legacy_or_untyped_rejection():
-    common = {
+def _coderabbit_triage_common() -> dict[str, str]:
+    return {
         "reviewed_head": "a" * 40,
         "affected_code": "затронутая реализация",
         "call_sites": "ближайшие call sites",
@@ -280,6 +280,10 @@ def test_coderabbit_triage_rejects_legacy_or_untyped_rejection():
         "decision_reason": "Решение основано на независимой проверке контракта.",
         "change_summary": "Применимое исправление отслеживается для этого head.",
     }
+
+
+def test_coderabbit_triage_rejects_legacy_or_untyped_rejection():
+    common = _coderabbit_triage_common()
     with pytest.raises(ValidationError):
         CodeRabbitFindingTriage(
             disposition=FindingDisposition.FALSE_POSITIVE,
@@ -291,11 +295,13 @@ def test_coderabbit_triage_rejects_legacy_or_untyped_rejection():
             **common,
         )
 
+
+def test_coderabbit_triage_accepts_typed_conflict_rejection():
     rejected = CodeRabbitFindingTriage(
         disposition=FindingDisposition.FALSE_POSITIVE,
         conflict_kind="repository_contract_conflict",
         authoritative_source=".codex/context/GIT-WORKFLOW.md",
-        **common,
+        **_coderabbit_triage_common(),
     )
     assert rejected.conflict_kind.value == "repository_contract_conflict"
 
@@ -923,6 +929,8 @@ def test_coderabbit_rate_limit_metadata_is_bounded_and_typed():
         retry_not_before="2026-09-16T12:00:00+00:00",
         retry_source="provider",
     )
+    assert error.rate_limited is True
+    assert error.retry_not_before == "2026-09-16T12:00:00+00:00"
     assert error.retry_source == "provider"
     retry_at, source = coderabbit._parse_provider_retry_metadata(
         {"metadata": {"retry_after_seconds": 120}},

@@ -393,7 +393,7 @@ def test_status_does_not_claim_live_ready_after_source_reconciliation(
     assert result.details is not None
     assert result.details.source_reconciled is True
     assert result.details.runtime_ready is False
-    assert "live runtime" in result.message
+    assert result.details.runtime_state == "stopped"
 
 
 def test_status_preserves_version_bump_required_result(

@@ -213,8 +213,7 @@ class PullRequestBodyRenderer:
             f"Merge-ready: `{str(body.readiness.merge_ready).lower()}`.",
             f"Внешний reviewer: `{body.readiness.external_reviewer_status}`.",
         ]
-        if body.readiness.mcp_impact is not None:
-            readiness_lines.append(f"MCP impact: `{body.readiness.mcp_impact}`.")
+        readiness_lines.append(f"MCP impact: `{body.readiness.mcp_impact}`.")
         if body.readiness.reviewer_limitation:
             readiness_lines.append(
                 f"Ограничение reviewer: {body.readiness.reviewer_limitation}"

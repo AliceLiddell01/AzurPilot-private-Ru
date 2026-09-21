@@ -789,7 +789,7 @@ def _render_human(
                     ),
                     ("сохранённых циклов", str(cycle.previous_cycles_retained)),
                     (
-                        "historical non-authoritative findings",
+                        "исторические findings без авторитетного подтверждения",
                         str(cycle.historical_non_authoritative_count),
                     ),
                 )
@@ -839,20 +839,20 @@ def _render_human(
                     codegen_instructions = getattr(finding, "codegen_instructions", None)
                     if codegen_instructions:
                         finding_table.add_row(
-                            "Agent fix context",
+                            "Контекст исправления агента",
                             Text(str(codegen_instructions)),
                         )
                     suggestions = tuple(getattr(finding, "suggestions", ()))
                     if suggestions:
                         finding_table.add_row(
-                            "Suggestions",
+                            "Предложения",
                             Text("\n".join(str(item) for item in suggestions)),
                         )
                     for field, label in (
-                        ("decision_reason", "Decision reason"),
-                        ("change_summary", "Change summary"),
-                        ("conflict_kind", "Conflict kind"),
-                        ("authoritative_source", "Authoritative source"),
+                        ("decision_reason", "Причина решения"),
+                        ("change_summary", "Сводка изменения"),
+                        ("conflict_kind", "Тип конфликта"),
+                        ("authoritative_source", "Авторитетный источник"),
                     ):
                         value = getattr(finding, field, None)
                         if value:

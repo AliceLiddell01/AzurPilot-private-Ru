@@ -167,6 +167,24 @@ def test_native_discovery_requires_binary_syntax_auth_and_doctor(tmp_path: Path)
     ]
 
 
+def test_native_status_probe_checks_only_executable_and_version(tmp_path: Path):
+    executable = tmp_path / "coderabbit.exe"
+    executable.write_bytes(b"native")
+    runner = _DiscoveryRunner(tmp_path)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="nt")  # type: ignore[arg-type]
+
+    check = adapter._discover_provider(
+        tmp_path,
+        {"route": "direct_native_agent", "executable": str(executable)},
+        False,
+    )
+
+    assert check.state is IntegrationState.READY
+    assert check.provider is not None
+    assert check.provider.version == "0.7.8"
+    assert runner.calls == [("--version",)]
+
+
 def test_native_review_does_not_use_config_flag_to_enable_repository_config(
     tmp_path: Path,
 ):
@@ -1339,13 +1357,70 @@ def test_review_postcondition_mismatch_is_not_substantive_success(monkeypatch, t
     assert state["provider_state"] == "candidate_changed"
 
 
-def test_rate_limit_metadata_and_budget_remain_bounded():
+def test_rate_limit_metadata_and_budget_remain_bounded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     error = coderabbit.CodeRabbitStreamError("CODERABBIT_RATE_LIMITED", rate_limited=True, retry_source="provider")
     assert error.retry_source == "provider"
     assert coderabbit.review_iteration_allowed(0)
     assert coderabbit.review_iteration_allowed(2)
     assert not coderabbit.review_iteration_allowed(3)
     assert not coderabbit.review_iteration_allowed(0, terminal=True)
+
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    fingerprint = coderabbit.CandidateFingerprint(
+        "a" * 24,
+        "hosted:github.com/example/project",
+        "a" * 40,
+        "b" * 40,
+        "c" * 64,
+    )
+    rate_limited = _result(
+        root,
+        stdout=json.dumps({"type": "error", "code": "429"}) + "\n",
+    )
+    complete = _result(
+        root,
+        stdout=json.dumps({"type": "complete", "findings": []}) + "\n",
+    )
+    adapter = _prepared_adapter(
+        monkeypatch,
+        root,
+        results=(rate_limited, complete),
+        fingerprints=(fingerprint, fingerprint, fingerprint, fingerprint),
+    )
+
+    first = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="rate-limit-cycle",
+    )
+    first_state = adapter._load_review_state(root)
+    assert first.record.reason_code == "CODERABBIT_RATE_LIMITED"
+    assert first_state["cycle_status"] == "rate_limited_retry_allowed"
+    assert first_state["substantive_iterations"] == 0
+
+    retry_at, retry_source = coderabbit._parse_provider_retry_metadata(
+        {"metadata": {"retry_after_seconds": 120}},
+        now=coderabbit.datetime(2026, 9, 16, tzinfo=coderabbit.UTC),
+    )
+    assert retry_at == "2026-09-16T00:02:00+00:00"
+    assert retry_source == "provider"
+
+    second = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="rate-limit-cycle",
+    )
+    second_state = adapter._load_review_state(root)
+    assert second.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    assert second_state["substantive_iterations"] == 1
 
 
 def test_parse_provider_findings_output_without_suggested_fix() -> None:

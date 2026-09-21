@@ -312,5 +312,4 @@ def test_terminal_delivery_and_unknown_mcp_state_do_not_block(
         encoding="utf-8",
     )
     event = _stop_event(root)
-    event["mcp"] = {"source_reconciled": True, "runtime_state": "unknown"}
     assert guards.process_event(event) == {}

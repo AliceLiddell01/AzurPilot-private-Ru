@@ -1421,7 +1421,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
         return candidate, None, explicitly_configured
 
-    def _discover_provider(self, root: Path, settings: Mapping[str, object]) -> ProviderCheck:
+    def _discover_provider(
+        self,
+        root: Path,
+        settings: Mapping[str, object],
+        full_checks: bool = True,
+    ) -> ProviderCheck:
         platform = host_platform(self.host_os)
         if platform == "unsupported":
             return ProviderCheck(
@@ -1462,6 +1467,21 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     configured=True,
                 )
             version = version_match.group(0).lstrip("v")[:80]
+            if not full_checks:
+                provider = NativeCodeRabbit(executable, version, "", root, self.runner)
+                return ProviderCheck(
+                    IntegrationState.READY,
+                    "CODERABBIT_NATIVE_READY",
+                    "Исполняемый файл CodeRabbit и его версия подтверждены.",
+                    diagnostics=(
+                        f"platform={platform}-native",
+                        f"provider_version={version}",
+                        "liveness=executable_version",
+                        "transport=native_process",
+                    ),
+                    provider=provider,
+                    configured=True,
+                )
             help_result = self.runner.run(
                 ProcessSpec(
                     executable=executable,
@@ -1665,7 +1685,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
     def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:
         settings = config.provider("coderabbit")
         state = self._load_review_state(root)
-        check = self._discover_provider(root, settings)
+        check = self._discover_provider(root, settings, False)
         active = self._active_record(settings, state, provider=check.provider)
         if active is not None:
             return active
@@ -1693,7 +1713,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                         diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                         provider=check.provider,
                         message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
-                        authenticated=True,
+                        authenticated=check.authenticated,
                     )
                 head_sha = canonical.head_sha
             fingerprint, code, detail = self._candidate_preflight(
@@ -1707,7 +1727,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                     provider=check.provider,
                     message="Host-native provider CodeRabbit готов, но точный кандидат не подтверждён.",
-                    authenticated=True,
+                    authenticated=check.authenticated,
                 )
         elif isinstance(head_sha, str) and _SHA_RE.fullmatch(head_sha):
             fingerprint, code, detail = self._candidate_preflight(
@@ -1721,7 +1741,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                     provider=check.provider,
                         message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
-                    authenticated=True,
+                    authenticated=check.authenticated,
                 )
         else:
             canonical, code, detail = self._canonical_checkout_preflight(root, settings)
@@ -1733,7 +1753,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                     provider=check.provider,
                     message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
-                    authenticated=True,
+                    authenticated=check.authenticated,
                 )
         cycle_state = state.get("cycle_status")
         if cycle_state in {_RATE_LIMIT_WAITING, _RATE_LIMIT_RETRY_ALLOWED}:
@@ -1744,7 +1764,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 diagnostics=diagnostics,
                 provider=check.provider,
                 message="CodeRabbit cycle ограничен provider rate limit.",
-                authenticated=True,
+                authenticated=check.authenticated,
             )
         if state.get("findings") and not state.get("triage_complete", False):
             return self._record_from_error(
@@ -1755,7 +1775,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 provider=check.provider,
                 message="CodeRabbit provider findings сохранены; требуется индивидуальный triage каждого finding.",
                 configured=True,
-                authenticated=True,
+                authenticated=check.authenticated,
             )
         return self._record_from_error(
             settings,
@@ -1768,7 +1788,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             provider=check.provider,
             message=check.message,
             configured=True,
-            authenticated=True,
+            authenticated=check.authenticated,
         )
 
     def validate_config(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
@@ -2520,7 +2540,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     provider=None,
                 )
             retry_not_before = state.get("retry_not_before")
-            if state.get("cycle_status") == _RATE_LIMIT_WAITING and not _retry_time_has_arrived(retry_not_before):
+            has_retry_window = isinstance(retry_not_before, str) and bool(
+                retry_not_before.strip()
+            )
+            if (
+                state.get("cycle_status") == _RATE_LIMIT_WAITING
+                and has_retry_window
+                and not _retry_time_has_arrived(retry_not_before)
+            ):
                 return self._finish_failure(
                     root,
                     state,
@@ -2535,6 +2562,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     settings=settings,
                     provider=None,
                 )
+            if state.get("cycle_status") == _RATE_LIMIT_WAITING and not has_retry_window:
+                state.update(
+                    {
+                        "cycle_status": _RATE_LIMIT_RETRY_ALLOWED,
+                        "retry_not_before": None,
+                    }
+                )
+                self._save_review_state(root, state)
             check = self._discover_provider(root, settings)
             if check.state is not IntegrationState.READY or check.provider is None:
                 record = self._record_from_error(settings, check.reason_code, state=check.state, diagnostics=check.diagnostics, message=check.message, configured=check.configured, authenticated=check.authenticated)
@@ -2710,7 +2745,18 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 if error.rate_limited:
                     now = datetime.now(UTC).isoformat(timespec="seconds")
                     state["rate_limited_at"] = now
-                    return self._finish_failure(root, state, provider_state="rate_limited", cycle_status=_RATE_LIMIT_WAITING, reason_code=error.code, message="Provider сообщил rate limit; cycle сохранён без расхода iteration.", integration_state=IntegrationState.RATE_LIMITED, rate_limited_at=now, retry_not_before=error.retry_not_before, retry_source=error.retry_source, diagnostics=("retry_source=" + error.retry_source,), settings=settings, provider=provider)
+                    retry_not_before = (
+                        error.retry_not_before
+                        if isinstance(error.retry_not_before, str)
+                        and error.retry_not_before.strip()
+                        else None
+                    )
+                    cycle_status = (
+                        _RATE_LIMIT_WAITING
+                        if retry_not_before is not None
+                        else _RATE_LIMIT_RETRY_ALLOWED
+                    )
+                    return self._finish_failure(root, state, provider_state="rate_limited", cycle_status=cycle_status, reason_code=error.code, message="Provider сообщил rate limit; cycle сохранён без расхода iteration.", integration_state=IntegrationState.RATE_LIMITED, rate_limited_at=now, retry_not_before=retry_not_before, retry_source=error.retry_source, diagnostics=("retry_source=" + error.retry_source,), settings=settings, provider=provider)
                 return self._finish_failure(root, state, provider_state="stream_error", cycle_status="provider_error", reason_code=error.code, message="Поток CodeRabbit не прошёл ограниченный разбор.", settings=settings, provider=provider)
             if result.returncode != 0:
                 return self._finish_failure(root, state, provider_state="provider_error", cycle_status="provider_error", reason_code="CODERABBIT_PROVIDER_FAILED", message="CodeRabbit завершился с ошибкой; итерация не засчитана.", settings=settings, provider=provider)

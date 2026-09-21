@@ -423,10 +423,12 @@ def load_integration_config(root: Path) -> IntegrationConfig:
                 sources[name] = "environment"
 
     normalized: dict[str, dict[str, object]] = {}
+    host_os = os.name
     for name in DEFAULTS:
         merged = values.get(name, {})
         normalized[name] = {
-            key: _validate_value(name, key, value) for key, value in merged.items()
+            key: _validate_value(name, key, value, host_os=host_os)
+            for key, value in merged.items()
         }
     return IntegrationConfig(normalized, sources)
 

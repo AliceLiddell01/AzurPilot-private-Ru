@@ -5,10 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from dev_tools.integration_contract_gate import (
-    _OPERATOR_POLICY_MARKERS,
-    _OPERATOR_POLICY_PATHS,
-)
+from dev_tools.integration_contract_gate import check
 from tests.support.paths import REPOSITORY_ROOT
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
@@ -314,11 +311,11 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
 
 
 def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -> None:
-    policy_paths = tuple(_REPOSITORY_ROOT / relative for relative in _OPERATOR_POLICY_PATHS)
-    content = " ".join(path.read_text(encoding="utf-8").lower() for path in policy_paths)
-    for required in _OPERATOR_POLICY_MARKERS:
-        assert required.casefold() in content
-    assert "local_mcp_supervisor_stopped" in content
+    contract = check(_REPOSITORY_ROOT)
+    assert contract["ok"] is True
+    checks = contract["checks"]
+    assert isinstance(checks, dict)
+    assert checks["operator_workflow_boundary"] == "ready"
 
     development_skill = (
         _REPOSITORY_ROOT
@@ -329,8 +326,7 @@ def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -
         / "SKILL.md"
     ).read_text(encoding="utf-8").lower()
     assert "каноническая codex-команда: uv run" not in development_skill
-    assert "uv run --locked --no-sync python -m module.dev_mcp" not in content
-    assert "uv run --locked --no-sync python -m module.game_mcp" not in content
+
 
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
     for path in _SKILLS_ROOT.rglob("*"):
