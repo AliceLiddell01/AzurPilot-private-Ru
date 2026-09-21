@@ -1,0 +1,32 @@
+{
+  "description": "Точечные project-local guards для canonical AzurPilot workflow.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/codex_workflow_guards.py\"",
+            "commandWindows": "py -3 -c \"import pathlib,runpy; p=pathlib.Path.cwd(); root=next((x for x in (p,*p.parents) if (x/'.codex'/'hooks.json').is_file()), None); runpy.run_path(str(root/'.codex'/'hooks'/'codex_workflow_guards.py'), run_name='__main__')\"",
+            "timeout": 2,
+            "statusMessage": "Проверка shell workflow"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/codex_workflow_guards.py\"",
+            "commandWindows": "py -3 -c \"import pathlib,runpy; p=pathlib.Path.cwd(); root=next((x for x in (p,*p.parents) if (x/'.codex'/'hooks.json').is_file()), None); runpy.run_path(str(root/'.codex'/'hooks'/'codex_workflow_guards.py'), run_name='__main__')\"",
+            "timeout": 2,
+            "statusMessage": "Проверка незавершённого workflow"
+          }
+        ]
+      }
+    ]
+  }
+}
