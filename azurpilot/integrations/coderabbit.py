@@ -958,8 +958,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state["findings"].append(
                         CodeRabbitFinding.model_validate(candidate).model_dump(mode="json")
                     )
-                except Exception:  # noqa: BLE001, S112 - corrupted finding is discarded.
-                    continue
+                except Exception as exc:
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "CodeRabbit state содержит повреждённый finding.",
+                    ) from exc
         state["findings_count"] = len(state["findings"])
         parsed_findings = tuple(
             CodeRabbitFinding.model_validate(raw) for raw in state["findings"]

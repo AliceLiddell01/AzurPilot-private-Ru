@@ -9,6 +9,7 @@ import pytest
 from azurpilot.integrations import coderabbit
 from azurpilot.integrations.config import IntegrationConfig
 from azurpilot.integrations.contracts import IntegrationState
+from azurpilot.tooling.contracts import ResultCode
 from azurpilot.tooling.filesystem import StateLayout
 from azurpilot.tooling.process import ProcessIdentity, ProcessResult
 
@@ -373,6 +374,28 @@ def test_legacy_default_finding_disposition_is_not_verified_triage(
     assert state["triage_complete"] is False
     assert state["cycle_status"] == "triage_required"
     assert state["terminal"] is False
+
+
+def test_corrupted_finding_state_fails_closed(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    layout = StateLayout.for_repository(root)
+    layout.ensure()
+    layout.path("coderabbit-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "findings": [{"path": "azurpilot/integrations/coderabbit.py"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(coderabbit.ToolingError) as error:
+        coderabbit.CodeRabbitAdapter._load_review_state(root)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
 
 
 def test_exact_liveness_blocks_duplicate_review(monkeypatch, tmp_path: Path):
