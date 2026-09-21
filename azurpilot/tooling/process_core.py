@@ -297,6 +297,24 @@ class ProcessIdentity:
         )
 
 
+class ProcessStartError(ProcessExecutionError):
+    """Ошибка запуска с ограниченными доказательствами создания и очистки процесса."""
+
+    def __init__(
+        self,
+        *,
+        code: ResultCode,
+        message: str,
+        spawn_state: Literal["not_spawned", "absent_after_cleanup", "unknown"],
+        cleanup_state: Literal["absent", "unknown"],
+        identity: ProcessIdentity | None = None,
+    ) -> None:
+        super().__init__(code=code, message=message)
+        self.spawn_state = spawn_state
+        self.cleanup_state = cleanup_state
+        self.identity = identity
+
+
 @dataclass(frozen=True)
 class ProcessResult:
     """Результат запуска с ограниченными stdout/stderr и liveness evidence."""
@@ -694,11 +712,24 @@ class StructuredProcessRunner:
             )
             identity = ProcessIdentity.capture(process.pid, spec)
         except (OSError, ValueError, psutil.Error) as exc:
-            if process is not None:
-                _cleanup_process_instance(process)
-            raise ProcessExecutionError(
+            if process is None:
+                raise ProcessStartError(
+                    code=ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
+                    message="Не удалось создать долгоживущий процесс.",
+                    spawn_state="not_spawned",
+                    cleanup_state="absent",
+                ) from exc
+            _cleanup_process_instance(process)
+            cleanup_state: Literal["absent", "unknown"] = (
+                "absent" if process.poll() is not None else "unknown"
+            )
+            raise ProcessStartError(
                 code=ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
                 message="Не удалось создать или подтвердить долгоживущий процесс.",
+                spawn_state=(
+                    "absent_after_cleanup" if cleanup_state == "absent" else "unknown"
+                ),
+                cleanup_state=cleanup_state,
             ) from exc
         running = RunningProcess(process=process, identity=identity, spec=spec)
         if not spec.capture_output:
@@ -917,6 +948,7 @@ __all__ = [
     "ProcessIdentity",
     "ProcessResult",
     "ProcessSpec",
+    "ProcessStartError",
     "RunningProcess",
     "StructuredProcessRunner",
     "docker_environment",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -150,6 +151,7 @@ def test_native_discovery_uses_posix_provider_name_without_mutating_platform(
 ):
     executable = tmp_path / "coderabbit"
     executable.write_bytes(b"native")
+    executable.chmod(0o755)
     runner = _DiscoveryRunner(tmp_path)
     adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="posix")  # type: ignore[arg-type]
 
@@ -161,6 +163,49 @@ def test_native_discovery_uses_posix_provider_name_without_mutating_platform(
     assert check.state is IntegrationState.READY
     assert check.provider is not None
     assert "platform=posix-native" in check.diagnostics
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable discovery contract")
+def test_native_discovery_allows_posix_path_symlink_to_host_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    target = tmp_path / "coderabbit"
+    target.write_bytes(b"native")
+    target.chmod(0o755)
+    entry = tmp_path / "bin" / "coderabbit"
+    entry.parent.mkdir()
+    entry.symlink_to(target)
+    monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: str(entry))
+    runner = _DiscoveryRunner(tmp_path)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="posix")  # type: ignore[arg-type]
+
+    check = adapter._discover_provider(
+        tmp_path,
+        {"route": "direct_native_agent"},
+    )
+
+    assert check.state is IntegrationState.READY
+    assert check.provider is not None
+    assert check.provider.executable == target.resolve()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable discovery contract")
+def test_native_discovery_rejects_posix_path_symlink_to_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    target = tmp_path / "coderabbit"
+    target.write_text("#!/bin/sh\necho fake\n", encoding="utf-8")
+    target.chmod(0o755)
+    entry = tmp_path / "bin" / "coderabbit"
+    entry.parent.mkdir()
+    entry.symlink_to(target)
+    monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: str(entry))
+    adapter = coderabbit.CodeRabbitAdapter(host_os="posix")
+
+    check = adapter._discover_provider(tmp_path, {"route": "direct_native_agent"})
+
+    assert check.reason_code == "CODERABBIT_EXECUTABLE_WRAPPER_REJECTED"
+    assert check.provider is None
 
 
 @pytest.mark.parametrize(
@@ -559,11 +604,12 @@ def test_review_reserves_starting_state_before_provider_spawn(
     )
     state = adapter._load_review_state(root)
 
-    assert first.record.reason_code == "CODERABBIT_PROVIDER_START_UNKNOWN"
-    assert state["active"] is True
-    assert state["phase"] == "starting"
-    assert state["cycle_status"] == "recovery_required"
-    assert state["provider_state"] == "start_unknown"
+    assert first.record.reason_code == "CODERABBIT_PROVIDER_START_FAILED_RETRYABLE"
+    assert state["active"] is False
+    assert state["phase"] == "failed"
+    assert state["cycle_status"] == "provider_error"
+    assert state["provider_state"] == "start_failed_not_spawned"
+    assert state["reservation_state"] == "retryable"
     assert state["provider_identity"] is None
 
     second = adapter.review(
@@ -574,8 +620,160 @@ def test_review_reserves_starting_state_before_provider_spawn(
         task_id="task-starting",
     )
 
-    assert second.record.reason_code == "CODERABBIT_ACTIVE_STATE_INVALID"
-    assert starts == ["called"]
+    assert second.record.reason_code == "CODERABBIT_PROVIDER_START_FAILED_RETRYABLE"
+    assert starts == ["called", "called"]
+
+
+@pytest.mark.parametrize(
+    ("liveness", "expected_reason", "expected_state", "active", "reservation_state"),
+    [
+        (
+            "absent",
+            "CODERABBIT_PROVIDER_STATE_SAVE_FAILED_RECOVERED",
+            IntegrationState.UNAVAILABLE,
+            False,
+            "retryable",
+        ),
+        (
+            "alive",
+            "CODERABBIT_PROVIDER_STATE_SAVE_RECOVERY_REQUIRED",
+            IntegrationState.DEGRADED,
+            True,
+            "owned",
+        ),
+        (
+            "unknown",
+            "CODERABBIT_PROVIDER_STATE_SAVE_RECOVERY_REQUIRED",
+            IntegrationState.UNKNOWN,
+            True,
+            "owned",
+        ),
+    ],
+)
+def test_provider_identity_save_failure_preserves_recoverable_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    liveness: str,
+    expected_reason: str,
+    expected_state: IntegrationState,
+    active: bool,
+    reservation_state: str,
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (fingerprint, None, None),
+    )
+    result = _result(root, stdout=json.dumps({"type": "complete", "findings": []}) + "\n")
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(result),
+    )
+    monkeypatch.setattr(
+        coderabbit.ProcessController,
+        "terminate",
+        staticmethod(lambda _identity: False),
+    )
+    monkeypatch.setattr(
+        coderabbit.ProcessController,
+        "inspect_state",
+        staticmethod(lambda _identity: liveness),
+    )
+
+    original_save = adapter._save_review_state
+    save_calls = 0
+
+    def fail_identity_save(save_root: Path, save_state: dict[str, object]) -> None:
+        nonlocal save_calls
+        save_calls += 1
+        if save_calls == 2:
+            raise OSError("identity save failed")
+        original_save(save_root, save_state)
+
+    monkeypatch.setattr(adapter, "_save_review_state", fail_identity_save)
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-save-failure",
+    )
+    state = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == expected_reason
+    assert outcome.record.state is expected_state
+    assert state["active"] is active
+    assert state["reservation_state"] == reservation_state
+    if active:
+        assert state["provider_identity"] is not None
+        assert state["phase"] == "recovery"
+        assert state["recovery"]["status"] == "required"
+        blocked = adapter.review(
+            root,
+            IntegrationConfig(),
+            base_sha="a" * 40,
+            head_sha="b" * 40,
+            task_id="task-save-failure",
+        )
+        assert blocked.record.reason_code in {
+            "CODERABBIT_REVIEW_STILL_ALIVE",
+            "CODERABBIT_REVIEW_LIVENESS_UNKNOWN",
+        }
+    else:
+        assert state["provider_identity"] is None
+        assert state["phase"] == "failed"
+        assert state["recovery"]["status"] == "completed"
+
+
+def test_startup_uncertainty_has_typed_recovery_path(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    adapter = coderabbit.CodeRabbitAdapter()
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "active": True,
+            "reservation_state": "pre_spawn",
+            "provider_state": "starting",
+            "phase": "starting",
+        }
+    )
+    adapter._save_review_state(root, state)
+
+    outcome = adapter.recover_interrupted_review(root, IntegrationConfig())
+
+    assert outcome.record.reason_code == "CODERABBIT_PROVIDER_START_UNKNOWN"
+    assert outcome.record.state is IntegrationState.UNKNOWN
+    assert adapter._load_review_state(root)["active"] is True
 
 
 @pytest.mark.parametrize(

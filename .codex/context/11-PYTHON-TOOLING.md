@@ -193,6 +193,8 @@ CodeRabbit — консультативный reviewer, а не источник
   duplicate review ради `3/3` запрещён;
 - ограниченный цикл review ограничивает substantive iterations и сохраняет типизированное
   state;
+- pre-spawn reservation не расходует budget: доказанный `not_spawned`/`absent_after_cleanup`
+  очищает state для retry, а `alive`/`unknown` сохраняет точное ownership для recovery;
 - provider rate limit/cooldown не расходует substantive iteration и не запускает
   blind retry;
 - text/location/title провайдера нормализуются в ограниченное evidence;
@@ -240,6 +242,13 @@ source reconcile напрямую через PATH вызови `azur mcp status`
 `runtime_state=stopped`, `session_state=not_observable` или unknown ownership
 остаются blocker/limitation. Не запускай `module.*_mcp`, supervisor modules или
 внутренние Python scripts напрямую.
+
+Если source/runtime уже приведены в требуемое состояние, а текущая task не
+может доказать свежую effective registration из-за session-scoped cache,
+используй [единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
+Независимая task/thread должна заново подтвердить фактически вызываемую surface,
+contract, catalog и `runtime_ready`; создание task без terminal evidence не
+закрывает mandatory gate.
 
 ## 8. Базовый кроссплатформенный контракт
 

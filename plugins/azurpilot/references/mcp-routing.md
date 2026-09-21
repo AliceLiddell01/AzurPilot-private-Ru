@@ -23,6 +23,9 @@ server SDK сам выполняет штатный `initialize` fallback; plugi
 перезагруженной trusted Codex task). Значение `not_observable` или pending для
 effective registration является честным ограничением наблюдаемости, а не
 `ready`; collector не заменяет это состояние синтетическим CLI scrape.
+При task/session-scoped stale registration после доказанного source/runtime
+state действует [единый контракт cross-thread continuation](../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md),
+а не ручной новый чат или Connected App fallback.
 
 При этой диагностике нельзя молча переключаться между transport routes и
 использовать Connected App, OAuth или remote surface как fallback для direct

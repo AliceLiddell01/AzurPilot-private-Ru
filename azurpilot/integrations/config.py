@@ -32,7 +32,7 @@ _POSIX_CODERABBIT_NAME = "coderabbit"
 
 
 def _native_coderabbit_name(host_os: str | None = None) -> str | None:
-    """Вернуть допустимое имя native provider для указанной host OS."""
+    """Вернуть допустимое имя host-native provider для указанной host OS."""
 
     value = os.name if host_os is None else host_os
     if value in {"nt", "windows"}:
@@ -349,10 +349,10 @@ def _validate_value(
         if name == "coderabbit":
             expected_name = _native_coderabbit_name(host_os)
             if expected_name is None:
-                _raise("Текущая host OS не поддерживает native CodeRabbit provider.")
+                _raise("Текущая host OS не поддерживает host-native provider CodeRabbit.")
             if path.name.casefold() != expected_name:
                 _raise(
-                    f"Параметр {name}.executable не является native CodeRabbit binary для текущей host OS."
+                    f"Параметр {name}.executable не является исполняемым файлом host-native CodeRabbit для текущей host OS."
                 )
     if name == "coderabbit" and key == "route" and value != "direct_native_agent":
         _raise("Параметр coderabbit.route должен использовать direct_native_agent.")

@@ -44,6 +44,7 @@ from azurpilot.tooling.process import (
     ProcessIdentity,
     ProcessResult,
     ProcessSpec,
+    ProcessStartError,
     RunningProcess,
     StructuredProcessRunner,
 )
@@ -104,6 +105,7 @@ _PROVIDER_FINDING_SEPARATOR_RE = re.compile(r"^\s*[─-]{8,}\s*$")
 _PROVIDER_WRAPPER_SUFFIXES = frozenset({".cmd", ".bat", ".ps1"})
 _WINDOWS_PROVIDER_NAME = "coderabbit.exe"
 _POSIX_PROVIDER_NAME = "coderabbit"
+_RESERVATION_STATES = frozenset({"idle", "pre_spawn", "retryable", "owned", "unknown"})
 
 
 def _host_platform(host_os: str | None = None) -> Literal["windows", "posix", "unsupported"]:
@@ -164,7 +166,7 @@ class CodeRabbitProgress:
 
 @dataclass(frozen=True, slots=True)
 class CandidateFingerprint:
-    """Exact identity candidate, снятая непосредственно перед запуском provider."""
+    """Кандидат с точной идентичностью, снятый перед запуском provider."""
 
     root_identity: str
     repository_identity: str
@@ -205,7 +207,7 @@ class ProviderCheck:
 
 @dataclass(slots=True)
 class NativeCodeRabbit:
-    """Host-native executable и ограниченное evidence его readiness."""
+    """Исполняемый файл host-native с ограниченными доказательствами готовности."""
 
     executable: Path
     version: str
@@ -730,6 +732,7 @@ def _default_review_state() -> dict[str, object]:
         "reviewed_head": None,
         "provider_state": None,
         "provider_version": None,
+        "reservation_state": "idle",
         "recovery": None,
         "rate_limited_at": None,
         "retry_not_before": None,
@@ -864,7 +867,7 @@ def _provider_error_state(code: str) -> IntegrationState:
 
 
 class CodeRabbitAdapter(IntegrationAdapter):
-    """Lifecycle прямого host-native provider, привязанный к canonical checkout."""
+    """Жизненный цикл прямого host-native provider в canonical checkout."""
 
     name = IntegrationName.CODERABBIT
 
@@ -933,6 +936,10 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if payload.get("provider_state") is not None
             else None
         )
+        reservation_state = payload.get("reservation_state")
+        if reservation_state not in _RESERVATION_STATES:
+            reservation_state = "unknown" if payload.get("active") else "idle"
+        state["reservation_state"] = reservation_state
         state["provider_version"] = (
             _bounded_string(payload.get("provider_version"), "", 80) or None
         )
@@ -1010,10 +1017,18 @@ class CodeRabbitAdapter(IntegrationAdapter):
             state["active"] = bool(payload.get("active", False))
             state["provider_identity"] = payload.get("provider_identity")
             state["candidate_fingerprint"] = payload.get("candidate_fingerprint")
+            if state["active"]:
+                if _deserialize_identity(state["provider_identity"]) is not None:
+                    state["reservation_state"] = "owned"
+                elif state["reservation_state"] == "idle":
+                    state["reservation_state"] = "unknown"
+            elif state["reservation_state"] == "owned":
+                state["reservation_state"] = "idle"
         else:
             state["active"] = False
             state["provider_identity"] = None
             state["candidate_fingerprint"] = None
+            state["reservation_state"] = "idle"
             if payload.get("active"):
                 state["provider_state"] = "legacy_state_migrated"
                 state["cycle_status"] = "recovery_required"
@@ -1131,7 +1146,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             self.name,
             selected_state,
             code,
-            message or "Прямой native CodeRabbit provider не подтверждён.",
+            message or "Прямой host-native provider CodeRabbit не подтверждён.",
             build_evidence(
                 config=self._evidence_config(settings, provider),
                 credential=CredentialRef(),
@@ -1257,10 +1272,16 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 if explicitly_configured
                 else "CODERABBIT_NATIVE_EXECUTABLE_UNAVAILABLE"
             ), explicitly_configured
+        platform = _host_platform(host_os)
+        path_entry_symlink = (
+            not explicitly_configured
+            and platform == "posix"
+            and candidate.is_symlink()
+        )
         try:
-            if path_has_link(candidate):
+            if path_has_link(candidate) and not path_entry_symlink:
                 return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
-            candidate = candidate.resolve(strict=False)
+            candidate = candidate.resolve(strict=True)
         except OSError:
             return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
         if candidate.suffix.casefold() in _PROVIDER_WRAPPER_SUFFIXES:
@@ -1268,6 +1289,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
         if candidate.name.casefold() != _provider_name(host_os):
             return None, "CODERABBIT_EXECUTABLE_NOT_NATIVE", explicitly_configured
         if path_has_link(candidate) or not candidate.is_file():
+            return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
+        if platform == "posix" and not os.access(candidate, os.X_OK):
+            return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
+        try:
+            with candidate.open("rb") as stream:
+                if stream.read(2) == b"#!":
+                    return None, "CODERABBIT_EXECUTABLE_WRAPPER_REJECTED", explicitly_configured
+        except OSError:
             return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
         return candidate, None, explicitly_configured
 
@@ -1277,7 +1306,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return ProviderCheck(
                 IntegrationState.INCOMPATIBLE,
                 "CODERABBIT_NATIVE_HOST_UNSUPPORTED",
-                "Текущая host OS не поддерживается host-native CodeRabbit provider.",
+                "Текущая host OS не поддерживает host-native provider CodeRabbit.",
                 configured=False,
             )
         executable, path_error, configured = self._provider_path(
@@ -1289,7 +1318,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return ProviderCheck(
                 state,
                 code,
-                "Native CodeRabbit executable не подтверждён.",
+                "Исполняемый файл CodeRabbit не подтверждён.",
                 configured=configured,
             )
         try:
@@ -1308,7 +1337,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 return ProviderCheck(
                     IntegrationState.INCOMPATIBLE,
                     "CODERABBIT_VERSION_INVALID",
-                    "Версия native CodeRabbit не подтверждена.",
+                    "Версия CodeRabbit не подтверждена.",
                     configured=True,
                 )
             version = version_match.group(0).lstrip("v")[:80]
@@ -1329,7 +1358,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 return ProviderCheck(
                     IntegrationState.INCOMPATIBLE,
                     "CODERABBIT_REVIEW_SYNTAX_UNSUPPORTED",
-                    "Native CodeRabbit не подтверждает требуемый review/agent syntax.",
+                    "CodeRabbit не подтверждает требуемый синтаксис review/agent.",
                     configured=True,
                 )
             auth_help = self.runner.run(
@@ -1347,7 +1376,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 return ProviderCheck(
                     IntegrationState.INCOMPATIBLE,
                     "CODERABBIT_AUTH_SYNTAX_UNSUPPORTED",
-                    "Native CodeRabbit не подтверждает auth status readiness.",
+                    "CodeRabbit не подтверждает готовность auth status.",
                     configured=True,
                 )
             auth_result = self.runner.run(
@@ -1364,7 +1393,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 return ProviderCheck(
                     IntegrationState.UNAUTHENTICATED,
                     "CODERABBIT_AUTH_NOT_READY",
-                    "Native CodeRabbit executable найден, но auth readiness не подтверждён.",
+                    "Исполняемый файл CodeRabbit найден, но готовность auth не подтверждена.",
                     configured=True,
                     authenticated=False,
                 )
@@ -1382,7 +1411,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 return ProviderCheck(
                     IntegrationState.UNAVAILABLE,
                     "CODERABBIT_READINESS_FAILED",
-                    "Native CodeRabbit doctor не подтвердил readiness.",
+                    "Проверка CodeRabbit doctor не подтвердила готовность.",
                     configured=True,
                     authenticated=True,
                 )
@@ -1390,7 +1419,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return ProviderCheck(
                 IntegrationState.READY,
                 "CODERABBIT_NATIVE_READY",
-                "Native CodeRabbit executable и agent readiness подтверждены.",
+                "Исполняемый файл CodeRabbit и готовность agent подтверждены.",
                 diagnostics=(
                     f"platform={platform}-native",
                     f"provider_version={version}",
@@ -1407,10 +1436,21 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return ProviderCheck(
                 IntegrationState.UNAVAILABLE,
                 "CODERABBIT_NATIVE_DISCOVERY_FAILED",
-                "Native CodeRabbit discovery завершился без подтверждения.",
+                "Поиск CodeRabbit завершился без подтверждения.",
                 diagnostics=(type(error).__name__,),
                 configured=True,
             )
+
+    @staticmethod
+    def _start_failure_evidence(
+        error: BaseException,
+    ) -> tuple[str, ProcessIdentity | None, str]:
+        if isinstance(error, ProcessStartError):
+            identity = error.identity if isinstance(error.identity, ProcessIdentity) else None
+            return error.spawn_state, identity, error.cleanup_state
+        if isinstance(error, (OSError, ValueError)):
+            return "not_spawned", None, "absent"
+        return "unknown", None, "unknown"
 
     @staticmethod
     def _state_active_identity(state: Mapping[str, object]) -> tuple[ProcessIdentity | None, str | None]:
@@ -1418,6 +1458,8 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return None, None
         identity = _deserialize_identity(state.get("provider_identity"))
         if identity is None:
+            if state.get("reservation_state") in {"pre_spawn", "unknown"}:
+                return None, "CODERABBIT_PROVIDER_START_UNKNOWN"
             return None, "CODERABBIT_ACTIVE_STATE_INVALID"
         return identity, None
 
@@ -1430,12 +1472,17 @@ class CodeRabbitAdapter(IntegrationAdapter):
     ) -> IntegrationRecord | None:
         identity, error = self._state_active_identity(state)
         if error:
+            message = (
+                "Доказательства запуска и владения CodeRabbit неизвестны; повторный вызов provider запрещён."
+                if error == "CODERABBIT_PROVIDER_START_UNKNOWN"
+                else "Активное состояние CodeRabbit не содержит проверяемую идентичность процесса."
+            )
             return self._record_from_error(
                 settings,
                 error,
                 state=IntegrationState.UNKNOWN,
                 provider=provider,
-                message="Active CodeRabbit state не содержит проверяемую process identity.",
+                message=message,
             )
         if identity is None:
             return None
@@ -1496,7 +1543,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                         state=IntegrationState.INCOMPATIBLE,
                         diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                         provider=check.provider,
-                        message="Native CodeRabbit provider готов, но canonical candidate не готов.",
+                        message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
                         authenticated=True,
                     )
                 head_sha = canonical.head_sha
@@ -1510,7 +1557,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state=IntegrationState.INCOMPATIBLE,
                     diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                     provider=check.provider,
-                    message="Native CodeRabbit provider готов, но exact candidate не готов.",
+                    message="Host-native provider CodeRabbit готов, но точный кандидат не подтверждён.",
                     authenticated=True,
                 )
         elif isinstance(head_sha, str) and _SHA_RE.fullmatch(head_sha):
@@ -1524,7 +1571,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state=IntegrationState.INCOMPATIBLE,
                     diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                     provider=check.provider,
-                    message="Native CodeRabbit provider готов, но canonical candidate не готов.",
+                        message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
                     authenticated=True,
                 )
         else:
@@ -1536,7 +1583,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state=IntegrationState.INCOMPATIBLE,
                     diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                     provider=check.provider,
-                    message="Native CodeRabbit provider готов, но canonical candidate не готов.",
+                    message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
                     authenticated=True,
                 )
         cycle_state = state.get("cycle_status")
@@ -1642,7 +1689,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 settings,
                 "CODERABBIT_TRIAGE_REQUIRED",
                 state=IntegrationState.DEGRADED,
-                message="Сохранённые CodeRabbit findings ещё не прошли individual triage.",
+                message="Сохранённые findings CodeRabbit ещё не прошли индивидуальную проверку.",
                 configured=True,
                 authenticated=True,
             )
@@ -1651,7 +1698,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             settings,
             "CODERABBIT_FINDINGS_AVAILABLE",
             state=IntegrationState.READY,
-            message="Сохранённые CodeRabbit findings относятся к exact candidate.",
+                    message="Сохранённые findings CodeRabbit относятся к точному кандидату.",
             configured=True,
         )
         return AdapterOutcome(record, findings, self._cycle_summary(state))
@@ -1717,7 +1764,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 settings,
                 "CODERABBIT_TRIAGE_INCOMPLETE",
                 state=IntegrationState.DEGRADED,
-                message="Для каждого provider finding требуется ровно одна triage evidence запись.",
+                message="Для каждого finding provider требуется ровно одна evidence-запись проверки.",
                 configured=True,
                 authenticated=True,
             )
@@ -1731,7 +1778,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     settings,
                     "CODERABBIT_TRIAGE_HEAD_MISMATCH",
                     state=IntegrationState.INCOMPATIBLE,
-                    message="Каждое triage evidence должно ссылаться на exact reviewed head.",
+                    message="Каждая evidence-запись проверки должна ссылаться на точный reviewed head.",
                     configured=True,
                     authenticated=True,
                 )
@@ -1802,11 +1849,17 @@ class CodeRabbitAdapter(IntegrationAdapter):
             state = self._load_review_state(root)
             identity, invalid = self._state_active_identity(state)
             if invalid:
+                message = (
+                    "Восстановление остановлено: после сбоя запуска не получена "
+                    "точная идентичность процесса; повторный вызов запрещён."
+                    if invalid == "CODERABBIT_PROVIDER_START_UNKNOWN"
+                    else "Восстановление не может доказать точную идентичность процесса."
+                )
                 record = self._record_from_error(
                     settings,
                     invalid,
                     state=IntegrationState.UNKNOWN,
-                    message="Recovery не может доказать exact process identity.",
+                    message=message,
                 )
                 return AdapterOutcome(record, (), self._cycle_summary(state))
             if identity is None:
@@ -1814,7 +1867,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     settings,
                     "CODERABBIT_NO_INTERRUPTED_REVIEW",
                     state=IntegrationState.READY,
-                    message="Незавершённая native CodeRabbit операция не обнаружена.",
+                    message="Незавершённая операция CodeRabbit не обнаружена.",
                     configured=True,
                 )
                 return AdapterOutcome(record, (), self._cycle_summary(state))
@@ -1841,6 +1894,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             state.update(
                 {
                     "active": False,
+                    "reservation_state": "idle",
                     "provider_identity": None,
                     "candidate_fingerprint": None,
                     "provider_state": "interrupted_recovered",
@@ -1860,7 +1914,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 settings,
                 "CODERABBIT_REVIEW_RECOVERED",
                 state=IntegrationState.READY,
-                message="Отсутствующий native CodeRabbit процесс доказан; state восстановлен без duplicate call.",
+                message="Отсутствие процесса CodeRabbit доказано; state восстановлен без повторного вызова.",
                 configured=True,
             )
             return AdapterOutcome(record, self._stored_findings(state, state.get("base_sha"), state.get("reviewed_head")), self._cycle_summary(state))
@@ -1988,6 +2042,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             state.update(
                 {
                     "active": True,
+                    "reservation_state": "owned",
                     "provider_state": provider_state,
                     "cycle_status": "recovery_required",
                     "rate_limited_at": rate_limited_at,
@@ -2007,6 +2062,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             state.update(
                 {
                     "active": False,
+                    "reservation_state": "idle",
                     "provider_identity": None,
                     "candidate_fingerprint": None,
                     "provider_state": provider_state,
@@ -2036,6 +2092,104 @@ class CodeRabbitAdapter(IntegrationAdapter):
             authenticated=True,
         )
         return AdapterOutcome(record, (), self._cycle_summary(state))
+
+    def _handle_provider_state_save_failure(
+        self,
+        root: Path,
+        state: dict[str, object],
+        running: RunningProcess,
+        error: Exception,
+        *,
+        settings: Mapping[str, object],
+        provider: NativeCodeRabbit,
+    ) -> AdapterOutcome:
+        """Сохранить восстановимое владение после сбоя постоянного сохранения identity."""
+
+        diagnostics = [type(error).__name__]
+        try:
+            ProcessController.terminate(running.identity)
+        except Exception as termination_error:  # noqa: BLE001 - recovery evidence.
+            diagnostics.append(type(termination_error).__name__)
+        try:
+            liveness = ProcessController.inspect_state(running.identity)
+        except Exception as liveness_error:  # noqa: BLE001 - fail closed.
+            liveness = "unknown"
+            diagnostics.append(type(liveness_error).__name__)
+        diagnostics.append(f"liveness={liveness}")
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        if liveness == "absent":
+            state.update(
+                {
+                    "active": False,
+                    "reservation_state": "retryable",
+                    "provider_identity": None,
+                    "candidate_fingerprint": None,
+                    "provider_state": "provider_state_save_failed_absent",
+                    "cycle_status": "provider_error",
+                    "phase": "failed",
+                    "recovery": {
+                        "reason": "provider_state_save_failed",
+                        "status": "completed",
+                        "liveness": "absent",
+                        "next_action": "retry_review",
+                        "verified_at": now,
+                    },
+                    "last_event_type": "provider_state_save_recovered",
+                }
+            )
+            reason_code = "CODERABBIT_PROVIDER_STATE_SAVE_FAILED_RECOVERED"
+            integration_state = IntegrationState.UNAVAILABLE
+            message = (
+                "Сбой сохранения identity восстановлен: отсутствие provider доказано, "
+                "текущий cycle допускает безопасный повторный запуск."
+            )
+        else:
+            state.update(
+                {
+                    "active": True,
+                    "reservation_state": "owned",
+                    "provider_identity": _serialize_identity(running.identity),
+                    "provider_state": f"provider_state_save_failed_{liveness}",
+                    "cycle_status": "recovery_required",
+                    "phase": "recovery",
+                    "recovery": {
+                        "reason": "provider_state_save_failed",
+                        "status": "required",
+                        "liveness": liveness,
+                        "next_action": "recover_interrupted_review",
+                        "verified_at": now,
+                    },
+                    "last_event_type": "provider_state_save_recovery_required",
+                }
+            )
+            reason_code = "CODERABBIT_PROVIDER_STATE_SAVE_RECOVERY_REQUIRED"
+            integration_state = (
+                IntegrationState.DEGRADED
+                if liveness == "alive"
+                else IntegrationState.UNKNOWN
+            )
+            message = (
+                "Сбой сохранения identity не позволил доказать отсутствие provider; "
+                "владение сохранено, повторный вызов запрещён."
+            )
+        try:
+            self._save_review_state(root, state)
+        except Exception as recovery_error:
+            raise error from recovery_error
+        return AdapterOutcome(
+            self._record_from_error(
+                settings,
+                reason_code,
+                state=integration_state,
+                diagnostics=tuple(diagnostics),
+                message=message,
+                provider=provider,
+                configured=True,
+                authenticated=True,
+            ),
+            (),
+            self._cycle_summary(state),
+        )
 
     def review(
         self,
@@ -2138,7 +2292,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             provider = check.provider
             fingerprint, candidate_code, candidate_detail = self._candidate_preflight(root, base_sha=base_sha, head_sha=head_sha, settings=settings)
             if fingerprint is None:
-                record = self._record_from_error(settings, candidate_code or "CODERABBIT_CANDIDATE_PRECHECK_FAILED", state=IntegrationState.INCOMPATIBLE, diagnostics=(candidate_detail or "",), provider=provider, message="Native provider готов, но exact candidate preflight не пройден.", configured=True, authenticated=True)
+                record = self._record_from_error(settings, candidate_code or "CODERABBIT_CANDIDATE_PRECHECK_FAILED", state=IntegrationState.INCOMPATIBLE, diagnostics=(candidate_detail or "",), provider=provider, message="Host-native provider готов, но предварительная проверка точного кандидата не пройдена.", configured=True, authenticated=True)
                 return AdapterOutcome(record, (), self._cycle_summary(state))
             cycle_id = str(state.get("current_cycle_id") or "not-started")
             operation_id = "coderabbit-" + secrets.token_hex(8)
@@ -2153,6 +2307,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     "provider_version": provider.version,
                     "provider_state": "starting",
                     "active": True,
+                    "reservation_state": "pre_spawn",
                     "operation_id": operation_id,
                     "started_at": started_at,
                     "attempt": min(attempt, _MAX_REVIEW_ATTEMPTS),
@@ -2162,30 +2317,62 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     "last_event_type": "reservation_created",
                 }
             )
-            # Reservation должна быть durable до любого spawn transition. Если
-            # управляющий процесс завершится дальше, следующий вызов увидит
-            # active starting state и останется fail-closed.
+            # Reservation должна быть durable до любого spawn transition.
             self._save_review_state(root, state)
-            _emit_progress(progress_callback, phase="preflight", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations, provider_state="starting", message="Exact candidate подтверждён; native provider запускается.")
+            _emit_progress(progress_callback, phase="preflight", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations, provider_state="starting", message="Точный кандидат подтверждён; запускается host-native provider.")
             try:
                 running = provider.start_review(base_sha)
             except (OSError, ValueError, ToolingError) as error:
+                spawn_state, identity, cleanup_state = self._start_failure_evidence(error)
+                retryable = spawn_state in {"not_spawned", "absent_after_cleanup"}
                 state.update(
                     {
-                        "active": True,
-                        "provider_state": "start_unknown",
-                        "cycle_status": "recovery_required",
-                        "phase": "starting",
-                        "last_event_type": "provider_start_unknown",
+                        "active": not retryable,
+                        "reservation_state": "retryable" if retryable else "unknown",
+                        "provider_identity": (
+                            _serialize_identity(identity) if identity is not None else None
+                        ),
+                        "provider_state": (
+                            "start_failed_not_spawned" if retryable else "start_unknown"
+                        ),
+                        "cycle_status": "provider_error" if retryable else "recovery_required",
+                        "phase": "failed" if retryable else "recovery",
+                        "recovery": {
+                            "reason": "provider_start",
+                            "status": "completed" if retryable else "required",
+                            "liveness": "absent" if retryable else "unknown",
+                            "next_action": "retry_review" if retryable else "recover_interrupted_review",
+                            "cleanup_state": cleanup_state,
+                            "verified_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                        },
+                        "last_event_type": (
+                            "provider_start_failed_retryable"
+                            if retryable
+                            else "provider_start_unknown"
+                        ),
                     }
                 )
                 self._save_review_state(root, state)
                 record = self._record_from_error(
                     settings,
-                    "CODERABBIT_PROVIDER_START_UNKNOWN",
-                    state=IntegrationState.UNKNOWN,
-                    diagnostics=(type(error).__name__, "ownership=preserved"),
-                    message="Не удалось доказать, что CodeRabbit provider не был запущен; duplicate call запрещён.",
+                    "CODERABBIT_PROVIDER_START_FAILED_RETRYABLE"
+                    if retryable
+                    else "CODERABBIT_PROVIDER_START_UNKNOWN",
+                    state=IntegrationState.UNAVAILABLE
+                    if retryable
+                    else IntegrationState.UNKNOWN,
+                    diagnostics=(
+                        type(error).__name__,
+                        f"spawn_state={spawn_state}",
+                        f"cleanup_state={cleanup_state}",
+                    ),
+                    message=(
+                        "Запуск CodeRabbit provider доказанно не состоялся; reservation очищена, "
+                        "повторный запуск разрешён в том же cycle."
+                        if retryable
+                        else "Не удалось доказать отсутствие CodeRabbit provider; "
+                        "владение сохранено, повторный вызов запрещён."
+                    ),
                     provider=provider,
                     configured=True,
                     authenticated=True,
@@ -2200,6 +2387,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     "provider_version": provider.version,
                     "provider_state": "running",
                     "active": True,
+                    "reservation_state": "owned",
                     "operation_id": operation_id,
                     "started_at": started_at,
                     "attempt": min(attempt, _MAX_REVIEW_ATTEMPTS),
@@ -2211,15 +2399,21 @@ class CodeRabbitAdapter(IntegrationAdapter):
             )
             try:
                 self._save_review_state(root, state)
-            except Exception:
-                ProcessController.terminate(running.identity)
-                raise
+            except Exception as error:  # noqa: BLE001 - durable recovery must classify liveness.
+                return self._handle_provider_state_save_failure(
+                    root,
+                    state,
+                    running,
+                    error,
+                    settings=settings,
+                    provider=provider,
+                )
             started_monotonic = time.monotonic()
             stop_heartbeat = threading.Event()
 
             def heartbeat() -> None:
                 while not stop_heartbeat.wait(_HEARTBEAT_INTERVAL_SECONDS):
-                    _emit_progress(progress_callback, phase="heartbeat", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations, provider_state="running", message="Native CodeRabbit review всё ещё выполняется.", started_monotonic=started_monotonic)
+                    _emit_progress(progress_callback, phase="heartbeat", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations, provider_state="running", message="Проверка CodeRabbit всё ещё выполняется.", started_monotonic=started_monotonic)
 
             heartbeat_thread = threading.Thread(target=heartbeat, name="coderabbit-review-heartbeat", daemon=True)
             heartbeat_thread.start()
@@ -2236,7 +2430,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     provider_state=f"timeout_{liveness}",
                     cycle_status="recovery_required",
                     reason_code="CODERABBIT_REVIEW_TIMEOUT_RECOVERY_REQUIRED",
-                    message="CodeRabbit timeout не подтвердил отсутствие exact provider process; ownership сохранён до recovery.",
+                    message="Timeout CodeRabbit не подтвердил отсутствие процесса provider; владение сохранено до восстановления.",
                     integration_state=IntegrationState.UNKNOWN
                     if liveness == "unknown"
                     else IntegrationState.DEGRADED,
@@ -2249,17 +2443,17 @@ class CodeRabbitAdapter(IntegrationAdapter):
             post_fingerprint, post_code, post_detail = self._candidate_preflight(root, base_sha=base_sha, head_sha=head_sha, settings=settings)
             candidate_unchanged = post_fingerprint is not None and post_fingerprint == fingerprint
             if not candidate_unchanged:
-                state.update({"active": False, "provider_identity": None, "candidate_fingerprint": None, "provider_state": "candidate_changed", "cycle_status": "candidate_mismatch", "phase": "failed", "last_event_type": "postcondition_mismatch"})
+                state.update({"active": False, "reservation_state": "idle", "provider_identity": None, "candidate_fingerprint": None, "provider_state": "candidate_changed", "cycle_status": "candidate_mismatch", "phase": "failed", "last_event_type": "postcondition_mismatch"})
                 self._save_review_state(root, state)
                 return AdapterOutcome(
-                    self._record_from_error(settings, "CODERABBIT_CANDIDATE_CHANGED", state=IntegrationState.UNKNOWN, diagnostics=(post_code or "CODERABBIT_CANDIDATE_CHANGED", post_detail or ""), provider=provider, message="Canonical candidate изменился во время provider review; результат не authoritative.", configured=True, authenticated=True),
+                    self._record_from_error(settings, "CODERABBIT_CANDIDATE_CHANGED", state=IntegrationState.UNKNOWN, diagnostics=(post_code or "CODERABBIT_CANDIDATE_CHANGED", post_detail or ""), provider=provider, message="Канонический кандидат изменился во время проверки provider; результат не является authoritative.", configured=True, authenticated=True),
                     (),
                     self._cycle_summary(state),
                 )
             if result.timed_out:
-                return self._finish_failure(root, state, provider_state="timeout", cycle_status="provider_error", reason_code="CODERABBIT_REVIEW_TIMEOUT", message="Native CodeRabbit review превысил bounded timeout.", settings=settings, provider=provider)
+                return self._finish_failure(root, state, provider_state="timeout", cycle_status="provider_error", reason_code="CODERABBIT_REVIEW_TIMEOUT", message="Проверка CodeRabbit превысила ограниченный timeout.", settings=settings, provider=provider)
             if result.stdout_truncated or result.stderr_truncated:
-                return self._finish_failure(root, state, provider_state="stream_truncated", cycle_status="provider_error", reason_code="CODERABBIT_STREAM_TOO_LARGE", message="Native CodeRabbit stream превысил bounded limit.", settings=settings, provider=provider)
+                return self._finish_failure(root, state, provider_state="stream_truncated", cycle_status="provider_error", reason_code="CODERABBIT_STREAM_TOO_LARGE", message="Поток CodeRabbit превысил ограниченный размер.", settings=settings, provider=provider)
             try:
                 parsed = parse_agent_ndjson(result.stdout.splitlines())
             except CodeRabbitStreamError as error:
@@ -2267,13 +2461,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     now = datetime.now(UTC).isoformat(timespec="seconds")
                     state["rate_limited_at"] = now
                     return self._finish_failure(root, state, provider_state="rate_limited", cycle_status=_RATE_LIMIT_WAITING, reason_code=error.code, message="Provider сообщил rate limit; cycle сохранён без расхода iteration.", integration_state=IntegrationState.RATE_LIMITED, rate_limited_at=now, retry_not_before=error.retry_not_before, retry_source=error.retry_source, diagnostics=("retry_source=" + error.retry_source,), settings=settings, provider=provider)
-                return self._finish_failure(root, state, provider_state="stream_error", cycle_status="provider_error", reason_code=error.code, message="Native CodeRabbit stream не прошёл bounded parser.", settings=settings, provider=provider)
+                return self._finish_failure(root, state, provider_state="stream_error", cycle_status="provider_error", reason_code=error.code, message="Поток CodeRabbit не прошёл ограниченный разбор.", settings=settings, provider=provider)
             if result.returncode != 0:
-                return self._finish_failure(root, state, provider_state="provider_error", cycle_status="provider_error", reason_code="CODERABBIT_PROVIDER_FAILED", message="Native CodeRabbit завершился с ошибкой; iteration не засчитана.", settings=settings, provider=provider)
+                return self._finish_failure(root, state, provider_state="provider_error", cycle_status="provider_error", reason_code="CODERABBIT_PROVIDER_FAILED", message="CodeRabbit завершился с ошибкой; итерация не засчитана.", settings=settings, provider=provider)
             findings = tuple(parsed.findings[:_MAX_RETAINED_FINDINGS])
             state.update(
                 {
                     "active": False,
+                    "reservation_state": "idle",
                     "provider_identity": None,
                     "candidate_fingerprint": None,
                     "provider_state": "complete",
@@ -2293,7 +2488,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 }
             )
             self._save_review_state(root, state)
-            _emit_progress(progress_callback, phase="complete", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations + 1, provider_state="complete", message=("Native CodeRabbit review завершён; exact postcondition подтверждён." if not findings else "Native CodeRabbit provider complete; требуется individual triage findings."), started_monotonic=started_monotonic)
+            _emit_progress(progress_callback, phase="complete", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations + 1, provider_state="complete", message=("Проверка CodeRabbit завершена; точное postcondition подтверждено." if not findings else "Проверка CodeRabbit завершена; требуется индивидуальная проверка findings."), started_monotonic=started_monotonic)
             integration_findings = self._stored_findings(state, base_sha, head_sha)
             if findings:
                 record = self._record_from_error(
@@ -2307,12 +2502,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
                         "provider_complete=authoritative",
                     ),
                     provider=provider,
-                    message="Native CodeRabbit provider review завершён; workflow не завершён без individual triage.",
+                    message="Проверка CodeRabbit завершена; workflow нельзя завершить без индивидуальной проверки findings.",
                     configured=True,
                     authenticated=True,
                 )
             else:
-                record = self._record_from_error(settings, "CODERABBIT_REVIEW_COMPLETE", state=IntegrationState.READY, diagnostics=(f"reviewed_head={head_sha}", f"findings={len(findings)}", "candidate_postcondition=matched"), provider=provider, message="Native CodeRabbit review завершён на canonical checkout.", configured=True, authenticated=True)
+                record = self._record_from_error(settings, "CODERABBIT_REVIEW_COMPLETE", state=IntegrationState.READY, diagnostics=(f"reviewed_head={head_sha}", f"findings={len(findings)}", "candidate_postcondition=matched"), provider=provider, message="Проверка CodeRabbit завершена в canonical checkout.", configured=True, authenticated=True)
             return AdapterOutcome(record, integration_findings, self._cycle_summary(state))
         finally:
             lock.release()

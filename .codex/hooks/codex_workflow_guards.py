@@ -36,6 +36,7 @@ _PYTHON_NAMES = frozenset({"py", "py.exe", "python", "python.exe", "python3"})
 _UV_NAMES = frozenset({"uv", "uv.exe"})
 _WSL_NAMES = frozenset({"wsl", "wsl.exe"})
 _CODERABBIT_NAMES = frozenset({"coderabbit", "coderabbit.exe"})
+_ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 _WRAPPER_NAMES = frozenset(
     {
         "bash",
@@ -127,6 +128,31 @@ def _is_coderabbit(value: str) -> bool:
 
 def _is_wrapper(value: str) -> bool:
     return _basename(value) in _WRAPPER_NAMES
+
+
+def _strip_leading_environment_prefixes(tokens: tuple[str, ...]) -> tuple[str, ...]:
+    """Убрать только ограниченные префиксы env/assignment перед анализом команды."""
+
+    remaining = list(tokens)
+    while remaining and remaining[0].casefold() in {"--", "exec", "command"}:
+        remaining.pop(0)
+    if remaining and remaining[0].casefold() == "env":
+        remaining.pop(0)
+        while remaining:
+            current = remaining[0].casefold()
+            if current in {"--", "-i", "--ignore-environment"}:
+                remaining.pop(0)
+                continue
+            if current in {"-u", "--unset"} and len(remaining) > 1:
+                del remaining[:2]
+                continue
+            if current.startswith("--unset="):
+                remaining.pop(0)
+                continue
+            break
+    while remaining and _ENV_ASSIGNMENT_RE.fullmatch(remaining[0]):
+        remaining.pop(0)
+    return tuple(remaining)
 
 
 def _split_shell_segments(command: str) -> tuple[str, ...]:
@@ -318,9 +344,7 @@ def _classify_git(tokens: tuple[str, ...]) -> str | None:
 def _starts_coderabbit(tokens: tuple[str, ...], depth: int = 0) -> bool:
     if not tokens or depth > 2:
         return False
-    tokens = tuple(tokens)
-    while tokens and tokens[0].casefold() in {"--", "exec", "command", "env"}:
-        tokens = tokens[1:]
+    tokens = _strip_leading_environment_prefixes(tuple(tokens))
     if not tokens:
         return False
     if _is_coderabbit(tokens[0]):
@@ -364,10 +388,13 @@ def _classify_tokens(
 ) -> str | None:
     if not tokens or depth > 3:
         return None
+    tokens = _strip_leading_environment_prefixes(tokens)
+    if not tokens:
+        return None
     if _wsl_coderabbit(tokens):
-        return "CODERABBIT_WSL_ROUTE_BLOCKED: используйте native CodeRabbit workflow через azur integrations coderabbit."
+        return "CODERABBIT_WSL_ROUTE_BLOCKED: используйте штатный host-native workflow CodeRabbit через azur integrations coderabbit."
     if _starts_coderabbit(tokens):
-        return "CODERABBIT_OPERATOR_BYPASS_BLOCKED: используйте native CodeRabbit workflow через azur integrations coderabbit."
+        return "CODERABBIT_OPERATOR_BYPASS_BLOCKED: используйте штатный host-native workflow CodeRabbit через azur integrations coderabbit."
     git_reason = _classify_git(tokens)
     if git_reason:
         return git_reason

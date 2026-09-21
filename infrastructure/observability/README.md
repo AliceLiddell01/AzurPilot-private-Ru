@@ -731,7 +731,7 @@ Developer tooling использует шесть типизированных d
 
 | Семейство | Канонический transport | Credential и граница |
 | --- | --- | --- |
-| CodeRabbit | native Windows agent в canonical checkout | exact executable, auth/syntax readiness и clean candidate; agent review advisory |
+| CodeRabbit | host-native agent Windows/POSIX в canonical checkout | exact executable, auth/syntax readiness и clean candidate; agent review advisory |
 | Semgrep | локальный CLI | только явно заданный staged/committed/path scope |
 | Grafana | официальный контейнерный MCP server, stdio | явный endpoint и credential; read-only server flags |
 | Context7 | официальный streamable HTTP endpoint | user-scoped credential, без repository secret |
@@ -791,7 +791,7 @@ provenance и machine-readable reason codes:
 
 ### CodeRabbit
 
-CodeRabbit выполняется только через native Windows executable в canonical
+CodeRabbit выполняется только через host-native executable текущей OS в canonical
 checkout. Перед review проверяются exact repository/root identity, clean index и
 worktree, committed HEAD, explicit base SHA, auth/syntax readiness и отсутствие
 другой active operation:

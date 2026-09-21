@@ -1,9 +1,9 @@
 ---
 name: azurpilot-coderabbit-review
-description: "CodeRabbit code review PR, branch or commit в AzurPilot через host-native provider (включая native Windows), triage findings, повторный review или rate limit. Используй при явном CodeRabbit/code-review intent либо при делегации canonical CodeRabbit review checkpoint от azurpilot-repository-development; не используй для generic PR preparation или обычной разработки вне такого checkpoint."
+description: "CodeRabbit code review PR, branch or commit в AzurPilot через host-native provider Windows/POSIX, triage findings, повторный review или rate limit. Используй при явном CodeRabbit/code-review intent либо при делегации canonical CodeRabbit review checkpoint от azurpilot-repository-development; не используй для generic PR preparation или обычной разработки вне такого checkpoint."
 ---
 
-# Независимое CodeRabbit review
+# Независимая проверка CodeRabbit
 
 Применяй этот skill при явном запросе CodeRabbit/code review, разборе findings,
 повторном review или работе после rate limit, а также при внутренней делегации
@@ -43,7 +43,7 @@ absolute `azur.exe` path или PowerShell/cmd wrapper. Если `azur` недо
 `runtime_ready=true`. Не запускай внутренние `module.*_mcp` или supervisor
 scripts напрямую и не называй source-only result live acceptance.
 
-## Agent stream и triage
+## Поток provider и triage
 
 `--agent` обрабатывается как bounded NDJSON stream. `complete` должен быть ровно
 один; malformed, truncated, duplicate или oversized stream отклоняется. Unknown
@@ -93,7 +93,7 @@ triage является terminal disposition. При rate limit зафиксир
 provider state, retry metadata и последний фактически reviewed head; не
 выполняй polling, blind retry или синтетическое восстановление quota.
 
-## Долгий provider review и recovery
+## Длительная проверка provider и восстановление
 
 Heartbeat принадлежит adapter и сообщает только liveness. Отсутствие нового
 stdout не означает stall. Пока сохранённая `ProcessIdentity` подтверждает exact
@@ -105,8 +105,12 @@ State хранит bounded task/cycle history, iterations, quota, exact base/rev
 head, findings digest/count и provider identity. Legacy state не становится active
 native operation без новой доказанной identity и не сбрасывает сохранённый budget
 или history.
+Pre-spawn reservation сохраняется до вызова provider: доказанный
+`not_spawned`/`absent_after_cleanup` очищает reservation и оставляет retry в том
+же cycle, а `alive`/`unknown` сохраняет recoverable ownership и запрещает
+duplicate review.
 
-## Publication
+## Доказательства публикации
 
 Если PR существует, сохраняй точный disposition и фактически проверенный head.
 После review возвращай этот результат вызывающему workflow. Git

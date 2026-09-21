@@ -146,7 +146,7 @@ def test_development_description_has_positive_and_negative_routing() -> None:
 def test_coderabbit_description_routes_review_requests() -> None:
     frontmatter, _ = _frontmatter(_SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md")
     description = str(frontmatter["description"]).lower()
-    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "native windows"):
+    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "host-native"):
         assert trigger in description
     for delegated_trigger in ("делегации", "canonical", "checkpoint"):
         assert delegated_trigger in description
@@ -254,7 +254,7 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "если PR существует",
         "partially confirmed",
         "insufficient evidence",
-        "native Windows",
+        "host-native",
         "false positive",
         "rate limit",
         "provider finding не является verified finding disposition",
@@ -273,6 +273,52 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "duplicate review",
     ):
         assert required.lower() in workflow_content.lower()
+
+
+def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
+    development_dir = _SKILLS_ROOT / "azurpilot-repository-development"
+    development = (development_dir / "SKILL.md").read_text(encoding="utf-8")
+    reference_path = development_dir / "references" / "cross-thread-task-delegation.md"
+    reference = reference_path.read_text(encoding="utf-8")
+    reference_flat = " ".join(reference.lower().split())
+
+    assert "references/cross-thread-task-delegation.md" in development
+    assert "task/session-scoped stale" in development
+    for required in (
+        "source_reconciled",
+        "runtime_ready=true",
+        "LOCAL_MCP_SUPERVISOR_STOPPED",
+        "Coordinator task",
+        "Fresh independent task/thread",
+        "Subagent",
+        "fork",
+        "same-directory child worker",
+        "Connected App",
+        "repository identity",
+        "exact expected HEAD",
+        "effective_codex_registration",
+        "terminal result",
+        "BLOCKED_PRECONDITION",
+    ):
+        assert required.lower() in reference_flat
+
+    for relative in (
+        Path(".codex/context/08-VERIFICATION.md"),
+        Path(".codex/context/11-PYTHON-TOOLING.md"),
+        Path(".agents/skills/azurpilot-repository-development/references/browser-and-live-testing.md"),
+        Path("plugins/azurpilot/references/mcp-routing.md"),
+        Path("plugins/azurpilot/skills/azurpilot-troubleshooting/SKILL.md"),
+    ):
+        content = (_REPOSITORY_ROOT / relative).read_text(encoding="utf-8").lower()
+        assert "cross-thread continuation" in content
+        assert (
+            "fresh independent" in content
+            or "independent codex" in content
+            or "independent task/thread" in content
+            or "независимая codex" in content
+            or ("независим" in content and "task/thread" in content)
+            or "единый контракт cross-thread" in content
+        )
 
 
 def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -> None:

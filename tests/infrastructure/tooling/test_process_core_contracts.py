@@ -575,6 +575,9 @@ def test_structured_runner_start_maps_popen_failures_to_capability_unavailable(
         StructuredProcessRunner().start(_process_spec())
 
     assert caught.value.code is ResultCode.TOOLING_CAPABILITY_UNAVAILABLE
+    assert isinstance(caught.value, tooling_process.ProcessStartError)
+    assert caught.value.spawn_state == "not_spawned"
+    assert caught.value.cleanup_state == "absent"
 
 
 def test_structured_runner_start_cleans_up_after_identity_capture_failure(
@@ -602,6 +605,9 @@ def test_structured_runner_start_cleans_up_after_identity_capture_failure(
         StructuredProcessRunner().start(_process_spec())
 
     assert caught.value.code is ResultCode.TOOLING_CAPABILITY_UNAVAILABLE
+    assert isinstance(caught.value, tooling_process.ProcessStartError)
+    assert caught.value.spawn_state == "unknown"
+    assert caught.value.cleanup_state == "unknown"
     assert cleanup_calls == [process]
 
 

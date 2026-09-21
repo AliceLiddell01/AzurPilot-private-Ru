@@ -46,6 +46,11 @@ Git lifecycle или общей матрицы проверок.
    supervisor scripts или Python module entrypoints напрямую. Любое новое
    изменение затронутого source set после reconciliation делает прежний
    результат stale и требует повторной reconciliation.
+   Если mandatory live continuation упирается только в task/session-scoped stale
+   MCP registration после доказанного source/runtime state, следуй
+   [каноническому контракту cross-thread continuation](references/cross-thread-task-delegation.md):
+   current task не завершает workflow blocker-ом, пока доступна независимая
+   Codex task/thread orchestration.
 4. Перед CodeRabbit review создай или привяжи opaque logical task identity и
    передай её в canonical review flow через `--task-id`; новый head той же
    task продолжает её cycle, а другая task получает новый cycle.

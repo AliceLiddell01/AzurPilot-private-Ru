@@ -326,7 +326,7 @@ def _check_coderabbit_native_boundary(root: Path, errors: list[str]) -> None:
                 errors.append(f"{_relative(root, path)}: найден retired CodeRabbit marker {marker}")
         if "coderabbit_native_windows_required" in content:
             errors.append(
-                f"{_relative(root, path)}: native CodeRabbit boundary ошибочно ограничен Windows"
+                f"{_relative(root, path)}: host-native CodeRabbit boundary ошибочно ограничен Windows"
             )
         if "azurpilot_coderabbit_wsl_distribution" in content or (
             "azurpilot_coderabbit_review_clone" in content

@@ -106,6 +106,15 @@ classification: `azur mcp impact --base <exact-base-sha>`. Команда дол
 base-to-head compatibility check; изменение соответствующего source set после
 reconciliation инвалидирует прежнее evidence.
 
+Если после доказанного source/runtime state текущая task видит только
+устаревшую task/session-scoped MCP registration, это не terminal blocker при
+доступной независимой Codex task/thread orchestration. В таком случае применяй
+[единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md):
+fresh task обязана доказать effective registration и runtime readiness до live
+acceptance, а coordinator обязан дождаться её terminal evidence. При недоступной
+orchestration или неподтверждённом fresh state gate остаётся typed
+`BLOCKED_PRECONDITION`.
+
 ## Pre-merge и post-merge outcomes
 
 Pre-merge Definition of Done заканчивается после commit/push draft PR, проверки

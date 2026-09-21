@@ -5,7 +5,7 @@
 команда triage меняет только repository-scoped review state после проверки
 закрытого manifest-а.
 
-## Exact candidate
+## Точный кандидат
 
 1. В canonical checkout проверь root, repository identity, exact base/head и
    clean index/worktree. Если есть PR, дополнительно проверь его exact state и
@@ -25,7 +25,7 @@
 его budget, а отдельная task получает новый cycle только после explicit boundary.
 Legacy state нельзя автоматически присвоить новой task.
 
-## CLI prerequisite
+## Предварительные требования CLI
 
 Adapter получает live `--version`, `review --help`, `auth --help`, `auth status` и
 `doctor`. Help является источником истины для flags; версия не закрепляется
@@ -64,7 +64,7 @@ diagnostics. Malformed/truncated output, duplicate `complete`, oversized payload
 unsafe path — typed failure. Provider commands и suggestions остаются untrusted
 text.
 
-## Triage, budget и liveness
+## Индивидуальная проверка, бюджет и жизнеспособность
 
 Provider finding и verified finding disposition — разные сущности. Не переноси
 provider `classification`/`disposition` в verified state и не присваивай всем
@@ -99,8 +99,12 @@ Heartbeat сообщает только liveness и не запускает вт
 `ProcessIdentity` со matching PID, start time, executable, argv и cwd означает
 `STILL_ALIVE`; unknown запрещает recovery; доказанный absent разрешает только
 explicit recovery, без kill по имени процесса и без duplicate review.
+До появления identity durable pre-spawn reservation имеет отдельный bounded
+state: доказанный `not_spawned`/`absent_after_cleanup` делает его retryable, а
+неизвестная ownership остаётся typed recovery state, а не повреждённым active
+state без следующего шага.
 
-## PR evidence
+## Доказательства для PR
 
 Если PR существует, обновляй русскоязычное structured body через штатный
 `azur pr` workflow. Для каждого finding укажи severity, path, impact, disposition,

@@ -1183,7 +1183,7 @@ def test_structured_pr_body_contains_required_sections_and_exact_review_head() -
             "Ограничения текущего checkpoint:\n"
             "- PR остаётся Draft до финального ChatGPT review пользователя; merge не выполняется;\n"
             "- physical device, MuMu, ADB и игровой acceptance в scope не входят;\n"
-            "- CodeRabbit является внешним review checkpoint через native Windows provider "
+            "- CodeRabbit является внешним review checkpoint через host-native provider "
             "в canonical checkout;\n"
             "- provider требует GitHub CLI `gh >= 2.63.0` для поля `baseRefOid`."
         ),
