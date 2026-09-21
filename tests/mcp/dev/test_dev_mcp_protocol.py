@@ -499,7 +499,6 @@ def test_fresh_mcp_client_acceptance_checks_contract_catalog_and_capabilities() 
     assert result.called_tools == (
         "dev_get_contract",
         "dev_list_smoke_capabilities",
-        "dev_get_runtime_status",
     )
 
 

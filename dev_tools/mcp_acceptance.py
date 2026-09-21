@@ -21,9 +21,11 @@ from module.dev_mcp.server import DEV_MCP_ARGS, DEV_MCP_COMMAND, tool_definition
 from tools.paths import REPOSITORY_ROOT
 
 FRESH_ACCEPTANCE_TIMEOUT_SECONDS = 20.0
+# Статус runtime требует пользовательский target profile, который не входит в
+# tracked checkout. Поэтому fresh client protocol gate проверяет target-neutral
+# каталог Smoke, а готовность runtime подтверждается отдельным live workflow.
 REQUIRED_READ_ONLY_CALLS = (
     ("dev_list_smoke_capabilities", {}),
-    ("dev_get_runtime_status", {}),
 )
 
 
