@@ -27,6 +27,19 @@ _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS: dict[str, str] = {
     "grafana": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
     "docker-hub": "DOCKERHUB_PAT",
 }
+_WINDOWS_CODERABBIT_NAME = "coderabbit.exe"
+_POSIX_CODERABBIT_NAME = "coderabbit"
+
+
+def _native_coderabbit_name(host_os: str | None = None) -> str | None:
+    """Вернуть допустимое имя native provider для указанной host OS."""
+
+    value = os.name if host_os is None else host_os
+    if value in {"nt", "windows"}:
+        return _WINDOWS_CODERABBIT_NAME
+    if value in {"posix", "posix-host", "linux", "darwin", "macos"}:
+        return _POSIX_CODERABBIT_NAME
+    return None
 
 # Это vendor defaults, а не credentials или machine identity. Image refs
 # намеренно immutable; изменять их можно только через явную конфигурацию.
@@ -285,7 +298,13 @@ def _repo_mcp_table(root: Path) -> dict[str, dict[str, object]]:
     return result
 
 
-def _validate_value(name: str, key: str, value: object) -> object:
+def _validate_value(
+    name: str,
+    key: str,
+    value: object,
+    *,
+    host_os: str | None = None,
+) -> object:
     if key in {
         "endpoint",
         "image",
@@ -327,8 +346,14 @@ def _validate_value(name: str, key: str, value: object) -> object:
             _raise(f"Параметр {name}.executable не должен быть shell wrapper.")
         if not path.is_absolute() and _IDENTIFIER_RE.fullmatch(value) is None:
             _raise(f"Параметр {name}.executable имеет неверное имя.")
-        if path.is_absolute() and path.name.casefold() != "coderabbit.exe":
-            _raise(f"Параметр {name}.executable не является native CodeRabbit binary.")
+        if name == "coderabbit":
+            expected_name = _native_coderabbit_name(host_os)
+            if expected_name is None:
+                _raise("Текущая host OS не поддерживает native CodeRabbit provider.")
+            if path.name.casefold() != expected_name:
+                _raise(
+                    f"Параметр {name}.executable не является native CodeRabbit binary для текущей host OS."
+                )
     if name == "coderabbit" and key == "route" and value != "direct_native_agent":
         _raise("Параметр coderabbit.route должен использовать direct_native_agent.")
     if name == "coderabbit" and key == "transport" and value != "native_process":

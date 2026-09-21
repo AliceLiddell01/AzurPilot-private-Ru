@@ -741,10 +741,16 @@ def test_structured_runner_bounds_second_wait_after_timeout_escalation(
         "_terminate_process",
         lambda candidate, identity: terminate_calls.append((candidate, identity)),
     )
+    monkeypatch.setattr(
+        tooling_process.ProcessController,
+        "inspect_state",
+        staticmethod(lambda _identity: "unknown"),
+    )
 
     result = StructuredProcessRunner().run(_process_spec())
 
     assert result.timed_out is True
+    assert result.termination_state == "unknown"
     assert terminate_calls == [(process, result.identity)]
     assert len(process.wait_calls) == 2
 

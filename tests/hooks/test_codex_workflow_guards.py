@@ -62,12 +62,23 @@ def test_allowed_commands_have_no_decision(guards: ModuleType, command: str) -> 
         'cmd /c "azur integrations coderabbit status"',
         "wsl.exe -d Arch -- coderabbit review --agent",
         "wsl bash -lc 'coderabbit review --agent'",
+        "coderabbit review --agent",
+        "coderabbit.exe review --agent",
+        'powershell -NoProfile -Command "coderabbit review --agent"',
+        'bash -lc "coderabbit review --agent"',
+        'cmd /c "coderabbit.exe review --agent"',
         "git branch codex/base-helper",
         "git switch -c codex/base-helper",
         "git checkout -b codex/base-helper",
         "git push origin codex/base-helper",
         "git push origin HEAD:codex/base-helper",
         "git update-ref refs/heads/codex/base-helper HEAD",
+        "git branch codex/temporary-helper",
+        "git switch -c codex/scratch-helper",
+        "git checkout -b codex/transport-helper",
+        "git push origin feature/temporary/review",
+        "git push origin feature/scratch/review",
+        "git branch codex/aux",
     ],
 )
 def test_known_workflow_bypasses_are_denied(guards: ModuleType, command: str) -> None:
@@ -185,6 +196,33 @@ def test_stop_hook_active_prevents_second_block(
         encoding="utf-8",
     )
     assert guards.process_event(_stop_event(root, stop_hook_active=True)) == {}
+
+
+def test_stop_allows_completed_recovery_state(
+    guards: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _write_project(root)
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state_home))
+    state_directory = _state_root(guards, root, state_home)
+    state_directory.mkdir(parents=True)
+    (state_directory / "coderabbit-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "active": False,
+                "cycle_status": "recovered",
+                "phase": "idle",
+                "provider_state": "interrupted_recovered",
+                "recovery": {"status": "completed"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert guards.process_event(_stop_event(root)) == {}
 
 
 @pytest.mark.parametrize("phase", ["push_in_flight", "unknown"])

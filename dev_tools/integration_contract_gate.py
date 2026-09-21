@@ -92,6 +92,8 @@ _OPERATOR_POLICY_MARKERS = (
     "буквальн",
     "azur ...",
     "codex/base-*",
+    "temporary/scratch/transport/helper",
+    "host-native",
     "TOOLING_STACKED_PARENT_UNPUBLISHED",
 )
 
@@ -322,6 +324,10 @@ def _check_coderabbit_native_boundary(root: Path, errors: list[str]) -> None:
         for marker in _CODERABBIT_RETIRED_MARKERS:
             if marker in content:
                 errors.append(f"{_relative(root, path)}: найден retired CodeRabbit marker {marker}")
+        if "coderabbit_native_windows_required" in content:
+            errors.append(
+                f"{_relative(root, path)}: native CodeRabbit boundary ошибочно ограничен Windows"
+            )
         if "azurpilot_coderabbit_wsl_distribution" in content or (
             "azurpilot_coderabbit_review_clone" in content
         ):

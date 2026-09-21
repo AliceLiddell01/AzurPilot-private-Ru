@@ -1,9 +1,8 @@
-"""Bounded native CodeRabbit agent boundary for the canonical checkout.
+"""Ограниченная host-native граница CodeRabbit для canonical checkout.
 
-The adapter deliberately owns the complete provider lifecycle: discovery,
-candidate preflight, exact process identity, bounded parsing, state, and the
-postcondition check.  It never creates a second checkout and never delegates
-provider liveness to a name-only process search.
+Адаптер владеет полным lifecycle провайдера: discovery, candidate preflight,
+exact process identity, bounded parsing, state и postcondition check. Он не
+создаёт второй checkout и не определяет liveness по одному имени процесса.
 """
 
 from __future__ import annotations
@@ -20,7 +19,9 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
+from azurpilot.tooling.config import load_deploy_settings
 from azurpilot.tooling.contracts import (
     CodeRabbitFinding,
     CodeRabbitTriageManifest,
@@ -37,7 +38,7 @@ from azurpilot.tooling.filesystem import (
     path_has_link,
     path_identity,
 )
-from azurpilot.tooling.git import GitClient
+from azurpilot.tooling.git import GitClient, canonical_remote_identity
 from azurpilot.tooling.process import (
     ProcessController,
     ProcessIdentity,
@@ -101,7 +102,26 @@ _PROVIDER_FINDING_LOCATION_RE = re.compile(
 )
 _PROVIDER_FINDING_SEPARATOR_RE = re.compile(r"^\s*[─-]{8,}\s*$")
 _PROVIDER_WRAPPER_SUFFIXES = frozenset({".cmd", ".bat", ".ps1"})
-_PROVIDER_NAME = "coderabbit.exe"
+_WINDOWS_PROVIDER_NAME = "coderabbit.exe"
+_POSIX_PROVIDER_NAME = "coderabbit"
+
+
+def _host_platform(host_os: str | None = None) -> Literal["windows", "posix", "unsupported"]:
+    """Определить host platform без изменения process-wide platform state."""
+
+    value = os.name if host_os is None else host_os
+    if value in {"nt", "windows"}:
+        return "windows"
+    if value in {"posix", "posix-host", "linux", "darwin", "macos"}:
+        return "posix"
+    return "unsupported"
+
+
+def _provider_name(host_os: str | None = None) -> str:
+    platform = _host_platform(host_os)
+    if platform == "windows":
+        return _WINDOWS_PROVIDER_NAME
+    return _POSIX_PROVIDER_NAME
 
 
 class CodeRabbitStreamError(ValueError):
@@ -131,7 +151,7 @@ class ParsedCodeRabbitReview:
 
 @dataclass(frozen=True, slots=True)
 class CodeRabbitProgress:
-    """Bounded operator event emitted by the adapter heartbeat."""
+    """Ограниченное операторское событие heartbeat адаптера."""
 
     phase: str
     cycle_id: str
@@ -144,7 +164,7 @@ class CodeRabbitProgress:
 
 @dataclass(frozen=True, slots=True)
 class CandidateFingerprint:
-    """Exact candidate identity captured immediately before provider start."""
+    """Exact identity candidate, снятая непосредственно перед запуском provider."""
 
     root_identity: str
     repository_identity: str
@@ -185,7 +205,7 @@ class ProviderCheck:
 
 @dataclass(slots=True)
 class NativeCodeRabbit:
-    """Host-native executable plus the bounded readiness evidence."""
+    """Host-native executable и ограниченное evidence его readiness."""
 
     executable: Path
     version: str
@@ -844,12 +864,18 @@ def _provider_error_state(code: str) -> IntegrationState:
 
 
 class CodeRabbitAdapter(IntegrationAdapter):
-    """Direct native provider lifecycle bound to the canonical checkout."""
+    """Lifecycle прямого host-native provider, привязанный к canonical checkout."""
 
     name = IntegrationName.CODERABBIT
 
-    def __init__(self, *, runner: StructuredProcessRunner | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        runner: StructuredProcessRunner | None = None,
+        host_os: str | None = None,
+    ) -> None:
         self.runner = runner or StructuredProcessRunner()
+        self.host_os = host_os
 
     @staticmethod
     def _state_layout(root: Path) -> StateLayout:
@@ -1070,15 +1096,18 @@ class CodeRabbitAdapter(IntegrationAdapter):
             active=bool(state.get("active", False)),
         )
 
-    @staticmethod
-    def _evidence_config(settings: Mapping[str, object], provider: NativeCodeRabbit | None = None) -> dict[str, object]:
+    def _evidence_config(
+        self,
+        settings: Mapping[str, object],
+        provider: NativeCodeRabbit | None = None,
+    ) -> dict[str, object]:
         result = dict(settings)
         result["route"] = "direct_native_agent"
         result["transport"] = "native_process"
         if provider is not None:
             result["command"] = provider.display_name
         elif not isinstance(result.get("command"), str):
-            result["command"] = _PROVIDER_NAME
+            result["command"] = _provider_name(self.host_os)
         result.pop("executable", None)
         return result
 
@@ -1131,8 +1160,16 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if os.path.normcase(str(git_root)) != os.path.normcase(str(canonical_root)):
                 return None, "CODERABBIT_CANONICAL_ROOT_MISMATCH", "Provider cwd не является canonical checkout."
             repository_identity = git.remote_identity("origin")
-            expected_repository = settings.get("repository")
-            if isinstance(expected_repository, str) and expected_repository.strip() and repository_identity != expected_repository.strip():
+            project_settings = load_deploy_settings(canonical_root)
+            expected_repository = project_settings.repository_url
+            if not expected_repository:
+                return (
+                    None,
+                    "CODERABBIT_CANONICAL_REPOSITORY_UNCONFIGURED",
+                    "Project-owned canonical repository identity не настроена.",
+                )
+            expected_identity = canonical_remote_identity(expected_repository)
+            if repository_identity != expected_identity:
                 return None, "CODERABBIT_REPOSITORY_IDENTITY_MISMATCH", "Git repository identity не совпадает с ожидаемой."
             head_sha = git.head()
             if not _SHA_RE.fullmatch(head_sha):
@@ -1196,10 +1233,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
 
     @staticmethod
-    def _provider_path(settings: Mapping[str, object]) -> tuple[Path | None, str | None, bool]:
+    def _provider_path(
+        settings: Mapping[str, object],
+        *,
+        host_os: str | None = None,
+    ) -> tuple[Path | None, str | None, bool]:
         configured = settings.get("executable")
         explicitly_configured = isinstance(configured, str) and bool(configured.strip())
-        raw = configured.strip() if explicitly_configured else _PROVIDER_NAME
+        raw = configured.strip() if explicitly_configured else _provider_name(host_os)
         candidate: Path | None
         raw_path = Path(raw)
         if raw_path.is_absolute() or raw_path.parent != Path("."):
@@ -1221,21 +1262,24 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
         if candidate.suffix.casefold() in _PROVIDER_WRAPPER_SUFFIXES:
             return None, "CODERABBIT_EXECUTABLE_WRAPPER_REJECTED", explicitly_configured
-        if candidate.name.casefold() != _PROVIDER_NAME:
+        if candidate.name.casefold() != _provider_name(host_os):
             return None, "CODERABBIT_EXECUTABLE_NOT_NATIVE", explicitly_configured
         if path_has_link(candidate) or not candidate.is_file():
             return None, "CODERABBIT_EXECUTABLE_UNAVAILABLE", explicitly_configured
         return candidate, None, explicitly_configured
 
     def _discover_provider(self, root: Path, settings: Mapping[str, object]) -> ProviderCheck:
-        if os.name != "nt":
+        platform = _host_platform(self.host_os)
+        if platform == "unsupported":
             return ProviderCheck(
                 IntegrationState.INCOMPATIBLE,
-                "CODERABBIT_NATIVE_WINDOWS_REQUIRED",
-                "Native CodeRabbit provider доступен только на Windows host.",
+                "CODERABBIT_NATIVE_HOST_UNSUPPORTED",
+                "Текущая host OS не поддерживается host-native CodeRabbit provider.",
                 configured=False,
             )
-        executable, path_error, configured = self._provider_path(settings)
+        executable, path_error, configured = self._provider_path(
+            settings, host_os=self.host_os
+        )
         if executable is None:
             code = path_error or "CODERABBIT_EXECUTABLE_UNAVAILABLE"
             state = _provider_error_state(code)
@@ -1345,7 +1389,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "CODERABBIT_NATIVE_READY",
                 "Native CodeRabbit executable и agent readiness подтверждены.",
                 diagnostics=(
-                    "platform=windows-native",
+                    f"platform={platform}-native",
                     f"provider_version={version}",
                     "review_syntax=agent-committed-base-commit",
                     "auth=ready",
@@ -1775,9 +1819,10 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     "candidate_fingerprint": None,
                     "provider_state": "interrupted_recovered",
                     "cycle_status": "recovered",
-                    "phase": "recovery",
+                    "phase": "idle",
                     "recovery": {
                         "reason": "external_interruption",
+                        "status": "completed",
                         "operation_id": str(state.get("operation_id") or "")[:80],
                         "verified_at": now,
                     },
@@ -1908,23 +1953,45 @@ class CodeRabbitAdapter(IntegrationAdapter):
         retry_not_before: str | None = None,
         retry_source: str = "unknown",
         diagnostics: tuple[str, ...] = (),
+        preserve_ownership: bool = False,
+        ownership_liveness: str | None = None,
         settings: Mapping[str, object],
         provider: NativeCodeRabbit | None,
     ) -> AdapterOutcome:
-        state.update(
-            {
-                "active": False,
-                "provider_identity": None,
-                "candidate_fingerprint": None,
-                "provider_state": provider_state,
-                "cycle_status": cycle_status,
-                "rate_limited_at": rate_limited_at,
-                "retry_not_before": retry_not_before,
-                "retry_source": retry_source if retry_source in _RETRY_SOURCES else "unknown",
-                "phase": "terminal" if cycle_status in {"budget_exhausted", "zero_findings"} else "failed",
-                "last_event_type": "error",
-            }
-        )
+        if preserve_ownership:
+            state.update(
+                {
+                    "active": True,
+                    "provider_state": provider_state,
+                    "cycle_status": "recovery_required",
+                    "rate_limited_at": rate_limited_at,
+                    "retry_not_before": retry_not_before,
+                    "retry_source": retry_source if retry_source in _RETRY_SOURCES else "unknown",
+                    "phase": "recovery",
+                    "recovery": {
+                        "reason": "provider_timeout",
+                        "status": "required",
+                        "liveness": ownership_liveness or "unknown",
+                        "verified_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    },
+                    "last_event_type": "ownership_preserved",
+                }
+            )
+        else:
+            state.update(
+                {
+                    "active": False,
+                    "provider_identity": None,
+                    "candidate_fingerprint": None,
+                    "provider_state": provider_state,
+                    "cycle_status": cycle_status,
+                    "rate_limited_at": rate_limited_at,
+                    "retry_not_before": retry_not_before,
+                    "retry_source": retry_source if retry_source in _RETRY_SOURCES else "unknown",
+                    "phase": "terminal" if cycle_status in {"budget_exhausted", "zero_findings"} else "failed",
+                    "last_event_type": "error",
+                }
+            )
         state["provider_quota"] = {
             "state": provider_state,
             "rate_limited_at": rate_limited_at,
@@ -2051,11 +2118,53 @@ class CodeRabbitAdapter(IntegrationAdapter):
             operation_id = "coderabbit-" + secrets.token_hex(8)
             attempt = int(state.get("attempt", 0)) + 1 if isinstance(state.get("attempt", 0), int) else 1
             started_at = datetime.now(UTC).isoformat(timespec="seconds")
+            state.update(
+                {
+                    "repository_identity": fingerprint.repository_identity,
+                    "root_identity": fingerprint.root_identity,
+                    "base_sha": base_sha,
+                    "last_head": head_sha,
+                    "provider_version": provider.version,
+                    "provider_state": "starting",
+                    "active": True,
+                    "operation_id": operation_id,
+                    "started_at": started_at,
+                    "attempt": min(attempt, _MAX_REVIEW_ATTEMPTS),
+                    "candidate_fingerprint": fingerprint.as_dict(),
+                    "provider_identity": None,
+                    "phase": "starting",
+                    "last_event_type": "reservation_created",
+                }
+            )
+            # Reservation должна быть durable до любого spawn transition. Если
+            # управляющий процесс завершится дальше, следующий вызов увидит
+            # active starting state и останется fail-closed.
+            self._save_review_state(root, state)
             _emit_progress(progress_callback, phase="preflight", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations, provider_state="starting", message="Exact candidate подтверждён; native provider запускается.")
             try:
                 running = provider.start_review(base_sha)
             except (OSError, ValueError, ToolingError) as error:
-                return self._finish_failure(root, state, provider_state="start_failed", cycle_status="provider_error", reason_code="CODERABBIT_PROVIDER_START_FAILED", message="Native CodeRabbit process не удалось безопасно запустить.", diagnostics=(type(error).__name__,), settings=settings, provider=provider)
+                state.update(
+                    {
+                        "active": True,
+                        "provider_state": "start_unknown",
+                        "cycle_status": "recovery_required",
+                        "phase": "starting",
+                        "last_event_type": "provider_start_unknown",
+                    }
+                )
+                self._save_review_state(root, state)
+                record = self._record_from_error(
+                    settings,
+                    "CODERABBIT_PROVIDER_START_UNKNOWN",
+                    state=IntegrationState.UNKNOWN,
+                    diagnostics=(type(error).__name__, "ownership=preserved"),
+                    message="Не удалось доказать, что CodeRabbit provider не был запущен; duplicate call запрещён.",
+                    provider=provider,
+                    configured=True,
+                    authenticated=True,
+                )
+                return AdapterOutcome(record, (), self._cycle_summary(state))
             state.update(
                 {
                     "repository_identity": fingerprint.repository_identity,
@@ -2093,6 +2202,24 @@ class CodeRabbitAdapter(IntegrationAdapter):
             finally:
                 stop_heartbeat.set()
                 heartbeat_thread.join(timeout=2.0)
+            if result.timed_out and result.termination_state != "absent":
+                liveness = result.termination_state or "unknown"
+                return self._finish_failure(
+                    root,
+                    state,
+                    provider_state=f"timeout_{liveness}",
+                    cycle_status="recovery_required",
+                    reason_code="CODERABBIT_REVIEW_TIMEOUT_RECOVERY_REQUIRED",
+                    message="CodeRabbit timeout не подтвердил отсутствие exact provider process; ownership сохранён до recovery.",
+                    integration_state=IntegrationState.UNKNOWN
+                    if liveness == "unknown"
+                    else IntegrationState.DEGRADED,
+                    diagnostics=(f"liveness={liveness}", "ownership=preserved"),
+                    preserve_ownership=True,
+                    ownership_liveness=liveness,
+                    settings=settings,
+                    provider=provider,
+                )
             post_fingerprint, post_code, post_detail = self._candidate_preflight(root, base_sha=base_sha, head_sha=head_sha, settings=settings)
             candidate_unchanged = post_fingerprint is not None and post_fingerprint == fingerprint
             if not candidate_unchanged:

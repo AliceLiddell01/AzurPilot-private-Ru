@@ -293,11 +293,12 @@ fetch origin
 
 Disposable clone/worktree допустим только при реальной необходимости: параллельная разработка, опасный reproduction/experiment, несовместимое состояние зависимостей/runtime, destructive recovery testing или явный запрос пользователя. Он не является default и не должен использоваться для переноса обычного diff.
 
-Для CodeRabbit review используется только native Windows executable в том же
-canonical implementation checkout. Adapter обязан доказать exact
+Для CodeRabbit review используется host-native executable текущей host OS в том
+же canonical implementation checkout: Windows использует `coderabbit.exe`, а
+POSIX host использует `coderabbit`. Adapter обязан доказать exact
 repository/root/base/head, clean index/worktree и postcondition того же
-candidate; отдельные clone, worktree, UNC route и wrapper не являются
-допустимой заменой.
+candidate; отдельные clone, worktree, UNC route, WSL bridge и wrapper не
+являются допустимой заменой.
 
 Stacked publication использует только реальную опубликованную parent branch.
 Запрещены `codex/base-*`, temporary/scratch/transport/helper remote ref и

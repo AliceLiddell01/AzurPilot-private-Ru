@@ -1,6 +1,6 @@
 ---
 name: azurpilot-coderabbit-review
-description: "CodeRabbit code review PR, branch or commit в AzurPilot через native Windows provider, triage findings, повторный review или rate limit. Используй при явном CodeRabbit/code-review intent либо при делегации canonical CodeRabbit review checkpoint от azurpilot-repository-development; не используй для generic PR preparation или обычной разработки вне такого checkpoint."
+description: "CodeRabbit code review PR, branch or commit в AzurPilot через host-native provider (включая native Windows), triage findings, повторный review или rate limit. Используй при явном CodeRabbit/code-review intent либо при делегации canonical CodeRabbit review checkpoint от azurpilot-repository-development; не используй для generic PR preparation или обычной разработки вне такого checkpoint."
 ---
 
 # Независимое CodeRabbit review
@@ -19,13 +19,14 @@ checkpoint из `azurpilot-repository-development`. CodeRabbit — advisory revi
 Операции выполняются через typed adapter в canonical checkout:
 
 1. `azur integrations coderabbit status` — read-only configuration и candidate summary.
-2. `azur integrations coderabbit doctor` — bounded native executable, version,
+2. `azur integrations coderabbit doctor` — bounded host-native executable, version,
    auth, review syntax и canonical checkout readiness.
 3. `azur integrations coderabbit review --base <exact-base-sha> --head <exact-head-sha> --task-id <opaque-task-id>` — один advisory committed-only review.
 
 Adapter обязан доказать repository root и identity, exact base/head, clean index и
 worktree, отсутствие другой операции и тот же candidate после завершения provider.
-Provider запускается прямым native Windows executable в том же canonical checkout.
+Provider запускается прямым host-native executable текущей OS в том же canonical
+checkout: Windows использует `coderabbit.exe`, POSIX host — `coderabbit`.
 Нельзя подменять этот маршрут shell wrapper, другим host, UNC-путём, клоном,
 временным worktree или ручным provider invocation. Сама project-owned команда
 вызывается только буквально как `azur ...`, разрешённая через PATH текущей shell:

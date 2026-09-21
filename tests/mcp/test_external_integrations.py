@@ -24,7 +24,11 @@ from azurpilot.integrations.adapters import (
     _credential,
     _discover_grafana_settings,
 )
-from azurpilot.integrations.config import IntegrationConfig, load_integration_config
+from azurpilot.integrations.config import (
+    IntegrationConfig,
+    _validate_value,
+    load_integration_config,
+)
 from azurpilot.integrations.contracts import (
     CredentialSource,
     IntegrationEvidence,
@@ -89,6 +93,25 @@ def test_coderabbit_defaults_use_only_native_host_route():
     assert "wsl_distribution" not in settings
     assert "review_clone" not in settings
     assert "command" not in settings
+
+
+def test_coderabbit_executable_validation_follows_host_native_name():
+    assert (
+        _validate_value(
+            "coderabbit", "executable", "coderabbit", host_os="posix"
+        )
+        == "coderabbit"
+    )
+    assert (
+        _validate_value(
+            "coderabbit", "executable", "coderabbit.exe", host_os="nt"
+        )
+        == "coderabbit.exe"
+    )
+    with pytest.raises(ToolingError):
+        _validate_value("coderabbit", "executable", "coderabbit.exe", host_os="posix")
+    with pytest.raises(ToolingError):
+        _validate_value("coderabbit", "executable", "coderabbit", host_os="unsupported")
 
 
 def test_agent_ndjson_parses_status_finding_and_complete():

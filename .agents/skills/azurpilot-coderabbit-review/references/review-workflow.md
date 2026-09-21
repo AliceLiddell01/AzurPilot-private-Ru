@@ -11,8 +11,8 @@
    clean index/worktree. Если есть PR, дополнительно проверь его exact state и
    scope.
 2. Вызови `azur integrations coderabbit doctor`. Adapter должен подтвердить
-   native executable, актуальную version, auth status, agent syntax и готовность
-   canonical checkout.
+   host-native executable текущей OS, актуальную version, auth status, agent
+   syntax и готовность canonical checkout.
 3. Не используй wrapper, другой checkout, clone, temporary worktree или ручной
    запуск provider в обход adapter. Project-owned operator command должна быть
    буквальной прямой `azur ...` из PATH текущей shell; `uv run ... azur`,

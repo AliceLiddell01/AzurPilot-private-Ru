@@ -1,4 +1,4 @@
-"""MCP-safe core structured process runner and ownership primitives."""
+"""Безопасное ядро structured process runner и ownership primitives для MCP."""
 
 from __future__ import annotations
 
@@ -299,7 +299,7 @@ class ProcessIdentity:
 
 @dataclass(frozen=True)
 class ProcessResult:
-    """Результат запуска с ограниченными stdout/stderr."""
+    """Результат запуска с ограниченными stdout/stderr и liveness evidence."""
 
     returncode: int | None
     stdout: str
@@ -311,6 +311,7 @@ class ProcessResult:
     identity: ProcessIdentity
     stdout_bytes: bytes = b""
     stderr_bytes: bytes = b""
+    termination_state: Literal["alive", "absent", "unknown"] | None = None
 
     @property
     def ok(self) -> bool:
@@ -346,6 +347,7 @@ class RunningProcess:
         spec = self.spec
         timeout = timeout_seconds or (spec.timeout_seconds if spec else DEFAULT_PROCESS_TIMEOUT)
         timed_out = False
+        termination_state: Literal["alive", "absent", "unknown"] | None = None
         try:
             self.process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -355,6 +357,7 @@ class RunningProcess:
                 self.process.wait(timeout=3.0)
             except subprocess.TimeoutExpired:
                 pass
+            termination_state = ProcessController.inspect_state(self.identity)
         finally:
             for thread in self.output_threads:
                 thread.join(timeout=3.0)
@@ -391,6 +394,7 @@ class RunningProcess:
             identity=self.identity,
             stdout_bytes=stdout_data,
             stderr_bytes=stderr_data,
+            termination_state=termination_state,
         )
 
 
@@ -762,6 +766,7 @@ class StructuredProcessRunner:
 
         deadline = time.monotonic() + spec.timeout_seconds
         timed_out = False
+        termination_state: Literal["alive", "absent", "unknown"] | None = None
         try:
             remaining = max(0.0, deadline - time.monotonic())
             process.wait(timeout=remaining)
@@ -772,6 +777,7 @@ class StructuredProcessRunner:
                 process.wait(timeout=3.0)
             except subprocess.TimeoutExpired:
                 pass
+            termination_state = ProcessController.inspect_state(identity)
         finally:
             for thread in capture.output_threads:
                 thread.join(timeout=3.0)
@@ -801,6 +807,7 @@ class StructuredProcessRunner:
             identity=identity,
             stdout_bytes=stdout_data,
             stderr_bytes=stderr_data,
+            termination_state=termination_state,
         )
 
 

@@ -172,7 +172,8 @@ CodeRabbit — консультативный reviewer, а не источник
 
 Текущая граница:
 
-- adapter выбирает доказанный native Windows executable;
+- adapter выбирает доказанный host-native executable текущей OS (`coderabbit.exe`
+  на Windows и `coderabbit` на POSIX);
 - provider запускается в том же canonical checkout, что прошёл exact
   repository/root/head и clean-candidate preflight;
 - review scope — exact committed head/base; implementation checkout не

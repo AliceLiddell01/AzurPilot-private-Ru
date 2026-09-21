@@ -1,4 +1,4 @@
-"""Bounded project-local Codex guards for the canonical AzurPilot workflow."""
+"""Ограниченные project-local guards canonical AzurPilot workflow."""
 
 from __future__ import annotations
 
@@ -9,6 +9,12 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
+
+from azurpilot.tooling.git import is_ad_hoc_remote_ref
 
 _MAX_INPUT_BYTES = 128 * 1024
 _MAX_COMMAND_CHARS = 64 * 1024
@@ -24,7 +30,6 @@ _RECOVERY_PROVIDER_STATES = frozenset(
     }
 )
 _DELIVERY_RECOVERY_PHASES = frozenset({"push_in_flight", "unknown"})
-_AD_HOC_REF_RE = re.compile(r"(?i)codex/base-[a-z0-9._/-]*")
 
 _AZUR_NAMES = frozenset({"azur", "azur.exe"})
 _PYTHON_NAMES = frozenset({"py", "py.exe", "python", "python.exe", "python3"})
@@ -260,7 +265,18 @@ def _git_subcommand(tokens: tuple[str, ...]) -> tuple[str | None, int]:
 
 
 def _has_ad_hoc_ref(tokens: tuple[str, ...]) -> bool:
-    return any(_AD_HOC_REF_RE.search(token) for token in tokens)
+    for token in tokens:
+        for candidate in (token, *token.split(":")):
+            normalized = candidate
+            lowered = normalized.casefold()
+            if lowered.startswith("refs/heads/"):
+                normalized = normalized[len("refs/heads/") :]
+            elif lowered.startswith("refs/remotes/"):
+                parts = normalized.split("/", 3)
+                normalized = parts[3] if len(parts) == 4 else normalized
+            if is_ad_hoc_remote_ref(normalized):
+                return True
+    return False
 
 
 def _classify_git(tokens: tuple[str, ...]) -> str | None:
@@ -274,7 +290,7 @@ def _classify_git(tokens: tuple[str, ...]) -> str | None:
     if subcommand == "worktree":
         return (
             (
-                "AD_HOC_REMOTE_TOPOLOGY_BLOCKED: не создавайте helper ref codex/base-*; "
+                "AD_HOC_REMOTE_TOPOLOGY_BLOCKED: не создавайте temporary/scratch/transport/helper ref; "
                 "используйте canonical branch."
             )
             if any(token.casefold() == "add" for token in tokens[index + 1 :])
@@ -288,14 +304,14 @@ def _classify_git(tokens: tuple[str, ...]) -> str | None:
         }
         if flags & _GIT_READ_ONLY_BRANCH_FLAGS:
             return None
-        return "AD_HOC_REMOTE_TOPOLOGY_BLOCKED: не создавайте helper ref codex/base-*; используйте canonical branch."
+        return "AD_HOC_REMOTE_TOPOLOGY_BLOCKED: не создавайте temporary/scratch/transport/helper ref; используйте canonical branch."
     if subcommand in {"checkout", "switch"}:
         create_flags = {"-b", "-B", "-c", "-C", "--branch", "--create", "--orphan"}
         if any(
             token.casefold().split("=", 1)[0] in create_flags
             for token in tokens[index + 1 :]
         ):
-            return "AD_HOC_REMOTE_TOPOLOGY_BLOCKED: не создавайте helper ref codex/base-*; используйте canonical branch."
+            return "AD_HOC_REMOTE_TOPOLOGY_BLOCKED: не создавайте temporary/scratch/transport/helper ref; используйте canonical branch."
     return None
 
 
@@ -350,6 +366,8 @@ def _classify_tokens(
         return None
     if _wsl_coderabbit(tokens):
         return "CODERABBIT_WSL_ROUTE_BLOCKED: используйте native CodeRabbit workflow через azur integrations coderabbit."
+    if _starts_coderabbit(tokens):
+        return "CODERABBIT_OPERATOR_BYPASS_BLOCKED: используйте native CodeRabbit workflow через azur integrations coderabbit."
     git_reason = _classify_git(tokens)
     if git_reason:
         return git_reason
@@ -495,12 +513,18 @@ def _coderabbit_block_reason(payload: dict[str, Any] | None) -> str | None:
         else None
     )
     recovery_provider_states = {value.casefold() for value in _RECOVERY_PROVIDER_STATES}
+    recovery = payload.get("recovery")
+    recovery_status = (
+        recovery.get("status").casefold()
+        if isinstance(recovery, dict) and isinstance(recovery.get("status"), str)
+        else None
+    )
     if payload.get("triage_required") is True or cycle_status == "triage_required":
         return "WORKFLOW_CONTINUATION_REQUIRED: выполните обязательный CodeRabbit triage через typed azur workflow."
     if (
         payload.get("recovery_required") is True
         or cycle_status == "recovery_required"
-        or phase == "recovery"
+        or (phase == "recovery" and recovery_status != "completed")
         or provider_state in recovery_provider_states
     ):
         return "WORKFLOW_CONTINUATION_REQUIRED: выполните CodeRabbit recovery через typed azur workflow."

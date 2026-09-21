@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,7 +23,14 @@ def _identity(root: Path) -> ProcessIdentity:
     )
 
 
-def _result(root: Path, *, stdout: str = "", returncode: int = 0) -> ProcessResult:
+def _result(
+    root: Path,
+    *,
+    stdout: str = "",
+    returncode: int = 0,
+    timed_out: bool = False,
+    termination_state: str | None = None,
+) -> ProcessResult:
     identity = _identity(root)
     return ProcessResult(
         returncode=returncode,
@@ -30,9 +38,10 @@ def _result(root: Path, *, stdout: str = "", returncode: int = 0) -> ProcessResu
         stderr="",
         stdout_truncated=False,
         stderr_truncated=False,
-        timed_out=False,
+        timed_out=timed_out,
         pid=identity.pid,
         identity=identity,
+        termination_state=termination_state,  # type: ignore[arg-type]
     )
 
 
@@ -75,12 +84,11 @@ def _ready_provider(root: Path, runner: _DiscoveryRunner) -> coderabbit.NativeCo
     )
 
 
-def test_native_discovery_requires_binary_syntax_auth_and_doctor(tmp_path: Path, monkeypatch):
+def test_native_discovery_requires_binary_syntax_auth_and_doctor(tmp_path: Path):
     executable = tmp_path / "coderabbit.exe"
     executable.write_bytes(b"native")
     runner = _DiscoveryRunner(tmp_path)
-    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
-    monkeypatch.setattr(coderabbit.os, "name", "nt")
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="nt")  # type: ignore[arg-type]
     settings = {"route": "direct_native_agent", "executable": str(executable)}
 
     check = adapter._discover_provider(tmp_path, settings)
@@ -111,12 +119,11 @@ def test_native_discovery_requires_binary_syntax_auth_and_doctor(tmp_path: Path,
      ("other.exe", "CODERABBIT_EXECUTABLE_NOT_NATIVE")],
 )
 def test_native_discovery_rejects_wrappers_and_other_binaries(
-    tmp_path: Path, monkeypatch, name: str, expected: str
+    tmp_path: Path, name: str, expected: str
 ):
     executable = tmp_path / name
     executable.write_bytes(b"not-provider")
-    adapter = coderabbit.CodeRabbitAdapter()
-    monkeypatch.setattr(coderabbit.os, "name", "nt")
+    adapter = coderabbit.CodeRabbitAdapter(host_os="nt")
 
     check = adapter._discover_provider(
         tmp_path,
@@ -128,14 +135,51 @@ def test_native_discovery_rejects_wrappers_and_other_binaries(
 
 
 def test_native_discovery_has_no_fallback_when_executable_is_missing(tmp_path: Path, monkeypatch):
-    adapter = coderabbit.CodeRabbitAdapter()
-    monkeypatch.setattr(coderabbit.os, "name", "nt")
+    adapter = coderabbit.CodeRabbitAdapter(host_os="nt")
     monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: None)
 
     check = adapter._discover_provider(tmp_path, {"route": "direct_native_agent"})
 
     assert check.reason_code == "CODERABBIT_NATIVE_EXECUTABLE_UNAVAILABLE"
     assert check.state is IntegrationState.UNAVAILABLE
+
+
+def test_native_discovery_uses_posix_provider_name_without_mutating_platform(
+    tmp_path: Path,
+):
+    executable = tmp_path / "coderabbit"
+    executable.write_bytes(b"native")
+    runner = _DiscoveryRunner(tmp_path)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="posix")  # type: ignore[arg-type]
+
+    check = adapter._discover_provider(
+        tmp_path,
+        {"route": "direct_native_agent", "executable": str(executable)},
+    )
+
+    assert check.state is IntegrationState.READY
+    assert check.provider is not None
+    assert "platform=posix-native" in check.diagnostics
+
+
+@pytest.mark.parametrize(
+    ("host_os", "name"),
+    [("nt", "coderabbit"), ("posix", "coderabbit.exe")],
+)
+def test_native_discovery_rejects_provider_name_for_other_host(
+    tmp_path: Path, host_os: str, name: str
+):
+    executable = tmp_path / name
+    executable.write_bytes(b"native")
+    adapter = coderabbit.CodeRabbitAdapter(host_os=host_os)
+
+    check = adapter._discover_provider(
+        tmp_path,
+        {"route": "direct_native_agent", "executable": str(executable)},
+    )
+
+    assert check.reason_code == "CODERABBIT_EXECUTABLE_NOT_NATIVE"
+    assert check.provider is None
 
 
 def test_status_checks_fresh_canonical_checkout_before_reporting_ready(
@@ -193,11 +237,18 @@ def test_candidate_preflight_requires_clean_exact_canonical_checkout(monkeypatch
             return ""
 
     monkeypatch.setattr(coderabbit, "GitClient", FakeGit)
+    monkeypatch.setattr(
+        coderabbit,
+        "load_deploy_settings",
+        lambda _root: SimpleNamespace(
+            repository_url="git@github.com:example/project.git"
+        ),
+    )
     fingerprint, code, detail = coderabbit.CodeRabbitAdapter._candidate_preflight(
         tmp_path,
         base_sha="a" * 40,
         head_sha="b" * 40,
-        settings={},
+        settings={"repository": "hosted:github.com/example/project"},
     )
 
     assert code is None
@@ -205,6 +256,54 @@ def test_candidate_preflight_requires_clean_exact_canonical_checkout(monkeypatch
     assert fingerprint is not None
     assert fingerprint.repository_identity == "hosted:github.com/example/project"
     assert fingerprint.status_digest
+
+
+def test_candidate_preflight_rejects_fork_against_project_owned_repository(
+    monkeypatch, tmp_path: Path
+):
+    class ForkGit:
+        def __init__(self, root: Path) -> None:
+            self.root = root
+
+        def text(self, *args: str) -> str:
+            assert args == ("rev-parse", "--show-toplevel")
+            return str(tmp_path)
+
+        def remote_identity(self, remote: str) -> str:
+            assert remote == "origin"
+            return "hosted:github.com/fork/project"
+
+        def head(self) -> str:
+            return "b" * 40
+
+        def object_exists(self, _revision: str) -> bool:
+            return True
+
+        def is_ancestor(self, _base: str, _head: str) -> bool:
+            return True
+
+        def status_z(self) -> str:
+            return ""
+
+    monkeypatch.setattr(coderabbit, "GitClient", ForkGit)
+    monkeypatch.setattr(
+        coderabbit,
+        "load_deploy_settings",
+        lambda _root: SimpleNamespace(
+            repository_url="git@github.com:example/project.git"
+        ),
+    )
+
+    fingerprint, code, detail = coderabbit.CodeRabbitAdapter._candidate_preflight(
+        tmp_path,
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        settings={"repository": "hosted:github.com/fork/project"},
+    )
+
+    assert fingerprint is None
+    assert code == "CODERABBIT_REPOSITORY_IDENTITY_MISMATCH"
+    assert detail
 
 
 def test_legacy_active_state_is_migrated_without_becoming_native_active(tmp_path: Path, monkeypatch):
@@ -328,6 +427,8 @@ def test_recovery_only_closes_proven_absent_identity(monkeypatch, tmp_path: Path
     assert recovered["active"] is False
     assert recovered["substantive_iterations"] == 1
     assert recovered["provider_state"] == "interrupted_recovered"
+    assert recovered["phase"] == "idle"
+    assert recovered["recovery"]["status"] == "completed"
 
 
 def test_unknown_liveness_does_not_recover_or_start_duplicate(monkeypatch, tmp_path: Path):
@@ -382,6 +483,164 @@ def test_review_persists_native_identity_then_clears_it_after_exact_postconditio
     assert state["terminal"] is True
     assert state["active"] is False
     assert state["provider_identity"] is None
+
+
+def test_review_reserves_starting_state_before_provider_spawn(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    starts: list[str] = []
+
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (fingerprint, None, None),
+    )
+
+    def fail_start(_self, _base: str):  # type: ignore[no-untyped-def]
+        starts.append("called")
+        raise OSError("spawn uncertain")
+
+    monkeypatch.setattr(coderabbit.NativeCodeRabbit, "start_review", fail_start)
+
+    first = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-starting",
+    )
+    state = adapter._load_review_state(root)
+
+    assert first.record.reason_code == "CODERABBIT_PROVIDER_START_UNKNOWN"
+    assert state["active"] is True
+    assert state["phase"] == "starting"
+    assert state["cycle_status"] == "recovery_required"
+    assert state["provider_state"] == "start_unknown"
+    assert state["provider_identity"] is None
+
+    second = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-starting",
+    )
+
+    assert second.record.reason_code == "CODERABBIT_ACTIVE_STATE_INVALID"
+    assert starts == ["called"]
+
+
+@pytest.mark.parametrize(
+    ("termination_state", "expected_state", "expected_reason", "active"),
+    [
+        ("absent", IntegrationState.UNAVAILABLE, "CODERABBIT_REVIEW_TIMEOUT", False),
+        (
+            "alive",
+            IntegrationState.DEGRADED,
+            "CODERABBIT_REVIEW_TIMEOUT_RECOVERY_REQUIRED",
+            True,
+        ),
+        (
+            "unknown",
+            IntegrationState.UNKNOWN,
+            "CODERABBIT_REVIEW_TIMEOUT_RECOVERY_REQUIRED",
+            True,
+        ),
+    ],
+)
+def test_timeout_clears_only_proven_absent_provider(
+    monkeypatch,
+    tmp_path: Path,
+    termination_state: str,
+    expected_state: IntegrationState,
+    expected_reason: str,
+    active: bool,
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    result = _result(
+        root,
+        timed_out=True,
+        termination_state=termination_state,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (fingerprint, None, None),
+    )
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(result),
+    )
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-timeout",
+    )
+    state = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == expected_reason
+    assert outcome.record.state is expected_state
+    assert state["active"] is active
+    if active:
+        assert state["provider_identity"] is not None
+        assert state["phase"] == "recovery"
+        assert state["cycle_status"] == "recovery_required"
+        assert state["recovery"]["status"] == "required"
+    else:
+        assert state["provider_identity"] is None
 
 
 def test_provider_findings_require_individual_triage_before_next_review(
