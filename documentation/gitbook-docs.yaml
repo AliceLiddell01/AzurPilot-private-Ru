@@ -1,0 +1,13 @@
+$schema: https://api.gitbook.com/gitbook-docs.yaml
+version: 1
+
+site:
+  title: AzurPilotRu Docs
+  structure:
+    - type: space
+      key: azurpilotru-docs
+      title: AzurPilotRu
+      path: docs
+      default: true
+      content:
+        directory: ./
