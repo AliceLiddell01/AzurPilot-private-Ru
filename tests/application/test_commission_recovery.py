@@ -147,3 +147,19 @@ def test_state_refresh_keeps_absolute_weekly_expiry_boundary():
 
     assert second.reset_at == first.reset_at == datetime(2026, 9, 21, 7, tzinfo=UTC)
     assert cache.set_calls[0][2] == cache.set_calls[1][2] == first.reset_at
+
+
+def test_record_result_preserves_confirmation_and_reset_timestamps():
+    now = datetime(2026, 9, 20, 16, tzinfo=UTC)
+    cache = _MemoryCache()
+    store = CommissionRecoveryStore(cache, now=lambda: now)
+
+    first = store.record_observation("ap", 0, source="game_ocr")
+    updated = store.record_result("ap", "dorm_fallback")
+
+    assert updated.status == "confirmed"
+    assert updated.last_result == "dorm_fallback"
+    assert updated.confirmed_at == first.confirmed_at
+    assert updated.reset_at == first.reset_at
+    assert cache.set_calls[-1][2] == first.reset_at
+    assert store.read("ap").confirmed_at == first.confirmed_at

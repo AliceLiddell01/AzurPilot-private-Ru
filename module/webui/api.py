@@ -133,8 +133,9 @@ def api_commission_recovery(request):
             status_code=400,
         )
 
-    store = CommissionRecoveryStore.from_environment()
+    store = None
     try:
+        store = CommissionRecoveryStore.from_environment()
         state = store.read(instance_name)
         return JSONResponse({"success": True, "data": state.as_dict()})
     except Exception as error:  # noqa: BLE001 - API не раскрывает provider payload
@@ -147,7 +148,8 @@ def api_commission_recovery(request):
             status_code=503,
         )
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
 def serve_obs_overlay(request):
     """

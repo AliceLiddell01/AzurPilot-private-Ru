@@ -521,11 +521,11 @@ def test_configured_backend_resolves_repository_owned_mumu_alias(
         ),
     )
 
-    device, _devices, configured_serial, _package, _client = backend._adb_device()
+    device, _devices, resolved_serial, _package, _client = backend._adb_device()
     snapshot = backend.snapshot()
 
     assert device.serial == "emulator-5556"
-    assert configured_serial == "127.0.0.1:16416"
+    assert resolved_serial == "emulator-5556"
     assert snapshot.emulator_detected is True
     assert snapshot.emulator_ready is True
     assert snapshot.adb_state == "device"

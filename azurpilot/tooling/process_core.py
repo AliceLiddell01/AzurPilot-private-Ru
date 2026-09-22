@@ -722,6 +722,12 @@ class StructuredProcessRunner:
                     cleanup_state="absent",
                 ) from exc
             _cleanup_process_instance(process)
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except (OSError, ValueError):
+                        pass
             cleanup_state: Literal["absent", "unknown"] = (
                 "absent" if process.poll() is not None else "unknown"
             )

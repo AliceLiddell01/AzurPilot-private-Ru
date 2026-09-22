@@ -4132,13 +4132,13 @@ class SmokeRunManager:
                 not item.required or item.status is SmokeAssertionStatus.PASS
                 for item in previous_results
             )
-            game_contract = self._game_evidence_contract(record, spec)
-            if (
-                deterministic_done
-                and game_contract.intermediate_complete
-                and (not spec.visual_assertions or pending_visual is not None)
-            ):
-                break
+            if deterministic_done:
+                game_contract = self._game_evidence_contract(record, spec)
+                if (
+                    game_contract.intermediate_complete
+                    and (not spec.visual_assertions or pending_visual is not None)
+                ):
+                    break
             now_value = datetime.fromisoformat(_timestamp_now(self.now))
             deadline = datetime.fromisoformat(record.deadline_at)
             if now_value >= deadline:

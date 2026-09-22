@@ -206,8 +206,8 @@ def test_confirmed_zero_uses_dorm_without_opening_ap(monkeypatch):
     def unexpected_action_point(*_args):
         raise AssertionError("ActionPointHandler не нужен для подтверждённого нулевого state")
 
-    monkeypatch.setattr(commission, "ActionPointHandler", unexpected_action_point)
     handler = _commission(monkeypatch, store, None, dorm_calls.append)
+    monkeypatch.setattr(commission, "ActionPointHandler", unexpected_action_point)
 
     outcome = handler._recover_commission_oil_overflow()
 

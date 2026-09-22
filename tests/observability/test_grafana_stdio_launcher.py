@@ -84,8 +84,20 @@ def test_launcher_forwards_stdio_and_child_exit_code(
         )
 
     class FakeProcess:
-        def wait(self) -> int:
+        returncode = 23
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
             return 23
+
+        def terminate(self) -> None:
+            raise AssertionError("завершившийся child не должен завершаться повторно")
+
+        def kill(self) -> None:
+            raise AssertionError("завершившийся child не должен принудительно завершаться")
 
     def fake_popen(command, **kwargs):
         observed["command"] = command

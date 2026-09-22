@@ -387,6 +387,16 @@ def test_agent_ndjson_rejects_malformed_truncated_and_rate_limited_streams():
         coderabbit.parse_agent_ndjson([json.dumps({"type": "error", "code": "429"})])
 
 
+def test_agent_ndjson_does_not_classify_unrelated_rate_text_as_rate_limit():
+    with pytest.raises(coderabbit.CodeRabbitStreamError) as error:
+        coderabbit.parse_agent_ndjson(
+            [json.dumps({"type": "error", "message": "rate window is unavailable"})]
+        )
+
+    assert error.value.code == "CODERABBIT_AGENT_ERROR"
+    assert error.value.rate_limited is False
+
+
 def test_agent_ndjson_rejects_unsafe_finding_path():
     with pytest.raises(coderabbit.CodeRabbitStreamError, match="CODERABBIT_FINDING_PATH_INVALID"):
         coderabbit.parse_agent_ndjson(
@@ -925,7 +935,15 @@ def test_cli_exposes_typed_integration_leaves():
         ["integrations", "semgrep", "scan", "--changed", "--base", "a" * 40]
     )
     review_args = parser.parse_args(
-        ["integrations", "coderabbit", "review", "--base", "b" * 40]
+        [
+            "integrations",
+            "coderabbit",
+            "review",
+            "--base",
+            "b" * 40,
+            "--task-id",
+            "test-review-task",
+        ]
     )
     cycle_args = parser.parse_args(
         ["integrations", "coderabbit", "cycle", "start", "--base", "c" * 40]
@@ -938,6 +956,7 @@ def test_cli_exposes_typed_integration_leaves():
     assert paths_args.paths == ["azurpilot/cli.py"]
     assert scan_args.changed is True
     assert review_args.base == "b" * 40
+    assert review_args.task_id == "test-review-task"
     assert cycle_args.integration_action == "cycle"
     assert cycle_args.coderabbit_cycle_action == "start"
     assert cycle_args.base == "c" * 40

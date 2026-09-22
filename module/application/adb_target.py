@@ -148,4 +148,5 @@ __all__ = [
     "AdbTargetResolutionReason",
     "read_only_emulator_serial_aliases",
     "resolve_adb_target_serial",
+    "safe_serial",
 ]

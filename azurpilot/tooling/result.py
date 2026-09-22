@@ -142,8 +142,6 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
         ResultCode.MCP_RUNTIME_UNAVAILABLE,
     }:
         return ExitCode.DEPENDENCY_UNAVAILABLE
-    if code is ResultCode.TOOLING_STACKED_PARENT_UNPUBLISHED:
-        return ExitCode.PRECONDITION
     if code is ResultCode.TOOLING_APPLY_FAILED_ROLLED_BACK:
         return ExitCode.ROLLED_BACK
     if code in {

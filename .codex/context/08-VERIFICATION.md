@@ -177,6 +177,8 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - generator check;
 - чистое рабочее дерево после генераторов.
 
+Не повторять полный suite после каждого небольшого fix, если targeted checks покрывают изменённую область. После PR не дублировать локально тот же полный CI без причины: доверять exact-head required checks, а локальный повтор делать при диагностике падения или существенном post-CI изменении.
+
 ### Game resource evidence
 
 - dashboard `game_get_resources` явно помечен как snapshot/history-derived
@@ -186,8 +188,6 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
   dashboard snapshot;
 - displayed Oil `limit`/`MAX` не проверяется как hard storage cap: `25000` при
   `17050` является допустимым структурным состоянием.
-
-Не повторять полный suite после каждого небольшого fix, если targeted checks покрывают изменённую область. После PR не дублировать локально тот же полный CI без причины: доверять exact-head required checks, а локальный повтор делать при диагностике падения или существенном post-CI изменении.
 
 ### Конфигурация
 

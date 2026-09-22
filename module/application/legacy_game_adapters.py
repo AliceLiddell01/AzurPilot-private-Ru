@@ -53,7 +53,6 @@ from module.application.host_lock import (
     ensure_host_runtime_root,
     host_scoped_lock_path,
 )
-from module.application.live_resource_ocr import read_main_oil_snapshot
 from module.application.runtime_control import (
     RuntimeControlError,
     RuntimeControlOperation,
@@ -846,7 +845,30 @@ class LegacyGameApplicationAdapter:
                         "Device owner не предоставил свежий screenshot."
                     )
                 screenshot()
-                value, limit = read_main_oil_snapshot(getattr(device, "image", None))
+                from module.campaign.campaign_status import CampaignStatus
+
+                oil_snapshot = CampaignStatus(config, device).get_oil_snapshot(
+                    skip_first_screenshot=True,
+                    update=False,
+                    record=False,
+                )
+                if not isinstance(oil_snapshot, Mapping):
+                    raise OperationFailedError(
+                        "CampaignStatus не вернул snapshot ресурсов."
+                    )
+                value = oil_snapshot.get("Value")
+                limit = oil_snapshot.get("Limit")
+                if (
+                    not isinstance(value, int)
+                    or isinstance(value, bool)
+                    or value < 0
+                    or not isinstance(limit, int)
+                    or isinstance(limit, bool)
+                    or limit < 0
+                ):
+                    raise OperationFailedError(
+                        "CampaignStatus не подтвердил числовой snapshot нефти."
+                    )
                 return LiveResourceObservation(
                     instance=instance,
                     resources=DashboardResources(
@@ -861,7 +883,7 @@ class LegacyGameApplicationAdapter:
                     ),
                     observed_at=datetime.now(UTC),
                     current_state_authority=True,
-                    source="main_home_resource_bar_ocr",
+                    source="campaign_status_oil_snapshot",
                 )
             finally:
                 if device is not None:

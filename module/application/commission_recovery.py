@@ -432,15 +432,33 @@ class CommissionRecoveryStore:
 
         if not result or any(character.isspace() for character in result):
             raise ValueError("Результат восстановления Commission некорректен.")
+        profile = _profile_name(profile)
         current = self.read(profile)
         if current.status != "confirmed":
             return current
-        return self.record_observation(
-            profile,
-            current.remaining,
-            source=current.source or "game_ocr",
-            last_result=result,
-        )
+        now = self._now_utc()
+        unavailable = self._health(profile, now)
+        if unavailable is not None:
+            return unavailable
+        assert self._cache is not None
+        updated = replace(current, last_result=result, cache_status=self._cache_status)
+        try:
+            self._cache.set(
+                self.key(profile),
+                self._encode(updated),
+                expires_at=current.reset_at,
+            )
+        except RuntimeCacheError as error:
+            self._cache_status = error.status.value
+            return self._unavailable(
+                profile,
+                now,
+                error=error.status.value,
+                observed_remaining=current.remaining,
+                source=current.source,
+                last_result=result,
+            )
+        return replace(updated, cache_status=self._cache_status)
 
     def close(self) -> None:
         if self._cache is not None:

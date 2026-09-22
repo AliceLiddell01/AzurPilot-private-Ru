@@ -93,11 +93,12 @@ def _fixture_repository(tmp_path: Path) -> tuple[Path, Path, str, str, Repositor
 
 def test_ad_hoc_ref_detection_preserves_hyphenated_product_branches() -> None:
     assert is_ad_hoc_remote_ref("codex/base-review")
-    assert is_ad_hoc_remote_ref("feature/temporary/review")
-    assert is_ad_hoc_remote_ref("feature/transport/review")
-    assert is_ad_hoc_remote_ref("feature/tmp/review")
-    assert is_ad_hoc_remote_ref("feature/helper/review")
-    assert is_ad_hoc_remote_ref("feature/aux/review")
+    assert not is_ad_hoc_remote_ref("feature/temporary/review")
+    assert not is_ad_hoc_remote_ref("feature/transport/review")
+    assert not is_ad_hoc_remote_ref("feature/tmp/review")
+    assert not is_ad_hoc_remote_ref("feature/helper/review")
+    assert not is_ad_hoc_remote_ref("feature/aux/review")
+    assert is_ad_hoc_remote_ref("helper/review")
     assert not is_ad_hoc_remote_ref("fix/transport-timeout")
     assert not is_ad_hoc_remote_ref("feature/temporary-cache")
 

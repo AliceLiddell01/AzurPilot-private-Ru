@@ -72,6 +72,13 @@ _MACHINE_PATTERNS = (
     re.compile(r"(?i)\\\\wsl(?:\.localhost|\$)[\\/]"),
     re.compile(r"(?i)\$home[\\/][a-z0-9._-]+"),
 )
+_OPERATOR_LAUNCHER_TOKENS = re.compile(
+    r"(?i)\b(?:azurpilot|python\s+-m)\b"
+)
+_UV_RUN_TOKEN = re.compile(r"(?i)\buv\s+run\b")
+_OPERATOR_LAUNCHER_NEGATION = re.compile(
+    r"(?i)\b(?:запрещ\w*|forbidden|prohibited|disallowed|not\s+allowed)\b"
+)
 _CODERABBIT_RETIRED_MARKERS = (
     "direct_wsl_agent",
     "coderabbit-runtime.json",
@@ -79,6 +86,20 @@ _CODERABBIT_RETIRED_MARKERS = (
     "wsl.exe --list",
     "pgrep -x coderabbit",
 )
+
+
+def _contains_prohibited_operator_launcher(text: str) -> bool:
+    """Найти положительное описание запрещённого uv/module launcher."""
+
+    normalized = re.sub(r"\s+", " ", text.casefold())
+    for match in _UV_RUN_TOKEN.finditer(normalized):
+        window = normalized[max(0, match.start() - 120) : match.end() + 240]
+        if not _OPERATOR_LAUNCHER_TOKENS.search(window):
+            continue
+        if _OPERATOR_LAUNCHER_NEGATION.search(window):
+            continue
+        return True
+    return False
 _OPERATOR_POLICY_MARKER_OWNERS = {
     "source_reconciled": Path(".codex/context/11-PYTHON-TOOLING.md"),
     "runtime_ready": Path(".codex/context/11-PYTHON-TOOLING.md"),
@@ -342,7 +363,7 @@ def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:
             "development skill source не прочитан"
         )
         return
-    if "каноническая codex-команда: uv run" in development_text:
+    if _contains_prohibited_operator_launcher(development_text):
         errors.append(
             "operator workflow: plugin development skill возвращает uv/module launcher"
         )

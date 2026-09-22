@@ -100,6 +100,7 @@ _PERSONAL_RUNTIME_TRANSLATIONS = {
     "Gui.CommissionRecovery.ResultApPurchase": "Покупка AP подтверждена",
     "Gui.CommissionRecovery.ResultDormFallback": "Использован резерв общежития",
     "Gui.CommissionRecovery.ResultApUnavailable": "Покупки AP недоступны",
+    "Gui.CommissionRecovery.ResultAmbiguousApPurchase": "Покупка AP требует повторной проверки",
     "Gui.CommissionRecovery.ConfirmedAt": "Подтверждено",
     "Gui.CommissionRecovery.NoData": "Нет данных",
     "Gui.CommissionRecovery.Loading": "Загрузка состояния…",

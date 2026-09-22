@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 import dev_tools.integration_contract_gate as gate
 from azurpilot.integrations.adapters import DOCKER_HUB_BLOCKED_TOOLS
 from tests.support.paths import REPOSITORY_ROOT
@@ -81,3 +83,17 @@ args = [
         ".codex/config.toml: grafana_direct обязан указывать "
         "repository-owned stdio launcher"
     ) in payload["errors"]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Канонический launcher: UV RUN python -m azurpilot", True),
+        ("UV RUN и python -m azurpilot запрещены как обход", False),
+        ("Используй azur mcp; uv run разрешён для тестов", False),
+    ],
+)
+def test_operator_launcher_detection_uses_tokens_and_negation(
+    text: str, expected: bool
+) -> None:
+    assert gate._contains_prohibited_operator_launcher(text) is expected

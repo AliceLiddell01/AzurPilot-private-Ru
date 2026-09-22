@@ -474,10 +474,11 @@ def _candidate_mcp_impact(
     path_impacts = tuple(
         McpImpactPath(
             path=path,
-            source_sets=classify_source_changes((path,)).changed_components,
-            affected_servers=classify_source_changes((path,)).affected_servers,
+            source_sets=path_classification.changed_components,
+            affected_servers=path_classification.affected_servers,
         )
         for path in candidate_paths
+        for path_classification in (classify_source_changes((path,)),)
     )
     required = bool(classification.changed_components)
     return McpImpactDetails(

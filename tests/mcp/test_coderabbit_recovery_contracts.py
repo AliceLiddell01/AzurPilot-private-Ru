@@ -980,9 +980,15 @@ def test_startup_uncertainty_has_typed_recovery_path(monkeypatch, tmp_path: Path
 
     outcome = adapter.recover_interrupted_review(root, IntegrationConfig())
 
-    assert outcome.record.reason_code == "CODERABBIT_PROVIDER_START_UNKNOWN"
+    assert outcome.record.reason_code == "CODERABBIT_PROVIDER_START_RECOVERY_REQUIRED"
     assert outcome.record.state is IntegrationState.UNKNOWN
-    assert adapter._load_review_state(root)["active"] is True
+    recovered = adapter._load_review_state(root)
+    assert recovered["active"] is True
+    assert recovered["phase"] == "recovery"
+    assert recovered["recovery"]["status"] == "required"
+    assert recovered["recovery"]["next_action"] == (
+        "verify_provider_process_or_explicit_abandon"
+    )
 
 
 @pytest.mark.parametrize(

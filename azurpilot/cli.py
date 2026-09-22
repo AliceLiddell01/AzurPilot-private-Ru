@@ -465,7 +465,7 @@ def build_parser() -> argparse.ArgumentParser:
             )
             review.add_argument(
                 "--task-id",
-                default=None,
+                required=True,
                 help="opaque logical task identity; сохраняет cycle между head commits",
             )
             findings = provider_subparsers.add_parser(

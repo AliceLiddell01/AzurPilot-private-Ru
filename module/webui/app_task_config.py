@@ -338,7 +338,8 @@ class TaskConfigMixin(WebUIMixinBase):
               const resultText = {{
                 ap_purchase: {json.dumps(t("Gui.CommissionRecovery.ResultApPurchase"))},
                 dorm_fallback: {json.dumps(t("Gui.CommissionRecovery.ResultDormFallback"))},
-                ap_unavailable: {json.dumps(t("Gui.CommissionRecovery.ResultApUnavailable"))}
+                ap_unavailable: {json.dumps(t("Gui.CommissionRecovery.ResultApUnavailable"))},
+                ambiguous_ap_purchase: {json.dumps(t("Gui.CommissionRecovery.ResultAmbiguousApPurchase"))}
               }};
               const statusEl = document.getElementById({json.dumps(status_id)});
               const elements = {json.dumps(values)};
@@ -357,6 +358,14 @@ class TaskConfigMixin(WebUIMixinBase):
               }}
 
               async function refresh() {{
+                const panelRoot = document.getElementById({json.dumps(root_id)});
+                if (!panelRoot) {{
+                  if (window[timerKey]) {{
+                    window.clearInterval(window[timerKey]);
+                    window[timerKey] = null;
+                  }}
+                  return;
+                }}
                 statusEl.textContent = loading;
                 try {{
                   const response = await fetch('/api/commission/recovery?instance=' + encodeURIComponent(instance), {{cache: 'no-store'}});

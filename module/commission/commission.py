@@ -28,6 +28,7 @@ from scipy import signal
 
 from module.application.commission_recovery import (
     ACTION_POINT_GAIN_PER_PURCHASE,
+    MAX_WEEKLY_ACTION_POINT_PURCHASES,
     CommissionRecoveryStore,
 )
 from module.application.errors import StorageError
@@ -927,7 +928,7 @@ class RewardCommission(UI, InfoHandler):
                 getattr(state, 'status', None) == 'confirmed'
                 and isinstance(remaining, int)
                 and not isinstance(remaining, bool)
-                and 0 <= remaining <= 5
+                and 0 <= remaining <= MAX_WEEKLY_ACTION_POINT_PURCHASES
             )
 
         def valid_ap(value: object) -> bool:
@@ -1011,13 +1012,14 @@ class RewardCommission(UI, InfoHandler):
             if (
                 not isinstance(observed, int)
                 or isinstance(observed, bool)
-                or not 0 <= observed <= 5
+                or not 0 <= observed <= MAX_WEEKLY_ACTION_POINT_PURCHASES
             ):
                 logger.warning('[Комиссия — нефть] Свежий OCR остатка AP неизвестен')
                 return None
             logger.info(
-                '[Комиссия — нефть] Свежий OCR подтвердил недельный остаток AP: %s/5',
+                '[Комиссия — нефть] Свежий OCR подтвердил недельный остаток AP: %s/%s',
                 observed,
+                MAX_WEEKLY_ACTION_POINT_PURCHASES,
             )
             if getattr(state, 'status', None) != 'unknown' and observed == getattr(state, 'remaining', None):
                 return state
@@ -1058,12 +1060,9 @@ class RewardCommission(UI, InfoHandler):
                     type(error).__name__,
                 )
                 return blocked()
-            self._commission_recovery_completed = True
             return CommissionRecoveryOutcome.DORM_RECOVERED
 
         try:
-            if getattr(self, '_commission_recovery_completed', False):
-                return blocked()
             if getattr(self, '_commission_recovery_blocked', False):
                 return blocked()
 
@@ -1150,7 +1149,6 @@ class RewardCommission(UI, InfoHandler):
                         purchase.oil_before,
                         purchase.oil_after,
                     )
-                    self._commission_recovery_completed = True
                     return CommissionRecoveryOutcome.AP_RECOVERED
                 return invalidate_after_mutation()
 
@@ -1186,7 +1184,6 @@ class RewardCommission(UI, InfoHandler):
             out: page_commission
         """
         self._commission_emergency_purchase_attempted = False
-        self._commission_recovery_completed = False
         self._commission_recovery_blocked = False
         for _ in range(3):
             try:

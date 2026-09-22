@@ -609,6 +609,8 @@ def test_structured_runner_start_cleans_up_after_identity_capture_failure(
     assert caught.value.spawn_state == "unknown"
     assert caught.value.cleanup_state == "unknown"
     assert cleanup_calls == [process]
+    assert process.stdout.closed
+    assert process.stderr.closed
 
 
 @pytest.mark.parametrize("error", [OSError("popen"), ValueError("popen")])

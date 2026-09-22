@@ -96,8 +96,9 @@ reviews:
           исправления. Изменение, непосредственно необходимое для mandatory review remediation текущего actionable
           CodeRabbit finding, разрешено независимо от его severity, refactor или cleanup характера. FAIL на реально
           несвязанные feature, refactor, cleanup или изменения поведения. Если remediation противоречит
-          authoritative task scope, зафиксируй task_prompt_conflict с источником и подробным объяснением, а не называй
-          обязательную remediation scope violation.
+          authoritative task scope, зафиксируй typed disposition `deferred` с
+          `deferral_reason=task_scope`, authoritative source и подробным объяснением, а не называй обязательную
+          remediation scope violation.
 
           Для "Scope: feature": разрешены новое или изменённое поведение, тесты и документация, необходимые для
           заявленной функции. FAIL на несвязанные изменения.

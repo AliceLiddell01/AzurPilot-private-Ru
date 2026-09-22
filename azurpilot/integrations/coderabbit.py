@@ -91,6 +91,9 @@ _MAX_BACKLOG_OCCURRENCES = 8
 _RATE_LIMIT_MAX_SECONDS = 7 * 24 * 60 * 60
 _HEARTBEAT_INTERVAL_SECONDS = 15.0
 _REVIEW_TIMEOUT_SECONDS = 20 * 60
+_RATE_LIMIT_ERROR_RE = re.compile(
+    r"(?i)(?:\b429\b|\brate[\s_-]*limit(?:ed|ing)?\b|\btoo\s+many\s+requests\b)"
+)
 _STATE_FILE_NAME = "coderabbit-review.json"
 _REVIEW_SCHEMA_VERSION = REVIEW_STATE_SCHEMA_VERSION
 _BACKLOG_FILE_NAME = ".codex/local/coderabbit-deferred-findings.json"
@@ -614,7 +617,7 @@ def parse_agent_ndjson(lines: Iterable[str]) -> ParsedCodeRabbitReview:
                 str(event.get(key, "")).casefold()
                 for key in ("code", "message", "error")
             )
-            rate_limited = any(marker in message for marker in ("rate", "429", "too many"))
+            rate_limited = _RATE_LIMIT_ERROR_RE.search(message) is not None
             retry_not_before, retry_source = (
                 _parse_provider_retry_metadata(event)
                 if rate_limited
@@ -1665,12 +1668,27 @@ class CodeRabbitAdapter(IntegrationAdapter):
             )
 
     @staticmethod
+    def _acquire_lifecycle_lock(lock: object) -> bool:
+        """Захватить lifecycle lock с единым typed conflict mapping."""
+
+        try:
+            return bool(lock.acquire(0))
+        except (OSError, ToolingError) as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_OPERATION_CONFLICT,
+                "CodeRabbit lifecycle lock недоступен для безопасной операции.",
+            ) from exc
+
+    @staticmethod
     def _start_failure_evidence(
         error: BaseException,
     ) -> tuple[str, ProcessIdentity | None, str]:
         if isinstance(error, ProcessStartError):
             identity = error.identity if isinstance(error.identity, ProcessIdentity) else None
-            return error.spawn_state, identity, error.cleanup_state
+            spawn_state = error.spawn_state
+            if spawn_state == "unknown" and error.cleanup_state == "absent":
+                spawn_state = "absent_after_cleanup"
+            return spawn_state, identity, error.cleanup_state
         if isinstance(error, (OSError, ValueError)):
             return "not_spawned", None, "absent"
         return "unknown", None, "unknown"
@@ -1736,10 +1754,16 @@ class CodeRabbitAdapter(IntegrationAdapter):
             diagnostics=("liveness=exact_absent",),
         )
 
-    def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:
+    def status(
+        self,
+        root: Path,
+        config: IntegrationConfig,
+        *,
+        full_checks: bool = False,
+    ) -> IntegrationRecord:
         settings = config.provider("coderabbit")
         state = self._load_review_state(root)
-        check = self._discover_provider(root, settings, False)
+        check = self._discover_provider(root, settings, full_checks)
         active = self._active_record(settings, state, provider=check.provider)
         if active is not None:
             return active
@@ -1753,23 +1777,21 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 configured=check.configured,
                 authenticated=check.authenticated,
             )
-        base_sha = state.get("base_sha")
-        head_sha = state.get("last_head") or state.get("reviewed_head")
         diagnostics = check.diagnostics
+        canonical, code, detail = self._canonical_checkout_preflight(root, settings)
+        if canonical is None:
+            return self._record_from_error(
+                settings,
+                code or "CODERABBIT_CANDIDATE_PRECHECK_FAILED",
+                state=IntegrationState.INCOMPATIBLE,
+                diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
+                provider=check.provider,
+                message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
+                authenticated=check.authenticated,
+            )
+        head_sha = canonical.head_sha
+        base_sha = state.get("base_sha")
         if isinstance(base_sha, str) and _SHA_RE.fullmatch(base_sha):
-            if not isinstance(head_sha, str) or not _SHA_RE.fullmatch(head_sha):
-                canonical, code, detail = self._canonical_checkout_preflight(root, settings)
-                if canonical is None:
-                    return self._record_from_error(
-                        settings,
-                        code or "CODERABBIT_CANDIDATE_PRECHECK_FAILED",
-                        state=IntegrationState.INCOMPATIBLE,
-                        diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
-                        provider=check.provider,
-                        message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
-                        authenticated=check.authenticated,
-                    )
-                head_sha = canonical.head_sha
             fingerprint, code, detail = self._candidate_preflight(
                 root, base_sha=base_sha, head_sha=head_sha, settings=settings
             )
@@ -1781,32 +1803,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                     provider=check.provider,
                     message="Host-native provider CodeRabbit готов, но точный кандидат не подтверждён.",
-                    authenticated=check.authenticated,
-                )
-        elif isinstance(head_sha, str) and _SHA_RE.fullmatch(head_sha):
-            fingerprint, code, detail = self._candidate_preflight(
-                root, base_sha=head_sha, head_sha=head_sha, settings=settings
-            )
-            if fingerprint is None:
-                return self._record_from_error(
-                    settings,
-                    code or "CODERABBIT_CANDIDATE_PRECHECK_FAILED",
-                    state=IntegrationState.INCOMPATIBLE,
-                    diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
-                    provider=check.provider,
-                    message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
-                    authenticated=check.authenticated,
-                )
-        else:
-            canonical, code, detail = self._canonical_checkout_preflight(root, settings)
-            if canonical is None:
-                return self._record_from_error(
-                    settings,
-                    code or "CODERABBIT_CANDIDATE_PRECHECK_FAILED",
-                    state=IntegrationState.INCOMPATIBLE,
-                    diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
-                    provider=check.provider,
-                    message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
                     authenticated=check.authenticated,
                 )
         cycle_state = state.get("cycle_status")
@@ -1882,7 +1878,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         return AdapterOutcome(record, (), self._cycle_summary(self._load_review_state(root)))
 
     async def probe(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
-        record = self.status(root, config)
+        record = self.status(root, config, full_checks=True)
         state = self._load_review_state(root)
         findings = self._stored_findings(state, state.get("base_sha"), state.get("reviewed_head"))
         return AdapterOutcome(record, findings, self._cycle_summary(state))
@@ -2216,17 +2212,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Для закрытия deferred finding нужен clean exact fix HEAD текущего checkout.",
             )
-        settings = config.provider("coderabbit")
         coordinator = RepositoryCoordinator.for_root(root)
         lock = coordinator.lock("coderabbit-review")
-        try:
-            acquired = lock.acquire(0)
-        except (OSError, ToolingError) as exc:
-            raise ToolingError(
-                ResultCode.TOOLING_OPERATION_CONFLICT,
-                "CodeRabbit lifecycle lock недоступен для безопасного backlog resolve.",
-            ) from exc
-        if not acquired:
+        if not self._acquire_lifecycle_lock(lock):
             raise ToolingError(
                 ResultCode.TOOLING_OPERATION_CONFLICT,
                 "CodeRabbit lifecycle lock занят другой операцией.",
@@ -2338,7 +2326,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         manifest = load_coderabbit_triage_manifest(manifest_path)
         coordinator = RepositoryCoordinator.for_root(root)
         lock = coordinator.lock("coderabbit-review")
-        if not lock.acquire(0):
+        if not self._acquire_lifecycle_lock(lock):
             record = self._record_from_error(
                 settings,
                 "CODERABBIT_REVIEW_IN_PROGRESS",
@@ -2504,7 +2492,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         settings = config.provider("coderabbit")
         coordinator = RepositoryCoordinator.for_root(root)
         lock = coordinator.lock("coderabbit-review")
-        if not lock.acquire(0):
+        if not self._acquire_lifecycle_lock(lock):
             record = self._record_from_error(
                 settings,
                 "CODERABBIT_REVIEW_IN_PROGRESS",
@@ -2516,17 +2504,45 @@ class CodeRabbitAdapter(IntegrationAdapter):
             state = self._load_review_state(root)
             identity, invalid = self._state_active_identity(state)
             if invalid:
+                now = datetime.now(UTC).isoformat(timespec="seconds")
+                recovery = state.get("recovery")
+                recovery_data = dict(recovery) if isinstance(recovery, Mapping) else {}
+                recovery_data.update(
+                    {
+                        "status": "required",
+                        "next_action": "verify_provider_process_or_explicit_abandon",
+                        "verified_at": now,
+                    }
+                )
+                state.update(
+                    {
+                        "phase": "recovery",
+                        "cycle_status": "recovery_required",
+                        "recovery": recovery_data,
+                        "last_event_type": "provider_start_recovery_required",
+                    }
+                )
+                self._save_review_state(root, state)
+                reason = (
+                    "CODERABBIT_PROVIDER_START_RECOVERY_REQUIRED"
+                    if invalid == "CODERABBIT_PROVIDER_START_UNKNOWN"
+                    else invalid
+                )
                 message = (
-                    "Восстановление остановлено: после сбоя запуска не получена "
-                    "точная идентичность процесса; повторный вызов запрещён."
+                    "Восстановление остановлено: отсутствие процесса не доказано; "
+                    "проверьте provider process и выполните explicit abandon только "
+                    "после внешнего подтверждения. Повторный вызов запрещён."
                     if invalid == "CODERABBIT_PROVIDER_START_UNKNOWN"
                     else "Восстановление не может доказать точную идентичность процесса."
                 )
                 record = self._record_from_error(
                     settings,
-                    invalid,
+                    reason,
                     state=IntegrationState.UNKNOWN,
                     message=message,
+                    diagnostics=(
+                        "next_action=verify_provider_process_or_explicit_abandon",
+                    ),
                 )
                 return AdapterOutcome(record, (), self._cycle_summary(state))
             if identity is None:
@@ -2606,7 +2622,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "base SHA должен быть exact commit SHA.")
         coordinator = RepositoryCoordinator.for_root(root)
         lock = coordinator.lock("coderabbit-review")
-        if not lock.acquire(0):
+        if not self._acquire_lifecycle_lock(lock):
             record = self._record_from_error(settings, "CODERABBIT_REVIEW_IN_PROGRESS", state=IntegrationState.DEGRADED, message="CodeRabbit lifecycle lock занят другой операцией.")
             return AdapterOutcome(record, (), self.cycle_summary(root))
         try:
@@ -2872,7 +2888,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "base/head должны быть exact SHA.")
         coordinator = RepositoryCoordinator.for_root(root)
         lock = coordinator.lock("coderabbit-review")
-        if not lock.acquire(0):
+        if not self._acquire_lifecycle_lock(lock):
             record = self._record_from_error(settings, "CODERABBIT_REVIEW_IN_PROGRESS", state=IntegrationState.DEGRADED, message="CodeRabbit lifecycle lock занят другой операцией.")
             return AdapterOutcome(record, (), self.cycle_summary(root))
         try:

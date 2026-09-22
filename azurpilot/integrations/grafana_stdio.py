@@ -17,6 +17,28 @@ class GrafanaLauncherError(RuntimeError):
     """Canonical Grafana child command не удалось доказать."""
 
 
+def _cleanup_child(process: subprocess.Popen[bytes]) -> None:
+    """Bounded cleanup child process after launcher interruption."""
+
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+    except (OSError, ProcessLookupError):
+        return
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except (OSError, ProcessLookupError):
+            return
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+
+
 def resolve_child_command() -> tuple[Path, tuple[str, ...], dict[str, str]]:
     """Собрать child command только через repository-owned GrafanaAdapter."""
 
@@ -45,7 +67,10 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    return process.wait()
+    try:
+        return process.wait()
+    finally:
+        _cleanup_child(process)
 
 
 if __name__ == "__main__":

@@ -389,7 +389,7 @@ class CodeRabbitFindingTriage(ClosedModel):
         if self.disposition is FindingDisposition.FALSE_POSITIVE:
             if self.conflict_kind is None:
                 raise ValueError(
-                    "false positive требует typed repository/task/dependency conflict"
+                    "false positive требует typed repository/dependency conflict"
                 )
             if self.conflict_kind is CodeRabbitConflictKind.TASK_PROMPT_CONFLICT:
                 raise ValueError(

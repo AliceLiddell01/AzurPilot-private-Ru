@@ -200,6 +200,7 @@ _SAFE_DETAIL_KEYS = frozenset(
         "phase",
         "cleanup_required",
         "cleanup_summary",
+        "preconditions",
         "created_at",
         "started_at",
         "stopped_at",
@@ -447,6 +448,10 @@ _SAFE_TASK_PLAN_KEYS = frozenset(
     {"root_tasks", "excluded_tasks", "catalog"}
 )
 _SAFE_ERROR_KEYS = frozenset({"type", "code", "message", "field", "tasks"})
+_SAFE_PRECONDITIONS_KEYS = frozenset({"commission_recovery"})
+_SAFE_COMMISSION_RECOVERY_KEYS = frozenset(
+    {"profile", "status", "cache_status", "remaining", "error"}
+)
 _SAFE_HANDOVER_KEYS = frozenset(
     {"ok", "code", "message", "profile", "operation_id", "phases", "details"}
 )
@@ -772,6 +777,8 @@ _SCHEMA_KEYS = {
     "task_catalog": _SAFE_TASK_CATALOG_KEYS,
     "task_plan": _SAFE_TASK_PLAN_KEYS,
     "error": _SAFE_ERROR_KEYS,
+    "preconditions": _SAFE_PRECONDITIONS_KEYS,
+    "commission_recovery": _SAFE_COMMISSION_RECOVERY_KEYS,
     "evidence_summary": _SAFE_EVIDENCE_SUMMARY_KEYS,
     "evidence_health": _SAFE_EVIDENCE_HEALTH_KEYS,
     "startup_failure": _SAFE_STARTUP_FAILURE_KEYS,
@@ -898,6 +905,7 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "policy_state": "string",
     "port": "int",
     "preflight": "result",
+    "preconditions": "preconditions",
     "preserve_task_state": "bool",
     "preserved_task_state": "bool",
     "present": "bool",
@@ -1541,6 +1549,14 @@ _SCHEMA_CHILD_SCHEMAS = {
     "task_catalog": _TASK_CATALOG_CHILD_SCHEMAS,
     "task_plan": _TASK_PLAN_CHILD_SCHEMAS,
     "error": _ERROR_CHILD_SCHEMAS,
+    "preconditions": {"commission_recovery": "commission_recovery"},
+    "commission_recovery": {
+        "profile": "string",
+        "status": "string",
+        "cache_status": "string",
+        "remaining": "int",
+        "error": "string",
+    },
     "startup_failure": _STARTUP_FAILURE_CHILD_SCHEMAS,
     "handover": _HANDOVER_CHILD_SCHEMAS,
     "handover_details": _HANDOVER_DETAILS_CHILD_SCHEMAS,

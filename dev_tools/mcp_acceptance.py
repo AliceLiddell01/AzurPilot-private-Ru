@@ -80,11 +80,17 @@ async def accept(repository_root: Path) -> FreshMcpClientResult:
     """Провести одну bounded fresh session без Codex task/session state."""
 
     source_revision, working_tree = git_source_snapshot(repository_root)
-    if working_tree != "clean":
+    if working_tree == "modified":
         return FreshMcpClientResult(
             state=IntegrationState.INCOMPATIBLE,
             reason_code="MCP_FRESH_CLIENT_SOURCE_NOT_CLEAN",
             diagnostics=("working_tree_modified",),
+        )
+    if working_tree != "clean":
+        return FreshMcpClientResult(
+            state=IntegrationState.INCOMPATIBLE,
+            reason_code="MCP_FRESH_CLIENT_SOURCE_UNKNOWN",
+            diagnostics=("working_tree_unknown",),
         )
     executable = shutil.which(DEV_MCP_COMMAND)
     if executable is None:

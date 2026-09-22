@@ -104,11 +104,6 @@ _REPOSITORY_FIXED_VALUES: dict[str, dict[str, str]] = {
         "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["context7"],
     },
     "docker-docs": {"endpoint": "https://mcp-docs.docker.com/mcp"},
-    "grafana": {
-        "command": "docker",
-        "image": str(DEFAULTS["grafana"]["image"]),
-        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["grafana"],
-    },
     "docker-hub": {
         "command": "docker",
         "image": str(DEFAULTS["docker-hub"]["image"]),

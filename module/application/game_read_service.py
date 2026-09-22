@@ -86,13 +86,14 @@ class GameReadService:
         """Получить одно свежее observation, не подменяя его dashboard snapshot."""
 
         instance = known_instance(self._instance_reader, instance)
-        if self._live_resource_reader is None:
+        live_resource_reader = self._live_resource_reader
+        if live_resource_reader is None:
             raise ServiceUnavailableError(
                 "Источник текущего наблюдения ресурсов недоступен."
             )
         result = safe_read(
             "текущего наблюдения ресурсов",
-            lambda: self._live_resource_reader.read_live_resources(instance),
+            lambda: live_resource_reader.read_live_resources(instance),
         )
         if not isinstance(result, LiveResourceObservation) or result.instance != instance:
             raise ServiceUnavailableError(

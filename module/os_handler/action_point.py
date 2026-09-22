@@ -109,6 +109,7 @@ ACTION_POINTS_BUY = {
     4: 1000,
     5: 1000,
 }
+ACTION_POINT_BUY_GAIN = 100
 
 
 class EmergencyActionPointPurchaseStatus(StrEnum):
@@ -528,7 +529,7 @@ class ActionPointHandler(UI, MapEventHandler):
             ap_gain = ap_after - ap_before
             if (
                 after == remaining - 1
-                and ap_gain == ACTION_POINT_BOX[3]
+                and ap_gain == ACTION_POINT_BUY_GAIN
                 and oil_after == oil - cost
             ):
                 return EmergencyActionPointPurchase(
@@ -543,6 +544,12 @@ class ActionPointHandler(UI, MapEventHandler):
                     ap_gain=ap_gain,
                     click_count=1,
                 )
+            if (
+                after == remaining
+                and ap_gain == 0
+                and oil_after == oil
+            ):
+                continue
             return EmergencyActionPointPurchase(
                 status=EmergencyActionPointPurchaseStatus.FAILED,
                 remaining_before=remaining,

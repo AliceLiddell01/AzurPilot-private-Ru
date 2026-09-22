@@ -92,13 +92,35 @@ def test_emergency_purchase_allows_ap_below_max_without_clamp(monkeypatch):
 
 
 def test_emergency_purchase_at_ap_max_allows_200_to_300(monkeypatch):
-    handler, clicks, _events = _handler(monkeypatch, [5, 4])
+    handler, clicks, _events = _handler(
+        monkeypatch,
+        [5, 4],
+        ap_observations=(250, 350),
+    )
 
     result = handler.action_point_buy_emergency_once(remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
-    assert result.ap_after == 300
-    assert result.ap_after > 200
+    assert result.ap_before == 250
+    assert result.ap_after == 350
+    assert result.ap_after > result.ap_before
+    assert len(clicks) == 1
+
+
+def test_emergency_purchase_waits_through_unchanged_post_click_frame(monkeypatch):
+    handler, clicks, _events = _handler(
+        monkeypatch,
+        [5, 5, 4],
+        ap_observations=(200, 200, 300),
+        oil_observations=(25000, 25000, 24000),
+    )
+
+    result = handler.action_point_buy_emergency_once(remaining=5)
+
+    assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
+    assert result.remaining_after == 4
+    assert result.ap_gain == 100
+    assert result.oil_after == 24000
     assert len(clicks) == 1
 
 

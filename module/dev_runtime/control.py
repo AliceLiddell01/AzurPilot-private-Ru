@@ -790,8 +790,8 @@ class ConfiguredRuntimeBackend:
                 "Назначенный development target не найден в ADB",
                 outcome=ControlOutcome.PRECONDITION_FAILED,
             )
-        device, _resolved_serial = resolved
-        return device, devices, serial, package, client
+        device, resolved_serial = resolved
+        return device, devices, resolved_serial, package, client
 
     @staticmethod
     def _foreground_package(device: object) -> str | None:
