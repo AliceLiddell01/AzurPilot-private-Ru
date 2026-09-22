@@ -30,22 +30,28 @@ def _state(
 
 
 class _Store:
-    def __init__(self, *, status: str = "unknown", remaining: int | None = None):
+    def __init__(self, *, status: str = "unknown", remaining: int | None = None, order=None):
         self.state = _state("ap", status, remaining)
         self.observations: list[tuple[str, int, str, str | None]] = []
         self.results: list[tuple[str, str]] = []
         self.invalidations: list[tuple[str, str | None]] = []
         self.events: list[str] = []
+        self.order = order
         self.read_calls = 0
         self.closed = 0
 
+    def _record_event(self, event):
+        self.events.append(event)
+        if self.order is not None:
+            self.order.append(event)
+
     def read(self, profile):
         self.read_calls += 1
-        self.events.append("read")
+        self._record_event("read")
         return self.state
 
     def record_observation(self, profile, remaining, *, source="game_ocr", last_result=None):
-        self.events.append("record_observation")
+        self._record_event("record_observation")
         self.observations.append((profile, remaining, source, last_result))
         self.state = _state(
             profile,
@@ -57,7 +63,7 @@ class _Store:
         return self.state
 
     def record_result(self, profile, result):
-        self.events.append("record_result")
+        self._record_event("record_result")
         self.results.append((profile, result))
         if self.state.status == "confirmed":
             self.state = _state(
@@ -70,7 +76,7 @@ class _Store:
         return self.state
 
     def invalidate(self, profile, *, last_result=None):
-        self.events.append("invalidate")
+        self._record_event("invalidate")
         self.invalidations.append((profile, last_result))
         self.state = _state(
             profile,
@@ -86,11 +92,13 @@ class _Store:
 
 
 class _ActionPoint:
-    def __init__(self, purchase, *, ocr_remaining="from_purchase", events=None):
+    def __init__(self, purchase, *, ocr_remaining="from_purchase", select_oil=True, events=None):
         self.purchase = purchase
         self.ocr_remaining = ocr_remaining
+        self.select_oil = select_oil
         self.events = events if events is not None else []
         self.entered = 0
+        self.select_oil_calls = 0
         self.quitted = 0
         self.purchase_calls = 0
         self.remaining_args: list[int] = []
@@ -99,6 +107,12 @@ class _ActionPoint:
         self.events.append("enter")
         self.entered += 1
         return True
+
+    def action_point_set_button(self, index):
+        assert index == 0
+        self.events.append("select_oil")
+        self.select_oil_calls += 1
+        return self.select_oil
 
     def action_point_get_buy_remain_optional(self, *, timeout):
         self.events.append("ocr")
@@ -194,8 +208,8 @@ def test_confirmed_zero_uses_dorm_without_opening_ap(monkeypatch):
 
 
 def test_unknown_state_bootstraps_from_ocr_before_ap_decision(monkeypatch):
-    store = _Store()
     events: list[str] = []
+    store = _Store(order=events)
     ap = _ActionPoint(
         _purchase(EmergencyActionPointPurchaseStatus.PURCHASED, after=3),
         events=events,
@@ -207,8 +221,32 @@ def test_unknown_state_bootstraps_from_ocr_before_ap_decision(monkeypatch):
 
     assert outcome is commission.CommissionRecoveryOutcome.AP_RECOVERED
     assert store.observations[0][1:] == (4, "game_ocr", None)
+    assert events.index("enter") < events.index("select_oil") < events.index("ocr")
+    assert events.index("ocr") < events.index("record_observation") < events.index("read", 1)
+    assert events.index("read", 1) < events.index("purchase:4")
     assert events.index("ocr") < events.index("purchase:4")
     assert store.events.index("record_observation") < store.events.index("read", 1)
+    assert dorm_calls == []
+
+
+def test_oil_selection_failure_blocks_before_ocr_redis_or_mutation(monkeypatch):
+    events: list[str] = []
+    store = _Store(order=events)
+    ap = _ActionPoint(
+        _purchase(EmergencyActionPointPurchaseStatus.PURCHASED, after=3),
+        select_oil=False,
+        events=events,
+    )
+    dorm_calls: list[int] = []
+    handler = _commission(monkeypatch, store, ap, dorm_calls.append, events=events)
+
+    outcome = handler._recover_commission_oil_overflow()
+
+    assert outcome is commission.CommissionRecoveryOutcome.BLOCKED
+    assert ap.select_oil_calls == 1
+    assert "ocr" not in events
+    assert store.observations == []
+    assert ap.purchase_calls == 0
     assert dorm_calls == []
 
 

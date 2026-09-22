@@ -45,3 +45,29 @@ def test_emergency_purchase_does_not_retry_after_unknown_postcondition(monkeypat
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.UNKNOWN
     assert result.click_count == 1
     assert len(clicks) == 1
+
+
+def test_action_point_set_button_switches_from_box_m_to_oil(monkeypatch):
+    handler = action_point.ActionPointHandler.__new__(action_point.ActionPointHandler)
+    clicks: list[object] = []
+    handler.device = SimpleNamespace(
+        click=lambda button: clicks.append(button),
+        sleep=lambda _seconds: None,
+    )
+    active_buttons = iter([2, 0])
+    monkeypatch.setattr(handler, "action_point_get_active_button", lambda: next(active_buttons))
+    monkeypatch.setattr(handler, "loop", lambda **_kwargs: iter((None, None)))
+
+    assert handler.action_point_set_button(0) is True
+    assert clicks == [action_point.ACTION_POINT_GRID[0, 0]]
+
+
+def test_action_point_set_button_does_not_click_when_oil_is_already_selected(monkeypatch):
+    handler = action_point.ActionPointHandler.__new__(action_point.ActionPointHandler)
+    clicks: list[object] = []
+    handler.device = SimpleNamespace(click=lambda button: clicks.append(button))
+    monkeypatch.setattr(handler, "action_point_get_active_button", lambda: 0)
+    monkeypatch.setattr(handler, "loop", lambda **_kwargs: iter((None,)))
+
+    assert handler.action_point_set_button(0) is True
+    assert clicks == []

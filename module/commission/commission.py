@@ -998,6 +998,9 @@ class RewardCommission(UI, InfoHandler):
                 logger.warning('[Комиссия — нефть] Не удалось безопасно открыть окно AP')
                 return None
             ap_opened = True
+            if not ap_handler.action_point_set_button(0):
+                logger.warning('[Комиссия — нефть] Не удалось подтвердить выбор Oil в окне AP')
+                return None
             observed = ap_handler.action_point_get_buy_remain_optional(timeout=1)
             if (
                 not isinstance(observed, int)
