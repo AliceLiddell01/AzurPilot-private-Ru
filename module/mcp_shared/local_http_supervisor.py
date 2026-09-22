@@ -614,8 +614,9 @@ class LocalHttpSupervisor:
                 or not _valid_recorded_identity(launcher)
             ):
                 return LocalHttpSupervisorStopOutcome.INVALID_MARKER
-            # Stop parent launchers first; ProcessController still re-checks
-            # exact identity and descendants before every termination.
+            # Сначала останавливать родительские launchers; ProcessController
+            # повторно проверяет exact identity и descendants перед каждой
+            # остановкой.
             identities.extend((launcher, process))
 
         unique: list[ProcessIdentity] = []
@@ -750,9 +751,9 @@ class LocalHttpSupervisor:
 
         lock: FileLock | None = None
         if not exact_live_owner:
-            # A stale marker may be cleaned only while no new supervisor can
-            # concurrently replace it. The second read closes the marker race
-            # between status() and cleanup.
+            # Stale marker можно очищать только пока новый supervisor не может
+            # заменить его параллельно. Второе чтение закрывает race между
+            # status() и cleanup.
             lock = self._try_recovery_lock()
             if lock is None:
                 return LocalHttpSupervisorStopResult(
@@ -795,18 +796,19 @@ class LocalHttpSupervisor:
         try:
             for identity in identities:
                 if identity == supervisor_identity and not exact_live_owner:
-                    # Initial stale proof classified this identity as absent or
-                    # mismatched; never terminate it by PID-only assumption.
+                    # Первичная проверка stale классифицировала identity как
+                    # отсутствующую или несовпадающую; нельзя останавливать её
+                    # только по предположению на основе PID.
                     continue
                 if not self._terminate_exact_identity(identity):
                     return LocalHttpSupervisorStopResult(
                         outcome=LocalHttpSupervisorStopOutcome.TERMINATION_FAILED,
                         marker_present=True,
                         ownership_confirmed=exact_live_owner,
-                        detail="Recorded exact process termination/postcondition failed.",
+                        detail="Остановка recorded exact process или postcondition не подтверждена.",
                     )
-            # A foreign listener must keep the marker and block recovery; do
-            # not remove ownership evidence while a port conflict remains.
+            # При foreign listener marker нужно сохранить и заблокировать
+            # recovery; нельзя удалять evidence ownership при port conflict.
             if self.port_conflicts():
                 return LocalHttpSupervisorStopResult(
                     outcome=LocalHttpSupervisorStopOutcome.PORT_CONFLICT,
@@ -819,7 +821,7 @@ class LocalHttpSupervisor:
                     outcome=LocalHttpSupervisorStopOutcome.MARKER_CHANGED,
                     marker_present=True,
                     ownership_confirmed=exact_live_owner,
-                    detail="Marker changed or could not be removed safely.",
+                    detail="Marker изменился или не может быть безопасно удалён.",
                 )
             if not self._stopped_postcondition():
                 outcome = (

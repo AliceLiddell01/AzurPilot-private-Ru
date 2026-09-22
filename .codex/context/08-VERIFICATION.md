@@ -98,6 +98,12 @@
 Специфичные для провайдера правила triage/retry/rate limit принадлежат
 соответствующему review skill; влияние результата CodeRabbit на Git lifecycle определяется только
 `GIT-WORKFLOW.md`. Остальные обязательные gates продолжают выполняться.
+Если native reviewer доступен, но checkpoint не запускался, состояние остаётся
+`NOT_RUN` и не может быть переименовано в provider limitation; сначала требуется
+одна bounded authoritative попытка на текущем exact head. Только фактически
+подтверждённые adapter-ом `disabled`, `unavailable`, `rate-limited` или иные
+внешние failure являются limitation. Actionable findings после authoritative
+review блокируют readiness до individual triage и fix.
 
 Для MCP-изменений первым repository gate является effective candidate
 classification: `azur mcp impact --base <exact-base-sha>`. Команда должна

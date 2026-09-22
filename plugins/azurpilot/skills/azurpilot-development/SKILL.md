@@ -68,7 +68,7 @@ fail-closed. Не запускай внутренние MCP modules/scripts на
 read-only calls. `azur mcp status`, source snapshot и текущая Codex session этот
 gate не заменяют. Effective Codex registration — отдельная optional
 `codex_registration_check`; при затронутом Codex/plugin scope используй
-[единый cross-thread contract](../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
+[единый cross-thread contract](../../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
 Wrong-HEAD или недоступный `create_thread` фиксируй только в этой optional check
 и не классифицируй как MCP client failure.
 

@@ -597,6 +597,7 @@ class MandatoryGateState(StrEnum):
 
 
 FRESH_MCP_ACCEPTANCE_GATE_NAME = "fresh_mcp_client_acceptance"
+CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME = "coderabbit_exact_head_checkpoint"
 
 
 class MandatoryGate(ClosedModel):
@@ -668,6 +669,31 @@ class ReadinessState(ClosedModel):
         integration_names = tuple(check.name for check in self.integration_checks)
         if len(integration_names) != len(set(integration_names)):
             raise ValueError("integration checks должны иметь уникальные имена")
+        if any(
+            gate.name == CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME
+            for gate in self.mandatory_gates
+        ):
+            raise ValueError(
+                "CodeRabbit checkpoint является external reviewer limitation, "
+                "а не mandatory product gate"
+            )
+        if self.external_reviewer_status == "NOT_RUN":
+            if self.reviewer_limitation:
+                raise ValueError(
+                    "NOT_RUN не может маскироваться под limitation внешнего reviewer"
+                )
+            if (
+                self.overall_outcome == "READY"
+                or self.ready_for_chatgpt_review
+                or self.merge_ready
+            ):
+                raise ValueError(
+                    "доступный, но не запущенный external reviewer запрещает readiness"
+                )
+        elif self.external_reviewer_status == "SUBSTANTIVE" and self.reviewer_limitation:
+            raise ValueError(
+                "SUBSTANTIVE external reviewer не может одновременно иметь limitation"
+            )
         fresh_gates = tuple(
             gate
             for gate in self.mandatory_gates
@@ -738,6 +764,35 @@ class PullRequestBody(ClosedModel):
     migration_rollback: str = Field(min_length=1, max_length=4000)
     limitations: str = Field(min_length=1, max_length=4000)
     merge_method: Literal["squash", "merge", "rebase"] = "squash"
+
+    @model_validator(mode="after")
+    def validate_coderabbit_readiness(self) -> PullRequestBody:
+        review = self.coderabbit_review
+        status = self.readiness.external_reviewer_status
+        if status == "SUBSTANTIVE" and review is None:
+            raise ValueError(
+                "SUBSTANTIVE external reviewer требует CodeRabbit review evidence"
+            )
+        if review is None:
+            return self
+        actionable = any(
+            finding.triage is None
+            or finding.disposition
+            in {
+                FindingDisposition.CONFIRMED,
+                FindingDisposition.PARTIALLY_CONFIRMED,
+            }
+            for finding in review.findings
+        )
+        if actionable and (
+            self.readiness.overall_outcome == "READY"
+            or self.readiness.ready_for_chatgpt_review
+            or self.readiness.merge_ready
+        ):
+            raise ValueError(
+                "actionable CodeRabbit findings требуют triage/fix до readiness"
+            )
+        return self
 
 
 class PrPublicationSpec(ClosedModel):
@@ -1117,6 +1172,7 @@ class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
 
 
 __all__ = [
+    "CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME",
     "FRESH_MCP_ACCEPTANCE_GATE_NAME",
     "AnalysisScope",
     "BranchIdentity",

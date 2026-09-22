@@ -11,6 +11,7 @@ import pytest
 
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling.contracts import (
+    CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME,
     FRESH_MCP_ACCEPTANCE_GATE_NAME,
     CodeRabbitFinding,
     CodeRabbitFindingTriage,
@@ -1389,6 +1390,86 @@ def test_readiness_rate_limit_is_independent_from_product_gate() -> None:
     assert readiness.overall_outcome == "READY"
 
 
+def test_readiness_rejects_coderabbit_as_mandatory_gate() -> None:
+    with pytest.raises(ValueError, match="external reviewer limitation"):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(
+                MandatoryGate(
+                    name=CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME,
+                    state=MandatoryGateState.BLOCKED_PRECONDITION,
+                    evidence="Текущий provider checkpoint не выполнен.",
+                ),
+            ),
+            overall_outcome="BLOCKED",
+        )
+
+
+def test_readiness_rejects_unrun_reviewer_as_ready_or_limitation() -> None:
+    product_gate = MandatoryGate(
+        name="product_gate",
+        state=MandatoryGateState.PASS,
+        evidence="Product gate пройден.",
+    )
+    with pytest.raises(ValueError, match="не запущенный external reviewer"):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(product_gate,),
+            overall_outcome="READY",
+            ready_for_chatgpt_review=True,
+        )
+    with pytest.raises(ValueError, match="NOT_RUN"):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(product_gate,),
+            external_reviewer_status="NOT_RUN",
+            reviewer_limitation="Provider недоступен.",
+            overall_outcome="BLOCKED",
+        )
+
+
+def test_pr_body_rejects_actionable_coderabbit_findings_when_ready() -> None:
+    finding = CodeRabbitFinding(
+        severity=FindingSeverity.MINOR,
+        path="azurpilot/tooling/contracts.py",
+        impact="Provider finding требует отдельного triage.",
+        resolution="Проверить finding и применить remediation.",
+    )
+    with pytest.raises(ValueError, match="actionable CodeRabbit findings"):
+        PullRequestBody(
+            goal="Цель",
+            scope="Scope",
+            implementation="Реализация",
+            checks="Проверки",
+            ci="CI",
+            security_secret_scan="Security",
+            coderabbit_review=CodeRabbitReview(
+                reviewed_head="b" * 40,
+                base_sha="a" * 40,
+                findings=(finding,),
+            ),
+            readiness=ReadinessState(
+                implementation_status="COMPLETE",
+                mcp_impact="NOT_REQUIRED",
+                mandatory_gates=(
+                    MandatoryGate(
+                        name="product_gate",
+                        state=MandatoryGateState.PASS,
+                        evidence="Product gate пройден.",
+                    ),
+                ),
+                external_reviewer_status="SUBSTANTIVE",
+                overall_outcome="READY",
+                ready_for_chatgpt_review=True,
+            ),
+            migration_rollback="Rollback",
+            limitations="Ограничения",
+        )
+
+
 def test_required_mcp_impact_requires_fresh_mcp_client_gate() -> None:
     fresh_gate = MandatoryGate(
         name=FRESH_MCP_ACCEPTANCE_GATE_NAME,
@@ -1400,6 +1481,7 @@ def test_required_mcp_impact_requires_fresh_mcp_client_gate() -> None:
         implementation_status="COMPLETE",
         mcp_impact="REQUIRED",
         mandatory_gates=(fresh_gate,),
+        external_reviewer_status="SUBSTANTIVE",
         overall_outcome="READY",
         ready_for_chatgpt_review=True,
     )
@@ -1456,6 +1538,7 @@ def test_codex_registration_failure_is_separate_from_mcp_readiness() -> None:
                 evidence_kind="codex_registration",
             ),
         ),
+        external_reviewer_status="SUBSTANTIVE",
         overall_outcome="READY",
         ready_for_chatgpt_review=True,
     )
