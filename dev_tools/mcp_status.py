@@ -146,7 +146,7 @@ def _run_process(
         raise StatusError("COMMAND_FAILED") from exc
 
 
-def _git_source_snapshot(root: Path) -> tuple[str, str]:
+def git_source_snapshot(root: Path) -> tuple[str, str]:
     """Получить только commit SHA и clean/modified state."""
 
     executable = shutil.which("git.exe") or shutil.which("git")
@@ -171,7 +171,7 @@ def _git_source_snapshot(root: Path) -> tuple[str, str]:
     return revision, "clean" if not status_result.stdout.strip() else "modified"
 
 
-def _child_environment(revision: str | None = None) -> dict[str, str]:
+def child_environment(revision: str | None = None) -> dict[str, str]:
     explicit = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     if isinstance(revision, str) and _SHA_RE.fullmatch(revision):
         explicit[SOURCE_REVISION_ENV] = revision.lower()
@@ -415,7 +415,7 @@ async def _probe_local_stdio(
         command=executable,
         args=["run", "--locked", "--no-sync", "python", "-m", module_name],
         cwd=root,
-        env=_child_environment(revision),
+        env=child_environment(revision),
     )
     try:
         async with Client(parameters, mode="auto", read_timeout_seconds=STATUS_TIMEOUT_SECONDS) as client:
@@ -615,7 +615,7 @@ async def collect_status_async(
 
     repository_root = (Path(root) if root is not None else REPOSITORY_ROOT).resolve()
     generated_at = now() if now is not None else _utc_now()
-    revision, working_tree = _git_source_snapshot(repository_root)
+    revision, working_tree = git_source_snapshot(repository_root)
     try:
         expected_versions = load_server_versions(repository_root)
     except (OSError, ValueError, VersioningError):
@@ -1149,7 +1149,8 @@ __all__ = [
     "MetricEmission",
     "MetricSample",
     "StatusError",
-    "_child_environment",
+    "child_environment",
+    "git_source_snapshot",
     "_codex_entry_status",
     "_codex_url_entry_status",
     "_print_human",

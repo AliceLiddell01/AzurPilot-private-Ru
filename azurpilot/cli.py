@@ -445,10 +445,16 @@ def build_parser() -> argparse.ArgumentParser:
                 help="явный repository-relative файл; параметр можно повторять",
             )
         if name is IntegrationName.CODERABBIT:
-            reconcile = provider_subparsers.add_parser(
-                "reconcile", help="явно согласовать WSL managed clone"
+            config = provider_subparsers.add_parser(
+                "config", help="проверить repository CodeRabbit configuration"
             )
-            _add_common_options(reconcile, suppress_defaults=True)
+            config_subparsers = config.add_subparsers(
+                dest="coderabbit_config_action", required=True, metavar="ACTION"
+            )
+            config_validate = config_subparsers.add_parser(
+                "validate", help="проверить `.coderabbit.yaml` по official schema"
+            )
+            _add_common_options(config_validate, suppress_defaults=True)
             review = provider_subparsers.add_parser(
                 "review", help="запустить advisory CodeRabbit review"
             )
@@ -468,6 +474,36 @@ def build_parser() -> argparse.ArgumentParser:
             _add_common_options(findings, suppress_defaults=True)
             findings.add_argument("--base", required=True, help="exact base SHA")
             findings.add_argument("--head", required=True, help="exact reviewed HEAD")
+            triage = provider_subparsers.add_parser(
+                "triage", help="зафиксировать individual triage exact findings"
+            )
+            _add_common_options(triage, suppress_defaults=True)
+            triage.add_argument(
+                "--manifest", required=True, metavar="MANIFEST", help="absolute JSON triage manifest"
+            )
+            backlog = provider_subparsers.add_parser(
+                "backlog", help="прочитать repository-local deferred CodeRabbit backlog"
+            )
+            _add_common_options(backlog, suppress_defaults=True)
+            backlog_subparsers = backlog.add_subparsers(
+                dest="coderabbit_backlog_action", metavar="ACTION"
+            )
+            backlog_resolve = backlog_subparsers.add_parser(
+                "resolve", help="закрыть deferred finding после exact fix"
+            )
+            _add_common_options(backlog_resolve, suppress_defaults=True)
+            backlog_resolve.add_argument(
+                "--id", required=True, dest="backlog_id", help="stable deferred backlog id"
+            )
+            backlog_resolve.add_argument(
+                "--fix-head", required=True, help="exact committed fix HEAD"
+            )
+            backlog_resolve.add_argument(
+                "--resolution",
+                required=True,
+                dest="resolution_summary",
+                help="bounded summary фактического ремонта",
+            )
             cycle = provider_subparsers.add_parser(
                 "cycle", help="управлять bounded CodeRabbit review cycles"
             )
@@ -684,6 +720,7 @@ def _render_human(
     def status_label(status: CapabilityStatus) -> str:
         return {
             CapabilityStatus.READY: "готово",
+            CapabilityStatus.NOT_CHECKED: "не проверено",
             CapabilityStatus.NOT_CONFIGURED: "не настроено",
             CapabilityStatus.UNAVAILABLE: "недоступно",
             CapabilityStatus.UNSUPPORTED: "не поддерживается",
@@ -775,6 +812,10 @@ def _render_human(
                         cycle.last_reviewed_head or "не наблюдался",
                     ),
                     ("сохранённых циклов", str(cycle.previous_cycles_retained)),
+                    (
+                        "исторические findings без авторитетного подтверждения",
+                        str(cycle.historical_non_authoritative_count),
+                    ),
                 )
                 for label, value in cycle_rows:
                     cycle_table.add_row(Text(str(label)), Text(str(value)))
@@ -791,12 +832,13 @@ def _render_human(
                 disposition_labels = {
                     "confirmed": "подтверждено",
                     "partially confirmed": "частично подтверждено",
-                    "false positive": "ложное срабатывание",
-                    "insufficient evidence": "недостаточно данных",
+                    "false positive": "отклонено по conflict",
+                    "deferred": "отложено вне scope",
+                    "untriaged": "не проверено",
                 }
                 for index, finding in enumerate(findings, start=1):
                     severity = str(getattr(finding, "severity", "info"))
-                    disposition = str(getattr(finding, "disposition", ""))
+                    disposition = str(getattr(finding, "disposition", None) or "untriaged")
                     location = str(getattr(finding, "path", "не указан"))
                     line = getattr(finding, "line", None)
                     line_end = getattr(finding, "line_end", None)
@@ -819,10 +861,69 @@ def _render_human(
                     finding_table.add_row("Воздействие", Text(str(getattr(finding, "message", "не указано"))))
                     resolution = getattr(finding, "resolution", None)
                     finding_table.add_row("Рекомендация CodeRabbit", Text(str(resolution or "не указано")))
+                    codegen_instructions = getattr(finding, "codegen_instructions", None)
+                    if codegen_instructions:
+                        finding_table.add_row(
+                            "Контекст исправления агента",
+                            Text(str(codegen_instructions)),
+                        )
+                    suggestions = tuple(getattr(finding, "suggestions", ()))
+                    if suggestions:
+                        finding_table.add_row(
+                            "Предложения",
+                            Text("\n".join(str(item) for item in suggestions)),
+                        )
+                    for field, label in (
+                        ("decision_reason", "Причина решения"),
+                        ("change_summary", "Сводка изменения"),
+                        ("conflict_kind", "Тип конфликта"),
+                        ("deferral_reason", "Причина отложения"),
+                        ("authoritative_source", "Авторитетный источник"),
+                    ):
+                        value = getattr(finding, field, None)
+                        if value:
+                            finding_table.add_row(label, Text(str(value)))
                     finding_table.add_row("Независимая классификация", Text(disposition_labels.get(disposition, disposition or "не классифицировано")))
-                    accepted = "принято" if disposition in {"confirmed", "partially confirmed"} else "не принято"
+                    accepted = (
+                        "принято"
+                        if disposition in {"confirmed", "partially confirmed"}
+                        else "отложено"
+                        if disposition == "deferred"
+                        else "не принято"
+                    )
                     finding_table.add_row("Принятое решение", Text(accepted))
                     console.print(finding_table)
+            backlog = getattr(result.details, "coderabbit_backlog", None)
+            if backlog is not None:
+                backlog_table = Table(
+                    title="Deferred CodeRabbit backlog",
+                    expand=True,
+                )
+                backlog_table.add_column("ID", no_wrap=True)
+                backlog_table.add_column("Статус", no_wrap=True)
+                backlog_table.add_column("First seen", no_wrap=True)
+                backlog_table.add_column("Branch / HEAD", overflow="fold")
+                backlog_table.add_column("Severity", no_wrap=True)
+                backlog_table.add_column("Path", overflow="fold")
+                backlog_table.add_column("Title", overflow="fold")
+                for entry in getattr(backlog, "findings", ()):
+                    backlog_table.add_row(
+                        str(entry.backlog_id),
+                        str(entry.status),
+                        str(entry.first_seen_at),
+                        f"{entry.reviewed_branch} / {_short_sha(entry.reviewed_head)}",
+                        str(entry.severity.value),
+                        (
+                            f"{entry.path}:{entry.line}"
+                            if entry.line is not None
+                            else str(entry.path)
+                        ),
+                        str(entry.title or "не указано"),
+                    )
+                if getattr(backlog, "findings", ()):
+                    console.print(backlog_table)
+                else:
+                    console.print("Deferred CodeRabbit backlog пуст.")
             console.print(f"{'✓' if result.ok else '✗'} {result.message}")
         elif checks is not None:
             from rich.table import Table
@@ -837,7 +938,10 @@ def _render_human(
                     "✓"
                     if check.status is CapabilityStatus.READY
                     else "?"
-                    if check.status is CapabilityStatus.UNKNOWN
+                    if check.status in {
+                        CapabilityStatus.NOT_CHECKED,
+                        CapabilityStatus.UNKNOWN,
+                    }
                     else "⚠"
                 )
                 table.add_row(check_label(check.name), f"{marker} {state}", check.message)
@@ -903,12 +1007,16 @@ def _render_human(
                 for field, label in (
                     ("source_state", "Source"),
                     ("runtime_state", "Runtime"),
+                    ("source_reconciled", "Source reconciled"),
+                    ("runtime_ready", "Runtime ready"),
                     ("plugin_state", "Plugin"),
                     ("plugin_source_state", "Plugin source"),
                     ("session_state", "Session"),
                 ):
                     value = getattr(result.details, field, None)
                     if value is not None:
+                        if isinstance(value, bool):
+                            value = "да" if value else "нет"
                         console.print(f"{label}: {value}")
                 console.print(f"{'✓' if result.ok else '✗'} {result.message}")
             elif delivery_validation_preview:
@@ -1086,14 +1194,32 @@ def _dispatch(
                     else None
                 ),
             )
-        if target == IntegrationName.CODERABBIT.value and action == "reconcile":
-            return services.integrations.reconcile_coderabbit(repository_root=root)
+        if (
+            target == IntegrationName.CODERABBIT.value
+            and action == "config"
+            and args.coderabbit_config_action == "validate"
+        ):
+            return services.integrations.validate_coderabbit_config(repository_root=root)
         if target == IntegrationName.CODERABBIT.value and action == "findings":
             return services.integrations.findings(
                 base_sha=args.base,
                 head_sha=args.head,
                 repository_root=root,
             )
+        if target == IntegrationName.CODERABBIT.value and action == "triage":
+            return services.integrations.triage(
+                manifest_path=args.manifest,
+                repository_root=root,
+            )
+        if target == IntegrationName.CODERABBIT.value and action == "backlog":
+            if getattr(args, "coderabbit_backlog_action", None) == "resolve":
+                return services.integrations.resolve_coderabbit_backlog(
+                    backlog_id=args.backlog_id,
+                    fix_head=args.fix_head,
+                    resolution_summary=args.resolution_summary,
+                    repository_root=root,
+                )
+            return services.integrations.backlog(repository_root=root)
         if (
             target == IntegrationName.CODERABBIT.value
             and action == "cycle"

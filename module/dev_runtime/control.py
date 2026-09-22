@@ -17,12 +17,13 @@ import re
 import subprocess
 import time
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
+from threading import Lock
 from typing import Protocol
 
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
@@ -47,6 +48,10 @@ CONTROL_LOCK_TIMEOUT = 10.0
 CONTROL_LOCK_RETRY_SECONDS = 0.05
 CONTROL_LAUNCH_GRACE_SECONDS = 10.0
 CONTROL_BINDING_RECHECK_SECONDS = 2.0
+_PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS = 1.0
+_PASSIVE_EMULATOR_ALIASES_CACHE_MAX_ENTRIES = 32
+_passive_emulator_aliases_cache: dict[str, tuple[float, tuple[str, ...]]] = {}
+_passive_emulator_aliases_cache_lock = Lock()
 
 
 class ControlAction(StrEnum):
@@ -111,6 +116,34 @@ class _RuntimeConfigSnapshot:
     serial: str
     package: str
     fingerprint: str
+
+
+def _read_only_target_serial_aliases(target_serial: str) -> tuple[str, ...]:
+    """Получить repository-owned aliases без запуска lifecycle recovery."""
+
+    now = time.monotonic()
+    with _passive_emulator_aliases_cache_lock:
+        cached = _passive_emulator_aliases_cache.get(target_serial)
+        if (
+            cached is not None
+            and now - cached[0] < _PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
+        ):
+            return cached[1]
+
+    from module.application.adb_target import read_only_emulator_serial_aliases
+
+    aliases = tuple(read_only_emulator_serial_aliases(target_serial))
+    with _passive_emulator_aliases_cache_lock:
+        if target_serial not in _passive_emulator_aliases_cache and len(
+            _passive_emulator_aliases_cache
+        ) >= _PASSIVE_EMULATOR_ALIASES_CACHE_MAX_ENTRIES:
+            oldest_target = min(
+                _passive_emulator_aliases_cache,
+                key=lambda item: _passive_emulator_aliases_cache[item][0],
+            )
+            del _passive_emulator_aliases_cache[oldest_target]
+        _passive_emulator_aliases_cache[target_serial] = (time.monotonic(), aliases)
+    return aliases
 
 
 def _runtime_profile_payload(environment: DevEnvironment) -> Mapping[str, object]:
@@ -696,6 +729,53 @@ class ConfiguredRuntimeBackend:
             raise RuntimeControlError("DEV_RUNTIME_ADB_CONFIG_INVALID", "Порт ADB вне допустимого диапазона", outcome=ControlOutcome.PRECONDITION_FAILED)
         return adbutils.AdbClient("127.0.0.1", port)
 
+    @staticmethod
+    def _resolve_target_device(
+        devices: Sequence[object], configured_serial: str
+    ) -> tuple[object, str] | None:
+        from module.application.adb_target import (
+            AdbTargetResolutionError,
+            resolve_adb_target_serial,
+        )
+
+        inventory_serials = tuple(
+            str(getattr(device, "serial", "")) for device in devices
+        )
+        try:
+            resolved_serial = resolve_adb_target_serial(
+                configured_serial,
+                inventory_serials,
+                aliases_provider=_read_only_target_serial_aliases,
+            )
+        except AdbTargetResolutionError as exc:
+            if exc.reason == "not_found":
+                return None
+            code = (
+                "DEV_RUNTIME_DEVICE_AMBIGUOUS"
+                if exc.reason == "ambiguous"
+                else "DEV_RUNTIME_TARGET_OWNERSHIP_UNAVAILABLE"
+            )
+            raise RuntimeControlError(
+                code,
+                "Ownership configured ADB target невозможно подтвердить однозначно",
+                outcome=ControlOutcome.PRECONDITION_FAILED,
+            ) from exc
+        target = next(
+            (
+                device
+                for device in devices
+                if str(getattr(device, "serial", "")) == resolved_serial
+            ),
+            None,
+        )
+        if target is None:  # pragma: no cover - resolver validates inventory.
+            raise RuntimeControlError(
+                "DEV_RUNTIME_DEVICE_NOT_FOUND",
+                "Назначенный development target не найден в ADB",
+                outcome=ControlOutcome.PRECONDITION_FAILED,
+            )
+        return target, resolved_serial
+
     def _adb_device(self) -> tuple[object, list[object], str, str, object]:
         serial, package = self._configuration()
         client = self._adb_client()
@@ -703,10 +783,15 @@ class ConfiguredRuntimeBackend:
             devices = list(client.device_list())
         except Exception as exc:
             raise RuntimeControlError("DEV_RUNTIME_ADB_UNREACHABLE", "ADB server недоступен", outcome=ControlOutcome.PRECONDITION_FAILED) from exc
-        for device in devices:
-            if str(getattr(device, "serial", "")) == serial:
-                return device, devices, serial, package, client
-        raise RuntimeControlError("DEV_RUNTIME_DEVICE_NOT_FOUND", "Назначенный development target не найден в ADB", outcome=ControlOutcome.PRECONDITION_FAILED)
+        resolved = self._resolve_target_device(devices, serial)
+        if resolved is None:
+            raise RuntimeControlError(
+                "DEV_RUNTIME_DEVICE_NOT_FOUND",
+                "Назначенный development target не найден в ADB",
+                outcome=ControlOutcome.PRECONDITION_FAILED,
+            )
+        device, _resolved_serial = resolved
+        return device, devices, serial, package, client
 
     @staticmethod
     def _foreground_package(device: object) -> str | None:
@@ -736,7 +821,8 @@ class ConfiguredRuntimeBackend:
             raise
         except Exception as exc:
             raise RuntimeControlError("DEV_RUNTIME_STATUS_UNAVAILABLE", "Снимок runtime status недоступен", outcome=ControlOutcome.PRECONDITION_FAILED) from exc
-        target = next((item for item in devices if str(getattr(item, "serial", "")) == serial), None)
+        resolved = self._resolve_target_device(devices, serial)
+        target = resolved[0] if resolved is not None else None
         if target is None:
             return RuntimeSnapshot(
                 target_configured=True,
@@ -770,6 +856,7 @@ class ConfiguredRuntimeBackend:
             except Exception:  # noqa: BLE001
                 foreground = None
                 game_running = None
+        resolved_serial = resolved[1]
         return RuntimeSnapshot(
             target_configured=True,
             emulator_detected=True,
@@ -782,7 +869,10 @@ class ConfiguredRuntimeBackend:
             game_reachable=adb_ready,
             game_foreground=foreground,
             game_running=game_running,
-            unrelated_adb_devices=any(str(getattr(item, "serial", "")) != serial for item in devices),
+            unrelated_adb_devices=any(
+                str(getattr(item, "serial", "")) != resolved_serial
+                for item in devices
+            ),
         )
 
     def _platform_for_mutation(self) -> object:

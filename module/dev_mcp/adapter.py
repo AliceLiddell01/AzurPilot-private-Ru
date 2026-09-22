@@ -24,7 +24,7 @@ from module.dev_mcp.contract import DEV_MCP_REQUIRED_SCOPE, contract_result
 from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
-from module.dev_runtime.smoke import SmokeSpec
+from module.dev_runtime.smoke import SmokeSpec, smoke_capabilities_result
 from module.dev_runtime.target import DevTargetError, DevTargetRegistry
 from module.dev_runtime.task_sandbox import TaskSandboxError
 from module.mcp_shared.auth import current_access_token, current_transport
@@ -2287,6 +2287,11 @@ class DevMcpAdapter:
             return _input_error(tool_name)
         if tool_name == "dev_get_contract":
             return serialize_dev_result(contract_result(request_context=_request_context()))
+        if tool_name == "dev_list_smoke_capabilities" and self._uses_default_manager:
+            # Каталог декларативных Smoke capability не зависит от target. Не
+            # создаём DevSessionManager только для этого read-only probe: в
+            # чистом CI checkout пользовательский config/ap.json отсутствует.
+            return serialize_dev_result(smoke_capabilities_result())
 
         self._manager_lock.acquire()
         redirect_stack = ExitStack()

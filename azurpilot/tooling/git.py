@@ -14,6 +14,7 @@ from .contracts import RepositoryIdentity, ResultCode
 from .errors import ToolingError
 from .filesystem import path_has_link
 from .process import ProcessResult, ProcessSpec, StructuredProcessRunner
+from .ref_policy import is_ad_hoc_remote_ref
 
 _MAX_GIT_OBJECT_BYTES = 16 * 1024 * 1024
 
@@ -594,5 +595,6 @@ __all__ = [
     "GitClient",
     "GitCommand",
     "canonical_remote_identity",
+    "is_ad_hoc_remote_ref",
     "repository_identity_from_remote",
 ]

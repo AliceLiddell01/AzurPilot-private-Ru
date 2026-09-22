@@ -293,7 +293,18 @@ fetch origin
 
 Disposable clone/worktree допустим только при реальной необходимости: параллельная разработка, опасный reproduction/experiment, несовместимое состояние зависимостей/runtime, destructive recovery testing или явный запрос пользователя. Он не является default и не должен использоваться для переноса обычного diff.
 
-Для review разрешён отдельный persistent WSL2 clone, выбранный через exact inventory и проверенный как Linux/non-root/canonical; он не является implementation checkout: он получает exact branch/head, выполняет независимый CodeRabbit review, а все подтверждённые fixes вносятся в основной checkout.
+Для CodeRabbit review используется host-native executable текущей host OS в том
+же canonical implementation checkout: Windows использует `coderabbit.exe`, а
+POSIX host использует `coderabbit`. Adapter обязан доказать exact
+repository/root/base/head, clean index/worktree и postcondition того же
+candidate; отдельные clone, worktree, UNC route, WSL bridge и wrapper не
+являются допустимой заменой.
+
+Stacked publication использует только реальную опубликованную parent branch.
+Запрещены `codex/base-*`, temporary/scratch/transport/helper remote ref и
+вспомогательная remote publication. Если parent local HEAD ещё не совпадает с
+parent remote HEAD, canonical delivery/PR workflow возвращает typed
+`TOOLING_STACKED_PARENT_UNPUBLISHED` и не создаёт обходной ref.
 
 В любой дополнительной среде base SHA фиксируется до изменений, пользовательские config/secrets не копируются без необходимости, временные artifacts отделяются, а после завершения удаляются только ресурсы текущей задачи. Destructive Git внутри disposable среды регулируется разделом 22.
 
@@ -319,7 +330,25 @@ base проходит `azur mcp impact --base <exact-base-sha>`. При `REQUIRE
 штатный `azur mcp reconcile --source --bump auto` и последующие integrity и
 base-to-head compatibility checks обязательны; изменение source set после
 reconciliation делает предыдущий результат stale. Generated MCP artifacts
-являются производным scope той же задачи.
+являются производным scope той же задачи. Source reconciliation имеет только
+`source_reconciled=true`; если live MCP входит в обязательный gate, напрямую
+вызови через PATH `azur mcp status`. При `runtime_state=stale` или
+`runtime_state=stopped` выполни единственный typed runtime repair path
+`azur mcp reconcile` без `--source`, затем повторный status с
+`runtime_ready=true`. Исходный stale/stopped status до этой попытки не
+является финальным blocker-ом; same-repository stale marker допустимо
+восстанавливать только typed recorded-identity cleanup с unchanged marker и
+STOPPED/no-conflict postcondition. Unknown/foreign ownership, port conflict,
+failure stop/start или mismatch postcondition остаются fail-closed. Source-only result и
+`MCP_RUNTIME_UNAVAILABLE` не закрывают live acceptance. Внутренние
+`module.*_mcp`, supervisor scripts и Python module launchers напрямую не
+используются.
+
+Для любой project-owned operator capability, уже представленной через `azur`,
+каноничен только literal invocation `azur ...` из PATH текущей shell. `uv run`,
+`python -m azurpilot`, `.venv/.../azur`, absolute executable path и shell
+wrapper — запрещённые обходы, а не эквивалентные формы. `uv` разрешён для
+dependency/bootstrap/test/build задач, где он является владельцем операции.
 
 - минимальный связный diff;
 - не форматировать посторонние файлы;
@@ -460,14 +489,14 @@ range. Push — обычный explicit refspec без force/force-with-lease с
 в read-only recovery без blind retry.
 
 GitHub PR проверяется с явными `--repo`, `--base`, `--head`, draft mode и
-read-back exact identity. CodeRabbit остаётся внешним checkpoint: review
-выполняется в permanent WSL2 review clone, findings и disposition сохраняются в
-PR body, а permanent clone не удаляется в post-merge cleanup.
+read-back exact identity. CodeRabbit остаётся внешним checkpoint: native review
+выполняется в canonical checkout, findings и disposition сохраняются в PR body,
+а provider process подтверждается exact PID/start/executable/argv/cwd.
 Один logical development task использует один task-scoped CodeRabbit cycle;
 `3/3` не переносится между tasks. Canonical caller передаёт opaque `--task-id`;
-новый head той же task продолжает cycle. Pre-push exact candidate допускается:
-adapter передаёт его local Git objects в managed review clone через Git-native
-bundle transport без публикации remote ref.
+новый head той же task продолжает cycle. Candidate должен быть committed и
+clean до provider call; изменение candidate во время review делает результат
+non-authoritative и не расходует substantive budget.
 
 ### Внешнее ревью
 
@@ -497,7 +526,12 @@ lifecycle. Правила ожидания, retry и triage провайдера
 skill/reference.
 
 Readiness фиксируется typed state: обязательный gate имеет `PASS`, `FAIL`,
-`BLOCKED_PRECONDITION` или `NOT_REQUIRED`. `FAIL`/`BLOCKED_PRECONDITION`
+`BLOCKED_PRECONDITION` или `NOT_REQUIRED`; если MCP impact равен `REQUIRED`,
+`fresh_mcp_client_acceptance` является обязательным gate, не может иметь
+`NOT_REQUIRED` и принимает `PASS` только по evidence независимой свежей MCP
+client/session с initialize, negotiated catalog, contract и read-only calls.
+Codex registration check хранится отдельно и не является product gate.
+`FAIL`/`BLOCKED_PRECONDITION`
 требует `overall_outcome=BLOCKED` и запрещает `READY_FOR_CHATGPT_REVIEW` и
 merge-ready, даже если implementation complete. Provider rate limit является
 review limitation и не меняет mandatory product/live gate.

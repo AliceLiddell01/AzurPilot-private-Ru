@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -67,6 +68,52 @@ class McpProbeResult:
     diagnostics: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class FreshMcpClientPlan:
+    """Ограниченный read-only контракт одной независимой MCP client session."""
+
+    call_plan: McpCallPlan
+    contract_tool: str
+    expected_contract: Mapping[str, object]
+    required_read_only_calls: tuple[tuple[str, dict[str, object]], ...] = ()
+
+    def __post_init__(self) -> None:
+        if not _IDENTIFIER_RE.fullmatch(self.contract_tool):
+            raise ValueError("contract_tool имеет небезопасное имя")
+        if self.call_plan.probe_tool != self.contract_tool:
+            raise ValueError("contract_tool должен быть probe_tool call plan")
+        if not isinstance(self.expected_contract, Mapping) or not self.expected_contract:
+            raise ValueError("expected_contract должен быть непустым mapping")
+        for tool_name, arguments in self.required_read_only_calls:
+            if not _IDENTIFIER_RE.fullmatch(tool_name):
+                raise ValueError("required read-only tool имеет небезопасное имя")
+            if tool_name not in self.call_plan.required_tools:
+                raise ValueError("required read-only tool отсутствует в required_tools")
+            if tool_name in self.call_plan.blocked_tools:
+                raise ValueError("required read-only tool не может быть write tool")
+            if not isinstance(arguments, dict):
+                raise TypeError("arguments read-only tool должны быть dict")
+
+
+@dataclass(frozen=True, slots=True)
+class FreshMcpClientResult:
+    """Bounded evidence независимой SDK-сессии без raw MCP payload."""
+
+    state: IntegrationState
+    reason_code: str
+    initialized: bool = False
+    protocol_version: str | None = None
+    server_name: str | None = None
+    server_version: str | None = None
+    source_revision: str | None = None
+    tool_count: int | None = None
+    tool_catalog_sha256: str | None = None
+    capability_catalog_sha256: str | None = None
+    contract_revision: str | None = None
+    called_tools: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+
+
 def _safe_type_name(error: BaseException) -> str:
     name = type(error).__name__
     return name if _IDENTIFIER_RE.fullmatch(name) else "UnknownError"
@@ -121,6 +168,281 @@ def _result_has_content(result: object) -> bool:
         return True
     content = getattr(result, "content", None)
     return isinstance(content, list) and bool(content)
+
+
+def _structured_payload(result: object) -> Mapping[str, object] | None:
+    structured = getattr(result, "structured_content", None)
+    if structured is None:
+        structured = getattr(result, "structuredContent", None)
+    return structured if isinstance(structured, Mapping) else None
+
+
+def _bounded_result_diagnostic(
+    tool_name: str,
+    result: object,
+    payload: Mapping[str, object] | None,
+) -> str:
+    """Вернуть только безопасный код результата для bounded acceptance evidence."""
+
+    if payload is None:
+        return f"{tool_name}:transport_error" if _result_has_error(result) else f"{tool_name}:structured_payload_missing"
+    code = payload.get("code")
+    if not isinstance(code, str) or _IDENTIFIER_RE.fullmatch(code) is None:
+        return f"{tool_name}:payload_code_invalid"
+    state = payload.get("state")
+    if isinstance(state, str) and _IDENTIFIER_RE.fullmatch(state):
+        return f"{tool_name}:{code}:{state}"
+    return f"{tool_name}:{code}"
+
+
+async def _accept_fresh_session(
+    session: object,
+    *,
+    plan: FreshMcpClientPlan,
+    timeout_seconds: float,
+) -> FreshMcpClientResult:
+    """Провести initialize/catalog/contract/read-only checks в одной новой session."""
+
+    initialized = await asyncio.wait_for(session.initialize(), timeout=timeout_seconds)  # type: ignore[attr-defined]
+    initialized_info = getattr(initialized, "server_info", None)
+    server_name = getattr(initialized_info, "name", None)
+    server_version = getattr(initialized_info, "version", None)
+    protocol_version = getattr(initialized, "protocol_version", None)
+    if protocol_version is None:
+        protocol_version = getattr(session, "protocol_version", None)
+
+    listed = await asyncio.wait_for(session.list_tools(), timeout=timeout_seconds)  # type: ignore[attr-defined]
+    items = getattr(listed, "tools", None)
+    names = _tool_names(items)
+    if names is None:
+        return FreshMcpClientResult(
+            IntegrationState.INCOMPATIBLE,
+            "MCP_FRESH_CLIENT_TOOL_CATALOG_INVALID",
+            initialized=True,
+            protocol_version=protocol_version,
+        )
+    catalog_error = validate_tool_catalog(plan.call_plan, names)
+    if catalog_error is not None:
+        reason_code, diagnostic = catalog_error
+        return FreshMcpClientResult(
+            IntegrationState.INCOMPATIBLE,
+            f"MCP_FRESH_CLIENT_{reason_code}",
+            initialized=True,
+            protocol_version=protocol_version,
+            server_name=server_name,
+            server_version=server_version,
+            tool_count=len(names),
+            diagnostics=(diagnostic,),
+        )
+
+    contract_result = await asyncio.wait_for(
+        session.call_tool(plan.contract_tool, {}),  # type: ignore[attr-defined]
+        timeout=timeout_seconds,
+    )
+    if _result_has_error(contract_result):
+        return FreshMcpClientResult(
+            IntegrationState.UNAVAILABLE,
+            "MCP_FRESH_CLIENT_CONTRACT_CALL_FAILED",
+            initialized=True,
+            protocol_version=protocol_version,
+            server_name=server_name,
+            server_version=server_version,
+            tool_count=len(names),
+            called_tools=(plan.contract_tool,),
+        )
+    structured = _structured_payload(contract_result)
+    details = structured.get("details") if structured is not None else None
+    contract = details.get("contract") if isinstance(details, Mapping) else None
+    if not isinstance(contract, Mapping) or structured.get("ok") is not True:
+        return FreshMcpClientResult(
+            IntegrationState.INCOMPATIBLE,
+            "MCP_FRESH_CLIENT_CONTRACT_PAYLOAD_INVALID",
+            initialized=True,
+            protocol_version=protocol_version,
+            server_name=server_name,
+            server_version=server_version,
+            tool_count=len(names),
+            called_tools=(plan.contract_tool,),
+        )
+
+    try:
+        from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
+
+        catalog_hash = tool_catalog_sha256_from_tools(items)
+    except (TypeError, ValueError):
+        return FreshMcpClientResult(
+            IntegrationState.INCOMPATIBLE,
+            "MCP_FRESH_CLIENT_TOOL_CATALOG_INVALID",
+            initialized=True,
+            protocol_version=protocol_version,
+            server_name=server_name,
+            server_version=server_version,
+            tool_count=len(names),
+            called_tools=(plan.contract_tool,),
+        )
+
+    mismatches: list[str] = []
+    for field, expected in plan.expected_contract.items():
+        if field == "source_revision" and expected in (None, "unknown"):
+            continue
+        if contract.get(field) != expected:
+            mismatches.append(f"contract.{field}")
+    if contract.get("tool_count") != len(names):
+        mismatches.append("contract.tool_count")
+    if contract.get("tool_catalog_sha256") != catalog_hash:
+        mismatches.append("contract.tool_catalog_sha256")
+    if isinstance(server_name, str) and contract.get("server_name") != server_name:
+        mismatches.append("server_info.name")
+    if isinstance(server_version, str) and contract.get("server_version") != server_version:
+        mismatches.append("server_info.version")
+    if mismatches:
+        return FreshMcpClientResult(
+            IntegrationState.INCOMPATIBLE,
+            "MCP_FRESH_CLIENT_CONTRACT_DRIFT",
+            initialized=True,
+            protocol_version=protocol_version,
+            server_name=server_name,
+            server_version=server_version,
+            source_revision=(
+                contract.get("source_revision")
+                if isinstance(contract.get("source_revision"), str)
+                else None
+            ),
+            tool_count=len(names),
+            tool_catalog_sha256=(
+                contract.get("tool_catalog_sha256")
+                if isinstance(contract.get("tool_catalog_sha256"), str)
+                else None
+            ),
+            capability_catalog_sha256=(
+                contract.get("capability_catalog_sha256")
+                if isinstance(contract.get("capability_catalog_sha256"), str)
+                else None
+            ),
+            contract_revision=(
+                contract.get("contract_revision")
+                if isinstance(contract.get("contract_revision"), str)
+                else None
+            ),
+            called_tools=(plan.contract_tool,),
+            diagnostics=tuple(mismatches[:16]),
+        )
+
+    called_tools = [plan.contract_tool]
+    for tool_name, arguments in plan.required_read_only_calls:
+        result = await asyncio.wait_for(
+            session.call_tool(tool_name, dict(arguments)),  # type: ignore[attr-defined]
+            timeout=timeout_seconds,
+        )
+        payload = _structured_payload(result)
+        if _result_has_error(result) or payload is None or payload.get("ok") is not True:
+            return FreshMcpClientResult(
+                IntegrationState.UNAVAILABLE,
+                "MCP_FRESH_CLIENT_READ_ONLY_CALL_FAILED",
+                initialized=True,
+                protocol_version=protocol_version,
+                server_name=server_name,
+                server_version=server_version,
+                source_revision=(
+                    contract.get("source_revision")
+                    if isinstance(contract.get("source_revision"), str)
+                    else None
+                ),
+                tool_count=len(names),
+                tool_catalog_sha256=catalog_hash,
+                capability_catalog_sha256=(
+                    contract.get("capability_catalog_sha256")
+                    if isinstance(contract.get("capability_catalog_sha256"), str)
+                    else None
+                ),
+                contract_revision=(
+                    contract.get("contract_revision")
+                    if isinstance(contract.get("contract_revision"), str)
+                    else None
+                ),
+                called_tools=(*called_tools, tool_name),
+                diagnostics=(_bounded_result_diagnostic(tool_name, result, payload),),
+            )
+        called_tools.append(tool_name)
+
+    return FreshMcpClientResult(
+        IntegrationState.READY,
+        "MCP_FRESH_CLIENT_ACCEPTANCE_READY",
+        initialized=True,
+        protocol_version=protocol_version,
+        server_name=server_name or (
+            contract.get("server_name")
+            if isinstance(contract.get("server_name"), str)
+            else None
+        ),
+        server_version=server_version or (
+            contract.get("server_version")
+            if isinstance(contract.get("server_version"), str)
+            else None
+        ),
+        source_revision=(
+            contract.get("source_revision")
+            if isinstance(contract.get("source_revision"), str)
+            else None
+        ),
+        tool_count=len(names),
+        tool_catalog_sha256=catalog_hash,
+        capability_catalog_sha256=(
+            contract.get("capability_catalog_sha256")
+            if isinstance(contract.get("capability_catalog_sha256"), str)
+            else None
+        ),
+        contract_revision=(
+            contract.get("contract_revision")
+            if isinstance(contract.get("contract_revision"), str)
+            else None
+        ),
+        called_tools=tuple(called_tools),
+    )
+
+
+async def accept_fresh_stdio(
+    *,
+    command: str,
+    args: tuple[str, ...],
+    cwd: object,
+    environment: dict[str, str],
+    plan: FreshMcpClientPlan,
+    timeout_seconds: float,
+) -> FreshMcpClientResult:
+    """Создать независимый stdio SDK client и вернуть bounded acceptance evidence."""
+
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    parameters = StdioServerParameters(
+        command=command,
+        args=list(args),
+        cwd=cwd,
+        env=environment,
+    )
+    try:
+        async with (
+            stdio_client(parameters, errlog=subprocess.DEVNULL) as (read_stream, write_stream),
+            ClientSession(
+                read_stream,
+                write_stream,
+                read_timeout_seconds=timeout_seconds,
+            ) as session,
+        ):
+            return await _accept_fresh_session(
+                session,
+                plan=plan,
+                timeout_seconds=timeout_seconds,
+            )
+    except TimeoutError:
+        return FreshMcpClientResult(IntegrationState.UNAVAILABLE, "MCP_FRESH_CLIENT_TIMEOUT")
+    except Exception as error:  # noqa: BLE001 - boundary exposes only type.
+        return FreshMcpClientResult(
+            IntegrationState.UNAVAILABLE,
+            "MCP_FRESH_CLIENT_FAILED",
+            diagnostics=(_safe_type_name(error),),
+        )
 
 
 def _call_error_state(
@@ -304,8 +626,11 @@ async def probe_http(
 
 
 __all__ = [
+    "FreshMcpClientPlan",
+    "FreshMcpClientResult",
     "McpCallPlan",
     "McpProbeResult",
+    "accept_fresh_stdio",
     "probe_http",
     "probe_stdio",
     "validate_endpoint",

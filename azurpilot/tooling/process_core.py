@@ -1,4 +1,4 @@
-"""MCP-safe core structured process runner and ownership primitives."""
+"""Безопасное ядро structured process runner и ownership primitives для MCP."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from shutil import which
+from typing import Literal
 
 import psutil
 
@@ -160,6 +161,7 @@ class ProcessSpec:
     allow_test_environment: bool = False
     start_new_session: bool = True
     no_window: bool = True
+    capture_output: bool = False
 
     def __post_init__(self) -> None:
         executable = str(self.executable)
@@ -295,9 +297,27 @@ class ProcessIdentity:
         )
 
 
+class ProcessStartError(ProcessExecutionError):
+    """Ошибка запуска с ограниченными доказательствами создания и очистки процесса."""
+
+    def __init__(
+        self,
+        *,
+        code: ResultCode,
+        message: str,
+        spawn_state: Literal["not_spawned", "absent_after_cleanup", "unknown"],
+        cleanup_state: Literal["absent", "unknown"],
+        identity: ProcessIdentity | None = None,
+    ) -> None:
+        super().__init__(code=code, message=message)
+        self.spawn_state = spawn_state
+        self.cleanup_state = cleanup_state
+        self.identity = identity
+
+
 @dataclass(frozen=True)
 class ProcessResult:
-    """Результат запуска с ограниченными stdout/stderr."""
+    """Результат запуска с ограниченными stdout/stderr и liveness evidence."""
 
     returncode: int | None
     stdout: str
@@ -309,6 +329,7 @@ class ProcessResult:
     identity: ProcessIdentity
     stdout_bytes: bytes = b""
     stderr_bytes: bytes = b""
+    termination_state: Literal["alive", "absent", "unknown"] | None = None
 
     @property
     def ok(self) -> bool:
@@ -321,6 +342,13 @@ class RunningProcess:
 
     process: subprocess.Popen[bytes]
     identity: ProcessIdentity
+    spec: ProcessSpec | None = None
+    stdout_buffer: bytearray | None = None
+    stderr_buffer: bytearray | None = None
+    output_locks: tuple[threading.Lock, threading.Lock] | None = None
+    output_threads: tuple[threading.Thread, ...] = ()
+    output_truncated: list[bool] = field(default_factory=lambda: [False, False])
+    collected: bool = False
 
     @property
     def pid(self) -> int:
@@ -328,6 +356,128 @@ class RunningProcess:
 
     def poll(self) -> int | None:
         return self.process.poll()
+
+    def collect(self, timeout_seconds: float | None = None) -> ProcessResult:
+        """Дождаться процесса и вернуть bounded stdout/stderr с сохранённой identity."""
+
+        if self.collected:
+            raise RuntimeError("Результат процесса уже был собран")
+        spec = self.spec
+        timeout = timeout_seconds if timeout_seconds is not None else (
+            spec.timeout_seconds if spec else DEFAULT_PROCESS_TIMEOUT
+        )
+        timed_out = False
+        termination_state: Literal["alive", "absent", "unknown"] | None = None
+        try:
+            self.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _terminate_process(self.process, self.identity)
+            try:
+                self.process.wait(timeout=3.0)
+            except subprocess.TimeoutExpired:
+                pass
+            termination_state = ProcessController.inspect_state(self.identity)
+        finally:
+            for thread in self.output_threads:
+                thread.join(timeout=3.0)
+            for stream in (self.process.stdout, self.process.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except (OSError, ValueError):
+                        pass
+
+        self.collected = True
+        max_output_bytes = spec.max_output_bytes if spec else DEFAULT_OUTPUT_LIMIT
+        locks = self.output_locks
+        if locks is None:
+            stdout_data = bytes(self.stdout_buffer or b"")
+            stderr_data = bytes(self.stderr_buffer or b"")
+        else:
+            with locks[0]:
+                stdout_data = bytes(self.stdout_buffer or b"")
+            with locks[1]:
+                stderr_data = bytes(self.stderr_buffer or b"")
+        stdout, stdout_truncated = _bounded_text(stdout_data, max_output_bytes)
+        stderr, stderr_truncated = _bounded_text(stderr_data, max_output_bytes)
+        return ProcessResult(
+            returncode=self.process.returncode,
+            stdout=stdout,
+            stderr=stderr,
+            stdout_truncated=(self.output_truncated[0] if self.output_truncated else False)
+            or stdout_truncated,
+            stderr_truncated=(self.output_truncated[1] if self.output_truncated else False)
+            or stderr_truncated,
+            timed_out=timed_out,
+            pid=self.process.pid,
+            identity=self.identity,
+            stdout_bytes=stdout_data,
+            stderr_bytes=stderr_data,
+            termination_state=termination_state,
+        )
+
+
+@dataclass(frozen=True)
+class _OutputCapture:
+    stdout_buffer: bytearray
+    stderr_buffer: bytearray
+    output_locks: tuple[threading.Lock, threading.Lock]
+    output_threads: tuple[threading.Thread, ...]
+    output_truncated: list[bool]
+
+
+def _start_output_capture(
+    process: subprocess.Popen[bytes], spec: ProcessSpec
+) -> _OutputCapture:
+    """Запустить одинаковый bounded drain для long-lived и one-shot процессов."""
+
+    stdout_buffer = bytearray()
+    stderr_buffer = bytearray()
+    output_locks = (threading.Lock(), threading.Lock())
+    truncated = [False, False]
+
+    def drain(stream: object, buffer: bytearray, index: int) -> None:
+        if stream is None:
+            return
+        read = stream.read
+        try:
+            while True:
+                chunk = read(8192)
+                if not chunk:
+                    return
+                with output_locks[index]:
+                    remaining = spec.max_output_bytes - len(buffer)
+                    if remaining > 0:
+                        buffer.extend(chunk[:remaining])
+                    if len(chunk) > remaining:
+                        truncated[index] = True
+        except (OSError, ValueError):
+            return
+
+    threads = (
+        threading.Thread(
+            target=drain,
+            args=(process.stdout, stdout_buffer, 0),
+            name=f"azurpilot-process-stdout-{process.pid}",
+            daemon=True,
+        ),
+        threading.Thread(
+            target=drain,
+            args=(process.stderr, stderr_buffer, 1),
+            name=f"azurpilot-process-stderr-{process.pid}",
+            daemon=True,
+        ),
+    )
+    for thread in threads:
+        thread.start()
+    return _OutputCapture(
+        stdout_buffer=stdout_buffer,
+        stderr_buffer=stderr_buffer,
+        output_locks=output_locks,
+        output_threads=threads,
+        output_truncated=truncated,
+    )
 
 
 def _safe_environment(
@@ -556,21 +706,44 @@ class StructuredProcessRunner:
                 cwd=str(spec.cwd),
                 env=spec.launch_environment,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE if spec.capture_output else subprocess.DEVNULL,
+                stderr=subprocess.PIPE if spec.capture_output else subprocess.DEVNULL,
                 shell=False,
                 start_new_session=spec.start_new_session if os.name != "nt" else False,
                 creationflags=creationflags,
             )
             identity = ProcessIdentity.capture(process.pid, spec)
         except (OSError, ValueError, psutil.Error) as exc:
-            if process is not None:
-                _cleanup_process_instance(process)
-            raise ProcessExecutionError(
+            if process is None:
+                raise ProcessStartError(
+                    code=ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
+                    message="Не удалось создать долгоживущий процесс.",
+                    spawn_state="not_spawned",
+                    cleanup_state="absent",
+                ) from exc
+            _cleanup_process_instance(process)
+            cleanup_state: Literal["absent", "unknown"] = (
+                "absent" if process.poll() is not None else "unknown"
+            )
+            raise ProcessStartError(
                 code=ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
                 message="Не удалось создать или подтвердить долгоживущий процесс.",
+                spawn_state=(
+                    "absent_after_cleanup" if cleanup_state == "absent" else "unknown"
+                ),
+                cleanup_state=cleanup_state,
             ) from exc
-        return RunningProcess(process=process, identity=identity)
+        running = RunningProcess(process=process, identity=identity, spec=spec)
+        if not spec.capture_output:
+            return running
+
+        capture = _start_output_capture(process, spec)
+        running.stdout_buffer = capture.stdout_buffer
+        running.stderr_buffer = capture.stderr_buffer
+        running.output_locks = capture.output_locks
+        running.output_threads = capture.output_threads
+        running.output_truncated = capture.output_truncated
+        return running
 
     def run(self, spec: ProcessSpec) -> ProcessResult:
         executable = spec.launch_executable
@@ -622,48 +795,11 @@ class StructuredProcessRunner:
                 message="Не удалось подтвердить идентичность созданного процесса.",
             ) from exc
 
-        stdout_buffer = bytearray()
-        stderr_buffer = bytearray()
-        output_locks = (threading.Lock(), threading.Lock())
-        truncated = [False, False]
-
-        def drain(stream: object, buffer: bytearray, index: int) -> None:
-            if stream is None:
-                return
-            read = stream.read
-            try:
-                while True:
-                    chunk = read(8192)
-                    if not chunk:
-                        return
-                    with output_locks[index]:
-                        remaining = spec.max_output_bytes - len(buffer)
-                        if remaining > 0:
-                            buffer.extend(chunk[:remaining])
-                        if len(chunk) > remaining:
-                            truncated[index] = True
-            except (OSError, ValueError):
-                return
-
-        threads = [
-            threading.Thread(
-                target=drain,
-                args=(process.stdout, stdout_buffer, 0),
-                name=f"azurpilot-process-stdout-{process.pid}",
-                daemon=True,
-            ),
-            threading.Thread(
-                target=drain,
-                args=(process.stderr, stderr_buffer, 1),
-                name=f"azurpilot-process-stderr-{process.pid}",
-                daemon=True,
-            ),
-        ]
-        for thread in threads:
-            thread.start()
+        capture = _start_output_capture(process, spec)
 
         deadline = time.monotonic() + spec.timeout_seconds
         timed_out = False
+        termination_state: Literal["alive", "absent", "unknown"] | None = None
         try:
             remaining = max(0.0, deadline - time.monotonic())
             process.wait(timeout=remaining)
@@ -674,8 +810,9 @@ class StructuredProcessRunner:
                 process.wait(timeout=3.0)
             except subprocess.TimeoutExpired:
                 pass
+            termination_state = ProcessController.inspect_state(identity)
         finally:
-            for thread in threads:
+            for thread in capture.output_threads:
                 thread.join(timeout=3.0)
             for stream in (process.stdout, process.stderr):
                 if stream is not None:
@@ -684,12 +821,12 @@ class StructuredProcessRunner:
                     except (OSError, ValueError):
                         pass
 
-        with output_locks[0]:
-            stdout_data = bytes(stdout_buffer)
-            stdout_was_drained_truncated = truncated[0]
-        with output_locks[1]:
-            stderr_data = bytes(stderr_buffer)
-            stderr_was_drained_truncated = truncated[1]
+        with capture.output_locks[0]:
+            stdout_data = bytes(capture.stdout_buffer)
+            stdout_was_drained_truncated = capture.output_truncated[0]
+        with capture.output_locks[1]:
+            stderr_data = bytes(capture.stderr_buffer)
+            stderr_was_drained_truncated = capture.output_truncated[1]
         stdout, stdout_was_truncated = _bounded_text(stdout_data, spec.max_output_bytes)
         stderr, stderr_was_truncated = _bounded_text(stderr_data, spec.max_output_bytes)
         return ProcessResult(
@@ -703,6 +840,7 @@ class StructuredProcessRunner:
             identity=identity,
             stdout_bytes=stdout_data,
             stderr_bytes=stderr_data,
+            termination_state=termination_state,
         )
 
 
@@ -712,6 +850,43 @@ class ProcessController:
     @staticmethod
     def inspect(identity: ProcessIdentity) -> bool:
         return identity.matches()
+
+    @staticmethod
+    def inspect_state(identity: ProcessIdentity) -> Literal["alive", "absent", "unknown"]:
+        """Различить exact live process, доказанно отсутствующий PID и unknown.
+
+        В отличие от boolean `inspect`, этот результат нельзя трактовать как
+        разрешение на recovery при недоступных полях процесса. `absent` также
+        означает, что найденный PID не совпал с ожидаемыми start_time,
+        executable, argv или cwd; это может быть PID reuse, а не доказательство
+        отсутствия процесса с таким PID.
+        """
+
+        try:
+            process = psutil.Process(identity.pid)
+        except psutil.NoSuchProcess:
+            return "absent"
+        except (psutil.AccessDenied, OSError):
+            return "unknown"
+        try:
+            if not process.is_running():
+                return "absent"
+            current_start = float(process.create_time())
+            current_executable = _canonical(Path(process.exe()))
+            current_argv = tuple(str(item) for item in process.cmdline())
+            current_cwd = _canonical(Path(process.cwd()))
+        except psutil.NoSuchProcess:
+            return "absent"
+        except (psutil.AccessDenied, OSError, ValueError):
+            return "unknown"
+        if (
+            abs(current_start - identity.start_time) <= 0.05
+            and _same_path(current_executable, identity.executable)
+            and current_argv == identity.argv
+            and _same_path(current_cwd, identity.cwd)
+        ):
+            return "alive"
+        return "absent"
 
     @staticmethod
     def terminate(identity: ProcessIdentity, timeout_seconds: float = 15.0) -> bool:
@@ -778,6 +953,7 @@ __all__ = [
     "ProcessIdentity",
     "ProcessResult",
     "ProcessSpec",
+    "ProcessStartError",
     "RunningProcess",
     "StructuredProcessRunner",
     "docker_environment",

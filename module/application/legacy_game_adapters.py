@@ -19,6 +19,12 @@ from threading import Lock
 from time import monotonic, sleep
 from typing import NamedTuple, NoReturn
 
+from module.application.adb_target import (
+    AdbTargetResolutionError,
+    read_only_emulator_serial_aliases,
+    resolve_adb_target_serial,
+    safe_serial as _safe_serial,
+)
 from module.application.errors import (
     ApplicationError,
     OperationFailedError,
@@ -195,19 +201,6 @@ def _safe_segment(value: object) -> str:
     return value
 
 
-def _safe_serial(value: object) -> str:
-    if not isinstance(value, str):
-        raise TypeError("serial должен быть строкой")
-    value = value.strip()
-    if (
-        not value
-        or len(value) > 256
-        or any(char.isspace() or ord(char) < 32 for char in value)
-    ):
-        raise ValueError("serial содержит недопустимое значение")
-    return value
-
-
 def _safe_adb_state(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("state должен быть строкой")
@@ -310,38 +303,6 @@ def _find_passive_adb_path() -> str:
     if discovered is not None:
         return discovered
     raise ValueError("Исполняемый файл ADB не найден.")
-
-
-def _read_only_emulator_serial_aliases(target_serial: str) -> tuple[str, ...]:
-    """Найти aliases настроенного инстанса без Device и lifecycle recovery."""
-
-    try:
-        from module.device.platform.emulator_windows import EmulatorManager
-    except (ImportError, OSError):
-        return ()
-
-    try:
-        instances = tuple(EmulatorManager().all_emulator_instances)
-    except (AttributeError, OSError, TypeError, ValueError):
-        return ()
-
-    matches: list[tuple[str, ...]] = []
-    for instance in instances:
-        try:
-            aliases = getattr(instance, "adb_serials", ())
-        except (AttributeError, OSError, TypeError, ValueError):
-            continue
-        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
-            continue
-        normalized = tuple(
-            alias for alias in aliases if isinstance(alias, str) and alias
-        )
-        if target_serial in normalized:
-            matches.append(normalized)
-
-    if len(matches) != 1:
-        return ()
-    return matches[0]
 
 
 class LegacyConfigAdapter:
@@ -714,7 +675,7 @@ class LegacyScreenshotAdapter:
         self._adb_path_provider = adb_path_provider or _find_passive_adb_path
         self._target_serial_provider = target_serial_provider or _read_target_serial
         self._target_serial_aliases_provider = (
-            target_serial_aliases_provider or _read_only_emulator_serial_aliases
+            target_serial_aliases_provider or read_only_emulator_serial_aliases
         )
         self._target_serial_aliases_cache: dict[
             str, tuple[float, tuple[object, ...]]
@@ -788,22 +749,16 @@ class LegacyScreenshotAdapter:
         ready_serials = tuple(
             device.serial for device in devices if device.state == "device"
         )
-        if target_serial in ready_serials:
-            return target_serial
-
-        aliases = self._read_target_serial_aliases(target_serial)
-        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
-            raise TypeError("Resolver ADB aliases вернул неверный формат.")
-        safe_aliases: set[str] = set()
-        for alias in aliases:
-            try:
-                safe_aliases.add(_safe_serial(alias))
-            except (TypeError, ValueError):
-                continue
-        matches = tuple(serial for serial in ready_serials if serial in safe_aliases)
-        if len(matches) != 1:
-            raise OSError("Настроенный ADB target не подтверждён.")
-        return matches[0]
+        try:
+            return resolve_adb_target_serial(
+                target_serial,
+                ready_serials,
+                aliases_provider=self._read_target_serial_aliases,
+            )
+        except AdbTargetResolutionError as exc:
+            if exc.reason == "unavailable":
+                raise TypeError("Resolver ADB aliases вернул неподтверждённый результат.") from None
+            raise OSError("Настроенный ADB target не подтверждён.") from None
 
     def _read_target_serial_aliases(self, target_serial: str) -> object:
         now = monotonic()
@@ -865,7 +820,7 @@ class LegacyGameApplicationAdapter:
         self._ui_factory = ui_factory or self._default_ui_factory
         self._target_serial_provider = target_serial_provider or _read_target_serial
         self._target_serial_aliases_provider = (
-            target_serial_aliases_provider or _read_only_emulator_serial_aliases
+            target_serial_aliases_provider or read_only_emulator_serial_aliases
         )
 
     def read_state(self, instance: str) -> GameApplicationState:
@@ -1308,33 +1263,25 @@ class LegacyGameApplicationAdapter:
             _device, serial, _state = ready[0]
             return _device, serial
 
-        exact = [record for record in ready if record[1] == target_serial]
-        if len(exact) == 1:
-            device, serial, _state = exact[0]
-            return device, serial
-
         try:
-            aliases = self._target_serial_aliases_provider(target_serial)
-        except Exception:  # noqa: BLE001 - aliases are not proof when unavailable.
+            resolved_serial = resolve_adb_target_serial(
+                target_serial,
+                tuple(record[1] for record in ready),
+                aliases_provider=self._target_serial_aliases_provider,
+            )
+        except AdbTargetResolutionError:
             raise OwnershipAmbiguousError(
-                "Ownership ADB target нельзя подтвердить по aliases."
+                "Ownership configured ADB target не подтверждён однозначно."
             ) from None
-        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+        selected = next(
+            (record for record in ready if record[1] == resolved_serial),
+            None,
+        )
+        if selected is None:
             raise OwnershipAmbiguousError(
-                "Resolver ADB aliases вернул неподтверждённый результат."
+                "Разрешённый ADB target отсутствует в готовом inventory."
             )
-        safe_aliases: set[str] = set()
-        for alias in aliases:
-            try:
-                safe_aliases.add(_safe_serial(alias))
-            except (TypeError, ValueError):
-                continue
-        matches = [record for record in ready if record[1] in safe_aliases]
-        if len(matches) != 1:
-            raise OwnershipAmbiguousError(
-                "Ownership configured ADB target не подтверждён."
-            )
-        device, serial, _state = matches[0]
+        device, serial, _state = selected
         return device, serial
 
     @staticmethod

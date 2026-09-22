@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 
+from dev_tools.integration_contract_gate import check as integration_contract_check
 from tests.support.paths import REPOSITORY_ROOT
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
@@ -124,7 +125,7 @@ def test_development_description_has_positive_and_negative_routing() -> None:
 def test_coderabbit_description_routes_review_requests() -> None:
     frontmatter, _ = _frontmatter(_SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md")
     description = str(frontmatter["description"]).lower()
-    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "wsl2 linux"):
+    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "host-native"):
         assert trigger in description
     for delegated_trigger in ("делегации", "canonical", "checkpoint"):
         assert delegated_trigger in description
@@ -139,10 +140,9 @@ def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
     development_content = " ".join(development_skill.read_text(encoding="utf-8").lower().split())
 
     for required in (
-        "явно запрашивает coderabbit/code review",
-        "делегирует canonical coderabbit review checkpoint",
-        "internal trigger",
-        "отдельный пользовательский coderabbit-запрос не требуется",
+        "явном запросе coderabbit/code review",
+        "внутренней делегации",
+        "host-native executable",
         "generic pr preparation",
         "обычной разработки вне такого checkpoint",
     ):
@@ -151,7 +151,7 @@ def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
         "coderabbit review checkpoint",
         "явно делегируй",
         "sibling skill `azurpilot-coderabbit-review`",
-        "не требует повторного пользовательского coderabbit-запроса",
+        "provider rate limit",
     ):
         assert required in development_content
 
@@ -175,7 +175,9 @@ def test_repository_coderabbit_config_is_scope_aware_and_review_only() -> None:
     custom_checks = reviews["pre_merge_checks"]["custom_checks"]
     assert isinstance(custom_checks, list)
     scope_check = next(
-        check for check in custom_checks if isinstance(check, dict) and check.get("name") == "Declared scope contract"
+        item
+        for item in custom_checks
+        if isinstance(item, dict) and item.get("name") == "Declared scope contract"
     )
     assert scope_check["mode"] == "error"
     assert "scope" in str(scope_check["instructions"]).lower()
@@ -232,12 +234,275 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "exact commit",
         "если PR существует",
         "partially confirmed",
-        "insufficient evidence",
-        "WSL2 Linux",
+        "typed conflict",
+        "host-native",
         "false positive",
         "rate limit",
+        "provider finding не является verified finding disposition",
+        "individual triage",
+        "CODERABBIT_TRIAGE_REQUIRED",
     ):
         assert required.lower() in review_content.lower()
+    workflow_content = " ".join(review_reference.read_text(encoding="utf-8").split())
+    for required in (
+        "provider finding и verified finding disposition — разные сущности",
+        "affected code",
+        "call sites",
+        "ближайшие tests",
+        "relevant contracts",
+        "azur integrations coderabbit triage",
+        "duplicate review",
+    ):
+        assert required.lower() in workflow_content.lower()
+
+
+def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
+    development_dir = _SKILLS_ROOT / "azurpilot-repository-development"
+    development = (development_dir / "SKILL.md").read_text(encoding="utf-8")
+    reference_path = development_dir / "references" / "cross-thread-task-delegation.md"
+    reference = reference_path.read_text(encoding="utf-8")
+    reference_flat = " ".join(reference.lower().split())
+
+    assert "references/cross-thread-task-delegation.md" in development
+    assert "fresh mcp client/process" in development.lower()
+    for required in (
+        "source_reconciled",
+        "runtime_ready=true",
+        "fresh_mcp_client_acceptance",
+        "LOCAL_MCP_SUPERVISOR_STOPPED",
+        "Coordinator task",
+        "Fresh independent task/thread",
+        "Subagent",
+        "fork",
+        "same-directory child worker",
+        "Connected App",
+        "repository identity",
+        "exact expected HEAD",
+        "effective_codex_registration",
+        "codex_registration_check",
+        "terminal result",
+        "BLOCKED_PRECONDITION",
+    ):
+        assert required.lower() in reference_flat
+
+    branch_contract = _section(
+        reference,
+        "### Канонический branch-based запуск",
+        "### Неиспользуемый working-tree маршрут",
+    )
+    branch_contract_flat = " ".join(branch_contract.lower().split())
+    for required in (
+        "startingstate.type=branch",
+        "branchname",
+        "branch tip",
+        "expected head",
+        "exact head",
+    ):
+        assert required in branch_contract_flat
+
+    non_canonical_contract = _section(
+        reference,
+        "### Неиспользуемый working-tree маршрут",
+        "`create_thread` асинхронен",
+    )
+    non_canonical_contract_flat = " ".join(non_canonical_contract.lower().split())
+    assert "startingstate.type=working-tree" in non_canonical_contract_flat
+    assert "не является exact-head continuation" in non_canonical_contract_flat
+    assert "git switch" in non_canonical_contract_flat
+    assert "git checkout" in non_canonical_contract_flat
+
+    post_create_checks = _section(
+        reference,
+        "Перед optional registration check",
+        "Если check продолжается",
+    )
+    post_create_checks_flat = " ".join(post_create_checks.lower().split())
+    for required in (
+        "фактический exact head",
+        "expected head",
+        "detached head допустим",
+        "post-create `git switch`",
+        "post-create `git checkout`",
+        "blocked_precondition",
+    ):
+        assert required in post_create_checks_flat
+
+    sequence = _section(
+        reference,
+        "## Каноническая последовательность",
+        "Fresh task не исправляет",
+    )
+    sequence_items = _numbered_contract_items(sequence)
+    assert len(sequence_items) == 8
+    assert "branch tip" in sequence_items[1]
+    assert "task не создаётся" in sequence_items[1]
+    assert "startingstate.type=branch" in sequence_items[2]
+    assert "фактический exact head" in sequence_items[3]
+    assert "detached head допустим" in sequence_items[3]
+    assert "post-create switch/checkout" in sequence_items[3]
+    assert "blocked_precondition" in sequence_items[7]
+
+    for relative in (
+        Path(".codex/context/08-VERIFICATION.md"),
+        Path(".codex/context/11-PYTHON-TOOLING.md"),
+        Path(".agents/skills/azurpilot-repository-development/references/browser-and-live-testing.md"),
+        Path("plugins/azurpilot/references/mcp-routing.md"),
+        Path("plugins/azurpilot/skills/azurpilot-troubleshooting/SKILL.md"),
+    ):
+        document_path = _REPOSITORY_ROOT / relative
+        raw_content = document_path.read_text(encoding="utf-8")
+        content = raw_content.lower()
+        targets = re.findall(
+            r"\]\(([^)\s]*cross-thread-task-delegation\.md)\)",
+            raw_content,
+            flags=re.IGNORECASE,
+        )
+        assert targets
+        for target in targets:
+            assert (document_path.parent / target).is_file()
+        assert "cross-thread continuation" in content
+        assert (
+            "fresh independent" in content
+            or "independent codex" in content
+            or "independent task/thread" in content
+            or "независимая codex" in content
+            or ("независим" in content and "task/thread" in content)
+            or "единый контракт cross-thread" in content
+        )
+
+
+def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -> None:
+    contract = integration_contract_check(_REPOSITORY_ROOT)
+    checks = contract["checks"]
+    assert isinstance(checks, dict)
+    assert checks["operator_workflow_boundary"] == "ready"
+    errors = contract["errors"]
+    assert isinstance(errors, list)
+    assert not any(str(error).startswith("operator workflow:") for error in errors)
+    assert contract["ok"] is True
+
+    development_skill = (
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-development"
+        / "SKILL.md"
+    ).read_text(encoding="utf-8").lower()
+    assert "каноническая codex-команда: uv run" not in development_skill
+
+
+def test_mcp_lifecycle_contract_uses_typed_runtime_reconcile() -> None:
+    document_contracts = {
+        _REPOSITORY_ROOT
+        / ".agents"
+        / "skills"
+        / "azurpilot-repository-development"
+        / "SKILL.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "recorded exact",
+            "STOPPED/no-conflict",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT
+        / ".agents"
+        / "skills"
+        / "azurpilot-repository-development"
+        / "references"
+        / "cross-thread-task-delegation.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "recorded exact-identity cleanup",
+            "STOPPED/no-conflict",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md": (
+            "azur mcp reconcile",
+            "runtime_ready=true",
+            "recorded-identity cleanup",
+            "STOPPED/no-conflict",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT / ".codex" / "context" / "11-PYTHON-TOOLING.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "recorded-identity cleanup",
+            "STOPPED/no-conflict",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT / "docs" / "game-mcp.md": (
+            "azur mcp reconcile",
+            "runtime_ready=true",
+            "recorded exact-identity cleanup",
+            "STOPPED/no-conflict",
+            "foreign/invalid marker",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT / "plugins" / "azurpilot" / "README.md": (
+            "runtime_state=stopped",
+            "azur mcp reconcile",
+            "STOPPED/no-conflict",
+            "invalid/foreign marker",
+        ),
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "references"
+        / "mcp-routing.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "recorded exact-identity cleanup",
+            "STOPPED/no-conflict",
+            "invalid/unknown/foreign ownership",
+        ),
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-development"
+        / "SKILL.md": (
+            "azur mcp reconcile",
+            "runtime_ready=true",
+            "recorded-identity cleanup",
+            "STOPPED/no-conflict",
+            "invalid/foreign marker",
+        ),
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-game-control"
+        / "SKILL.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "exact-identity cleanup",
+            "STOPPED/no-conflict",
+        ),
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-troubleshooting"
+        / "SKILL.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "azur mcp reconcile",
+            "STOPPED/no-conflict",
+            "invalid marker/liveness",
+        ),
+    }
+    for path, phrases in document_contracts.items():
+        content = path.read_text(encoding="utf-8").casefold()
+        for phrase in phrases:
+            assert phrase.casefold() in content, (path, phrase)
+    all_content = "\n".join(
+        path.read_text(encoding="utf-8").casefold()
+        for path in document_contracts
+    )
+    assert "azur mcp reconcile` без `--source" in all_content
+    assert "azur mcp reconcile --runtime" not in all_content
+
 
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
     for path in _SKILLS_ROOT.rglob("*"):

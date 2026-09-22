@@ -9,61 +9,20 @@ script = ""
 script = '''
 set -euo pipefail
 
-echo 'Подготовка AzurPilot для Arch Linux / WSL2...'
+echo 'Подготовка Linux/POSIX-среды AzurPilot...'
 
 if ! command -v uv >/dev/null 2>&1; then
     echo 'Ошибка: uv не найден в PATH.' >&2
-    echo 'Установите uv в Arch один раз и повторите создание среды.' >&2
     exit 1
 fi
 
-echo "uv: $(uv --version)"
-
-# При работе непосредственно на Windows-диске через /mnt/c, /mnt/d и т. п.
-# cache uv и worktree могут находиться на разных файловых системах.
-case "$PWD" in
-    /mnt/[a-zA-Z]/*)
-        export UV_LINK_MODE=copy
-        echo 'Обнаружен Windows-mounted filesystem; UV_LINK_MODE=copy.'
-        ;;
-esac
-
-echo 'Проверка uv.lock...'
 uv lock --check
-
-echo 'Создание и синхронизация .venv...'
-uv sync \
-    --locked \
-    --python 3.14.6 \
-    --group dev \
-    --group ci
-
-echo 'Проверка Python...'
-uv run --locked python - <<'PY'
-import sys
-
-expected = (3, 14, 6)
-actual = sys.version_info[:3]
-
-if actual != expected:
-    raise SystemExit(
-        f"Ожидался Python {expected[0]}.{expected[1]}.{expected[2]}, "
-        f"получен {sys.version}"
-    )
-
-print(sys.version)
-PY
-
-echo 'Проверка импорта основных инструментов...'
-uv run --locked python - <<'PY'
-import pytest
-import playwright
-
-print(f"pytest: {pytest.__version__}")
-print("playwright: import OK")
-PY
-
-echo 'Среда AzurPilot для Arch Linux / WSL2 готова.''''
+uv sync --locked --python 3.14.6 --group dev --group ci
+uv run --locked --no-sync playwright install chromium
+uv run --locked --no-sync python -c "import sys, azurpilot, playwright; assert sys.version_info[:3] == (3, 14, 6), sys.version; print(sys.version); print(azurpilot.__file__)"
+uv run --locked --no-sync ruff --version
+uv run --locked --no-sync pytest --version
+'''
 
 [setup.win32]
 script = '''
@@ -74,32 +33,36 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     throw 'uv не найден в PATH.'
 }
 
-if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) {
-    throw 'PowerShell 7 (pwsh) не найден в PATH.'
-}
-
-Write-Host 'Проверка uv.lock...'
+Write-Host 'Подготовка Windows-native среды AzurPilot...'
 uv lock --check
 if ($LASTEXITCODE -ne 0) {
     throw "uv lock --check завершился с кодом $LASTEXITCODE."
 }
 
-Write-Host 'Создание и синхронизация .venv...'
-uv sync --locked --group dev --group ci
+uv sync --locked --python 3.14.6 --group dev --group ci
 if ($LASTEXITCODE -ne 0) {
     throw "uv sync завершился с кодом $LASTEXITCODE."
 }
 
-Write-Host 'Проверка Python...'
-uv run --locked python -c "import sys; assert sys.version_info[:3] == (3, 14, 6), sys.version; print(sys.version)"
+uv run --locked --no-sync playwright install chromium
 if ($LASTEXITCODE -ne 0) {
-    throw "Проверка Python завершилась с кодом $LASTEXITCODE."
+    throw "Установка Chromium для Playwright завершилась с кодом $LASTEXITCODE."
 }
 
-Write-Host 'Установка Chromium для Playwright...'
-uv run --locked playwright install chromium
+uv run --locked --no-sync python -c "import sys, azurpilot, playwright; assert sys.version_info[:3] == (3, 14, 6), sys.version; print(sys.version); print(azurpilot.__file__)"
 if ($LASTEXITCODE -ne 0) {
-    throw "Установка Chromium завершилась с кодом $LASTEXITCODE."
+    throw "Проверка Python и импорта завершилась с кодом $LASTEXITCODE."
 }
 
-Write-Host 'Среда AzurPilot для Windows готова.''''
+uv run --locked --no-sync ruff --version
+if ($LASTEXITCODE -ne 0) {
+    throw "Проверка ruff завершилась с кодом $LASTEXITCODE."
+}
+
+uv run --locked --no-sync pytest --version
+if ($LASTEXITCODE -ne 0) {
+    throw "Проверка pytest завершилась с кодом $LASTEXITCODE."
+}
+
+Write-Host ("Среда готова: " + [System.IO.Path]::GetFullPath((Join-Path $PWD '.venv')))
+'''

@@ -9,7 +9,11 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from azurpilot.tooling.contracts import AnalysisScope, ResultCode
+from azurpilot.tooling.contracts import (
+    AnalysisScope,
+    CodeRabbitDeferredBacklog,
+    ResultCode,
+)
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.filesystem import (
     ScopedPath,
@@ -164,6 +168,7 @@ class AdapterOutcome:
     record: IntegrationRecord
     findings: tuple[IntegrationFinding, ...] = ()
     coderabbit_cycle: CodeRabbitCycleSummary | None = None
+    coderabbit_backlog: CodeRabbitDeferredBacklog | None = None
 
 
 class IntegrationAdapter:

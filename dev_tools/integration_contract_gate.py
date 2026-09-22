@@ -67,6 +67,21 @@ _MACHINE_PATTERNS = (
     re.compile(r"(?i)\\\\wsl(?:\.localhost|\$)[\\/]"),
     re.compile(r"(?i)\$home[\\/][a-z0-9._-]+"),
 )
+_CODERABBIT_RETIRED_MARKERS = (
+    "direct_wsl_agent",
+    "coderabbit-runtime.json",
+    "managed review clone",
+    "wsl.exe --list",
+    "pgrep -x coderabbit",
+)
+_OPERATOR_POLICY_MARKER_OWNERS = {
+    "source_reconciled": Path(".codex/context/11-PYTHON-TOOLING.md"),
+    "runtime_ready": Path(".codex/context/11-PYTHON-TOOLING.md"),
+    "TOOLING_STACKED_PARENT_UNPUBLISHED": Path(
+        ".codex/context/11-PYTHON-TOOLING.md"
+    ),
+    "codex/base-*": Path(".codex/context/GIT-WORKFLOW.md"),
+}
 
 
 def _relative(root: Path, path: Path) -> str:
@@ -278,6 +293,65 @@ def _check_retired_paths(root: Path, errors: list[str]) -> None:
             )
 
 
+def _check_coderabbit_native_boundary(root: Path, errors: list[str]) -> None:
+    """Проверить, что CodeRabbit policy не возвращается к retired topology."""
+
+    if DEFAULTS.get("coderabbit", {}).get("route") != "direct_native_agent":
+        errors.append("coderabbit: canonical route должен быть direct_native_agent")
+    config_source = root / "azurpilot" / "integrations" / "config.py"
+    adapter_source = root / "azurpilot" / "integrations" / "coderabbit.py"
+    for path in (config_source, adapter_source):
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            errors.append(f"{_relative(root, path)}: native boundary source не прочитан")
+            continue
+        content = raw.casefold()
+        for marker in _CODERABBIT_RETIRED_MARKERS:
+            if marker in content:
+                errors.append(f"{_relative(root, path)}: найден retired CodeRabbit marker {marker}")
+        if "coderabbit_native_windows_required" in content:
+            errors.append(
+                f"{_relative(root, path)}: host-native CodeRabbit boundary ошибочно ограничен Windows"
+            )
+        if "azurpilot_coderabbit_wsl_distribution" in content or (
+            "azurpilot_coderabbit_review_clone" in content
+        ):
+            errors.append("coderabbit: retired host environment overrides остаются активными")
+
+
+def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:
+    """Проверить literal azur path, MCP readiness split и topology policy."""
+
+    contents: dict[Path, str] = {}
+    owner_paths = tuple(dict.fromkeys(_OPERATOR_POLICY_MARKER_OWNERS.values()))
+    for relative in owner_paths:
+        path = root / relative
+        try:
+            contents[relative] = path.read_text(encoding="utf-8").casefold()
+        except (OSError, UnicodeError):
+            errors.append(f"{relative.as_posix()}: operator policy source не прочитан")
+    for marker, owner in _OPERATOR_POLICY_MARKER_OWNERS.items():
+        policy = contents.get(owner)
+        if policy is not None and marker.casefold() not in policy:
+            errors.append(f"operator workflow: отсутствует policy marker {marker}")
+    development_skill = (
+        root / "plugins" / "azurpilot" / "skills" / "azurpilot-development" / "SKILL.md"
+    )
+    try:
+        development_text = development_skill.read_text(encoding="utf-8").casefold()
+    except (OSError, UnicodeError):
+        errors.append(
+            "plugins/azurpilot/skills/azurpilot-development/SKILL.md: "
+            "development skill source не прочитан"
+        )
+        return
+    if "каноническая codex-команда: uv run" in development_text:
+        errors.append(
+            "operator workflow: plugin development skill возвращает uv/module launcher"
+        )
+
+
 def _run_check(
     check_id: str,
     checker: Callable[[list[str]], None],
@@ -304,6 +378,14 @@ def check(root: Path) -> dict[str, object]:
         _run_check(
             "retired_paths",
             lambda errors: _check_retired_paths(repository_root, errors),
+        ),
+        _run_check(
+            "coderabbit_native_boundary",
+            lambda errors: _check_coderabbit_native_boundary(repository_root, errors),
+        ),
+        _run_check(
+            "operator_workflow_boundary",
+            lambda errors: _check_operator_workflow_boundary(repository_root, errors),
         ),
     )
     errors = [error for _check_id, check_errors in results for error in check_errors]

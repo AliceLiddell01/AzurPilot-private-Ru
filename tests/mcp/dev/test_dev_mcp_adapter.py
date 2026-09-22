@@ -202,6 +202,20 @@ def test_contract_is_static_safe_and_does_not_construct_runtime_manager() -> Non
     assert manager.calls == []
 
 
+def test_default_adapter_lists_smoke_capabilities_without_runtime_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "module.dev_mcp.adapter._default_manager",
+        lambda: pytest.fail("target-neutral capability listing must not create a runtime manager"),
+    )
+
+    result = DevMcpAdapter().call("dev_list_smoke_capabilities", {})
+
+    assert result["ok"] is True
+    assert result["code"] == "DEV_SMOKE_CAPABILITIES_READY"
+
+
 def test_adapter_serializes_task_sandbox_error_from_manager() -> None:
     result = DevMcpAdapter(lambda: _TaskSandboxErrorManager()).call("dev_status", {})
 

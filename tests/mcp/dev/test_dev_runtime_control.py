@@ -16,6 +16,7 @@ from module.dev_runtime import (
     DevEnvironment,
     DevTarget,
     DevTargetRegistry,
+    RuntimeControlError,
     RuntimeControlManager,
     RuntimeSessionState,
     RuntimeSnapshot,
@@ -201,6 +202,27 @@ class _AdbConnectionProbe:
     def connect(self, serial: str, *, timeout: float | None = None) -> str:
         self.calls.append((serial, timeout))
         return f"connected to {serial}"
+
+
+class _AdbTargetDevice:
+    def __init__(self, serial: str, state: str = "device") -> None:
+        self.serial = serial
+        self.state = state
+
+    def get_state(self) -> str:
+        return self.state
+
+    def shell(self, _command, timeout: float = 5) -> str:
+        del timeout
+        return ""
+
+
+class _AdbTargetClient:
+    def __init__(self, devices: list[_AdbTargetDevice]) -> None:
+        self.devices = devices
+
+    def device_list(self) -> list[_AdbTargetDevice]:
+        return list(self.devices)
 
 
 @pytest.fixture
@@ -471,6 +493,164 @@ def test_configured_backend_connects_target_during_bounded_emulator_wait(
     )
 
     assert probe.calls == [("127.0.0.1:5555", 4.5)]
+
+
+def test_configured_backend_resolves_repository_owned_mumu_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    payload = json.loads(environment.profile_file.read_text(encoding="utf-8"))
+    payload["Alas"]["Emulator"]["Serial"] = "127.0.0.1:16416"
+    environment.profile_file.write_text(json.dumps(payload), encoding="utf-8")
+    backend = ConfiguredRuntimeBackend(environment)
+    client = _AdbTargetClient([_AdbTargetDevice("emulator-5556")])
+    monkeypatch.setattr(
+        control_module.ConfiguredRuntimeBackend,
+        "_adb_client",
+        staticmethod(lambda: client),
+    )
+    monkeypatch.setattr(
+        control_module,
+        "_read_only_target_serial_aliases",
+        lambda _serial: (
+            "127.0.0.1:16416",
+            "127.0.0.1:5557",
+            "emulator-5556",
+            "127.0.0.1:7555",
+        ),
+    )
+
+    device, _devices, configured_serial, _package, _client = backend._adb_device()
+    snapshot = backend.snapshot()
+
+    assert device.serial == "emulator-5556"
+    assert configured_serial == "127.0.0.1:16416"
+    assert snapshot.emulator_detected is True
+    assert snapshot.emulator_ready is True
+    assert snapshot.adb_state == "device"
+    assert snapshot.unrelated_adb_devices is False
+
+
+def test_configured_backend_does_not_accept_unrelated_inventory_device(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = ConfiguredRuntimeBackend(environment)
+    client = _AdbTargetClient([_AdbTargetDevice("emulator-5556")])
+    monkeypatch.setattr(
+        control_module.ConfiguredRuntimeBackend,
+        "_adb_client",
+        staticmethod(lambda: client),
+    )
+    monkeypatch.setattr(
+        control_module,
+        "_read_only_target_serial_aliases",
+        lambda _serial: (),
+    )
+
+    snapshot = backend.snapshot()
+
+    assert snapshot.emulator_detected is False
+    assert snapshot.adb_state == "unavailable"
+    assert snapshot.unrelated_adb_devices is True
+
+
+def test_configured_backend_fails_closed_for_ambiguous_alias_inventory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = ConfiguredRuntimeBackend(environment)
+    client = _AdbTargetClient(
+        [
+            _AdbTargetDevice("emulator-5556"),
+            _AdbTargetDevice("127.0.0.1:7555"),
+        ]
+    )
+    monkeypatch.setattr(
+        control_module.ConfiguredRuntimeBackend,
+        "_adb_client",
+        staticmethod(lambda: client),
+    )
+    monkeypatch.setattr(
+        control_module,
+        "_read_only_target_serial_aliases",
+        lambda _serial: ("127.0.0.1:16416", "emulator-5556", "127.0.0.1:7555"),
+    )
+
+    with pytest.raises(RuntimeControlError) as error:
+        backend.snapshot()
+
+    assert error.value.code == "DEV_RUNTIME_DEVICE_AMBIGUOUS"
+
+
+def test_configured_backend_fails_closed_when_configured_target_is_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = ConfiguredRuntimeBackend(environment)
+    client = _AdbTargetClient([_AdbTargetDevice("unrelated-device")])
+    monkeypatch.setattr(
+        control_module.ConfiguredRuntimeBackend,
+        "_adb_client",
+        staticmethod(lambda: client),
+    )
+    monkeypatch.setattr(
+        control_module,
+        "_read_only_target_serial_aliases",
+        lambda _serial: ("127.0.0.1:16416", "emulator-5556"),
+    )
+
+    snapshot = backend.snapshot()
+
+    assert snapshot.emulator_detected is False
+    assert snapshot.adb_state == "unavailable"
+
+
+def test_read_only_aliases_use_bounded_ttl_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    clock = [100.0]
+    cache = control_module._passive_emulator_aliases_cache
+    cache.clear()
+
+    def aliases_provider(serial: str) -> tuple[str, ...]:
+        calls.append(serial)
+        return (serial, "emulator-5556")
+
+    monkeypatch.setattr(
+        "module.application.adb_target.read_only_emulator_serial_aliases",
+        aliases_provider,
+    )
+    monkeypatch.setattr(
+        control_module,
+        "time",
+        SimpleNamespace(monotonic=lambda: clock[0]),
+    )
+
+    try:
+        assert control_module._read_only_target_serial_aliases("configured") == (
+            "configured",
+            "emulator-5556",
+        )
+        assert control_module._read_only_target_serial_aliases("configured") == (
+            "configured",
+            "emulator-5556",
+        )
+        assert calls == ["configured"]
+
+        clock[0] += control_module._PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
+        assert control_module._read_only_target_serial_aliases("configured") == (
+            "configured",
+            "emulator-5556",
+        )
+        assert calls == ["configured", "configured"]
+    finally:
+        cache.clear()
 
 
 def test_emulator_wait_connects_target_before_readiness_probe(

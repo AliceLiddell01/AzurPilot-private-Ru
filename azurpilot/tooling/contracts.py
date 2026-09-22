@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Literal
 
@@ -20,6 +21,7 @@ class CapabilityStatus(StrEnum):
     """Состояние необязательной возможности."""
 
     READY = "ready"
+    NOT_CHECKED = "not_checked"
     NOT_CONFIGURED = "not_configured"
     UNAVAILABLE = "unavailable"
     UNSUPPORTED = "unsupported"
@@ -68,12 +70,26 @@ class FindingSeverity(StrEnum):
 
 
 class FindingDisposition(StrEnum):
-    """Обязательная классификация результата внешнего review."""
+    """Допустимая классификация после независимого triage внешнего review."""
 
     CONFIRMED = "confirmed"
     PARTIALLY_CONFIRMED = "partially confirmed"
     FALSE_POSITIVE = "false positive"
-    INSUFFICIENT_EVIDENCE = "insufficient evidence"
+    DEFERRED = "deferred"
+
+
+class CodeRabbitDeferralReason(StrEnum):
+    """Типизированная причина отложить подтверждённый, но вне scope finding."""
+
+    TASK_SCOPE = "task_scope"
+
+
+class CodeRabbitConflictKind(StrEnum):
+    """Основания отклонить finding; TASK_PROMPT_CONFLICT оставлен для legacy-чтения."""
+
+    REPOSITORY_CONTRACT_CONFLICT = "repository_contract_conflict"
+    TASK_PROMPT_CONFLICT = "task_prompt_conflict"
+    DEPENDENCY_VERSION_CONFLICT = "dependency_version_conflict"
 
 
 class WarningCode(StrEnum):
@@ -339,8 +355,82 @@ class PullRequestIdentity(ClosedModel):
     head_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
 
 
+class CodeRabbitFindingTriage(ClosedModel):
+    """Индивидуальное доказательство проверки одного provider finding."""
+
+    disposition: FindingDisposition
+    reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    affected_code: str = Field(min_length=1, max_length=1200)
+    call_sites: str = Field(min_length=1, max_length=1200)
+    nearest_tests: str = Field(min_length=1, max_length=1200)
+    relevant_contracts: str = Field(min_length=1, max_length=1200)
+    claimed_impact: str = Field(min_length=1, max_length=1200)
+    decision_reason: str = Field(min_length=12, max_length=2000)
+    change_summary: str = Field(min_length=12, max_length=2000)
+    conflict_kind: CodeRabbitConflictKind | None = None
+    deferral_reason: CodeRabbitDeferralReason | None = None
+    authoritative_source: str | None = Field(default=None, max_length=1200)
+
+    @model_validator(mode="after")
+    def validate_decision_evidence(self) -> CodeRabbitFindingTriage:
+        placeholder_values = {
+            "false positive",
+            "insufficient evidence",
+            "not confirmed",
+            "не подтверждено",
+            "недостаточно данных",
+            "индивидуальная проверка выполнена",
+            "изменений не требуется",
+        }
+        normalized_reason = " ".join(self.decision_reason.casefold().split())
+        normalized_change = " ".join(self.change_summary.casefold().split())
+        if normalized_reason in placeholder_values or normalized_change in placeholder_values:
+            raise ValueError("triage evidence не может быть placeholder-only объяснением")
+        if self.disposition is FindingDisposition.FALSE_POSITIVE:
+            if self.conflict_kind is None:
+                raise ValueError(
+                    "false positive требует typed repository/task/dependency conflict"
+                )
+            if self.conflict_kind is CodeRabbitConflictKind.TASK_PROMPT_CONFLICT:
+                raise ValueError(
+                    "task_prompt_conflict должен быть deferred/task_scope, а не false positive"
+                )
+            if not self.authoritative_source or len(self.authoritative_source.strip()) < 8:
+                raise ValueError(
+                    "conflict rejection требует authoritative source"
+                )
+            if self.deferral_reason is not None:
+                raise ValueError(
+                    "false positive не может иметь deferral_reason"
+                )
+        elif self.disposition is FindingDisposition.DEFERRED:
+            if self.deferral_reason is None:
+                raise ValueError(
+                    "deferred finding требует typed deferral_reason"
+                )
+            if self.deferral_reason is not CodeRabbitDeferralReason.TASK_SCOPE:
+                raise ValueError("неподдерживаемая причина deferred finding")
+            if self.conflict_kind is not None:
+                raise ValueError(
+                    "deferred finding не должен использовать conflict_kind"
+                )
+            if not self.authoritative_source or len(self.authoritative_source.strip()) < 8:
+                raise ValueError(
+                    "deferred finding требует authoritative task/prompt source"
+                )
+        elif (
+            self.conflict_kind is not None
+            or self.deferral_reason is not None
+            or self.authoritative_source is not None
+        ):
+            raise ValueError(
+                "conflict/deferral evidence допустимо только для соответствующего disposition"
+            )
+        return self
+
+
 class CodeRabbitFinding(ClosedModel):
-    """Нормализованный finding для durable PR disposition."""
+    """Provider finding с отдельным optional verified triage."""
 
     severity: FindingSeverity
     path: str = Field(min_length=1, max_length=512)
@@ -348,14 +438,57 @@ class CodeRabbitFinding(ClosedModel):
     line: int | None = Field(default=None, ge=1, le=10_000_000)
     line_end: int | None = Field(default=None, ge=1, le=10_000_000)
     impact: str = Field(min_length=1, max_length=1200)
-    disposition: FindingDisposition
-    resolution: str = Field(min_length=1, max_length=1200)
+    disposition: FindingDisposition | None = None
+    resolution: str = Field(min_length=1, max_length=4000)
+    codegen_instructions: str | None = Field(default=None, max_length=4000)
+    suggestions: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
     fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+    triage: CodeRabbitFindingTriage | None = None
 
     @model_validator(mode="after")
     def validate_line_range(self) -> CodeRabbitFinding:
         if self.line is not None and self.line_end is not None and self.line_end < self.line:
             raise ValueError("line_end не может быть меньше line")
+        if self.triage is None and self.disposition is not None:
+            raise ValueError("provider finding не может иметь disposition без triage evidence")
+        if self.triage is not None and self.disposition is not self.triage.disposition:
+            raise ValueError("finding disposition должен совпадать с verified triage")
+        return self
+
+
+class CodeRabbitTriageEntry(ClosedModel):
+    """Одна запись manifest-а triage, адресованная по порядковому индексу."""
+
+    index: int = Field(ge=1, le=128)
+    triage: CodeRabbitFindingTriage
+    fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+
+    @model_validator(mode="after")
+    def validate_fix_head_owner(self) -> CodeRabbitTriageEntry:
+        if (
+            self.triage.disposition
+            in {FindingDisposition.FALSE_POSITIVE, FindingDisposition.DEFERRED}
+            and self.fix_head is not None
+        ):
+            raise ValueError(
+                "false positive или deferred finding не должен иметь fix_head"
+            )
+        return self
+
+
+class CodeRabbitTriageManifest(ClosedModel):
+    """Закрытый manifest индивидуального CodeRabbit triage."""
+
+    schema_version: Literal[1] = 1
+    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    findings: tuple[CodeRabbitTriageEntry, ...] = Field(max_length=128)
+
+    @model_validator(mode="after")
+    def validate_unique_indices(self) -> CodeRabbitTriageManifest:
+        indices = tuple(entry.index for entry in self.findings)
+        if len(indices) != len(set(indices)):
+            raise ValueError("triage manifest содержит дублирующиеся finding indices")
         return self
 
 
@@ -367,6 +500,92 @@ class CodeRabbitReview(ClosedModel):
     findings: tuple[CodeRabbitFinding, ...] = Field(max_length=128)
     history: str | None = Field(default=None, max_length=20_000)
     rate_limit: str | None = Field(default=None, max_length=500)
+    review_deferred_reason: str | None = Field(default=None, max_length=500)
+
+
+class CodeRabbitDeferredOccurrence(ClosedModel):
+    """Ограниченная история повторного появления deferred finding."""
+
+    timestamp: str = Field(min_length=1, max_length=40)
+    branch: str = Field(min_length=1, max_length=120)
+    reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+
+
+class CodeRabbitDeferredFinding(ClosedModel):
+    """Одна запись repository-local ignored backlog без provider log."""
+
+    backlog_id: str = Field(pattern=r"^coderabbit-deferred-[0-9a-f]{16,64}$")
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: Literal["open", "resolved"] = "open"
+    repository_identity: str = Field(min_length=1, max_length=256)
+    first_seen_at: str = Field(min_length=1, max_length=40)
+    last_seen_at: str = Field(min_length=1, max_length=40)
+    reviewed_branch: str = Field(min_length=1, max_length=120)
+    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    cycle_id: str = Field(min_length=1, max_length=80)
+    logical_task_id: str | None = Field(default=None, max_length=128)
+    provider_version: str | None = Field(default=None, max_length=80)
+    path: str = Field(min_length=1, max_length=512)
+    line: int | None = Field(default=None, ge=1, le=10_000_000)
+    line_end: int | None = Field(default=None, ge=1, le=10_000_000)
+    severity: FindingSeverity
+    title: str | None = Field(default=None, max_length=160)
+    impact: str = Field(min_length=1, max_length=1200)
+    resolution: str = Field(min_length=1, max_length=4000)
+    codegen_instructions: str | None = Field(default=None, max_length=4000)
+    suggestions: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
+    deferral_reason: CodeRabbitDeferralReason
+    authoritative_source: str = Field(min_length=8, max_length=1200)
+    decision_reason: str = Field(min_length=12, max_length=2000)
+    occurrence_count: int = Field(default=1, ge=1, le=1_000_000)
+    occurrence_history: tuple[CodeRabbitDeferredOccurrence, ...] = Field(
+        default_factory=tuple, max_length=8
+    )
+    resolved_at: str | None = Field(default=None, max_length=40)
+    fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+    resolution_summary: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_backlog_entry(self) -> CodeRabbitDeferredFinding:
+        normalized_path = self.path.replace("\\", "/")
+        if (
+            normalized_path.startswith("/")
+            or re.match(r"^[A-Za-z]:/", normalized_path)
+            or any(part == ".." for part in normalized_path.split("/"))
+        ):
+            raise ValueError("deferred backlog path должен быть repository-relative")
+        if self.line is not None and self.line_end is not None and self.line_end < self.line:
+            raise ValueError("line_end не может быть меньше line")
+        if self.occurrence_count < len(self.occurrence_history):
+            raise ValueError("occurrence_count меньше сохранённой bounded history")
+        resolved_fields = (self.resolved_at, self.fix_head, self.resolution_summary)
+        if self.status == "open" and any(value is not None for value in resolved_fields):
+            raise ValueError("open deferred finding не должен иметь resolution metadata")
+        if self.status == "resolved" and any(value is None for value in resolved_fields):
+            raise ValueError("resolved deferred finding требует resolution metadata")
+        return self
+
+
+class CodeRabbitDeferredBacklog(ClosedModel):
+    """Закрытый bounded document repository-local deferred findings."""
+
+    schema_version: Literal[1] = 1
+    repository_identity: str = Field(min_length=1, max_length=256)
+    updated_at: str = Field(min_length=1, max_length=40)
+    findings: tuple[CodeRabbitDeferredFinding, ...] = Field(max_length=128)
+
+    @model_validator(mode="after")
+    def validate_unique_findings(self) -> CodeRabbitDeferredBacklog:
+        backlog_ids = tuple(entry.backlog_id for entry in self.findings)
+        fingerprints = tuple(entry.fingerprint for entry in self.findings)
+        if len(backlog_ids) != len(set(backlog_ids)):
+            raise ValueError("deferred backlog содержит дублирующиеся backlog id")
+        if len(fingerprints) != len(set(fingerprints)):
+            raise ValueError("deferred backlog содержит дублирующиеся fingerprints")
+        if any(entry.repository_identity != self.repository_identity for entry in self.findings):
+            raise ValueError("deferred backlog содержит другую repository identity")
+        return self
 
 
 class MandatoryGateState(StrEnum):
@@ -378,6 +597,10 @@ class MandatoryGateState(StrEnum):
     NOT_REQUIRED = "NOT_REQUIRED"
 
 
+FRESH_MCP_ACCEPTANCE_GATE_NAME = "fresh_mcp_client_acceptance"
+CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME = "coderabbit_exact_head_checkpoint"
+
+
 class MandatoryGate(ClosedModel):
     """Один обязательный или неприменимый gate с bounded evidence."""
 
@@ -385,12 +608,39 @@ class MandatoryGate(ClosedModel):
     state: MandatoryGateState
     required: bool = True
     evidence: str = Field(min_length=1, max_length=1000)
+    evidence_kind: Literal[
+        "source", "runtime", "fresh_mcp_client", "other"
+    ] = "other"
 
     @model_validator(mode="after")
     def validate_required_state(self) -> MandatoryGate:
         if not self.required and self.state is not MandatoryGateState.NOT_REQUIRED:
             raise ValueError("необязательный gate должен иметь state NOT_REQUIRED")
+        if self.name == FRESH_MCP_ACCEPTANCE_GATE_NAME and (
+            not self.required or self.state is MandatoryGateState.NOT_REQUIRED
+        ):
+            raise ValueError(
+                "fresh MCP client acceptance не может быть NOT_REQUIRED"
+            )
         return self
+
+
+class IntegrationCheckState(StrEnum):
+    """Наблюдаемое состояние необязательной внешней integration check."""
+
+    PASS = "PASS"
+    FAIL = "FAIL"
+    BLOCKED_PRECONDITION = "BLOCKED_PRECONDITION"
+    NOT_REQUIRED = "NOT_REQUIRED"
+
+
+class IntegrationCheck(ClosedModel):
+    """Отдельная bounded evidence-проверка, не являющаяся product gate."""
+
+    name: str = Field(min_length=1, max_length=80)
+    state: IntegrationCheckState
+    evidence: str = Field(min_length=1, max_length=1000)
+    evidence_kind: Literal["codex_registration", "other"] = "other"
 
 
 class ReadinessState(ClosedModel):
@@ -398,6 +648,12 @@ class ReadinessState(ClosedModel):
 
     implementation_status: Literal["IN_PROGRESS", "COMPLETE", "BLOCKED"] = "IN_PROGRESS"
     mandatory_gates: tuple[MandatoryGate, ...] = Field(default_factory=tuple, max_length=32)
+    integration_checks: tuple[IntegrationCheck, ...] = Field(
+        default_factory=tuple, max_length=32
+    )
+    # Readiness builders обязаны явно классифицировать MCP impact до lifecycle
+    # validation; пропуск должен fail closed, а не обходить fresh gate.
+    mcp_impact: Literal["NOT_REQUIRED", "REQUIRED"]
     external_reviewer_status: Literal[
         "NOT_RUN", "SUBSTANTIVE", "LIMITED", "RATE_LIMITED"
     ] = "NOT_RUN"
@@ -408,6 +664,59 @@ class ReadinessState(ClosedModel):
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> ReadinessState:
+        gate_names = tuple(gate.name for gate in self.mandatory_gates)
+        if len(gate_names) != len(set(gate_names)):
+            raise ValueError("mandatory gates должны иметь уникальные имена")
+        integration_names = tuple(check.name for check in self.integration_checks)
+        if len(integration_names) != len(set(integration_names)):
+            raise ValueError("integration checks должны иметь уникальные имена")
+        if any(
+            gate.name == CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME
+            for gate in self.mandatory_gates
+        ):
+            raise ValueError(
+                "CodeRabbit checkpoint является external reviewer limitation, "
+                "а не mandatory product gate"
+            )
+        if self.external_reviewer_status == "NOT_RUN":
+            if self.reviewer_limitation:
+                raise ValueError(
+                    "NOT_RUN не может маскироваться под limitation внешнего reviewer"
+                )
+            if (
+                self.overall_outcome == "READY"
+                or self.ready_for_chatgpt_review
+                or self.merge_ready
+            ):
+                raise ValueError(
+                    "доступный, но не запущенный external reviewer запрещает readiness"
+                )
+        elif self.external_reviewer_status == "SUBSTANTIVE" and self.reviewer_limitation:
+            raise ValueError(
+                "SUBSTANTIVE external reviewer не может одновременно иметь limitation"
+            )
+        fresh_gates = tuple(
+            gate
+            for gate in self.mandatory_gates
+            if gate.name == FRESH_MCP_ACCEPTANCE_GATE_NAME
+        )
+        if self.mcp_impact == "REQUIRED":
+            if len(fresh_gates) != 1:
+                raise ValueError(
+                    "MCP impact REQUIRED требует ровно один mandatory fresh MCP gate"
+                )
+            fresh_gate = fresh_gates[0]
+            if fresh_gate.state is MandatoryGateState.NOT_REQUIRED:
+                raise ValueError(
+                    "MCP impact REQUIRED запрещает NOT_REQUIRED для fresh MCP gate"
+                )
+            if (
+                fresh_gate.state is MandatoryGateState.PASS
+                and fresh_gate.evidence_kind != "fresh_mcp_client"
+            ):
+                raise ValueError(
+                    "PASS fresh MCP gate требует evidence независимой MCP client session"
+                )
         blocking = any(
             gate.required
             and gate.state
@@ -450,10 +759,41 @@ class PullRequestBody(ClosedModel):
     ci: str = Field(min_length=1, max_length=4000)
     security_secret_scan: str = Field(min_length=1, max_length=4000)
     coderabbit_review: CodeRabbitReview | None = None
-    readiness: ReadinessState = Field(default_factory=ReadinessState)
+    readiness: ReadinessState = Field(
+        default_factory=lambda: ReadinessState(mcp_impact="NOT_REQUIRED")
+    )
     migration_rollback: str = Field(min_length=1, max_length=4000)
     limitations: str = Field(min_length=1, max_length=4000)
     merge_method: Literal["squash", "merge", "rebase"] = "squash"
+
+    @model_validator(mode="after")
+    def validate_coderabbit_readiness(self) -> PullRequestBody:
+        review = self.coderabbit_review
+        status = self.readiness.external_reviewer_status
+        if status == "SUBSTANTIVE" and review is None:
+            raise ValueError(
+                "SUBSTANTIVE external reviewer требует CodeRabbit review evidence"
+            )
+        if review is None:
+            return self
+        actionable = any(
+            finding.triage is None
+            or finding.disposition
+            in {
+                FindingDisposition.CONFIRMED,
+                FindingDisposition.PARTIALLY_CONFIRMED,
+            }
+            for finding in review.findings
+        )
+        if actionable and (
+            self.readiness.overall_outcome == "READY"
+            or self.readiness.ready_for_chatgpt_review
+            or self.readiness.merge_ready
+        ):
+            raise ValueError(
+                "actionable CodeRabbit findings требуют triage/fix до readiness"
+            )
+        return self
 
 
 class PrPublicationSpec(ClosedModel):
@@ -681,6 +1021,12 @@ class McpImpactDetails(ClosedModel):
     generated_artifacts: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
     reconciliation_required: bool
 
+    @property
+    def fresh_acceptance_required(self) -> bool:
+        """Механическая связь impact classification с mandatory acceptance."""
+
+        return self.status == "REQUIRED"
+
 
 class McpServerStatus(ClosedModel):
     """Transport-neutral status одной first-party backend family."""
@@ -716,6 +1062,8 @@ class McpStatusDetails(ClosedModel):
     action: Literal["status", "reconcile", "start", "stop", "restart"]
     source_state: Literal["ready", "drift", "invalid", "unknown"]
     runtime_state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
+    source_reconciled: bool
+    runtime_ready: bool
     plugin_state: Literal["ready", "drift", "invalid", "unknown"]
     plugin_source_state: Literal["ready", "drift", "unknown"]
     session_state: Literal["current", "reload_required", "not_observable", "unknown"]
@@ -752,12 +1100,14 @@ class McpLifecycleDetails(ClosedModel):
 
 
 class McpReconcileDetails(ClosedModel):
-    """Результат source или runtime reconciliation без свободного payload."""
+    """Раздельный результат source reconciliation и live runtime readiness."""
 
     action: Literal["reconcile"] = "reconcile"
     mode: Literal["source", "runtime"]
     source_state: Literal["ready", "drift", "invalid", "unknown"]
     runtime_state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
+    source_reconciled: bool
+    runtime_ready: bool
     mutation_performed: bool
     changed_components: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
     affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
@@ -823,6 +1173,8 @@ class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
 
 
 __all__ = [
+    "CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME",
+    "FRESH_MCP_ACCEPTANCE_GATE_NAME",
     "AnalysisScope",
     "BranchIdentity",
     "BuildDetails",
@@ -830,8 +1182,16 @@ __all__ = [
     "CapabilityCheck",
     "CapabilityStatus",
     "ClosedModel",
+    "CodeRabbitConflictKind",
+    "CodeRabbitDeferralReason",
+    "CodeRabbitDeferredBacklog",
+    "CodeRabbitDeferredFinding",
+    "CodeRabbitDeferredOccurrence",
     "CodeRabbitFinding",
+    "CodeRabbitFindingTriage",
     "CodeRabbitReview",
+    "CodeRabbitTriageEntry",
+    "CodeRabbitTriageManifest",
     "CommitIdentity",
     "DeliveryChange",
     "DeliveryDetails",
@@ -849,6 +1209,8 @@ __all__ = [
     "GitEvidence",
     "GitRange",
     "GitSnapshot",
+    "IntegrationCheck",
+    "IntegrationCheckState",
     "IntegrationSummary",
     "LifecycleDetails",
     "LifecycleEvidence",

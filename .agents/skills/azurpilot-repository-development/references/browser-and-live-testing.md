@@ -34,3 +34,10 @@ sessions и временные профили.
 действие или недоступная foreground capability, укажи один точный внешний шаг,
 ожидаемый результат и evidence при ошибке. Это исключение не превращает
 пользователя в ручного CI.
+
+Если live acceptance требует свежей регистрации client/session после уже
+доказанного source/runtime state, используй единый
+[контракт cross-thread continuation](cross-thread-task-delegation.md). Новая
+независимая Codex task должна заново доказать фактически вызываемую MCP surface,
+contract, catalog и `runtime_ready` до acceptance; subagent, fork и
+same-session worker не являются таким continuation.

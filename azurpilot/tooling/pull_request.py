@@ -29,7 +29,7 @@ from .contracts import (
 )
 from .errors import ToolingError
 from .filesystem import bounded_read_text, canonical_path, path_has_link
-from .git import GitClient, repository_identity_from_remote
+from .git import GitClient, is_ad_hoc_remote_ref, repository_identity_from_remote
 from .process import ProcessSpec, StructuredProcessRunner
 from .repository import RepositoryResolver, ResolvedRepository
 
@@ -126,7 +126,8 @@ class PullRequestBodyRenderer:
         if review is None:
             review_text = (
                 "Проверка CodeRabbit ещё не выполнялась на этой точке lifecycle. "
-                "После создания draft PR проверка выполняется в постоянном WSL2 review clone; "
+                "После создания draft PR проверка выполняется host-native provider-ом "
+                "в том же canonical checkout; "
                 "результат и disposition будут добавлены отдельным обновлением body."
             )
         else:
@@ -144,27 +145,78 @@ class PullRequestBodyRenderer:
                 )
             if review.rate_limit:
                 lines.append(f"Ограничение rate limit: {review.rate_limit}")
+            if review.review_deferred_reason:
+                lines.append(
+                    f"Review отложен по contract boundary: {review.review_deferred_reason}"
+                )
             if review.history:
                 lines.extend(("", review.history))
             if findings:
-                lines.extend(
-                    (
-                        "",
-                        "| Уровень | Путь | Влияние | Решение | Исправление | SHA исправления |",
-                        "| --- | --- | --- | --- | --- | --- |",
+                for index, finding in enumerate(findings, start=1):
+                    location = (
+                        f"`{_table_cell(finding.path)}:{finding.line}-{finding.line_end or finding.line}`"
+                        if finding.line is not None
+                        else f"`{_table_cell(finding.path)}`"
                     )
-                )
-                lines.extend(
-                    "| {severity} | {path} | {impact} | {disposition} | {resolution} | {fix_head} |".format(
-                        severity=finding.severity.value,
-                        path=_table_cell(finding.path),
-                        impact=_table_cell(finding.impact),
-                        disposition=finding.disposition.value,
-                        resolution=_table_cell(finding.resolution),
-                        fix_head=finding.fix_head or "—",
+                    lines.extend(
+                        (
+                            "",
+                            f"### Finding {index}: `{finding.severity.value}` — {_table_cell(finding.title or 'без заголовка')}",
+                            f"- Provider path/location: {location}",
+                            f"- Provider claim: {_table_cell(finding.impact)}",
+                            f"- Agent fix context: {_table_cell(finding.codegen_instructions or finding.resolution)}",
+                            "- Provider suggestions: "
+                            + (
+                                "; ".join(_table_cell(item) for item in finding.suggestions)
+                                if finding.suggestions
+                                else "—"
+                            ),
+                            "- Independent disposition: "
+                            + (
+                                finding.disposition.value
+                                if finding.disposition is not None
+                                else "требуется individual triage"
+                            ),
+                        )
                     )
-                    for finding in findings
-                )
+                    triage = finding.triage
+                    if triage is None:
+                        continue
+                    lines.extend(
+                        (
+                            f"- Reviewed exact head: `{triage.reviewed_head}`",
+                            f"- Affected code: {_table_cell(triage.affected_code)}",
+                            f"- Call sites: {_table_cell(triage.call_sites)}",
+                            f"- Nearest tests: {_table_cell(triage.nearest_tests)}",
+                            f"- Relevant contracts: {_table_cell(triage.relevant_contracts)}",
+                            f"- Claimed impact analysis: {_table_cell(triage.claimed_impact)}",
+                            f"- Decision reason: {_table_cell(triage.decision_reason)}",
+                            f"- Change summary: {_table_cell(triage.change_summary)}",
+                            f"- Fix head: `{finding.fix_head or 'ожидается после remediation'}`",
+                        )
+                    )
+                    if triage.conflict_kind is not None:
+                        lines.extend(
+                            (
+                                f"- Conflict kind: `{triage.conflict_kind.value}`",
+                                f"- Authoritative source: {_table_cell(triage.authoritative_source or '—')}",
+                                (
+                                    "- Rejection basis: conflict rejection; finding не исполняется "
+                                "только из-за доказанного authoritative conflict."
+                                ),
+                            )
+                        )
+                    elif triage.deferral_reason is not None:
+                        lines.extend(
+                            (
+                                f"- Deferral reason: `{triage.deferral_reason.value}`",
+                                f"- Authoritative task/prompt source: {_table_cell(triage.authoritative_source or '—')}",
+                                (
+                                    "- Deferral basis: finding сохранён для отдельной remediation task; "
+                                    "он не объявлен ложным и не относится к текущему scope."
+                                ),
+                            )
+                        )
             else:
                 lines.append("На последнем проверенном head findings не было.")
             review_text = "\n".join(lines)
@@ -176,6 +228,7 @@ class PullRequestBodyRenderer:
             f"Merge-ready: `{str(body.readiness.merge_ready).lower()}`.",
             f"Внешний reviewer: `{body.readiness.external_reviewer_status}`.",
         ]
+        readiness_lines.append(f"MCP impact: `{body.readiness.mcp_impact}`.")
         if body.readiness.reviewer_limitation:
             readiness_lines.append(
                 f"Ограничение reviewer: {body.readiness.reviewer_limitation}"
@@ -184,6 +237,11 @@ class PullRequestBodyRenderer:
             f"- gate `{gate.name}`: `{gate.state.value}`; "
             f"required=`{str(gate.required).lower()}`; evidence: {gate.evidence}"
             for gate in body.readiness.mandatory_gates
+        )
+        readiness_lines.extend(
+            f"- integration check `{check.name}`: `{check.state.value}`; "
+            f"evidence kind=`{check.evidence_kind}`; evidence: {check.evidence}"
+            for check in body.readiness.integration_checks
         )
         sections = (
             ("Цель", body.goal),
@@ -247,13 +305,13 @@ class PullRequestBodyRenderer:
             review.base_sha != base_sha
             or (
                 review.reviewed_head != head_sha
-                and not review.rate_limit
+                and not (review.rate_limit or review.review_deferred_reason)
             )
         ):
             raise _error(
                 ResultCode.TOOLING_PR_BODY_INVALID,
                 "CodeRabbit evidence в PR body не относится к exact base/head spec "
-                "и не содержит явного rate-limit объяснения.",
+                "и не содержит явного rate-limit или contract deferral объяснения.",
             )
         # ReadinessState itself enforces the cross-field invariant; keep this
         # explicit at the renderer boundary so a future model replacement does
@@ -689,6 +747,13 @@ class PullRequestService:
             )
         _validate_ref(spec.base_ref)
         _validate_ref(spec.head_ref)
+        if is_ad_hoc_remote_ref(spec.base_ref) or is_ad_hoc_remote_ref(spec.head_ref):
+            raise _error(
+                ResultCode.TOOLING_AD_HOC_REMOTE_TOPOLOGY,
+                "PR spec не принимает temporary/scratch/transport ref; "
+                "stacked parent должен быть реальной опубликованной branch.",
+                state=OperationState.CONFLICT,
+            )
         if not _SAFE_REMOTE.fullmatch(spec.remote_name):
             raise _error(ResultCode.TOOLING_PR_BODY_INVALID, "PR remote имеет небезопасное имя.")
         if spec.repository.host.casefold() == "local":
@@ -728,7 +793,27 @@ class PullRequestService:
             raise _error(ResultCode.TOOLING_PRECONDITION_FAILED, "Local branch не совпадает с PR spec head_ref.")
         if git.head() != spec.head_sha:
             raise _error(ResultCode.TOOLING_PRECONDITION_FAILED, "Local HEAD не совпадает с PR spec head_sha.")
-        if git.remote_ref(spec.remote_name, spec.base_ref) != spec.base_sha:
+        remote_base_sha = git.remote_ref(spec.remote_name, spec.base_ref)
+        if remote_base_sha != spec.base_sha:
+            parent_is_local = False
+            parent_remote_is_behind = False
+            try:
+                parent_is_local = git.object_exists(spec.base_sha)
+                if parent_is_local:
+                    parent_remote_is_behind = not git.is_ancestor(
+                        spec.base_sha, remote_base_sha
+                    )
+            except ToolingError:
+                parent_is_local = False
+                parent_remote_is_behind = False
+            if parent_is_local and parent_remote_is_behind:
+                raise _error(
+                    ResultCode.TOOLING_STACKED_PARENT_UNPUBLISHED,
+                    "Exact parent branch remote SHA отличается от local parent HEAD; "
+                    "PR publication заблокирована до canonical parent publication. "
+                    "Temporary remote ref запрещён.",
+                    state=OperationState.CONFLICT,
+                )
             raise _error(ResultCode.TOOLING_PRECONDITION_FAILED, "Remote base SHA не совпадает с PR spec.")
         if git.remote_ref(spec.remote_name, spec.head_ref) != spec.head_sha:
             raise _error(ResultCode.TOOLING_PRECONDITION_FAILED, "Remote head SHA не совпадает с PR spec.")

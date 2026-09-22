@@ -2139,6 +2139,21 @@ class SmokeCapabilityRegistry:
             return CapabilityEvaluation(SmokeAssertionStatus.UNAVAILABLE, "runtime_state", "Типизированный оценщик не смог обработать assertion", (_ref("runtime_state", "assertion", "Проверка typed assertion"),))
 
 
+def smoke_capabilities_result(
+    registry: SmokeCapabilityRegistry | None = None,
+) -> DevResult:
+    """Вернуть каталог Smoke без разрешения target или создания runtime state."""
+
+    capabilities = registry or SmokeCapabilityRegistry()
+    return DevResult(
+        ok=True,
+        code="DEV_SMOKE_CAPABILITIES_READY",
+        message="Реестр возможностей Smoke готов",
+        state=SmokeState.CREATED.value,
+        details={"capabilities": [_safe_model_json(item) for item in capabilities.descriptors()]},
+    )
+
+
 class SmokeSupervisorBackend:
     """Только фиксированный запуск независимого supervisor через Python проекта."""
 
@@ -2839,13 +2854,7 @@ class SmokeRunManager:
         return DevResult(ok, code, message, state, session_id, payload)
 
     def list_capabilities(self) -> DevResult:
-        return self._result(
-            ok=True,
-            code="DEV_SMOKE_CAPABILITIES_READY",
-            message="Реестр возможностей Smoke готов",
-            state=SmokeState.CREATED.value,
-            details={"capabilities": [_safe_model_json(item) for item in self.capabilities.descriptors()]},
-        )
+        return smoke_capabilities_result(self.capabilities)
 
     @staticmethod
     def _spec_from_input(spec: object) -> SmokeSpec:
@@ -4559,4 +4568,5 @@ __all__ = [
     "TaskNotStartedAssertion",
     "TaskStartedAssertion",
     "VisualCaptureCondition",
+    "smoke_capabilities_result",
 ]
