@@ -26,14 +26,14 @@ from module.application.fleet_state import (
     FleetStateService,
     FormationFleetScanController,
 )
+from module.application.runtime_cache import (
+    clear_runtime_cache_provider,
+    install_runtime_cache_provider,
+)
 from module.application.runtime_storage import (
     RuntimeStorageService,
     clear_runtime_storage_provider,
     install_runtime_storage_provider,
-)
-from module.application.runtime_cache import (
-    clear_runtime_cache_provider,
-    install_runtime_cache_provider,
 )
 from module.persistence.config import (
     BACKEND_MARKER_VERSION,
@@ -47,11 +47,15 @@ from module.persistence.database import LazyEngine, StorageHealthChecker
 from module.persistence.database_diagnostics import PostgresDatabaseDiagnostics
 from module.persistence.local_environment import (
     DEFAULT_LOCAL_ENV_PATH,
+    LocalPostgresEnvironment,
     read_local_postgres_environment,
+)
+from module.persistence.redis_runtime_cache import (
+    RedisRuntimeCache,
+    RuntimeCacheSettings,
 )
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from module.persistence.unit_of_work import PostgresUnitOfWork
-from module.persistence.redis_runtime_cache import RedisRuntimeCache
 
 _lock = Lock()
 _service: RuntimeStorageService | None = None
@@ -68,6 +72,8 @@ _APP_POSTGRES_HOST_VARIABLE = "AZURPILOT_POSTGRES_HOST"
 _APP_POSTGRES_PORT_VARIABLE = "AZURPILOT_POSTGRES_PORT"
 _MIGRATOR_POSTGRES_HOST_VARIABLE = "AZURPILOT_POSTGRES_MIGRATOR_HOST"
 _MIGRATOR_POSTGRES_PORT_VARIABLE = "AZURPILOT_POSTGRES_MIGRATOR_PORT"
+_DOCKER_REDIS_HOST_VARIABLE = "AZURPILOT_DOCKER_REDIS_HOST"
+_DOCKER_REDIS_PORT_VARIABLE = "AZURPILOT_DOCKER_REDIS_PORT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +82,14 @@ class _DockerPostgresTransport:
 
     host: Literal["postgres"] = "postgres"
     port: Literal[5432] = 5432
+
+
+@dataclass(frozen=True, slots=True)
+class _DockerRedisTransport:
+    """Ограниченный transport override только для проверенного Compose runtime."""
+
+    host: Literal["redis"] = "redis"
+    port: Literal[6379] = 6379
 
 
 def _configured_runtime_path(variable: str, default: Path) -> Path:
@@ -114,6 +128,35 @@ def _docker_postgres_transport() -> _DockerPostgresTransport | None:
             "Docker PostgreSQL transport не соответствует каноническому Compose service."
         )
     return _DockerPostgresTransport()
+
+
+def _docker_redis_transport() -> _DockerRedisTransport | None:
+    host = os.environ.get(_DOCKER_REDIS_HOST_VARIABLE)
+    port = os.environ.get(_DOCKER_REDIS_PORT_VARIABLE)
+    if host is None and port is None:
+        return None
+    if host != "redis" or port != "6379":
+        raise StorageConfigurationError(
+            "Docker Redis transport не соответствует каноническому Compose service."
+        )
+    return _DockerRedisTransport()
+
+
+def _runtime_cache_settings(
+    local_environment: LocalPostgresEnvironment,
+    transport: _DockerRedisTransport | None,
+) -> RuntimeCacheSettings:
+    """Собрать immutable Redis settings из уже проверенного local environment."""
+
+    source = dict(local_environment.infrastructure_values)
+    if transport is not None:
+        source.update(
+            {
+                _DOCKER_REDIS_HOST_VARIABLE: transport.host,
+                _DOCKER_REDIS_PORT_VARIABLE: str(transport.port),
+            }
+        )
+    return RuntimeCacheSettings.from_environment(source)
 
 
 def _apply_docker_postgres_transport(
@@ -301,10 +344,16 @@ def bootstrap_runtime_storage(
                 _runtime_environment_path(_REPOSITORY_ROOT)
             )
             transport = _docker_postgres_transport()
+            redis_transport = _docker_redis_transport()
             settings = DatabaseSettings.from_backend_marker(resolved_marker)
+            redis_settings: RuntimeCacheSettings | None = None
             if local_environment is not None:
                 local_environment.require_app_runtime_match(settings)
                 local_environment.install(role="app")
+                redis_settings = _runtime_cache_settings(
+                    local_environment,
+                    redis_transport,
+                )
                 settings = _apply_docker_postgres_transport(
                     settings, local_environment, transport
                 )
@@ -329,7 +378,12 @@ def bootstrap_runtime_storage(
             )
             service = _service
             install_runtime_storage_provider(lambda: service)
-            install_runtime_cache_provider(RedisRuntimeCache.from_environment)
+            if redis_settings is None:
+                install_runtime_cache_provider(RedisRuntimeCache.from_environment)
+            else:
+                install_runtime_cache_provider(
+                    lambda settings=redis_settings: RedisRuntimeCache(settings)
+                )
         engine = _engine
         service = _service
     if engine is None or service is None:

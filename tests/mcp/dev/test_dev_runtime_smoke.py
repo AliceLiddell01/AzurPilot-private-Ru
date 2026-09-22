@@ -457,6 +457,137 @@ def test_smoke_validation_fails_closed_when_game_bridge_factory_errors(
     assert result.details["issues"][0]["code"] == "DEV_SMOKE_PRECONDITION_FAILED"
 
 
+def test_commission_smoke_preflight_blocks_before_root_task_start(
+    tmp_path: Path,
+    clean_source: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _Runtime()
+
+    def unavailable(_profile: str):
+        return (
+            {
+                "profile": "ap",
+                "status": "unavailable",
+                "cache_status": "NOT_CONFIGURED",
+                "remaining": None,
+            },
+            smoke.SmokeValidationIssue(
+                code="DEV_SMOKE_COMMISSION_RECOVERY_CACHE_NOT_READY",
+                message="synthetic cache precondition",
+            ),
+        )
+
+    monkeypatch.setattr(smoke, "_commission_recovery_preflight", unavailable)
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        now=lambda: _NOW,
+    )
+
+    def unexpected_start(**_kwargs: object) -> None:
+        raise AssertionError("root task не должен запускаться при недоступном recovery cache")
+
+    monkeypatch.setattr(runtime, "start", unexpected_start)
+    result = manager.start_smoke(
+        _spec(session=smoke.SmokeSessionSpec(root_tasks=["Commission"]))
+    )
+
+    assert result.ok is False
+    assert result.code == "DEV_SMOKE_PRECONDITION_FAILED"
+    assert result.details["issues"][0]["code"] == (
+        "DEV_SMOKE_COMMISSION_RECOVERY_CACHE_NOT_READY"
+    )
+    assert result.details["preconditions"]["commission_recovery"]["cache_status"] == (
+        "NOT_CONFIGURED"
+    )
+    assert runtime.active is False
+    assert manager.has_active_run() is False
+
+
+def test_commission_smoke_preflight_allows_healthy_empty_recovery_state(
+    tmp_path: Path,
+    clean_source: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        smoke,
+        "_commission_recovery_preflight",
+        lambda _profile: (
+            {
+                "profile": "ap",
+                "status": "unknown",
+                "cache_status": "READY",
+                "remaining": None,
+            },
+            None,
+        ),
+    )
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: _Runtime(),
+        supervisor_backend=_Backend(),
+        now=lambda: _NOW,
+    )
+
+    result = manager.validate_smoke(
+        _spec(session=smoke.SmokeSessionSpec(root_tasks=["Commission"]))
+    )
+
+    assert result.ok is True
+    assert result.details["preconditions"]["commission_recovery"] == {
+        "profile": "ap",
+        "status": "unknown",
+        "cache_status": "READY",
+        "remaining": None,
+    }
+
+
+def test_commission_recovery_preflight_reads_typed_projection_without_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.application import commission_recovery
+    from module.persistence import runtime as persistence_runtime
+
+    bootstrap_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        persistence_runtime,
+        "bootstrap_runtime_storage",
+        lambda **kwargs: bootstrap_calls.append(kwargs),
+    )
+
+    class _Store:
+        closed = False
+
+        @classmethod
+        def from_environment(cls):
+            return cls()
+
+        def read(self, _profile: str):
+            return SimpleNamespace(
+                status="unknown",
+                cache_status="READY",
+                remaining=None,
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(commission_recovery, "CommissionRecoveryStore", _Store)
+
+    details, issue = smoke._commission_recovery_preflight("ap")
+
+    assert issue is None
+    assert details == {
+        "profile": "ap",
+        "status": "unknown",
+        "cache_status": "READY",
+        "remaining": None,
+    }
+    assert bootstrap_calls == [{"require_ready": False}]
+
+
 def test_smoke_spec_is_strict_canonical_and_rejects_malformed_paths() -> None:
     spec = _spec(
         assertions=[
