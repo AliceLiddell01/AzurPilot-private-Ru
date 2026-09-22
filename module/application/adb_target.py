@@ -16,7 +16,7 @@ class AdbTargetResolutionError(ValueError):
         self.reason = reason
 
 
-def _safe_serial(value: object) -> str:
+def safe_serial(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("serial должен быть строкой")
     normalized = value.strip()
@@ -79,7 +79,7 @@ def resolve_adb_target_serial(
             reason="unavailable",
         )
     try:
-        normalized_inventory = tuple(_safe_serial(serial) for serial in inventory_serials)
+        normalized_inventory = tuple(safe_serial(serial) for serial in inventory_serials)
     except (TypeError, ValueError) as exc:
         raise AdbTargetResolutionError(
             "ADB inventory имеет неподтверждённый serial.",
@@ -95,7 +95,7 @@ def resolve_adb_target_serial(
         )
 
     try:
-        normalized_configured = _safe_serial(configured_serial)
+        normalized_configured = safe_serial(configured_serial)
     except (TypeError, ValueError) as exc:
         raise AdbTargetResolutionError(
             "Configured ADB target имеет неподтверждённый serial.",
@@ -128,7 +128,7 @@ def resolve_adb_target_serial(
     safe_aliases: set[str] = set()
     for alias in aliases:
         try:
-            safe_aliases.add(_safe_serial(alias))
+            safe_aliases.add(safe_serial(alias))
         except (TypeError, ValueError):
             continue
 

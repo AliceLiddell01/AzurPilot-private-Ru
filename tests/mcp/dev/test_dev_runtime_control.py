@@ -610,6 +610,49 @@ def test_configured_backend_fails_closed_when_configured_target_is_absent(
     assert snapshot.adb_state == "unavailable"
 
 
+def test_read_only_aliases_use_bounded_ttl_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    clock = [100.0]
+    cache = control_module._passive_emulator_aliases_cache
+    cache.clear()
+
+    def aliases_provider(serial: str) -> tuple[str, ...]:
+        calls.append(serial)
+        return (serial, "emulator-5556")
+
+    monkeypatch.setattr(
+        "module.application.adb_target.read_only_emulator_serial_aliases",
+        aliases_provider,
+    )
+    monkeypatch.setattr(
+        control_module,
+        "time",
+        SimpleNamespace(monotonic=lambda: clock[0]),
+    )
+
+    try:
+        assert control_module._read_only_target_serial_aliases("configured") == (
+            "configured",
+            "emulator-5556",
+        )
+        assert control_module._read_only_target_serial_aliases("configured") == (
+            "configured",
+            "emulator-5556",
+        )
+        assert calls == ["configured"]
+
+        clock[0] += control_module._PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
+        assert control_module._read_only_target_serial_aliases("configured") == (
+            "configured",
+            "emulator-5556",
+        )
+        assert calls == ["configured", "configured"]
+    finally:
+        cache.clear()
+
+
 def test_emulator_wait_connects_target_before_readiness_probe(
     tmp_path: Path,
     supervisor_identity: None,

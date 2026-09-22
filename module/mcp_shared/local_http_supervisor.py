@@ -711,12 +711,18 @@ class LocalHttpSupervisor:
             return False
         return LocalHttpSupervisor._safe_inspect_state(identity) == "absent"
 
-    def _stopped_postcondition(self) -> bool:
+    def _stopped_postcondition(
+        self, *, port_conflicts: tuple[str, ...] | None = None
+    ) -> bool:
         """Подтвердить marker absent/stopped и отсутствие port conflict."""
 
         return (
             self.status().get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED"
-            and not self.port_conflicts()
+            and not (
+                self.port_conflicts()
+                if port_conflicts is None
+                else port_conflicts
+            )
         )
 
     def stop_result(self) -> LocalHttpSupervisorStopResult:
@@ -834,10 +840,11 @@ class LocalHttpSupervisor:
                     ownership_confirmed=exact_live_owner,
                     detail="Marker изменился или не может быть безопасно удалён.",
                 )
-            if not self._stopped_postcondition():
+            port_conflicts = self.port_conflicts()
+            if not self._stopped_postcondition(port_conflicts=port_conflicts):
                 outcome = (
                     LocalHttpSupervisorStopOutcome.PORT_CONFLICT
-                    if self.port_conflicts()
+                    if port_conflicts
                     else LocalHttpSupervisorStopOutcome.POSTCONDITION_FAILED
                 )
                 return LocalHttpSupervisorStopResult(

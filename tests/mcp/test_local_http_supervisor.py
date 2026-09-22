@@ -836,13 +836,41 @@ def test_supervisor_reports_postcondition_failure_after_safe_marker_removal(
 ) -> None:
     supervisor = _stale_supervisor(tmp_path)
     _write_valid_stale_marker(supervisor)
-    monkeypatch.setattr(supervisor, "_stopped_postcondition", lambda: False)
+    monkeypatch.setattr(
+        supervisor,
+        "_stopped_postcondition",
+        lambda **_kwargs: False,
+    )
 
     result = supervisor.stop_result()
 
     assert result.outcome is LocalHttpSupervisorStopOutcome.POSTCONDITION_FAILED
     assert result.marker_removed is True
     assert not supervisor.marker_path.exists()
+
+
+def test_supervisor_reuses_post_cleanup_port_probe_for_postcondition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    _write_valid_stale_marker(supervisor)
+    calls: list[None] = []
+    monkeypatch.setattr(
+        supervisor,
+        "port_conflicts",
+        lambda: calls.append(None) or (),
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "status",
+        lambda: {"code": "LOCAL_MCP_SUPERVISOR_UNKNOWN"},
+    )
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.POSTCONDITION_FAILED
+    assert len(calls) == 2
 
 
 def test_supervisor_keeps_marker_when_foreign_port_remains(

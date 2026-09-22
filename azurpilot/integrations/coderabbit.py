@@ -51,6 +51,7 @@ from azurpilot.tooling.process import (
     RunningProcess,
     StructuredProcessRunner,
 )
+from azurpilot.coderabbit_schema import REVIEW_STATE_SCHEMA_VERSION
 
 from .adapters import (
     AdapterOutcome,
@@ -91,9 +92,8 @@ _RATE_LIMIT_MAX_SECONDS = 7 * 24 * 60 * 60
 _HEARTBEAT_INTERVAL_SECONDS = 15.0
 _REVIEW_TIMEOUT_SECONDS = 20 * 60
 _STATE_FILE_NAME = "coderabbit-review.json"
-_REVIEW_SCHEMA_VERSION = 6
+_REVIEW_SCHEMA_VERSION = REVIEW_STATE_SCHEMA_VERSION
 _BACKLOG_FILE_NAME = ".codex/local/coderabbit-deferred-findings.json"
-REVIEW_STATE_SCHEMA_VERSION = _REVIEW_SCHEMA_VERSION
 CODERABBIT_STATE_SCHEMA = REVIEW_STATE_SCHEMA_VERSION
 _RATE_LIMIT_WAITING = "rate_limited_waiting"
 _RATE_LIMIT_RETRY_ALLOWED = "rate_limited_retry_allowed"
@@ -1088,7 +1088,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 if legacy_disposition:
                     # Сохраняем legacy provider evidence отдельно, но лишаем его
                     # verified authority до нового exact-head triage.
-                    state["historical_non_authoritative_findings"].append(candidate)
+                    state["historical_non_authoritative_findings"].append(
+                        dict(candidate)
+                    )
                     legacy_non_authoritative = True
                     candidate["disposition"] = None
                     candidate["triage"] = None

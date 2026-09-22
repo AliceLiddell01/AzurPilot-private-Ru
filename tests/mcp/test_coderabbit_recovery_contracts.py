@@ -47,6 +47,33 @@ def _result(
     )
 
 
+def test_legacy_historical_finding_is_copied_before_active_fields_are_cleared():
+    candidate = {
+        "severity": "minor",
+        "path": "azurpilot/integrations/coderabbit.py",
+        "title": "legacy evidence",
+        "line": 10,
+        "impact": "legacy impact",
+        "resolution": "legacy resolution",
+        "disposition": "insufficient evidence",
+        "fix_head": "b" * 40,
+    }
+
+    state = coderabbit.CodeRabbitAdapter._normalise_state(
+        {
+            "schema_version": 5,
+            "findings": [candidate],
+        },
+        migrated=True,
+    )
+
+    historical = state["historical_non_authoritative_findings"]
+    assert isinstance(historical, list)
+    assert historical == [candidate]
+    assert state["findings"][0]["disposition"] is None
+    assert state["findings"][0]["fix_head"] is None
+
+
 class _DiscoveryRunner:
     def __init__(self, root: Path) -> None:
         self.root = root

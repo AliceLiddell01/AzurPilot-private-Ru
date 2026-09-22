@@ -14,6 +14,7 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPOSITORY_ROOT))
 
+from azurpilot.coderabbit_schema import REVIEW_STATE_SCHEMA_VERSION
 from azurpilot.tooling.operator import validate_direct_azur_invocation
 from azurpilot.tooling.ref_policy import is_ad_hoc_remote_ref
 from azurpilot.tooling.result import ResultCode
@@ -24,11 +25,13 @@ _MAX_STATE_BYTES = 128 * 1024
 _MAX_TRANSACTION_DIRECTORIES = 128
 
 _REVIEW_STATE_NAME = "coderabbit-review.json"
-_REVIEW_SCHEMA_VERSIONS = frozenset({1, 2, 3, 4, 5})
+_REVIEW_SCHEMA_VERSIONS = frozenset(range(1, REVIEW_STATE_SCHEMA_VERSION + 1))
 _RECOVERY_PROVIDER_STATES = frozenset(
     {
-        "CODERABBIT_REVIEW_LIVENESS_UNKNOWN",
-        "CODERABBIT_REVIEW_RECOVERY_REQUIRED",
+        "start_unknown",
+        "timeout_unknown",
+        "timeout_alive",
+        "legacy_state_migrated",
     }
 )
 _DELIVERY_RECOVERY_PHASES = frozenset({"push_in_flight", "unknown"})

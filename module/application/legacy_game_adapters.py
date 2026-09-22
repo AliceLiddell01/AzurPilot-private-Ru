@@ -23,6 +23,7 @@ from module.application.adb_target import (
     AdbTargetResolutionError,
     read_only_emulator_serial_aliases,
     resolve_adb_target_serial,
+    safe_serial as _safe_serial,
 )
 from module.application.errors import (
     ApplicationError,
@@ -197,19 +198,6 @@ def _safe_segment(value: object) -> str:
         or len(value) > MAX_NAME_LENGTH
     ):
         raise ValueError("segment содержит недопустимое значение")
-    return value
-
-
-def _safe_serial(value: object) -> str:
-    if not isinstance(value, str):
-        raise TypeError("serial должен быть строкой")
-    value = value.strip()
-    if (
-        not value
-        or len(value) > 256
-        or any(char.isspace() or ord(char) < 32 for char in value)
-    ):
-        raise ValueError("serial содержит недопустимое значение")
     return value
 
 
@@ -1285,9 +1273,15 @@ class LegacyGameApplicationAdapter:
             raise OwnershipAmbiguousError(
                 "Ownership configured ADB target не подтверждён однозначно."
             ) from None
-        device, serial, _state = next(
-            record for record in ready if record[1] == resolved_serial
+        selected = next(
+            (record for record in ready if record[1] == resolved_serial),
+            None,
         )
+        if selected is None:
+            raise OwnershipAmbiguousError(
+                "Разрешённый ADB target отсутствует в готовом inventory."
+            )
+        device, serial, _state = selected
         return device, serial
 
     @staticmethod

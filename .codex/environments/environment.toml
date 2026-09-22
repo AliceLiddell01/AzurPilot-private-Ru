@@ -18,6 +18,7 @@ fi
 
 uv lock --check
 uv sync --locked --python 3.14.6 --group dev --group ci
+uv run --locked --no-sync playwright install chromium
 uv run --locked --no-sync python -c "import sys, azurpilot, playwright; assert sys.version_info[:3] == (3, 14, 6), sys.version; print(sys.version); print(azurpilot.__file__)"
 uv run --locked --no-sync ruff --version
 uv run --locked --no-sync pytest --version
@@ -41,6 +42,11 @@ if ($LASTEXITCODE -ne 0) {
 uv sync --locked --python 3.14.6 --group dev --group ci
 if ($LASTEXITCODE -ne 0) {
     throw "uv sync завершился с кодом $LASTEXITCODE."
+}
+
+uv run --locked --no-sync playwright install chromium
+if ($LASTEXITCODE -ne 0) {
+    throw "Установка Chromium для Playwright завершилась с кодом $LASTEXITCODE."
 }
 
 uv run --locked --no-sync python -c "import sys, azurpilot, playwright; assert sys.version_info[:3] == (3, 14, 6), sys.version; print(sys.version); print(azurpilot.__file__)"

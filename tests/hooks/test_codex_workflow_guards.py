@@ -190,7 +190,7 @@ def test_stop_without_unfinished_state_does_not_block(
         {"schema_version": 4, "cycle_status": "recovery_required"},
         {
             "schema_version": 4,
-            "provider_state": "CODERABBIT_REVIEW_LIVENESS_UNKNOWN",
+            "provider_state": "start_unknown",
         },
         {"schema_version": 4, "triage_complete": False, "findings_count": 1},
     ],
@@ -214,6 +214,45 @@ def test_stop_blocks_strong_coderabbit_lifecycle_state(
     result = guards.process_event(_stop_event(root))
     assert result is not None
     assert result["decision"] == "block"
+
+
+@pytest.mark.parametrize(
+    "provider_state",
+    ["start_unknown", "timeout_unknown", "timeout_alive", "legacy_state_migrated"],
+)
+def test_stop_blocks_recovery_provider_states(
+    guards: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    provider_state: str,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _write_project(root)
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state_home))
+    state_directory = _state_root(guards, root, state_home)
+    state_directory.mkdir(parents=True)
+    (state_directory / "coderabbit-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": guards.REVIEW_STATE_SCHEMA_VERSION,
+                "provider_state": provider_state,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = guards.process_event(_stop_event(root))
+
+    assert result is not None
+    assert result["decision"] == "block"
+
+
+def test_review_guard_schema_versions_follow_adapter_constant(guards: ModuleType) -> None:
+    assert guards._REVIEW_SCHEMA_VERSIONS == frozenset(
+        range(1, guards.REVIEW_STATE_SCHEMA_VERSION + 1)
+    )
 
 
 def test_stop_hook_active_prevents_second_block(
