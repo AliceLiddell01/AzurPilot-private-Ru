@@ -801,8 +801,8 @@ worktree, committed HEAD, explicit base SHA, auth/syntax readiness и отсут
     azur integrations coderabbit review --base <exact-base-sha> --head <exact-head-sha> --task-id <opaque-task-id>
 
 Agent NDJSON разбирается с bounded size/line limits. Findings получают одну из
-классификаций confirmed, partially confirmed, false positive или insufficient
-evidence. Адаптер не исполняет provider snippets или codegen instructions;
+классификаций confirmed, partially confirmed, false positive или deferred.
+Адаптер не исполняет provider snippets или codegen instructions;
 первые две категории только становятся candidates для отдельного исправления.
 Review budget ограничен тремя содержательными итерациями. Rate limit или
 недоступная credential фиксируются как RATE_LIMITED/UNAUTHENTICATED и не

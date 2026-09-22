@@ -74,12 +74,6 @@ _CODERABBIT_RETIRED_MARKERS = (
     "wsl.exe --list",
     "pgrep -x coderabbit",
 )
-_OPERATOR_POLICY_MARKERS = (
-    "source_reconciled",
-    "runtime_ready",
-    "codex/base-*",
-    "TOOLING_STACKED_PARENT_UNPUBLISHED",
-)
 _OPERATOR_POLICY_MARKER_OWNERS = {
     "source_reconciled": Path(".codex/context/11-PYTHON-TOOLING.md"),
     "runtime_ready": Path(".codex/context/11-PYTHON-TOOLING.md"),
@@ -337,8 +331,7 @@ def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:
             contents[relative] = path.read_text(encoding="utf-8").casefold()
         except (OSError, UnicodeError):
             errors.append(f"{relative.as_posix()}: operator policy source не прочитан")
-    for marker in _OPERATOR_POLICY_MARKERS:
-        owner = _OPERATOR_POLICY_MARKER_OWNERS[marker]
+    for marker, owner in _OPERATOR_POLICY_MARKER_OWNERS.items():
         policy = contents.get(owner)
         if policy is not None and marker.casefold() not in policy:
             errors.append(f"operator workflow: отсутствует policy marker {marker}")
