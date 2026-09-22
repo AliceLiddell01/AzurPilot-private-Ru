@@ -20,11 +20,16 @@ from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
     DOCKER_HUB_READ_ONLY_TOOLS,
     GRAFANA_BLOCKED_TOOLS,
-    GRAFANA_ENABLED_TOOL_CATEGORIES,
     GRAFANA_READ_ONLY_TOOLS,
     GRAFANA_REQUIRED_READ_ONLY_TOOLS,
 )
-from azurpilot.integrations.config import DEFAULTS, REPOSITORY_MCP_ALIASES
+from azurpilot.integrations.config import (
+    DEFAULTS,
+    GRAFANA_STDIO_LAUNCHER_ARGS,
+    GRAFANA_STDIO_LAUNCHER_COMMAND,
+    GRAFANA_STDIO_LAUNCHER_CWD,
+    REPOSITORY_MCP_ALIASES,
+)
 from azurpilot.integrations.contracts import IntegrationName
 
 EXPECTED_FAMILIES = tuple(name.value for name in IntegrationName)
@@ -174,45 +179,28 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
             continue
 
         args = _string_list(entry, "args")
-        canonical_image = DEFAULTS[family].get("image")
-        if (
-            entry.get("command") != DEFAULTS[family].get("command")
-            or args is None
-            or not isinstance(canonical_image, str)
-            or canonical_image not in args
-        ):
-            errors.append(
-                f".codex/config.toml: {registration} расходится с canonical container route"
-            )
-            continue
-
         if family == "grafana":
-            if "-disable-write" not in args:
-                errors.append(
-                    ".codex/config.toml: grafana_direct обязан быть read-only"
-                )
-            if "-disable-api" not in args:
-                errors.append(
-                    ".codex/config.toml: grafana_direct обязан блокировать generic API"
-                )
-            if any(flag in args for flag in ("-disable-query", "--disable-query")):
-                errors.append(
-                    ".codex/config.toml: grafana_direct не должен отключать datasource queries"
-                )
-            if any(flag in args for flag in ("-disable-proxied", "--disable-proxied")):
-                errors.append(
-                    ".codex/config.toml: grafana_direct не должен отключать required Tempo proxied reads"
-                )
-            enabled_categories = [
-                index for index, value in enumerate(args) if value == "-enabled-tools"
-            ]
             if (
-                len(enabled_categories) != 1
-                or enabled_categories[0] + 1 >= len(args)
-                or args[enabled_categories[0] + 1] != GRAFANA_ENABLED_TOOL_CATEGORIES
+                entry.get("command") != GRAFANA_STDIO_LAUNCHER_COMMAND
+                or args != GRAFANA_STDIO_LAUNCHER_ARGS
+                or entry.get("cwd") != GRAFANA_STDIO_LAUNCHER_CWD
             ):
                 errors.append(
-                    ".codex/config.toml: grafana_direct categories расходятся с read-only observability contract"
+                    ".codex/config.toml: grafana_direct обязан указывать "
+                    "repository-owned stdio launcher"
+                )
+            if any(
+                key in entry
+                for key in (
+                    "url",
+                    "image",
+                    "credential_env_var",
+                    "bearer_token_env_var",
+                )
+            ):
+                errors.append(
+                    ".codex/config.toml: grafana_direct не должен задавать route "
+                    "в обход adapter"
                 )
             enabled_tools = _string_list(entry, "enabled_tools")
             if enabled_tools is None or set(enabled_tools) != set(GRAFANA_READ_ONLY_TOOLS):
@@ -229,14 +217,22 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
                     ".codex/config.toml: grafana_direct denylist расходится с adapter contract"
                 )
             env_vars = _string_list(entry, "env_vars")
-            expected_env = {
-                "GRAFANA_URL",
-                str(DEFAULTS[family].get("credential_env")),
-            }
-            if env_vars is None or not expected_env.issubset(env_vars):
+            if env_vars is None or set(env_vars) != {"GRAFANA_SERVICE_ACCOUNT_TOKEN"}:
                 errors.append(
-                    ".codex/config.toml: grafana_direct не наследует canonical env names"
+                    ".codex/config.toml: grafana_direct должен передавать только "
+                    "credential env launcher-у"
                 )
+            continue
+        canonical_image = DEFAULTS[family].get("image")
+        if (
+            entry.get("command") != DEFAULTS[family].get("command")
+            or args is None
+            or not isinstance(canonical_image, str)
+            or canonical_image not in args
+        ):
+            errors.append(
+                f".codex/config.toml: {registration} расходится с canonical container route"
+            )
             continue
 
         if family == "docker-hub":

@@ -55,6 +55,7 @@ from azurpilot.tooling.process import (
     INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS,
     INTEGRATION_CREDENTIAL_FILE_ENVIRONMENT_KEYS,
 )
+from tests.support.paths import REPOSITORY_ROOT
 
 
 @pytest.fixture(autouse=True)
@@ -87,6 +88,15 @@ def test_grafana_defaults_use_only_direct_credential_boundaries():
     assert settings["credential_env"] == "GRAFANA_SERVICE_ACCOUNT_TOKEN"
     assert "credential_provider" not in settings
     assert "credential_ref" not in settings
+
+
+def test_grafana_repository_launcher_does_not_override_adapter_defaults():
+    settings = load_integration_config(REPOSITORY_ROOT).provider("grafana")
+
+    assert settings["command"] == "docker"
+    assert str(settings["image"]).startswith("mcp/grafana@sha256:")
+    assert "endpoint" not in settings
+    assert "network" not in settings
 
 
 def test_coderabbit_defaults_use_only_native_host_route():
@@ -410,9 +420,10 @@ def test_grafana_file_credential_uses_direct_container_env(
     credential_file = tmp_path / "grafana-token"
     credential_file.write_text(token + "\n", encoding="utf-8")
     settings = {
-        "endpoint": "http://host.docker.internal:3000",
+        "endpoint": "http://grafana:3000",
         "command": "docker",
         "image": "mcp/grafana@sha256:" + "a" * 64,
+        "network": "observability_default",
         "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
         "credential_file": str(credential_file),
     }
@@ -431,6 +442,9 @@ def test_grafana_file_credential_uses_direct_container_env(
     assert "GRAFANA_SERVICE_ACCOUNT_TOKEN" in args
     assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN"] == token
     assert token not in " ".join(args)
+    network_index = args.index("--network")
+    assert args[network_index + 1] == "observability_default"
+    assert environment["GRAFANA_URL"] == "http://grafana:3000"
     assert "-disable-write" in args
     assert "-disable-api" in args
     assert "-disable-query" not in args
@@ -585,6 +599,41 @@ def test_grafana_discovery_rejects_ambiguous_published_routes(monkeypatch):
 
     assert settings == {}
     assert code == "GRAFANA_ENDPOINT_AMBIGUOUS"
+
+
+def test_grafana_discovery_rejects_ambiguous_compose_networks(monkeypatch):
+    monkeypatch.setattr(
+        "azurpilot.integrations.adapters._executable", lambda _command: "docker"
+    )
+    inspect_payload = (
+        '{"com.docker.compose.project.config_files":"C:/repo/compose.yaml"}\t'
+        '{"3000/tcp":[{"HostPort":"3000"}]}\t'
+        '{"observability_default":{},"other_default":{}}\n'
+    )
+
+    def fake_docker(_root, _executable, arguments):
+        return "grafana-id\n" if arguments[0] == "ps" else inspect_payload
+
+    monkeypatch.setattr("azurpilot.integrations.adapters._docker_readonly", fake_docker)
+    settings, code = _discover_grafana_settings(Path("C:/repo"), {})
+
+    assert settings == {}
+    assert code == "GRAFANA_ENDPOINT_AMBIGUOUS"
+
+
+def test_grafana_discovery_fails_closed_when_service_is_missing(monkeypatch):
+    monkeypatch.setattr(
+        "azurpilot.integrations.adapters._executable", lambda _command: "docker"
+    )
+    monkeypatch.setattr(
+        "azurpilot.integrations.adapters._docker_readonly",
+        lambda _root, _executable, _arguments: "",
+    )
+
+    settings, code = _discover_grafana_settings(Path("C:/repo"), {})
+
+    assert settings == {}
+    assert code == "GRAFANA_ENDPOINT_NOT_CONFIGURED"
 
 
 @pytest.mark.parametrize(

@@ -3,8 +3,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 import dev_tools.integration_contract_gate as gate
 from azurpilot.integrations.adapters import DOCKER_HUB_BLOCKED_TOOLS
 from tests.support.paths import REPOSITORY_ROOT
@@ -53,26 +51,20 @@ def test_contract_rejects_empty_docker_hub_denylist(tmp_path: Path):
     )
 
 
-@pytest.mark.parametrize(
-    ("injected_flag", "expected_error"),
-    [
-        (
-            '    "-disable-query",\n',
-            ".codex/config.toml: grafana_direct не должен отключать datasource queries",
-        ),
-        (
-            '    "-disable-proxied",\n',
-            ".codex/config.toml: grafana_direct не должен отключать required Tempo proxied reads",
-        ),
-    ],
-)
-def test_contract_rejects_incompatible_grafana_flags(
-    tmp_path: Path, injected_flag: str, expected_error: str
-):
+def test_contract_rejects_raw_grafana_container_registration(tmp_path: Path):
     source = (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8")
+    launcher = """command = \"uv\"
+args = [
+    \"run\",
+    \"--locked\",
+    \"--no-sync\",
+    \"python\",
+    \"-m\",
+    \"azurpilot.integrations.grafana_stdio\",
+]"""
     mutated, replacements = re.subn(
-        r'(?m)^    "-disable-api",\n',
-        '    "-disable-api",\n' + injected_flag,
+        re.escape(launcher),
+        'command = "docker"\nargs = ["run", "mcp/grafana"]',
         source,
         count=1,
     )
@@ -85,4 +77,7 @@ def test_contract_rejects_incompatible_grafana_flags(
     payload = gate.check(tmp_path)
 
     assert payload["checks"]["codex_config"] == "drift"
-    assert expected_error in payload["errors"]
+    assert (
+        ".codex/config.toml: grafana_direct обязан указывать "
+        "repository-owned stdio launcher"
+    ) in payload["errors"]

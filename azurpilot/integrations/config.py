@@ -86,6 +86,17 @@ REPOSITORY_MCP_ALIASES = {
     "grafana_direct": "grafana",
 }
 
+GRAFANA_STDIO_LAUNCHER_COMMAND = "uv"
+GRAFANA_STDIO_LAUNCHER_ARGS = (
+    "run",
+    "--locked",
+    "--no-sync",
+    "python",
+    "-m",
+    "azurpilot.integrations.grafana_stdio",
+)
+GRAFANA_STDIO_LAUNCHER_CWD = "."
+
 _REPOSITORY_FIXED_VALUES: dict[str, dict[str, str]] = {
     "semgrep": {"command": "semgrep"},
     "context7": {
@@ -253,6 +264,31 @@ def _repo_mcp_table(root: Path) -> dict[str, dict[str, object]]:
     for raw_name, raw_values in servers.items():
         name = REPOSITORY_MCP_ALIASES.get(str(raw_name))
         if name is None or not isinstance(raw_values, dict):
+            continue
+        if name == "grafana":
+            launcher_args = raw_values.get("args")
+            if (
+                raw_values.get("command") != GRAFANA_STDIO_LAUNCHER_COMMAND
+                or not isinstance(launcher_args, list)
+                or tuple(launcher_args) != GRAFANA_STDIO_LAUNCHER_ARGS
+                or raw_values.get("cwd") != GRAFANA_STDIO_LAUNCHER_CWD
+                or any(
+                    key in raw_values
+                    for key in (
+                        "url",
+                        "image",
+                        "credential_env_var",
+                        "bearer_token_env_var",
+                    )
+                )
+            ):
+                _raise(
+                    "Регистрация grafana в repository config должна использовать "
+                    "штатный repository-owned stdio launcher без route overrides."
+                )
+            # Registration запускает только launcher. Provider command, immutable
+            # image, endpoint, network и read-only flags принадлежат adapter.
+            result[name] = {}
             continue
         values: dict[str, object] = {}
         for key in (
@@ -433,4 +469,11 @@ def load_integration_config(root: Path) -> IntegrationConfig:
     return IntegrationConfig(normalized, sources)
 
 
-__all__ = ["DEFAULTS", "IntegrationConfig", "load_integration_config"]
+__all__ = [
+    "DEFAULTS",
+    "GRAFANA_STDIO_LAUNCHER_ARGS",
+    "GRAFANA_STDIO_LAUNCHER_COMMAND",
+    "GRAFANA_STDIO_LAUNCHER_CWD",
+    "IntegrationConfig",
+    "load_integration_config",
+]
