@@ -560,6 +560,8 @@ class LocalHttpSupervisor:
             payload = json.loads(self.marker_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None, None
+        except UnicodeDecodeError:
+            return None, LocalHttpSupervisorStopOutcome.INVALID_MARKER
         except (OSError, UnicodeError):
             return None, LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY
         except (TypeError, ValueError):

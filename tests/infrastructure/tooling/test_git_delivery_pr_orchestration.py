@@ -1490,21 +1490,27 @@ def test_required_mcp_impact_requires_fresh_mcp_client_gate() -> None:
     )
     assert readiness.mcp_impact == "REQUIRED"
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="mcp_impact"):
         ReadinessState(
             implementation_status="COMPLETE",
             mandatory_gates=(),
             overall_outcome="BLOCKED",
         )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError,
+        match="MCP impact REQUIRED требует ровно один mandatory fresh MCP gate",
+    ):
         ReadinessState(
             implementation_status="COMPLETE",
             mcp_impact="REQUIRED",
             mandatory_gates=(),
             overall_outcome="BLOCKED",
         )
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError,
+        match="PASS fresh MCP gate требует evidence независимой MCP client session",
+    ):
         ReadinessState(
             implementation_status="COMPLETE",
             mcp_impact="REQUIRED",
@@ -1516,6 +1522,7 @@ def test_required_mcp_impact_requires_fresh_mcp_client_gate() -> None:
                     evidence_kind="source",
                 ),
             ),
+            external_reviewer_status="SUBSTANTIVE",
             overall_outcome="READY",
             ready_for_chatgpt_review=True,
         )

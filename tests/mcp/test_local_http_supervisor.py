@@ -734,6 +734,17 @@ def test_supervisor_invalid_marker_and_pid_reuse_are_not_owned(
     assert psutil.Process(os.getpid()).is_running()
 
 
+def test_supervisor_rejects_invalid_utf8_marker_as_invalid_marker(
+    tmp_path: Path,
+) -> None:
+    supervisor = _supervisor(tmp_path)
+    supervisor.marker_path.write_bytes(b"{\xff")
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.INVALID_MARKER
+
+
 def test_supervisor_recovers_valid_same_repository_stale_marker(
     tmp_path: Path,
 ) -> None:

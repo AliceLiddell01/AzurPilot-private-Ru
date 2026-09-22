@@ -74,18 +74,6 @@ _CODERABBIT_RETIRED_MARKERS = (
     "wsl.exe --list",
     "pgrep -x coderabbit",
 )
-_OPERATOR_POLICY_PATHS = (
-    Path("AGENTS.md"),
-    Path(".codex/context/11-PYTHON-TOOLING.md"),
-    Path(".codex/context/GIT-WORKFLOW.md"),
-    Path(".agents/skills/azurpilot-repository-development/SKILL.md"),
-    Path(".agents/skills/azurpilot-coderabbit-review/SKILL.md"),
-    Path(".agents/skills/azurpilot-coderabbit-review/references/review-workflow.md"),
-    Path("plugins/azurpilot/skills/azurpilot-development/SKILL.md"),
-    Path("plugins/azurpilot/skills/azurpilot-game-control/SKILL.md"),
-    Path("plugins/azurpilot/skills/azurpilot-troubleshooting/SKILL.md"),
-    Path("plugins/azurpilot/references/mcp-routing.md"),
-)
 _OPERATOR_POLICY_MARKERS = (
     "source_reconciled",
     "runtime_ready",
@@ -342,7 +330,8 @@ def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:
     """Проверить literal azur path, MCP readiness split и topology policy."""
 
     contents: dict[Path, str] = {}
-    for relative in _OPERATOR_POLICY_PATHS:
+    owner_paths = tuple(dict.fromkeys(_OPERATOR_POLICY_MARKER_OWNERS.values()))
+    for relative in owner_paths:
         path = root / relative
         try:
             contents[relative] = path.read_text(encoding="utf-8").casefold()

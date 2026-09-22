@@ -14,10 +14,18 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPOSITORY_ROOT))
 
-from azurpilot.coderabbit_schema import REVIEW_STATE_SCHEMA_VERSION
-from azurpilot.tooling.operator import validate_direct_azur_invocation
-from azurpilot.tooling.ref_policy import is_ad_hoc_remote_ref
-from azurpilot.tooling.result import ResultCode
+_PROJECT_IMPORTS_AVAILABLE = True
+try:
+    from azurpilot.coderabbit_schema import REVIEW_STATE_SCHEMA_VERSION
+    from azurpilot.tooling.operator import validate_direct_azur_invocation
+    from azurpilot.tooling.ref_policy import is_ad_hoc_remote_ref
+    from azurpilot.tooling.result import ResultCode
+except ImportError:
+    _PROJECT_IMPORTS_AVAILABLE = False
+    REVIEW_STATE_SCHEMA_VERSION = 0
+    validate_direct_azur_invocation = None
+    is_ad_hoc_remote_ref = None
+    ResultCode = None
 
 _MAX_INPUT_BYTES = 128 * 1024
 _MAX_COMMAND_CHARS = 64 * 1024
@@ -651,6 +659,8 @@ def _stop_result(event: dict[str, Any]) -> dict[str, str]:
 def process_event(event: object) -> dict[str, Any] | None:
     """Обработать только wire-поля текущего hook event без transcript parsing."""
 
+    if not _PROJECT_IMPORTS_AVAILABLE:
+        return None
     if not isinstance(event, dict):
         return None
     event_name = event.get("hook_event_name")
@@ -688,6 +698,8 @@ def _read_event() -> dict[str, Any] | None:
 
 
 def main() -> None:
+    if not _PROJECT_IMPORTS_AVAILABLE:
+        return
     try:
         event = _read_event()
         result = process_event(event)

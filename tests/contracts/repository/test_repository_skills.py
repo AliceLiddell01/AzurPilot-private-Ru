@@ -393,27 +393,115 @@ def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -
 
 
 def test_mcp_lifecycle_contract_uses_typed_runtime_reconcile() -> None:
-    documents = (
-        _REPOSITORY_ROOT / ".agents" / "skills" / "azurpilot-repository-development" / "SKILL.md",
-        _REPOSITORY_ROOT / ".agents" / "skills" / "azurpilot-repository-development" / "references" / "cross-thread-task-delegation.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "11-PYTHON-TOOLING.md",
-        _REPOSITORY_ROOT / "docs" / "game-mcp.md",
-        _REPOSITORY_ROOT / "plugins" / "azurpilot" / "README.md",
-        _REPOSITORY_ROOT / "plugins" / "azurpilot" / "references" / "mcp-routing.md",
-        _REPOSITORY_ROOT / "plugins" / "azurpilot" / "skills" / "azurpilot-development" / "SKILL.md",
-        _REPOSITORY_ROOT / "plugins" / "azurpilot" / "skills" / "azurpilot-game-control" / "SKILL.md",
-        _REPOSITORY_ROOT / "plugins" / "azurpilot" / "skills" / "azurpilot-troubleshooting" / "SKILL.md",
+    document_contracts = {
+        _REPOSITORY_ROOT
+        / ".agents"
+        / "skills"
+        / "azurpilot-repository-development"
+        / "SKILL.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "recorded exact",
+            "STOPPED/no-conflict",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT
+        / ".agents"
+        / "skills"
+        / "azurpilot-repository-development"
+        / "references"
+        / "cross-thread-task-delegation.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "recorded exact-identity cleanup",
+            "STOPPED/no-conflict",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md": (
+            "azur mcp reconcile",
+            "runtime_ready=true",
+            "recorded-identity cleanup",
+            "STOPPED/no-conflict",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT / ".codex" / "context" / "11-PYTHON-TOOLING.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "recorded-identity cleanup",
+            "STOPPED/no-conflict",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT / "docs" / "game-mcp.md": (
+            "azur mcp reconcile",
+            "runtime_ready=true",
+            "recorded exact-identity cleanup",
+            "STOPPED/no-conflict",
+            "foreign/invalid marker",
+            "session_state=not_observable",
+        ),
+        _REPOSITORY_ROOT / "plugins" / "azurpilot" / "README.md": (
+            "runtime_state=stopped",
+            "azur mcp reconcile",
+            "STOPPED/no-conflict",
+            "invalid/foreign marker",
+        ),
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "references"
+        / "mcp-routing.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "recorded exact-identity cleanup",
+            "STOPPED/no-conflict",
+            "invalid/unknown/foreign ownership",
+        ),
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-development"
+        / "SKILL.md": (
+            "azur mcp reconcile",
+            "runtime_ready=true",
+            "recorded-identity cleanup",
+            "STOPPED/no-conflict",
+            "invalid/foreign marker",
+        ),
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-game-control"
+        / "SKILL.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "exact-identity cleanup",
+            "STOPPED/no-conflict",
+        ),
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-troubleshooting"
+        / "SKILL.md": (
+            "azur mcp reconcile --source --bump auto",
+            "runtime_ready=true",
+            "azur mcp reconcile",
+            "STOPPED/no-conflict",
+            "invalid marker/liveness",
+        ),
+    }
+    for path, phrases in document_contracts.items():
+        content = path.read_text(encoding="utf-8").casefold()
+        for phrase in phrases:
+            assert phrase.casefold() in content, (path, phrase)
+    all_content = "\n".join(
+        path.read_text(encoding="utf-8").casefold()
+        for path in document_contracts
     )
-    content = "\n".join(path.read_text(encoding="utf-8") for path in documents)
-    assert "azur mcp reconcile --source --bump auto" in content
-    assert "azur mcp reconcile` без `--source" in content
-    assert "azur mcp reconcile --runtime" not in content
-    assert "session_state=not_observable" in content
-    assert "runtime_ready=true" in content
-    assert "recorded exact" in content
-    assert "STOPPED/no-conflict" in content
-    assert "invalid/foreign" in content
+    assert "azur mcp reconcile` без `--source" in all_content
+    assert "azur mcp reconcile --runtime" not in all_content
 
 
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
