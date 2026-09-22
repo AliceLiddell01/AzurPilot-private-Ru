@@ -89,13 +89,17 @@ _OPERATOR_POLICY_PATHS = (
 _OPERATOR_POLICY_MARKERS = (
     "source_reconciled",
     "runtime_ready",
-    "буквальн",
-    "azur ...",
     "codex/base-*",
-    "temporary/scratch/transport/helper",
-    "host-native",
     "TOOLING_STACKED_PARENT_UNPUBLISHED",
 )
+_OPERATOR_POLICY_MARKER_OWNERS = {
+    "source_reconciled": Path(".codex/context/11-PYTHON-TOOLING.md"),
+    "runtime_ready": Path(".codex/context/11-PYTHON-TOOLING.md"),
+    "TOOLING_STACKED_PARENT_UNPUBLISHED": Path(
+        ".codex/context/11-PYTHON-TOOLING.md"
+    ),
+    "codex/base-*": Path(".codex/context/GIT-WORKFLOW.md"),
+}
 
 
 def _relative(root: Path, path: Path) -> str:
@@ -337,16 +341,17 @@ def _check_coderabbit_native_boundary(root: Path, errors: list[str]) -> None:
 def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:
     """Проверить literal azur path, MCP readiness split и topology policy."""
 
-    contents: list[str] = []
+    contents: dict[Path, str] = {}
     for relative in _OPERATOR_POLICY_PATHS:
         path = root / relative
         try:
-            contents.append(path.read_text(encoding="utf-8").casefold())
+            contents[relative] = path.read_text(encoding="utf-8").casefold()
         except (OSError, UnicodeError):
             errors.append(f"{relative.as_posix()}: operator policy source не прочитан")
-    policy = "\n".join(contents)
     for marker in _OPERATOR_POLICY_MARKERS:
-        if marker.casefold() not in policy:
+        owner = _OPERATOR_POLICY_MARKER_OWNERS[marker]
+        policy = contents.get(owner)
+        if policy is not None and marker.casefold() not in policy:
             errors.append(f"operator workflow: отсутствует policy marker {marker}")
     development_skill = (
         root / "plugins" / "azurpilot" / "skills" / "azurpilot-development" / "SKILL.md"

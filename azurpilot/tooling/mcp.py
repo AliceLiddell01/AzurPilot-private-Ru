@@ -11,7 +11,7 @@ import tomllib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -66,6 +66,9 @@ from .process import (
 )
 from .repository import RepositoryResolver
 
+if TYPE_CHECKING:
+    from module.mcp_shared.local_http_supervisor import LocalHttpSupervisorStopResult
+
 MCP_SERVER_NAMES = ("azurpilot-dev", "azurpilot-game")
 PLUGIN_MANIFEST_PATH = Path("plugins/azurpilot/.codex-plugin/plugin.json")
 PLUGIN_COMPATIBILITY_PATH = Path("plugins/azurpilot/compatibility.json")
@@ -85,6 +88,7 @@ SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
         Path("module/dev_mcp"),
         Path("module/dev_runtime"),
         Path("module/application/canonical_payload.py"),
+        Path("module/application/adb_target.py"),
         Path("module/application/database_diagnostics.py"),
         Path("module/application/errors.py"),
         Path("module/application/fleet_manual_scan.py"),
@@ -118,6 +122,7 @@ SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
     "GAME_MCP_SOURCE_SET": (
         Path("module/game_mcp"),
         Path("module/application/canonical_payload.py"),
+        Path("module/application/adb_target.py"),
         Path("module/application/database_diagnostics.py"),
         Path("module/application/errors.py"),
         Path("module/application/fleet_manual_scan.py"),
@@ -1947,7 +1952,9 @@ class McpService:
             "Локальный MCP supervisor не достиг readiness.",
         )
 
-    def _stop_owned_supervisor(self, root: Path, server_name: str) -> object:
+    def _stop_owned_supervisor(
+        self, root: Path, server_name: str
+    ) -> LocalHttpSupervisorStopResult:
         """Остановить supervisor по typed exact/stale recovery result."""
 
         from module.mcp_shared.local_http_supervisor import (

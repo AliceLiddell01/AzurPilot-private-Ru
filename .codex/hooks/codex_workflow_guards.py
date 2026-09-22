@@ -14,7 +14,9 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPOSITORY_ROOT))
 
+from azurpilot.tooling.operator import validate_direct_azur_invocation
 from azurpilot.tooling.ref_policy import is_ad_hoc_remote_ref
+from azurpilot.tooling.result import ResultCode
 
 _MAX_INPUT_BYTES = 128 * 1024
 _MAX_COMMAND_CHARS = 64 * 1024
@@ -105,6 +107,29 @@ def _is_azur_executable(value: str) -> bool:
     if base not in _AZUR_NAMES:
         return False
     return base != "azur" or "/" in raw.replace("\\", "/")
+
+
+def _direct_azur_boundary_reason(
+    tokens: tuple[str, ...], *, nested: bool
+) -> str | None:
+    """Применить общий operator contract к доказанному AzurPilot launcher."""
+
+    if not tokens:
+        return None
+    executable = tokens[0]
+    is_literal = _is_literal_azur(executable)
+    is_project_executable = _is_azur_executable(executable)
+    is_project_module = _is_python(executable) and _module_is_azurpilot(tokens, 1)
+    if not (is_literal or is_project_executable or is_project_module):
+        return None
+    validation = validate_direct_azur_invocation(tokens, azur_available=True)
+    if validation is ResultCode.OK and not (nested and is_literal):
+        return None
+    return (
+        "AZUR_OPERATOR_CANONICAL_REQUIRED: внутри wrapper вызывайте azur напрямую через PATH."
+        if nested and is_literal
+        else "AZUR_OPERATOR_CANONICAL_REQUIRED: используйте буквальную команду azur ... через PATH."
+    )
 
 
 def _is_python(value: str) -> bool:
@@ -223,7 +248,7 @@ def _tokenize(segment: str) -> tuple[str, ...]:
         elif char.isspace():
             flush()
         elif char == "&" and not current:
-            # PowerShell call operator: & "path\\to\\azur.exe".
+            # Оператор вызова PowerShell: & "path\\to\\azur.exe".
             pass
         else:
             current.append(char)
@@ -399,17 +424,10 @@ def _classify_tokens(
     if git_reason:
         return git_reason
 
+    direct_reason = _direct_azur_boundary_reason(tokens, nested=nested)
+    if direct_reason:
+        return direct_reason
     executable = tokens[0]
-    if _is_literal_azur(executable):
-        return (
-            "AZUR_OPERATOR_CANONICAL_REQUIRED: внутри wrapper вызывайте azur напрямую через PATH."
-            if nested
-            else None
-        )
-    if _is_azur_executable(executable):
-        return "AZUR_OPERATOR_CANONICAL_REQUIRED: используйте буквальную команду azur ... через PATH."
-    if _is_python(executable) and _module_is_azurpilot(tokens, 1):
-        return "AZUR_OPERATOR_CANONICAL_REQUIRED: используйте буквальную команду azur ... через PATH."
     if _is_uv(executable):
         payload = _uv_payload(tokens)
         if payload:
@@ -674,7 +692,7 @@ def main() -> None:
             sys.stdout.write(
                 json.dumps(result, ensure_ascii=False, separators=(",", ":"))
             )
-    except Exception:  # noqa: BLE001 - hook must never expose a traceback in Codex UI.
+    except Exception:  # noqa: BLE001 - hook не должен показывать traceback в Codex UI.
         return
 
 

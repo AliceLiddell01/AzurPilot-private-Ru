@@ -264,10 +264,10 @@ class NativeCodeRabbit:
     def validate_repository_config(self) -> ProcessResult:
         """Проверить root `.coderabbit.yaml` официальным CLI command.
 
-        Repository configuration is auto-discovered by CodeRabbit.  This
-        command is a schema check only; it is deliberately not passed as
-        `--config` to review because that flag is an additional AI-instruction
-        surface, not the repository configuration switch.
+        Repository configuration автоматически обнаруживается CodeRabbit.
+        Эта команда проверяет только schema; мы намеренно не передаём путь как
+        `--config` в review, потому что этот flag добавляет AI-instruction
+        surface, а не выбирает repository configuration.
         """
 
         return self.run(
@@ -353,7 +353,9 @@ def _parse_provider_retry_metadata(
             if parsed.tzinfo is None:
                 continue
             parsed = parsed.astimezone(UTC)
-            if parsed <= current + timedelta(seconds=_RATE_LIMIT_MAX_SECONDS):
+            if current <= parsed <= current + timedelta(
+                seconds=_RATE_LIMIT_MAX_SECONDS
+            ):
                 return parsed.isoformat(timespec="seconds"), "provider"
     for container in containers:
         for key in ("retry_after_seconds", "retry_after", "retryAfter"):
@@ -481,10 +483,10 @@ def _parse_finding(raw: object) -> CodeRabbitFinding:
         "action",
     )
     suggestions = _finding_suggestions(payload)
-    # Official agent payloads can carry only codegenInstructions.  It is both
-    # actionable provider context and the primary fix context in that shape;
-    # comment is the documented fallback.  A path/severity-only payload is
-    # therefore a protocol defect, never a synthetic substantive finding.
+    # Official agent payloads могут содержать только codegenInstructions. В
+    # такой форме это actionable provider context и основной fix context;
+    # comment является documented fallback. Поэтому payload только с
+    # path/severity — protocol defect, а не synthetic substantive finding.
     impact_source = comment or codegen_instructions
     if not isinstance(impact_source, str) or not impact_source.strip():
         raise CodeRabbitStreamError("CODERABBIT_FINDING_INCOMPLETE")
@@ -1790,7 +1792,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state=IntegrationState.INCOMPATIBLE,
                     diagnostics=_bounded_diagnostics(diagnostics, (detail or "",)),
                     provider=check.provider,
-                        message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
+                    message="Host-native provider CodeRabbit готов, но канонический кандидат не подтверждён.",
                     authenticated=check.authenticated,
                 )
         else:
@@ -1842,10 +1844,10 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
 
     def validate_config(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
-        """Вернуть typed evidence отдельной проверки repository config.
+        """Вернуть типизированное evidence отдельной проверки repository config.
 
         `_discover_provider` уже выполняет `config validate` через native
-        executable.  Этот leaf не запускает review и не меняет state/checkout.
+        executable. Этот leaf не запускает review и не изменяет state/checkout.
         """
 
         settings = config.provider("coderabbit")
@@ -2079,8 +2081,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
         entries = {entry.fingerprint: entry for entry in backlog.findings}
         for finding in deferred:
             triage = finding.triage
-            assert triage is not None
-            assert triage.deferral_reason is not None
+            if triage is None or triage.deferral_reason is None:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Deferred finding не содержит полного typed triage evidence.",
+                )
             fingerprint = cls._deferred_entry_fingerprint(finding)
             previous = entries.get(fingerprint)
             seen = bool(
@@ -2188,7 +2193,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
         fix_head: str,
         resolution_summary: str,
     ) -> AdapterOutcome:
-        del config
         if not re.fullmatch(r"^coderabbit-deferred-[0-9a-f]{16,64}$", backlog_id):
             raise ToolingError(
                 ResultCode.TOOLING_INVALID_INVOCATION,
@@ -2210,54 +2214,72 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Для закрытия deferred finding нужен clean exact fix HEAD текущего checkout.",
             )
-        state = self._load_review_state(root)
-        repository_identity = self._backlog_repository_identity(root, state)
-        backlog = self._load_deferred_backlog(
-            root, repository_identity=repository_identity
-        )
-        selected = next(
-            (entry for entry in backlog.findings if entry.backlog_id == backlog_id),
-            None,
-        )
-        if selected is None:
-            raise ToolingError(
-                ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Указанный deferred finding отсутствует в repository-local backlog.",
-            )
-        if selected.status == "resolved":
+        settings = config.provider("coderabbit")
+        coordinator = RepositoryCoordinator.for_root(root)
+        lock = coordinator.lock("coderabbit-review")
+        try:
+            acquired = lock.acquire(0)
+        except (OSError, ToolingError) as exc:
             raise ToolingError(
                 ResultCode.TOOLING_OPERATION_CONFLICT,
-                "Указанный deferred finding уже закрыт.",
+                "CodeRabbit lifecycle lock недоступен для безопасного backlog resolve.",
+            ) from exc
+        if not acquired:
+            raise ToolingError(
+                ResultCode.TOOLING_OPERATION_CONFLICT,
+                "CodeRabbit lifecycle lock занят другой операцией.",
             )
-        resolved = selected.model_copy(
-            update={
-                "status": "resolved",
-                "resolved_at": datetime.now(UTC).isoformat(timespec="seconds"),
-                "fix_head": fix_head,
-                "resolution_summary": _redact_backlog_text(
-                    resolution_summary, "resolved", 2000
+        try:
+            state = self._load_review_state(root)
+            repository_identity = self._backlog_repository_identity(root, state)
+            backlog = self._load_deferred_backlog(
+                root, repository_identity=repository_identity
+            )
+            selected = next(
+                (entry for entry in backlog.findings if entry.backlog_id == backlog_id),
+                None,
+            )
+            if selected is None:
+                raise ToolingError(
+                    ResultCode.TOOLING_PRECONDITION_FAILED,
+                    "Указанный deferred finding отсутствует в repository-local backlog.",
+                )
+            if selected.status == "resolved":
+                raise ToolingError(
+                    ResultCode.TOOLING_OPERATION_CONFLICT,
+                    "Указанный deferred finding уже закрыт.",
+                )
+            resolved = selected.model_copy(
+                update={
+                    "status": "resolved",
+                    "resolved_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    "fix_head": fix_head,
+                    "resolution_summary": _redact_backlog_text(
+                        resolution_summary, "resolved", 2000
+                    ),
+                }
+            )
+            resolved_entries = tuple(
+                resolved if entry.backlog_id == backlog_id else entry
+                for entry in backlog.findings
+            )
+            updated = CodeRabbitDeferredBacklog(
+                repository_identity=repository_identity,
+                updated_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                findings=resolved_entries,
+            )
+            self._save_deferred_backlog(root, updated)
+            return AdapterOutcome(
+                self._backlog_record(
+                    "CODERABBIT_BACKLOG_RESOLVED",
+                    "Deferred CodeRabbit finding закрыт по exact fix HEAD.",
                 ),
-            }
-        )
-        resolved_entries = tuple(
-            resolved if entry.backlog_id == backlog_id else entry
-            for entry in backlog.findings
-        )
-        updated = CodeRabbitDeferredBacklog(
-            repository_identity=repository_identity,
-            updated_at=datetime.now(UTC).isoformat(timespec="seconds"),
-            findings=resolved_entries,
-        )
-        self._save_deferred_backlog(root, updated)
-        return AdapterOutcome(
-            self._backlog_record(
-                "CODERABBIT_BACKLOG_RESOLVED",
-                "Deferred CodeRabbit finding закрыт по exact fix HEAD.",
-            ),
-            (),
-            self._cycle_summary(state),
-            updated,
-        )
+                (),
+                self._cycle_summary(state),
+                updated,
+            )
+        finally:
+            lock.release()
 
     def findings(
         self,
@@ -2623,7 +2645,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
 
     def _prepare_cycle(
         self,
-        root: Path,
         state: dict[str, object],
         *,
         base_sha: str,
@@ -2858,7 +2879,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if active is not None and state.get("active"):
                 return AdapterOutcome(active, (), self._cycle_summary(state))
             prepared, cycle_error = self._prepare_cycle(
-                root,
                 state,
                 base_sha=base_sha,
                 task_id=task_id,

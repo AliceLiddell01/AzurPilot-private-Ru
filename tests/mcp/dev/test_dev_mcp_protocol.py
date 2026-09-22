@@ -17,7 +17,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from azurpilot.integrations.contracts import IntegrationState
 from azurpilot.integrations.mcp_client import accept_fresh_stdio
 from dev_tools.mcp_acceptance import build_plan
-from dev_tools.mcp_status import _child_environment
+from dev_tools.mcp_status import child_environment
 from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
 from module.dev_mcp.server import (
     DEV_MCP_ARGS,
@@ -482,7 +482,7 @@ def test_fresh_mcp_client_acceptance_checks_contract_catalog_and_capabilities() 
             command=DEV_MCP_COMMAND,
             args=tuple(DEV_MCP_ARGS),
             cwd=str(_REPOSITORY_ROOT),
-            environment=_child_environment("unknown"),
+            environment=child_environment("unknown"),
             plan=build_plan("unknown"),
             timeout_seconds=20.0,
         )
@@ -508,7 +508,7 @@ def test_fresh_mcp_client_acceptance_fails_closed_on_contract_revision_mismatch(
             command=DEV_MCP_COMMAND,
             args=tuple(DEV_MCP_ARGS),
             cwd=str(_REPOSITORY_ROOT),
-            environment=_child_environment("unknown"),
+            environment=child_environment("unknown"),
             plan=build_plan("not-the-negotiated-source-revision"),
             timeout_seconds=20.0,
         )

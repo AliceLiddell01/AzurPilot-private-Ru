@@ -70,7 +70,7 @@ class McpProbeResult:
 
 @dataclass(frozen=True, slots=True)
 class FreshMcpClientPlan:
-    """Bounded read-only contract for one independent MCP client session."""
+    """Ограниченный read-only контракт одной независимой MCP client session."""
 
     call_plan: McpCallPlan
     contract_tool: str

@@ -720,6 +720,7 @@ def _render_human(
     def status_label(status: CapabilityStatus) -> str:
         return {
             CapabilityStatus.READY: "готово",
+            CapabilityStatus.NOT_CHECKED: "не проверено",
             CapabilityStatus.NOT_CONFIGURED: "не настроено",
             CapabilityStatus.UNAVAILABLE: "недоступно",
             CapabilityStatus.UNSUPPORTED: "не поддерживается",
@@ -937,7 +938,10 @@ def _render_human(
                     "✓"
                     if check.status is CapabilityStatus.READY
                     else "?"
-                    if check.status is CapabilityStatus.UNKNOWN
+                    if check.status in {
+                        CapabilityStatus.NOT_CHECKED,
+                        CapabilityStatus.UNKNOWN,
+                    }
                     else "⚠"
                 )
                 table.add_row(check_label(check.name), f"{marker} {state}", check.message)
@@ -1011,6 +1015,8 @@ def _render_human(
                 ):
                     value = getattr(result.details, field, None)
                     if value is not None:
+                        if isinstance(value, bool):
+                            value = "да" if value else "нет"
                         console.print(f"{label}: {value}")
                 console.print(f"{'✓' if result.ok else '✗'} {result.message}")
             elif delivery_validation_preview:

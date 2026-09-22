@@ -53,7 +53,7 @@ Git lifecycle или общей матрицы проверок.
    reconciliation делает прежний результат stale и требует повторной
    reconciliation. `runtime_ready=true` вместе с
    `session_state=not_observable` не является runtime failure: это trigger для
-   отдельный fresh MCP client/process и отдельной проверки
+   отдельного fresh MCP client/process и отдельной проверки
    `effective_codex_registration`; `azur mcp status` сам по себе acceptance не
    закрывает.
    Если изменение затрагивает Codex/plugin registration, client-visible schema

@@ -15,7 +15,7 @@ from azurpilot.integrations.mcp_client import (
     McpCallPlan,
     accept_fresh_stdio,
 )
-from dev_tools.mcp_status import _child_environment, _git_source_snapshot
+from dev_tools.mcp_status import child_environment, git_source_snapshot
 from module.dev_mcp.contract import contract_payload
 from module.dev_mcp.server import DEV_MCP_ARGS, DEV_MCP_COMMAND, tool_definitions
 from tools.paths import REPOSITORY_ROOT
@@ -79,14 +79,14 @@ def _result_payload(result: FreshMcpClientResult) -> dict[str, object]:
 async def accept(repository_root: Path) -> FreshMcpClientResult:
     """Провести одну bounded fresh session без Codex task/session state."""
 
-    source_revision, working_tree = _git_source_snapshot(repository_root)
+    source_revision, working_tree = git_source_snapshot(repository_root)
     if working_tree != "clean":
         return FreshMcpClientResult(
             state=IntegrationState.INCOMPATIBLE,
             reason_code="MCP_FRESH_CLIENT_SOURCE_NOT_CLEAN",
             diagnostics=("working_tree_modified",),
         )
-    executable = shutil.which("uv.exe") or shutil.which(DEV_MCP_COMMAND)
+    executable = shutil.which(DEV_MCP_COMMAND)
     if executable is None:
         return FreshMcpClientResult(
             state=IntegrationState.UNAVAILABLE,
@@ -96,7 +96,7 @@ async def accept(repository_root: Path) -> FreshMcpClientResult:
         command=executable,
         args=tuple(DEV_MCP_ARGS),
         cwd=str(repository_root),
-        environment=_child_environment(source_revision),
+        environment=child_environment(source_revision),
         plan=build_plan(source_revision),
         timeout_seconds=FRESH_ACCEPTANCE_TIMEOUT_SECONDS,
     )

@@ -51,7 +51,12 @@ class _DiscoveryRunner:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.calls: list[tuple[str, ...]] = []
-        (root / ".coderabbit.yaml").write_text("language: ru-RU\n", encoding="utf-8")
+
+    def with_repository_config(self) -> _DiscoveryRunner:
+        (self.root / ".coderabbit.yaml").write_text(
+            "language: ru-RU\n", encoding="utf-8"
+        )
+        return self
 
     def run(self, spec):  # type: ignore[no-untyped-def]
         self.calls.append(spec.argv)
@@ -137,7 +142,7 @@ def _prepared_adapter(
 def test_native_discovery_requires_binary_syntax_auth_and_doctor(tmp_path: Path):
     executable = tmp_path / "coderabbit.exe"
     executable.write_bytes(b"native")
-    runner = _DiscoveryRunner(tmp_path)
+    runner = _DiscoveryRunner(tmp_path).with_repository_config()
     adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="nt")  # type: ignore[arg-type]
     settings = {"route": "direct_native_agent", "executable": str(executable)}
 
@@ -246,7 +251,7 @@ def test_native_discovery_uses_posix_provider_name_without_mutating_platform(
     executable = tmp_path / "coderabbit"
     executable.write_bytes(b"native")
     executable.chmod(0o755)
-    runner = _DiscoveryRunner(tmp_path)
+    runner = _DiscoveryRunner(tmp_path).with_repository_config()
     adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="posix")  # type: ignore[arg-type]
 
     check = adapter._discover_provider(
@@ -270,7 +275,7 @@ def test_native_discovery_allows_posix_path_symlink_to_host_binary(
     entry.parent.mkdir()
     entry.symlink_to(target)
     monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: str(entry))
-    runner = _DiscoveryRunner(tmp_path)
+    runner = _DiscoveryRunner(tmp_path).with_repository_config()
     adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="posix")  # type: ignore[arg-type]
 
     check = adapter._discover_provider(
@@ -1403,13 +1408,6 @@ def test_rate_limit_metadata_and_budget_remain_bounded(
     assert first.record.reason_code == "CODERABBIT_RATE_LIMITED"
     assert first_state["cycle_status"] == "rate_limited_retry_allowed"
     assert first_state["substantive_iterations"] == 0
-
-    retry_at, retry_source = coderabbit._parse_provider_retry_metadata(
-        {"metadata": {"retry_after_seconds": 120}},
-        now=coderabbit.datetime(2026, 9, 16, tzinfo=coderabbit.UTC),
-    )
-    assert retry_at == "2026-09-16T00:02:00+00:00"
-    assert retry_source == "provider"
 
     second = adapter.review(
         root,

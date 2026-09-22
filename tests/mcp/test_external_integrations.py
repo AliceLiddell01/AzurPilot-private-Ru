@@ -938,6 +938,12 @@ def test_coderabbit_rate_limit_metadata_is_bounded_and_typed():
     )
     assert retry_at == "2026-09-16T00:02:00+00:00"
     assert source == "provider"
+    stale, stale_source = coderabbit._parse_provider_retry_metadata(
+        {"metadata": {"retry_at": "2026-09-15T23:59:59+00:00"}},
+        now=datetime(2026, 9, 16, tzinfo=UTC),
+    )
+    assert stale is None
+    assert stale_source == "unknown"
     unknown, unknown_source = coderabbit._parse_provider_retry_metadata(
         {"metadata": {"retry_after_seconds": 0}},
         now=datetime(2026, 9, 16, tzinfo=UTC),

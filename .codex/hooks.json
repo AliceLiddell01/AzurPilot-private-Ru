@@ -7,9 +7,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && [ -n \"$root\" ] && python3 \"$root/.codex/hooks/codex_workflow_guards.py\"",
-            "commandWindows": "py -3 -c \"import pathlib,runpy; p=pathlib.Path.cwd(); root=next((x for x in (p,*p.parents) if (x/'.codex'/'hooks.json').is_file()), None); runpy.run_path(str(root/'.codex'/'hooks'/'codex_workflow_guards.py'), run_name='__main__') if root is not None else None\"",
-            "timeout": 2,
+            "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; [ -n \"$root\" ] || exit 0; if command -v python3 >/dev/null 2>&1; then exec python3 \"$root/.codex/hooks/codex_workflow_guards.py\"; else echo \"AzurPilot hook: python3 недоступен\" >&2; exit 2; fi",
+            "commandWindows": "where py >nul 2>&1 & if errorlevel 1 (echo AzurPilot hook: py -3 недоступен 1>&2 & exit /b 2) else py -3 -c \"import pathlib,runpy; p=pathlib.Path.cwd(); root=next((x for x in (p,*p.parents) if (x/'.codex'/'hooks.json').is_file()), None); runpy.run_path(str(root/'.codex'/'hooks'/'codex_workflow_guards.py'), run_name='__main__') if root is not None else None\"",
+            "timeout": 10,
             "statusMessage": "Проверка shell workflow"
           }
         ]
@@ -20,9 +20,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && [ -n \"$root\" ] && python3 \"$root/.codex/hooks/codex_workflow_guards.py\"",
-            "commandWindows": "py -3 -c \"import pathlib,runpy; p=pathlib.Path.cwd(); root=next((x for x in (p,*p.parents) if (x/'.codex'/'hooks.json').is_file()), None); runpy.run_path(str(root/'.codex'/'hooks'/'codex_workflow_guards.py'), run_name='__main__') if root is not None else None\"",
-            "timeout": 2,
+            "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; [ -n \"$root\" ] || exit 0; if command -v python3 >/dev/null 2>&1; then exec python3 \"$root/.codex/hooks/codex_workflow_guards.py\"; else echo \"AzurPilot hook: python3 недоступен\" >&2; exit 2; fi",
+            "commandWindows": "where py >nul 2>&1 & if errorlevel 1 (echo AzurPilot hook: py -3 недоступен 1>&2 & exit /b 2) else py -3 -c \"import pathlib,runpy; p=pathlib.Path.cwd(); root=next((x for x in (p,*p.parents) if (x/'.codex'/'hooks.json').is_file()), None); runpy.run_path(str(root/'.codex'/'hooks'/'codex_workflow_guards.py'), run_name='__main__') if root is not None else None\"",
+            "timeout": 10,
             "statusMessage": "Проверка незавершённого workflow"
           }
         ]

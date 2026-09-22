@@ -21,6 +21,7 @@ class CapabilityStatus(StrEnum):
     """Состояние необязательной возможности."""
 
     READY = "ready"
+    NOT_CHECKED = "not_checked"
     NOT_CONFIGURED = "not_configured"
     UNAVAILABLE = "unavailable"
     UNSUPPORTED = "unsupported"
@@ -84,7 +85,7 @@ class CodeRabbitDeferralReason(StrEnum):
 
 
 class CodeRabbitConflictKind(StrEnum):
-    """Единственные основания отклонить применимый CodeRabbit finding."""
+    """Основания отклонить finding; TASK_PROMPT_CONFLICT оставлен для legacy-чтения."""
 
     REPOSITORY_CONTRACT_CONFLICT = "repository_contract_conflict"
     TASK_PROMPT_CONFLICT = "task_prompt_conflict"
@@ -650,8 +651,8 @@ class ReadinessState(ClosedModel):
     integration_checks: tuple[IntegrationCheck, ...] = Field(
         default_factory=tuple, max_length=32
     )
-    # Readiness builders must classify MCP impact explicitly before lifecycle
-    # validation; omission must fail closed instead of bypassing the fresh gate.
+    # Readiness builders обязаны явно классифицировать MCP impact до lifecycle
+    # validation; пропуск должен fail closed, а не обходить fresh gate.
     mcp_impact: Literal["NOT_REQUIRED", "REQUIRED"]
     external_reviewer_status: Literal[
         "NOT_RUN", "SUBSTANTIVE", "LIMITED", "RATE_LIMITED"

@@ -33,7 +33,7 @@ from .repository import RepositoryResolver
 
 
 def _check(name: str, status: CapabilityStatus, message: str) -> CapabilityCheck:
-    return CapabilityCheck(name=name, status=status, message=message)
+    return CapabilityCheck(name=name, status=status, message=message[:240])
 
 
 _INTEGRATION_CAPABILITY_STATUS: dict[IntegrationState, CapabilityStatus] = {
@@ -335,8 +335,8 @@ class DoctorService:
             checks.append(
                 _check(
                     "external_integrations",
-                    CapabilityStatus.NOT_CONFIGURED,
-                    "Полная проверка внешних интеграций доступна через azur doctor --full.",
+                    CapabilityStatus.NOT_CHECKED,
+                    "Полная проверка внешних интеграций не выполнялась; используйте azur doctor --full.",
                 )
             )
 

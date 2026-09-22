@@ -8,7 +8,9 @@ _AD_HOC_REMOTE_REF_PATTERNS = (
     re.compile(
         r"(?i)^codex/(?:base|scratch|tmp|temporary|transport|helper|aux)(?:[-/]|$)"
     ),
-    re.compile(r"(?i)(?:^|/)(?:temporary|scratch|transport)(?:/|$)"),
+    re.compile(
+        r"(?i)(?:^|/)(?:temporary|scratch|tmp|transport|helper|aux)(?:/|$)"
+    ),
 )
 
 

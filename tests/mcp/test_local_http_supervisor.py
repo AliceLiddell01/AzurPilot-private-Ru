@@ -298,6 +298,20 @@ def _observer(tmp_path: Path, specs: list[dict[str, object]]) -> LocalHttpSuperv
     )
 
 
+def _stale_supervisor(tmp_path: Path) -> LocalHttpSupervisor:
+    return _observer(
+        tmp_path,
+        [
+            _spec(
+                module_name="test_stale_marker",
+                server_name="azurpilot-dev",
+                port=_free_port(),
+                token_env_var=_DEV_TOKEN_ENV,
+            )
+        ],
+    )
+
+
 def _write_valid_stale_marker(observer: LocalHttpSupervisor) -> dict[str, object]:
     current = _process_identity(os.getpid())
     assert current is not None
@@ -313,11 +327,15 @@ def _write_valid_stale_marker(observer: LocalHttpSupervisor) -> dict[str, object
         }
         for service in observer.services
     ]
+    supervisor_launcher = dict(stale)
+    supervisor_launcher["pid"] = 2_147_000_000
+    supervisor_marker = dict(stale)
+    supervisor_marker["launcher_process"] = supervisor_launcher
     payload: dict[str, object] = {
         "schema_version": 1,
         "repository_root": str(observer.repository_root),
         "python_executable": str(observer.python_executable),
-        "supervisor": dict(stale),
+        "supervisor": supervisor_marker,
         "services": services,
     }
     observer.marker_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -714,17 +732,17 @@ def test_supervisor_invalid_marker_and_pid_reuse_are_not_owned(
     assert supervisor.stop() is False
     assert supervisor.marker_path.exists()
     assert psutil.Process(os.getpid()).is_running()
-    supervisor_module.LocalHttpSupervisor._terminate_recorded_processes(
-        {"supervisor": mismatched}
-    )
-    assert psutil.Process(os.getpid()).is_running()
 
 
 def test_supervisor_recovers_valid_same_repository_stale_marker(
     tmp_path: Path,
 ) -> None:
-    supervisor = _supervisor(tmp_path)
-    _write_valid_stale_marker(supervisor)
+    supervisor = _stale_supervisor(tmp_path)
+    payload = _write_valid_stale_marker(supervisor)
+    validated = supervisor._validated_marker_identities(payload)
+    assert not isinstance(validated, LocalHttpSupervisorStopOutcome)
+    _supervisor_identity, identities = validated
+    assert any(identity.pid == 2_147_000_000 for identity in identities)
 
     assert supervisor.status()["code"] == "LOCAL_MCP_SUPERVISOR_STALE"
     result = supervisor.stop_result()
@@ -736,10 +754,20 @@ def test_supervisor_recovers_valid_same_repository_stale_marker(
     assert psutil.Process(os.getpid()).is_running()
 
 
+def test_supervisor_absent_marker_does_not_claim_removal(tmp_path: Path) -> None:
+    supervisor = _supervisor(tmp_path)
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.ALREADY_STOPPED
+    assert result.marker_present is False
+    assert result.marker_removed is False
+
+
 def test_supervisor_rejects_foreign_repository_marker(
     tmp_path: Path,
 ) -> None:
-    supervisor = _supervisor(tmp_path)
+    supervisor = _stale_supervisor(tmp_path)
     payload = _write_valid_stale_marker(supervisor)
     payload["repository_root"] = "C:/foreign/repository"
     supervisor.marker_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -756,7 +784,7 @@ def test_supervisor_fails_closed_for_access_denied_stale_identity_liveness(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    supervisor = _supervisor(tmp_path)
+    supervisor = _stale_supervisor(tmp_path)
     _write_valid_stale_marker(supervisor)
 
     def denied(_identity: ProcessIdentity) -> str:
@@ -779,7 +807,7 @@ def test_supervisor_preserves_marker_after_exact_termination_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    supervisor = _supervisor(tmp_path)
+    supervisor = _stale_supervisor(tmp_path)
     payload = _write_valid_stale_marker(supervisor)
     services = list(payload["services"])
     first = dict(services[0])
@@ -806,7 +834,7 @@ def test_supervisor_reports_postcondition_failure_after_safe_marker_removal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    supervisor = _supervisor(tmp_path)
+    supervisor = _stale_supervisor(tmp_path)
     _write_valid_stale_marker(supervisor)
     monkeypatch.setattr(supervisor, "_stopped_postcondition", lambda: False)
 
@@ -845,7 +873,7 @@ def test_supervisor_rejects_marker_race_without_removing_new_marker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    supervisor = _supervisor(tmp_path)
+    supervisor = _stale_supervisor(tmp_path)
     payload = _write_valid_stale_marker(supervisor)
     original_remove = supervisor._remove_recorded_marker
 

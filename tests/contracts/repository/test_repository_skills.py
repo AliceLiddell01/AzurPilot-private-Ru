@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from dev_tools.integration_contract_gate import check
+from dev_tools.integration_contract_gate import check as integration_contract_check
 from tests.support.paths import REPOSITORY_ROOT
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
@@ -175,7 +175,9 @@ def test_repository_coderabbit_config_is_scope_aware_and_review_only() -> None:
     custom_checks = reviews["pre_merge_checks"]["custom_checks"]
     assert isinstance(custom_checks, list)
     scope_check = next(
-        check for check in custom_checks if isinstance(check, dict) and check.get("name") == "Declared scope contract"
+        item
+        for item in custom_checks
+        if isinstance(item, dict) and item.get("name") == "Declared scope contract"
     )
     assert scope_check["mode"] == "error"
     assert "scope" in str(scope_check["instructions"]).lower()
@@ -370,11 +372,14 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
 
 
 def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -> None:
-    contract = check(_REPOSITORY_ROOT)
-    assert contract["ok"] is True
+    contract = integration_contract_check(_REPOSITORY_ROOT)
     checks = contract["checks"]
     assert isinstance(checks, dict)
     assert checks["operator_workflow_boundary"] == "ready"
+    errors = contract["errors"]
+    assert isinstance(errors, list)
+    assert not any(str(error).startswith("operator workflow:") for error in errors)
+    assert contract["ok"] is True
 
     development_skill = (
         _REPOSITORY_ROOT

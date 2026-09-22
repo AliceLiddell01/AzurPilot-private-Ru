@@ -583,6 +583,15 @@ class LocalHttpSupervisor:
         supervisor = _identity_from_marker(supervisor_value)
         if supervisor is None or not _valid_recorded_identity(supervisor):
             return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        supervisor_launcher: ProcessIdentity | None = None
+        if isinstance(supervisor_value, dict) and "launcher_process" in supervisor_value:
+            supervisor_launcher = _identity_from_marker(
+                supervisor_value.get("launcher_process")
+            )
+            if supervisor_launcher is None or not _valid_recorded_identity(
+                supervisor_launcher
+            ):
+                return LocalHttpSupervisorStopOutcome.INVALID_MARKER
         marker_services = payload.get("services")
         if not isinstance(marker_services, list) or len(marker_services) != len(
             self.services
@@ -599,6 +608,8 @@ class LocalHttpSupervisor:
             service_records[name] = item
 
         identities: list[ProcessIdentity] = [supervisor]
+        if supervisor_launcher is not None:
+            identities.append(supervisor_launcher)
         for service in self.services:
             item = service_records.get(service.name)
             if item is None or item.get("port") != service.port:
@@ -728,7 +739,7 @@ class LocalHttpSupervisor:
             return LocalHttpSupervisorStopResult(
                 outcome=LocalHttpSupervisorStopOutcome.ALREADY_STOPPED,
                 marker_present=False,
-                marker_removed=True,
+                marker_removed=False,
                 postcondition_confirmed=True,
                 detail="Marker отсутствует; runtime уже остановлен.",
             )
@@ -1029,36 +1040,6 @@ class LocalHttpSupervisor:
             "supervisor_pid": supervisor_identity.pid,
             "services": services,
         }
-
-    @staticmethod
-    def _terminate_recorded_processes(payload: object) -> None:
-        """Завершить только recorded owner/service trees из marker."""
-
-        if not isinstance(payload, dict):
-            return
-        records: list[object] = []
-        supervisor = payload.get("supervisor")
-        if isinstance(supervisor, dict):
-            records.append(supervisor)
-        services = payload.get("services")
-        if isinstance(services, list):
-            records.extend(services)
-        for item in records:
-            if not isinstance(item, dict):
-                continue
-            if item is supervisor:
-                expected_records = [item, item.get("launcher_process")]
-            else:
-                expected_records = [item.get("process"), item.get("launcher_process")]
-            for expected in expected_records:
-                if not isinstance(expected, dict):
-                    continue
-                identity = _identity_from_marker(expected)
-                if identity is None:
-                    continue
-                ProcessController.terminate(
-                    identity, timeout_seconds=STOP_TIMEOUT_SECONDS
-                )
 
     def stop(self) -> bool:
         """Остановить только supervisor с exact recorded identity."""

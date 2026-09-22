@@ -30,8 +30,8 @@ _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS: dict[str, str] = {
 def _native_coderabbit_name(host_os: str | None = None) -> str | None:
     """Вернуть допустимое имя host-native provider для указанной host OS."""
 
-    # Import lazily: coderabbit.py owns the native platform/name mapping and
-    # imports IntegrationConfig from this module.
+    # Импортируем лениво: coderabbit.py владеет native platform/name mapping и
+    # импортирует IntegrationConfig из этого модуля.
     from .coderabbit import host_platform, provider_name
 
     if host_platform(host_os) == "unsupported":
