@@ -18,13 +18,13 @@ _PROJECT_IMPORTS_AVAILABLE = True
 try:
     from azurpilot.coderabbit_schema import REVIEW_STATE_SCHEMA_VERSION
     from azurpilot.tooling.operator import validate_direct_azur_invocation
-    from azurpilot.tooling.ref_policy import is_ad_hoc_remote_ref
+    from azurpilot.tooling.ref_policy import is_workflow_guard_ref
     from azurpilot.tooling.result import ResultCode
 except ImportError:
     _PROJECT_IMPORTS_AVAILABLE = False
     REVIEW_STATE_SCHEMA_VERSION = 0
     validate_direct_azur_invocation = None
-    is_ad_hoc_remote_ref = None
+    is_workflow_guard_ref = None
     ResultCode = None
 
 _MAX_INPUT_BYTES = 128 * 1024
@@ -336,7 +336,7 @@ def _has_ad_hoc_ref(tokens: tuple[str, ...]) -> bool:
             elif lowered.startswith("refs/remotes/"):
                 parts = normalized.split("/", 3)
                 normalized = parts[3] if len(parts) == 4 else normalized
-            if is_ad_hoc_remote_ref(normalized):
+            if is_workflow_guard_ref(normalized):
                 return True
     return False
 
