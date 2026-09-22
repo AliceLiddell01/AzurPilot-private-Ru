@@ -26,7 +26,10 @@ from enum import StrEnum
 
 from scipy import signal
 
-from module.application.commission_recovery import CommissionRecoveryStore
+from module.application.commission_recovery import (
+    ACTION_POINT_GAIN_PER_PURCHASE,
+    CommissionRecoveryStore,
+)
 from module.application.errors import StorageError
 from module.base.timer import Timer
 from module.base.utils import *
@@ -927,6 +930,9 @@ class RewardCommission(UI, InfoHandler):
                 and 0 <= remaining <= 5
             )
 
+        def valid_ap(value: object) -> bool:
+            return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
         def read_canonical():
             try:
                 state = store.read(profile)
@@ -1110,6 +1116,15 @@ class RewardCommission(UI, InfoHandler):
                 and purchase.click_count == 1
                 and purchase.remaining_before == state.remaining
                 and purchase.remaining_after == state.remaining - 1
+                and valid_ap(purchase.ap_before)
+                and valid_ap(purchase.ap_after)
+                and valid_ap(purchase.ap_gain)
+                and purchase.ap_after == purchase.ap_before + ACTION_POINT_GAIN_PER_PURCHASE
+                and purchase.ap_gain == purchase.ap_after - purchase.ap_before
+                and valid_ap(purchase.oil_cost)
+                and valid_ap(purchase.oil_before)
+                and valid_ap(purchase.oil_after)
+                and purchase.oil_after == purchase.oil_before - purchase.oil_cost
             ):
                 stored = store.record_observation(
                     profile,
@@ -1126,9 +1141,14 @@ class RewardCommission(UI, InfoHandler):
                     and canonical.last_result == 'ap_purchase'
                 ):
                     logger.info(
-                        '[Комиссия — нефть] Покупка AP подтверждена canonical read-back: %s -> %s',
+                        '[Комиссия — нефть] Покупка AP подтверждена canonical read-back: weekly %s -> %s, AP %s -> %s (+%s), Oil %s -> %s',
                         state.remaining,
                         canonical.remaining,
+                        purchase.ap_before,
+                        purchase.ap_after,
+                        purchase.ap_gain,
+                        purchase.oil_before,
+                        purchase.oil_after,
                     )
                     self._commission_recovery_completed = True
                     return CommissionRecoveryOutcome.AP_RECOVERED

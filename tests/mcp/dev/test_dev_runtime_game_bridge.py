@@ -555,6 +555,12 @@ def test_resources_provider_uses_typed_application_projection() -> None:
                         value=123,
                         limit=1000,
                     ),
+                    DashboardResource(
+                        key="ActionPoint",
+                        label="Очки действия",
+                        value=115,
+                        last_update=datetime(2026, 8, 1, tzinfo=UTC),
+                    ),
                 )
             )
 
@@ -580,6 +586,8 @@ def test_resources_provider_uses_typed_application_projection() -> None:
             "last_update": None,
         }
     ]
+    assert snapshot.as_dict()["provenance"]["freshness"] == "snapshot_time_only"
+    assert snapshot.as_dict()["provenance"]["omitted_snapshot_fields"] == ["ActionPoint"]
 
 
 def test_morale_provider_preserves_typed_unknown_without_inventing_baseline() -> None:

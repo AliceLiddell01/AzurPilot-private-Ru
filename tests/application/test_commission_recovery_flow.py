@@ -159,12 +159,22 @@ def _purchase(
     before: int | None = 4,
     after: int | None = None,
     clicks: int = 1,
+    ap_before: int | None = 200,
+    ap_after: int | None = 300,
+    ap_gain: int | None = 100,
+    oil_before: int | None = 25000,
+    oil_after: int | None = 24000,
 ) -> EmergencyActionPointPurchase:
     return EmergencyActionPointPurchase(
         status=status,
         remaining_before=before,
         remaining_after=after,
         oil_cost=1000,
+        oil_before=oil_before,
+        oil_after=oil_after,
+        ap_before=ap_before,
+        ap_after=ap_after,
+        ap_gain=ap_gain,
         click_count=clicks,
     )
 
@@ -329,6 +339,29 @@ def test_ambiguous_postcondition_invalidates_confirmed_state_and_never_uses_dorm
     assert dorm_calls == []
     assert store.invalidations == [("ap", "ambiguous_ap_purchase")]
     assert store.read("ap").status == "unknown"
+
+
+def test_purchase_without_ap_postcondition_invalidates_after_one_click(monkeypatch):
+    store = _Store(status="confirmed", remaining=4)
+    ap = _ActionPoint(
+        _purchase(
+            EmergencyActionPointPurchaseStatus.PURCHASED,
+            before=4,
+            after=3,
+            ap_before=200,
+            ap_after=200,
+            ap_gain=0,
+        )
+    )
+    dorm_calls: list[int] = []
+    handler = _commission(monkeypatch, store, ap, dorm_calls.append)
+
+    outcome = handler._recover_commission_oil_overflow()
+
+    assert outcome is commission.CommissionRecoveryOutcome.AMBIGUOUS_MUTATION
+    assert ap.purchase_calls == 1
+    assert store.invalidations == [("ap", "ambiguous_ap_purchase")]
+    assert dorm_calls == []
 
 
 @pytest.mark.parametrize(
