@@ -1,6 +1,4 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
-
 
 import asyncio
 import base64
@@ -9,6 +7,7 @@ import os
 import shutil
 import struct
 import zlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -115,6 +114,7 @@ from module.game_mcp.server import (
     create_server,
     tool_definitions,
 )
+from tests.support.paths import REPOSITORY_ROOT
 
 pytestmark = pytest.mark.xdist_group("game_runtime")
 
@@ -282,6 +282,7 @@ class _Read:
                 )
             ),
             datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+            current_state_authority=True,
             source="live_test_screen",
         )
 
@@ -1233,6 +1234,25 @@ def test_resource_provenance_separates_dashboard_snapshot_from_live_observation(
     assert oil["value"] == 25000
     assert oil["limit"] == 17050
     assert "last_update" not in oil
+
+
+def test_live_resource_authority_is_not_inferred_from_dataclass_type() -> None:
+    backend = _backend()
+    original_reader = backend.read.get_live_resources
+
+    def unverified_reader(profile: str) -> LiveResourceObservation:
+        return replace(
+            original_reader(profile),
+            current_state_authority=False,
+        )
+
+    backend.read.get_live_resources = unverified_reader
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_get_resources",
+        {"profile": "alpha", "mode": "live_current"},
+    )
+
+    assert result["code"] == "GAME_SERVICE_UNAVAILABLE"
 
 
 def test_resource_mode_is_validated_as_a_strict_optional_selector() -> None:

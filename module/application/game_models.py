@@ -144,6 +144,7 @@ class LiveResourceObservation:
     instance: str
     resources: DashboardResources
     observed_at: datetime
+    current_state_authority: bool
     source: str = "live_game_screen_ocr"
 
     def __post_init__(self) -> None:
@@ -154,6 +155,8 @@ class LiveResourceObservation:
         if not isinstance(self.observed_at, datetime) or self.observed_at.tzinfo is None:
             raise ValueError("observed_at должен быть timezone-aware datetime")
         object.__setattr__(self, "observed_at", self.observed_at.astimezone(UTC))
+        if type(self.current_state_authority) is not bool:
+            raise TypeError("current_state_authority должен быть bool")
         if not isinstance(self.source, str) or not self.source:
             raise ValueError("source должен быть непустой строкой")
 

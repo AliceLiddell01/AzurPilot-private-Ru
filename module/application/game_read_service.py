@@ -100,6 +100,10 @@ class GameReadService:
             )
         if not isinstance(result.observed_at, datetime) or result.observed_at.tzinfo is None:
             raise ServiceUnavailableError("Текущее наблюдение ресурсов не содержит времени.")
+        if result.current_state_authority is not True:
+            raise ServiceUnavailableError(
+                "Текущее наблюдение ресурсов не имеет current-state authority."
+            )
         return result
 
     def get_recent_logs(self, instance: str, limit: int = 50) -> RuntimeLogTail:

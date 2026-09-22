@@ -23,6 +23,8 @@ from module.application.adb_target import (
     AdbTargetResolutionError,
     read_only_emulator_serial_aliases,
     resolve_adb_target_serial,
+)
+from module.application.adb_target import (
     safe_serial as _safe_serial,
 )
 from module.application.errors import (
@@ -51,6 +53,7 @@ from module.application.host_lock import (
     ensure_host_runtime_root,
     host_scoped_lock_path,
 )
+from module.application.live_resource_ocr import read_main_oil_snapshot
 from module.application.runtime_control import (
     RuntimeControlError,
     RuntimeControlOperation,
@@ -843,19 +846,7 @@ class LegacyGameApplicationAdapter:
                         "Device owner не предоставил свежий screenshot."
                     )
                 screenshot()
-                from module.campaign.campaign_status import CampaignStatus
-
-                snapshot = CampaignStatus(config, device=device).get_oil_snapshot(
-                    skip_first_screenshot=True,
-                    update=False,
-                    record=False,
-                )
-                value = snapshot.get("Value")
-                limit = snapshot.get("Limit")
-                if not isinstance(value, int) or not isinstance(limit, int):
-                    raise OperationFailedError(
-                        "Свежий экран не подтвердил числовые Oil value и displayed MAX."
-                    )
+                value, limit = read_main_oil_snapshot(getattr(device, "image", None))
                 return LiveResourceObservation(
                     instance=instance,
                     resources=DashboardResources(
@@ -869,6 +860,8 @@ class LegacyGameApplicationAdapter:
                         )
                     ),
                     observed_at=datetime.now(UTC),
+                    current_state_authority=True,
+                    source="main_home_resource_bar_ocr",
                 )
             finally:
                 if device is not None:

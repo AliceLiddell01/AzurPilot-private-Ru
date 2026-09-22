@@ -1594,7 +1594,7 @@ class GameMcpAdapter:
                     source=observation.source,
                     freshness="current_observation",
                     observed_at=observation.observed_at,
-                    current_state_authority=True,
+                    current_state_authority=observation.current_state_authority,
                 )
             else:
                 resources = read.get_resources(profile)

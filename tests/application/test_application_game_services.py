@@ -391,6 +391,7 @@ def test_read_service_keeps_current_resource_observation_separate_from_snapshot(
                 instance,
                 DashboardResources((DashboardResource("Oil", "Нефть", 25000, 17050),)),
                 datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+                current_state_authority=True,
             )
 
     result = _read_service(live_resources=LiveReader()).get_live_resources(" ap ")
@@ -399,6 +400,20 @@ def test_read_service_keeps_current_resource_observation_separate_from_snapshot(
     assert result.observed_at == datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
     assert result.resources.items[0].value == 25000
     assert result.resources.items[0].limit == 17050
+
+
+def test_read_service_rejects_live_observation_without_explicit_authority():
+    class UnverifiedLiveReader:
+        def read_live_resources(self, instance: str) -> LiveResourceObservation:
+            return LiveResourceObservation(
+                instance,
+                DashboardResources((DashboardResource("Oil", "Нефть", 0, 0),)),
+                datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+                current_state_authority=False,
+            )
+
+    with pytest.raises(ServiceUnavailableError, match="authority"):
+        _read_service(live_resources=UnverifiedLiveReader()).get_live_resources("ap")
 
 
 def test_read_service_accepts_canonical_profile_without_local_length_cap() -> None:
