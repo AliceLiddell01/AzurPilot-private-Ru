@@ -116,3 +116,34 @@ def test_unavailable_cache_is_explicit_and_does_not_write():
     assert state.remaining == 3
     assert state.error == RuntimeCacheStatus.UNAVAILABLE.value
     assert cache.set_calls == []
+
+
+def test_ambiguous_mutation_invalidation_removes_confirmed_state():
+    now = datetime(2026, 9, 20, 16, tzinfo=UTC)
+    cache = _MemoryCache()
+    store = CommissionRecoveryStore(cache, now=lambda: now)
+    store.record_observation("ap", 4)
+
+    invalidated = store.invalidate("ap")
+
+    assert invalidated.status == "unknown"
+    assert invalidated.last_result == "ambiguous_ap_purchase"
+    assert store.read("ap").status == "unknown"
+    assert CommissionRecoveryStore.key("ap") not in cache.values
+
+
+def test_state_refresh_keeps_absolute_weekly_expiry_boundary():
+    now = datetime(2026, 9, 20, 16, tzinfo=UTC)
+    cache = _MemoryCache()
+    store = CommissionRecoveryStore(cache, now=lambda: now)
+
+    first = store.record_observation("ap", 4)
+    second = store.record_observation(
+        "ap",
+        3,
+        source="emergency_ap_purchase",
+        last_result="ap_purchase",
+    )
+
+    assert second.reset_at == first.reset_at == datetime(2026, 9, 21, 7, tzinfo=UTC)
+    assert cache.set_calls[0][2] == cache.set_calls[1][2] == first.reset_at

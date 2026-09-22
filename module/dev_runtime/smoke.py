@@ -2268,6 +2268,25 @@ class _RuntimeObservation:
     evidence_reason: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _GameEvidenceContract:
+    """Ожидаемый и фактически подтверждённый game evidence одного SmokeRun."""
+
+    expected: frozenset[tuple[str, str]]
+    intermediate: frozenset[tuple[str, str]]
+    known: frozenset[tuple[str, str]]
+    pending: frozenset[tuple[str, str]]
+    intermediate_pending: frozenset[tuple[str, str]]
+
+    @property
+    def complete(self) -> bool:
+        return not self.pending
+
+    @property
+    def intermediate_complete(self) -> bool:
+        return not self.intermediate_pending
+
+
 class SmokeStateStore:
     """Атомарное состояние в пределах репозитория с отдельными файлами spec/result/control."""
 
@@ -3443,6 +3462,63 @@ class SmokeRunManager:
             for snapshot in observations[:SMOKE_MAX_EVIDENCE_REFS]
         ]
 
+    @staticmethod
+    def _game_expected_keys(
+        spec: SmokeSpec,
+    ) -> tuple[frozenset[tuple[str, str]], frozenset[tuple[str, str]]]:
+        game_spec = spec.game_observations
+        if game_spec is None:
+            return frozenset(), frozenset()
+        automatic = {
+            (checkpoint_id, request.capability_id)
+            for checkpoint_id in ("before", "final")
+            for request in game_spec.observations
+        }
+        intermediate = {
+            (checkpoint.checkpoint_id, request.capability_id)
+            for checkpoint in game_spec.checkpoints
+            for request in checkpoint.observations
+        }
+        return frozenset((*automatic, *intermediate)), frozenset(intermediate)
+
+    def _game_evidence_contract(
+        self,
+        record: SmokeRunRecord,
+        spec: SmokeSpec,
+    ) -> _GameEvidenceContract:
+        expected, intermediate = self._game_expected_keys(spec)
+        if not expected:
+            return _GameEvidenceContract(
+                expected=frozenset(),
+                intermediate=frozenset(),
+                known=frozenset(),
+                pending=frozenset(),
+                intermediate_pending=frozenset(),
+            )
+        try:
+            items = GameObservationStore(self.environment, record.smoke_id).read()
+        except GameObservationError:
+            known = frozenset()
+        else:
+            if record.target_profile is None or record.target_identity is None:
+                known = frozenset()
+            else:
+                known = frozenset(
+                    (item.checkpoint_id, item.capability_id)
+                    for item in items
+                    if item.profile_name == record.target_profile
+                    and item.target_identity == record.target_identity
+                    and item.session_id == record.session_id
+                    and item.status.value == "known"
+                )
+        return _GameEvidenceContract(
+            expected=expected,
+            intermediate=intermediate,
+            known=known,
+            pending=expected - known,
+            intermediate_pending=intermediate - known,
+        )
+
     def _capture_game_checkpoint(
         self,
         record: SmokeRunRecord,
@@ -3592,35 +3668,7 @@ class SmokeRunManager:
         record: SmokeRunRecord,
         spec: SmokeSpec,
     ) -> bool:
-        if spec.game_observations is None:
-            return True
-        try:
-            items = GameObservationStore(self.environment, record.smoke_id).read()
-        except GameObservationError:
-            return False
-        expected = {
-            (checkpoint_id, request.capability_id)
-            for checkpoint_id in ("before", "final")
-            for request in spec.game_observations.observations
-        }
-        expected.update(
-            (checkpoint.checkpoint_id, request.capability_id)
-            for checkpoint in spec.game_observations.checkpoints
-            for request in checkpoint.observations
-        )
-        if record.target_profile is None or record.target_identity is None:
-            return False
-        target_profile = record.target_profile
-        target_id = record.target_identity
-        actual = {
-            (item.checkpoint_id, item.capability_id)
-            for item in items
-            if item.profile_name == target_profile
-            and item.target_identity == target_id
-            and item.session_id == record.session_id
-            and item.status.value == "known"
-        }
-        return expected.issubset(actual)
+        return self._game_evidence_contract(record, spec).complete
 
     def capture_game_checkpoint(self, smoke_id: str, checkpoint_id: str) -> DevResult:
         try:
@@ -3975,7 +4023,12 @@ class SmokeRunManager:
                 not item.required or item.status is SmokeAssertionStatus.PASS
                 for item in previous_results
             )
-            if deterministic_done and (not spec.visual_assertions or pending_visual is not None):
+            game_contract = self._game_evidence_contract(record, spec)
+            if (
+                deterministic_done
+                and game_contract.intermediate_complete
+                and (not spec.visual_assertions or pending_visual is not None)
+            ):
                 break
             now_value = datetime.fromisoformat(_timestamp_now(self.now))
             deadline = datetime.fromisoformat(record.deadline_at)

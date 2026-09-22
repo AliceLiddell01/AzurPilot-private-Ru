@@ -172,6 +172,7 @@ class _Runtime:
         self.stopped_session_id = stopped_session_id
         self.stop_calls = 0
         self.execution_order: list[str] = []
+        self._timeline_emitted = False
         self.screenshot = EvidenceScreenshot(
             DevResult(
                 True,
@@ -265,6 +266,9 @@ class _Runtime:
         return events
 
     def get_timeline(self, **_: object) -> DevResult:
+        if self.active and not self._timeline_emitted:
+            self.execution_order.append("task_started")
+            self._timeline_emitted = True
         return DevResult(
             True,
             "DEV_TIMELINE_READY",
@@ -276,6 +280,7 @@ class _Runtime:
 
     def stop(self, **_: object) -> DevResult:
         self.stop_calls += 1
+        self.execution_order.append("stop")
         self.active = False
         return DevResult(True, "DEV_SESSION_STOPPED", "Сессия остановлена", "stopped", "session-1", {"cleanup_confirmed": True})
 
@@ -330,8 +335,8 @@ class _SmokeGameBridge:
     ) -> GameObservationSnapshot:
         if capability_id != "synthetic" or parameters not in (None, {}):
             raise ValueError("unexpected game observation request")
-        if self.execution_order is not None and checkpoint_id == "before":
-            self.execution_order.append("capture_before")
+        if self.execution_order is not None:
+            self.execution_order.append(f"capture_{checkpoint_id}")
         return GameObservationSnapshot.create(
             GameObservationCapture(
                 status=GameObservationStatus.KNOWN,
@@ -370,6 +375,35 @@ def _spec(**kwargs: object) -> smoke.SmokeSpec:
     }
     values.update(kwargs)
     return smoke.SmokeSpec(**values)
+
+
+def _checkpoint_spec() -> smoke.SmokeSpec:
+    return _spec(
+        assertions=[
+            smoke.TaskStartedAssertion(
+                assertion_id="started",
+                capability_id="task_started",
+                task="Reward",
+            )
+        ],
+        game_observations={
+            "observations": [{"capability_id": "synthetic"}],
+            "checkpoints": [
+                {
+                    "checkpoint_id": "commission_recovery",
+                    "observations": [{"capability_id": "synthetic"}],
+                }
+            ],
+        },
+    )
+
+
+def _wait_until(predicate, *, attempts: int = 200) -> None:
+    for _ in range(attempts):
+        if predicate():
+            return
+        threading.Event().wait(0.005)
+    raise AssertionError("условие не выполнено в ограниченное время")
 
 
 def test_smoke_runtime_owner_does_not_conflict_with_its_smoke_reservation(tmp_path: Path) -> None:
@@ -863,6 +897,161 @@ def test_smoke_captures_automatic_game_boundaries(tmp_path: Path, clean_source: 
         ("before", "synthetic"),
         ("final", "synthetic"),
     }
+
+
+def test_task_started_does_not_close_running_window_with_pending_checkpoint(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    runtime = _Runtime()
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(runtime.execution_order),
+        now=lambda: _NOW,
+        poll_seconds=0.01,
+    )
+    started = manager.start_smoke(_checkpoint_spec())
+    smoke_id = started.details["smoke_id"]
+    supervisor = threading.Thread(target=manager._run_supervisor, args=(smoke_id,))
+    supervisor.start()
+
+    def assertion_passed() -> bool:
+        record = manager.store.load(smoke_id)
+        return (
+            record.state is smoke.SmokeState.RUNNING
+            and any(
+                item.assertion_id == "started"
+                and item.status is smoke.SmokeAssertionStatus.PASS
+                for item in record.assertions
+            )
+        )
+
+    _wait_until(assertion_passed)
+    assert runtime.stop_calls == 0
+    assert manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
+
+    captured = manager.capture_game_checkpoint(smoke_id, "commission_recovery")
+    assert captured.ok is True, captured.as_dict()
+    supervisor.join(timeout=2)
+    assert not supervisor.is_alive()
+
+
+def test_captured_intermediate_checkpoint_unblocks_normal_completion(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    runtime = _Runtime()
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(runtime.execution_order),
+        now=lambda: _NOW,
+        poll_seconds=0.01,
+    )
+    started = manager.start_smoke(_checkpoint_spec())
+    smoke_id = started.details["smoke_id"]
+    supervisor = threading.Thread(target=manager._run_supervisor, args=(smoke_id,))
+    supervisor.start()
+
+    _wait_until(
+        lambda: manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
+        and any(
+            item.assertion_id == "started"
+            and item.status is smoke.SmokeAssertionStatus.PASS
+            for item in manager.store.load(smoke_id).assertions
+        )
+    )
+    assert manager.capture_game_checkpoint(smoke_id, "commission_recovery").ok is True
+    supervisor.join(timeout=2)
+    assert not supervisor.is_alive()
+
+    result = manager.store.load_result(smoke_id)
+    assert result is not None
+    assert result.outcome is smoke.SmokeOutcome.PASS
+    order = runtime.execution_order
+    assert order.index("task_started") < order.index("capture_commission_recovery")
+    assert order.index("capture_commission_recovery") < order.index("capture_final")
+    assert order.index("capture_final") < order.index("stop")
+    assert runtime.stop_calls == 1
+
+
+def test_missing_intermediate_checkpoint_waits_until_deadline_and_cleans_up(
+    tmp_path: Path,
+    clean_source: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _Runtime()
+    clock = [_NOW]
+
+    def bounded_sleep(seconds: float) -> None:
+        clock[0] += timedelta(seconds=seconds)
+
+    monkeypatch.setattr(smoke.time, "sleep", bounded_sleep)
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(),
+        now=lambda: clock[0],
+        poll_seconds=0.01,
+    )
+    started = manager.start_smoke(
+        _checkpoint_spec().model_copy(update={"timeout_seconds": 1.0})
+    )
+
+    manager._run_supervisor(started.details["smoke_id"])
+
+    result = manager.store.load_result(started.details["smoke_id"])
+    assert result is not None
+    assert result.outcome is smoke.SmokeOutcome.TIMEOUT
+    assert result.primary_failure is not None
+    assert result.primary_failure.code == "DEV_SMOKE_TIMEOUT"
+    assert result.cleanup.confirmed is True
+    assert result.cleanup.no_owned_orphan is True
+    assert runtime.stop_calls == 1
+    assert runtime.active is False
+
+
+def test_cancel_remains_available_while_intermediate_checkpoint_is_pending(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    runtime = _Runtime()
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(),
+        now=lambda: _NOW,
+        poll_seconds=0.01,
+    )
+    started = manager.start_smoke(_checkpoint_spec())
+    smoke_id = started.details["smoke_id"]
+    supervisor = threading.Thread(target=manager._run_supervisor, args=(smoke_id,))
+    supervisor.start()
+
+    _wait_until(
+        lambda: manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
+        and any(
+            item.assertion_id == "started"
+            and item.status is smoke.SmokeAssertionStatus.PASS
+            for item in manager.store.load(smoke_id).assertions
+        )
+    )
+    cancel = manager.cancel_smoke(smoke_id)
+    assert cancel.ok is True
+    supervisor.join(timeout=2)
+    assert not supervisor.is_alive()
+
+    result = manager.store.load_result(smoke_id)
+    assert result is not None
+    assert result.outcome is smoke.SmokeOutcome.CANCELLED
+    assert result.cleanup.confirmed is True
+    assert result.cleanup.no_owned_orphan is True
+    assert runtime.stop_calls == 1
 
 
 def test_smoke_captures_before_before_first_target_execution_side_effect(

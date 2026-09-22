@@ -393,6 +393,36 @@ class CommissionRecoveryStore:
             )
         return replace(observed, cache_status=self._cache_status)
 
+    def invalidate(
+        self,
+        profile: str,
+        *,
+        last_result: str | None = "ambiguous_ap_purchase",
+    ) -> CommissionRecoveryState:
+        """Удалить подтверждённое состояние после неоднозначной AP mutation."""
+
+        if last_result is not None and (
+            not last_result or any(character.isspace() for character in last_result)
+        ):
+            raise ValueError("Результат восстановления Commission некорректен.")
+        profile = _profile_name(profile)
+        now = self._now_utc()
+        unavailable = self._health(profile, now)
+        if unavailable is not None:
+            return unavailable
+        assert self._cache is not None
+        try:
+            self._cache.delete(self.key(profile))
+        except RuntimeCacheError as error:
+            self._cache_status = error.status.value
+            return self._unavailable(
+                profile,
+                now,
+                error=error.status.value,
+                last_result=last_result,
+            )
+        return self._unknown(profile, now, last_result=last_result)
+
     def record_result(
         self,
         profile: str,

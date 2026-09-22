@@ -22,13 +22,13 @@
 
 import copy
 from datetime import timedelta
+from enum import StrEnum
 
 from scipy import signal
 
-from module.application.errors import StorageError
 from module.application.commission_recovery import CommissionRecoveryStore
+from module.application.errors import StorageError
 from module.base.timer import Timer
-import time
 from module.base.utils import *
 from module.combat.assets import *
 from module.commission.assets import *
@@ -36,31 +36,43 @@ from module.commission.preset import DICT_FILTER_PRESET, SHORTEST_FILTER
 from module.commission.project import COMMISSION_FILTER, Commission
 from module.config.config_generated import GeneratedConfig
 from module.config.time_source import now as current_time
-from module.config.utils import get_server_last_update, get_server_next_update, nearest_future
+from module.config.utils import (
+    get_server_last_update,
+    get_server_next_update,
+    nearest_future,
+)
 from module.dorm.dorm import RewardDorm
 from module.exception import GameStuckError, OilMaxed, RequestHumanTakeover
 from module.handler.info_handler import InfoHandler
 from module.logger import logger
-from module.notify.notify import handle_notify, notify_webui
 from module.map.map_grids import SelectedGrids
+from module.notify.notify import handle_notify, notify_webui
 from module.os_handler.action_point import (
     ActionPointHandler,
     EmergencyActionPointPurchaseStatus,
 )
 from module.retire.assets import DOCK_CHECK
+from module.tactical.assets import TACTICAL_CLASS_CANCEL, TACTICAL_CLASS_START
 from module.ui.assets import BACK_ARROW, REWARD_GOTO_COMMISSION
-from module.tactical.assets import TACTICAL_CLASS_START, TACTICAL_CLASS_CANCEL
 from module.ui.page import page_commission, page_os, page_reward
 from module.ui.scroll import Scroll
 from module.ui.switch import Switch
 from module.ui.ui import UI
 from module.ui_white.assets import REWARD_1_WHITE, REWARD_GOTO_COMMISSION_WHITE
-from datetime import timedelta
 
 COMMISSION_SWITCH = Switch('Commission_switch', is_selector=True)
 COMMISSION_SWITCH.add_state('daily', COMMISSION_DAILY)
 COMMISSION_SWITCH.add_state('urgent', COMMISSION_URGENT)
 COMMISSION_SCROLL = Scroll(COMMISSION_SCROLL_AREA, color=(247, 211, 66), name='COMMISSION_SCROLL')
+
+
+class CommissionRecoveryOutcome(StrEnum):
+    """Typed outcome ограниченного восстановления переполнения нефти."""
+
+    AP_RECOVERED = "recovered_via_ap"
+    DORM_RECOVERED = "recovered_via_confirmed_zero_dorm"
+    BLOCKED = "blocked"
+    AMBIGUOUS_MUTATION = "ambiguous_mutation"
 
 
 def lines_detect(image):
@@ -890,132 +902,254 @@ class RewardCommission(UI, InfoHandler):
 
         return CommissionRecoveryStore.from_environment()
 
-    def _recover_commission_oil_overflow(self):
-        """Освободить нефть через одну проверяемую покупку AP или резерв общежития."""
+    def _recover_commission_oil_overflow(self) -> CommissionRecoveryOutcome:
+        """Выполнить одну Redis-first попытку восстановления переполнения нефти."""
 
         profile = self.config.config_name
         store = self._commission_recovery_store()
         ap_handler = None
         os_opened = False
         ap_opened = False
-        purchase_proved = False
-        cached = None
+        purchase_started = False
 
-        try:
+        def blocked(
+            outcome: CommissionRecoveryOutcome = CommissionRecoveryOutcome.BLOCKED,
+        ) -> CommissionRecoveryOutcome:
+            self._commission_recovery_blocked = True
+            return outcome
+
+        def valid_state(state: object) -> bool:
+            remaining = getattr(state, 'remaining', None)
+            return (
+                getattr(state, 'status', None) == 'confirmed'
+                and isinstance(remaining, int)
+                and not isinstance(remaining, bool)
+                and 0 <= remaining <= 5
+            )
+
+        def read_canonical():
             try:
-                cached = store.read(profile)
-                logger.info(
-                    '[Комиссия — нефть] Состояние недельной покупки AP: статус=%s, остаток=%s, источник=%s',
-                    cached.status,
-                    cached.remaining,
-                    cached.source or '-',
-                )
-            except Exception as error:  # noqa: BLE001 - unknown cache state must not block Dorm fallback
+                state = store.read(profile)
+            except Exception as error:  # noqa: BLE001 - cache boundary is fail-closed
                 logger.warning(
-                    '[Комиссия — нефть] Состояние кэша AP недоступно (%s)',
+                    '[Комиссия — нефть] Каноническое состояние AP недоступно (%s)',
                     type(error).__name__,
                 )
-
-            try:
-                ap_handler = ActionPointHandler(self.config, self.device)
-                self.ui_ensure(page_os)
-                os_opened = True
-                if not ap_handler.action_point_enter(timeout=15):
-                    logger.warning('[Комиссия — нефть] Не удалось безопасно открыть окно AP')
-                else:
-                    ap_opened = True
-                    remaining = ap_handler.action_point_get_buy_remain_optional(timeout=1)
-                    if remaining is None:
-                        logger.warning('[Комиссия — нефть] Остаток недельных покупок AP неизвестен')
-                    else:
-                        logger.info(
-                            '[Комиссия — нефть] OCR подтвердил недельный остаток AP: %s/5',
-                            remaining,
-                        )
-                        if remaining == 0:
-                            stored = store.record_observation(
-                                profile,
-                                0,
-                                source='game_ocr',
-                                last_result='ap_unavailable',
-                            )
-                            logger.info(
-                                '[Комиссия — нефть] OCR подтвердил отсутствие недельных покупок AP; запись кэша=%s',
-                                stored.status,
-                            )
-                        elif getattr(self, '_commission_emergency_purchase_attempted', False):
-                            logger.info(
-                                '[Комиссия — нефть] Аварийная покупка AP уже выполнялась в этом цикле; используется резерв общежития',
-                            )
-                        else:
-                            self._commission_emergency_purchase_attempted = True
-                            purchase = ap_handler.action_point_buy_emergency_once(
-                                remaining=remaining,
-                            )
-                            if (
-                                purchase.status == EmergencyActionPointPurchaseStatus.PURCHASED
-                                and purchase.remaining_after == remaining - 1
-                            ):
-                                purchase_proved = True
-                                stored = store.record_observation(
-                                    profile,
-                                    purchase.remaining_after,
-                                    source='emergency_ap_purchase',
-                                    last_result='ap_purchase',
-                                )
-                                logger.info(
-                                    '[Комиссия — нефть] Покупка AP подтверждена новым OCR: %s -> %s, запись кэша=%s',
-                                    remaining,
-                                    purchase.remaining_after,
-                                    stored.status,
-                                )
-                            else:
-                                logger.info(
-                                    '[Комиссия — нефть] Аварийная покупка AP не подтверждена: результат=%s; используется резерв общежития',
-                                    getattr(purchase.status, 'value', purchase.status),
-                                )
-            except Exception as error:  # noqa: BLE001 - recovery must remain bounded and fail-closed
+                return None
+            if not valid_state(state):
                 logger.warning(
-                    '[Комиссия — нефть] Восстановление AP недоступно (%s); используется резерв общежития',
-                    type(error).__name__,
+                    '[Комиссия — нефть] Read-back состояния AP не подтверждён: статус=%s, остаток=%s',
+                    getattr(state, 'status', 'unknown'),
+                    getattr(state, 'remaining', None),
                 )
-        finally:
+                return None
+            return state
+
+        def close_navigation() -> bool:
+            nonlocal ap_opened, os_opened
+            cleanup_ok = True
             if ap_opened and ap_handler is not None:
                 try:
                     ap_handler.action_point_quit(timeout=10)
-                except Exception as error:  # noqa: BLE001 - fallback must still run
+                except Exception as error:  # noqa: BLE001 - cleanup is fail-closed
+                    cleanup_ok = False
                     logger.warning(
                         '[Комиссия — нефть] Не удалось закрыть окно AP (%s)',
                         type(error).__name__,
                     )
+                ap_opened = False
             if os_opened:
                 try:
                     self.ui_ensure(page_reward)
-                except Exception as error:  # noqa: BLE001 - fallback owns the next navigation attempt
+                except Exception as error:  # noqa: BLE001 - cleanup is fail-closed
+                    cleanup_ok = False
                     logger.warning(
                         '[Комиссия — нефть] Возврат к наградам после восстановления AP не подтверждён (%s)',
                         type(error).__name__,
                     )
+                os_opened = False
+            return cleanup_ok
 
-        if purchase_proved:
-            store.close()
-            return True
+        def invalidate_after_mutation() -> CommissionRecoveryOutcome:
+            try:
+                invalidated = store.invalidate(
+                    profile,
+                    last_result='ambiguous_ap_purchase',
+                )
+            except Exception as error:  # noqa: BLE001 - no retry without invalidation
+                logger.warning(
+                    '[Комиссия — нефть] Не удалось инвалидировать состояние после AP mutation (%s)',
+                    type(error).__name__,
+                )
+                return blocked(CommissionRecoveryOutcome.AMBIGUOUS_MUTATION)
+            if getattr(invalidated, 'status', None) != 'unknown':
+                logger.warning(
+                    '[Комиссия — нефть] После AP mutation состояние осталось неустановленным: статус=%s',
+                    getattr(invalidated, 'status', 'unknown'),
+                )
+            return blocked(CommissionRecoveryOutcome.AMBIGUOUS_MUTATION)
+
+        def reconcile_state(state: object):
+            nonlocal ap_handler, ap_opened, os_opened
+            ap_handler = ActionPointHandler(self.config, self.device)
+            self.ui_ensure(page_os)
+            os_opened = True
+            if not ap_handler.action_point_enter(timeout=15):
+                logger.warning('[Комиссия — нефть] Не удалось безопасно открыть окно AP')
+                return None
+            ap_opened = True
+            observed = ap_handler.action_point_get_buy_remain_optional(timeout=1)
+            if (
+                not isinstance(observed, int)
+                or isinstance(observed, bool)
+                or not 0 <= observed <= 5
+            ):
+                logger.warning('[Комиссия — нефть] Свежий OCR остатка AP неизвестен')
+                return None
+            logger.info(
+                '[Комиссия — нефть] Свежий OCR подтвердил недельный остаток AP: %s/5',
+                observed,
+            )
+            if getattr(state, 'status', None) != 'unknown' and observed == getattr(state, 'remaining', None):
+                return state
+            stored = store.record_observation(
+                profile,
+                observed,
+                source='game_ocr',
+                last_result='ap_unavailable' if observed == 0 else None,
+            )
+            if not valid_state(stored) or stored.remaining != observed:
+                logger.warning(
+                    '[Комиссия — нефть] OCR-наблюдение AP не стало каноническим state: статус=%s',
+                    getattr(stored, 'status', 'unknown'),
+                )
+                return None
+            canonical = read_canonical()
+            if canonical is None or canonical.remaining != observed:
+                return None
+            return canonical
+
+        def run_dorm(state: object) -> CommissionRecoveryOutcome:
+            if not valid_state(state) or state.remaining != 0:
+                return blocked()
+            if not close_navigation():
+                return blocked()
+            try:
+                logger.info('[Комиссия — нефть] Тратим нефть через подтверждённый резерв общежития')
+                RewardDorm(self.config, self.device).dorm_food_run(amount=10)
+                stored = store.record_result(profile, 'dorm_fallback')
+                logger.info(
+                    '[Комиссия — нефть] Резерв общежития завершён; состояние кэша=%s',
+                    getattr(stored, 'status', 'unknown'),
+                )
+                self.ui_ensure(page_reward)
+            except Exception as error:  # noqa: BLE001 - no hidden retry after mutation
+                logger.warning(
+                    '[Комиссия — нефть] Резерв общежития не подтверждён (%s)',
+                    type(error).__name__,
+                )
+                return blocked()
+            self._commission_recovery_completed = True
+            return CommissionRecoveryOutcome.DORM_RECOVERED
 
         try:
-            logger.info('[Комиссия — нефть] Тратим нефть через ограниченный резерв общежития')
-            RewardDorm(self.config, self.device).dorm_food_run(amount=10)
-            if cached is not None and cached.status == 'confirmed':
-                fallback_state = store.record_result(profile, 'dorm_fallback')
-            else:
-                fallback_state = cached
+            if getattr(self, '_commission_recovery_completed', False):
+                return blocked()
+            if getattr(self, '_commission_recovery_blocked', False):
+                return blocked()
+
+            try:
+                state = store.read(profile)
+            except Exception as error:  # noqa: BLE001 - cache outage cannot choose a mutation
+                logger.warning(
+                    '[Комиссия — нефть] Каноническое состояние AP недоступно (%s)',
+                    type(error).__name__,
+                )
+                return blocked()
             logger.info(
-                '[Комиссия — нефть] Резерв общежития завершён; состояние кэша=%s',
-                fallback_state.status if fallback_state is not None else 'unknown',
+                '[Комиссия — нефть] Каноническое состояние недельной покупки AP: статус=%s, остаток=%s, источник=%s',
+                getattr(state, 'status', 'unknown'),
+                getattr(state, 'remaining', None),
+                getattr(state, 'source', None) or '-',
             )
-            self.ui_ensure(page_reward)
+
+            state_status = getattr(state, 'status', None)
+            if state_status == 'unavailable':
+                return blocked()
+            if state_status == 'confirmed':
+                if not valid_state(state):
+                    return blocked()
+                if state.remaining == 0:
+                    return run_dorm(state)
+                if getattr(self, '_commission_emergency_purchase_attempted', False):
+                    logger.warning(
+                        '[Комиссия — нефть] Аварийная покупка AP уже использована; при remaining>0 Dorm запрещён',
+                    )
+                    return blocked()
+            elif state_status != 'unknown':
+                return blocked()
+
+            state = reconcile_state(state)
+            if state is None or not valid_state(state):
+                return blocked()
+            if state.remaining == 0:
+                return run_dorm(state)
+            if getattr(self, '_commission_emergency_purchase_attempted', False):
+                return blocked()
+
+            self._commission_emergency_purchase_attempted = True
+            purchase_started = True
+            purchase = ap_handler.action_point_buy_emergency_once(
+                remaining=state.remaining,
+            )
+            if (
+                purchase.status is EmergencyActionPointPurchaseStatus.PURCHASED
+                and purchase.click_count == 1
+                and purchase.remaining_before == state.remaining
+                and purchase.remaining_after == state.remaining - 1
+            ):
+                stored = store.record_observation(
+                    profile,
+                    purchase.remaining_after,
+                    source='emergency_ap_purchase',
+                    last_result='ap_purchase',
+                )
+                canonical = read_canonical()
+                if (
+                    valid_state(stored)
+                    and canonical is not None
+                    and canonical.remaining == purchase.remaining_after
+                    and canonical.source == 'emergency_ap_purchase'
+                    and canonical.last_result == 'ap_purchase'
+                ):
+                    logger.info(
+                        '[Комиссия — нефть] Покупка AP подтверждена canonical read-back: %s -> %s',
+                        state.remaining,
+                        canonical.remaining,
+                    )
+                    self._commission_recovery_completed = True
+                    return CommissionRecoveryOutcome.AP_RECOVERED
+                return invalidate_after_mutation()
+
+            logger.warning(
+                '[Комиссия — нефть] Аварийная покупка AP не подтверждена: результат=%s, кликов=%s',
+                getattr(purchase.status, 'value', purchase.status),
+                getattr(purchase, 'click_count', 0),
+            )
+            if getattr(purchase, 'click_count', 0) > 0:
+                return invalidate_after_mutation()
+            return blocked()
+        except Exception as error:  # noqa: BLE001 - recovery is bounded and fail-closed
+            logger.warning(
+                '[Комиссия — нефть] Восстановление AP завершилось исключением (%s)',
+                type(error).__name__,
+            )
+            if purchase_started:
+                return invalidate_after_mutation()
+            return blocked()
         finally:
+            close_navigation()
             store.close()
-        return False
 
     def commission_receive(self):
         """
@@ -1029,12 +1163,19 @@ class RewardCommission(UI, InfoHandler):
             out: page_commission
         """
         self._commission_emergency_purchase_attempted = False
+        self._commission_recovery_completed = False
+        self._commission_recovery_blocked = False
         for _ in range(3):
             try:
                 return self._commission_receive()
             except OilMaxed:
-                self._recover_commission_oil_overflow()
+                outcome = self._recover_commission_oil_overflow()
                 self.ui_ensure(page_reward)
+                if outcome not in {
+                    CommissionRecoveryOutcome.AP_RECOVERED,
+                    CommissionRecoveryOutcome.DORM_RECOVERED,
+                }:
+                    raise RequestHumanTakeover
 
         logger.critical('[Комиссия — нефть] Не удалось устранить переполнение нефти после 3 ограниченных попыток')
         raise RequestHumanTakeover
