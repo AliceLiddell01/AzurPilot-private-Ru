@@ -13,11 +13,16 @@ from enum import StrEnum
 from numbers import Integral
 
 import module.config.server as server
+from module.application.commission_recovery import (
+    ACTION_POINT_GAIN_PER_PURCHASE,
+    ACTION_POINTS_BUY,
+)
 from module.base.button import ButtonGrid
 from module.base.timer import Timer
 from module.base.utils import *
 from module.config.time_source import now as current_time
 from module.config.utils import get_server_next_update, server_time_offset
+from module.log_res import LogRes
 from module.logger import logger
 from module.ocr.ocr import Digit, DigitCounter
 from module.os_handler.assets import *
@@ -25,7 +30,6 @@ from module.os_handler.map_event import MapEventHandler
 from module.statistics.item import Item, ItemGrid
 from module.ui.assets import OS_CHECK
 from module.ui.ui import UI
-from module.log_res import LogRes
 
 OCR_ACTION_POINT_REMAIN = Digit(ACTION_POINT_REMAIN, letter=(255, 219, 66), name='OCR_ACTION_POINT_REMAIN')
 OCR_ACTION_POINT_REMAIN_OS = Digit(ACTION_POINT_REMAIN_OS, letter=(239, 239, 239),
@@ -102,14 +106,7 @@ ACTION_POINTS_COST_ABYSSAL = {
     5: 100,
     6: 100,
 }
-ACTION_POINTS_BUY = {
-    1: 4000,
-    2: 2000,
-    3: 2000,
-    4: 1000,
-    5: 1000,
-}
-ACTION_POINT_BUY_GAIN = 100
+ACTION_POINT_BUY_GAIN = ACTION_POINT_GAIN_PER_PURCHASE
 
 
 class EmergencyActionPointPurchaseStatus(StrEnum):
@@ -416,7 +413,7 @@ class ActionPointHandler(UI, MapEventHandler):
     def action_point_buy_emergency_once(
         self,
         *,
-        remaining: int | None = None,
+        expected_remaining: int | None = None,
         wait_timeout: float = 5,
     ):
         """Выполнить не более одной покупки AP и доказать её постусловие.
@@ -440,20 +437,20 @@ class ActionPointHandler(UI, MapEventHandler):
         if not isinstance(ap_before, Integral) or isinstance(ap_before, bool) or ap_before < 0:
             return EmergencyActionPointPurchase(
                 status=EmergencyActionPointPurchaseStatus.UNKNOWN,
-                remaining_before=remaining,
+                remaining_before=expected_remaining,
             )
         ap_before = int(ap_before)
 
         # Повторно подтверждаем weekly counter после свежего AP/Oil кадра.
-        # Переданный remaining остаётся Redis-first guard, но не заменяет OCR.
+        # Сохранённый остаток защищает от неожиданного изменения после записи в cache.
         observed_before = self.action_point_get_buy_remain_optional(timeout=1)
         if observed_before is None:
             return EmergencyActionPointPurchase(
                 status=EmergencyActionPointPurchaseStatus.UNKNOWN,
-                remaining_before=remaining,
+                remaining_before=expected_remaining,
                 ap_before=ap_before,
             )
-        if remaining is not None and observed_before != remaining:
+        if expected_remaining is not None and observed_before != expected_remaining:
             return EmergencyActionPointPurchase(
                 status=EmergencyActionPointPurchaseStatus.UNKNOWN,
                 remaining_before=observed_before,

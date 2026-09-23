@@ -101,7 +101,8 @@ class _ActionPoint:
         self.select_oil_calls = 0
         self.quitted = 0
         self.purchase_calls = 0
-        self.remaining_args: list[int] = []
+        self.method_calls = 0
+        self.remaining_args: list[int | None] = []
 
     def action_point_enter(self, *, timeout):
         self.events.append("enter")
@@ -120,10 +121,56 @@ class _ActionPoint:
             return self.ocr_remaining
         return self.purchase.remaining_before
 
-    def action_point_buy_emergency_once(self, *, remaining):
-        self.events.append(f"purchase:{remaining}")
-        self.purchase_calls += 1
-        self.remaining_args.append(remaining)
+    def action_point_buy_emergency_once(self, *, expected_remaining):
+        self.method_calls += 1
+        self.remaining_args.append(expected_remaining)
+        self.action_point_set_button(0)
+        if not self.select_oil:
+            return _purchase(
+                EmergencyActionPointPurchaseStatus.UNSAFE,
+                before=None,
+                after=None,
+                clicks=0,
+                ap_before=None,
+                ap_after=None,
+                ap_gain=None,
+                oil_before=None,
+                oil_after=None,
+            )
+        self.events.append("ocr")
+        observed = (
+            self.purchase.remaining_before
+            if self.ocr_remaining == "from_purchase"
+            else self.ocr_remaining
+        )
+        if observed is None or (
+            expected_remaining is not None and observed != expected_remaining
+        ):
+            return _purchase(
+                EmergencyActionPointPurchaseStatus.UNKNOWN,
+                before=observed,
+                after=None,
+                clicks=0,
+                ap_before=self.purchase.ap_before,
+                ap_after=None,
+                ap_gain=None,
+                oil_before=None,
+                oil_after=None,
+            )
+        if observed == 0:
+            return _purchase(
+                EmergencyActionPointPurchaseStatus.UNAVAILABLE,
+                before=0,
+                after=None,
+                clicks=0,
+                ap_before=self.purchase.ap_before,
+                ap_after=None,
+                ap_gain=None,
+                oil_before=None,
+                oil_after=None,
+            )
+        self.events.append(f"purchase:{expected_remaining}")
+        self.purchase_calls += self.purchase.click_count
         return self.purchase
 
     def action_point_quit(self, *, timeout):
@@ -179,7 +226,7 @@ def _purchase(
     )
 
 
-def test_confirmed_positive_state_is_entry_authority_and_records_readback(monkeypatch):
+def test_confirmed_positive_state_is_entry_authority_and_records_one_write(monkeypatch):
     store = _Store(status="confirmed", remaining=4)
     ap = _ActionPoint(_purchase(EmergencyActionPointPurchaseStatus.PURCHASED, after=3))
     dorm_calls: list[int] = []
@@ -194,7 +241,7 @@ def test_confirmed_positive_state_is_entry_authority_and_records_readback(monkey
     assert store.state.remaining == 3
     assert store.state.source == "emergency_ap_purchase"
     assert store.state.last_result == "ap_purchase"
-    assert store.read_calls >= 2
+    assert store.read_calls == 1
     assert ap.remaining_args == [4]
     assert dorm_calls == []
 
@@ -217,7 +264,7 @@ def test_confirmed_zero_uses_dorm_without_opening_ap(monkeypatch):
     assert store.events == ["read", "record_result"]
 
 
-def test_unknown_state_bootstraps_from_ocr_before_ap_decision(monkeypatch):
+def test_unknown_state_uses_one_fresh_mutation_owner_boundary(monkeypatch):
     events: list[str] = []
     store = _Store(order=events)
     ap = _ActionPoint(
@@ -230,12 +277,11 @@ def test_unknown_state_bootstraps_from_ocr_before_ap_decision(monkeypatch):
     outcome = handler._recover_commission_oil_overflow()
 
     assert outcome is commission.CommissionRecoveryOutcome.AP_RECOVERED
-    assert store.observations[0][1:] == (4, "game_ocr", None)
+    assert store.observations == [("ap", 3, "emergency_ap_purchase", "ap_purchase")]
+    assert ap.remaining_args == [None]
     assert events.index("enter") < events.index("select_oil") < events.index("ocr")
-    assert events.index("ocr") < events.index("record_observation") < events.index("read", 1)
-    assert events.index("read", 1) < events.index("purchase:4")
-    assert events.index("ocr") < events.index("purchase:4")
-    assert store.events.index("record_observation") < store.events.index("read", 1)
+    assert events.index("ocr") < events.index("purchase:None") < events.index("record_observation")
+    assert store.read_calls == 1
     assert dorm_calls == []
 
 
@@ -257,6 +303,7 @@ def test_oil_selection_failure_blocks_before_ocr_redis_or_mutation(monkeypatch):
     assert "ocr" not in events
     assert store.observations == []
     assert ap.purchase_calls == 0
+    assert ap.method_calls == 1
     assert dorm_calls == []
 
 
@@ -272,7 +319,7 @@ def test_unknown_state_bootstraps_zero_then_allows_dorm(monkeypatch):
 
     assert outcome is commission.CommissionRecoveryOutcome.DORM_RECOVERED
     assert store.observations == [("ap", 0, "game_ocr", "ap_unavailable")]
-    assert store.read_calls >= 2
+    assert store.read_calls == 1
     assert ap.purchase_calls == 0
     assert dorm_calls == [10]
 
@@ -291,7 +338,7 @@ def test_unavailable_cache_fails_closed_without_ap_or_dorm(monkeypatch):
     assert dorm_calls == []
 
 
-def test_ocr_mismatch_updates_canonical_state_before_purchase(monkeypatch):
+def test_ocr_mismatch_updates_canonical_state_and_blocks_before_purchase(monkeypatch):
     store = _Store(status="confirmed", remaining=4)
     ap = _ActionPoint(_purchase(EmergencyActionPointPurchaseStatus.PURCHASED, before=3, after=2))
     dorm_calls: list[int] = []
@@ -299,9 +346,10 @@ def test_ocr_mismatch_updates_canonical_state_before_purchase(monkeypatch):
 
     outcome = handler._recover_commission_oil_overflow()
 
-    assert outcome is commission.CommissionRecoveryOutcome.AP_RECOVERED
+    assert outcome is commission.CommissionRecoveryOutcome.BLOCKED
     assert store.observations[0][1:] == (3, "game_ocr", None)
-    assert ap.remaining_args == [3]
+    assert ap.remaining_args == [4]
+    assert ap.purchase_calls == 0
     assert dorm_calls == []
 
 
@@ -318,6 +366,7 @@ def test_unknown_pre_mutation_ocr_blocks_without_state_fabrication(monkeypatch):
 
     assert outcome is commission.CommissionRecoveryOutcome.BLOCKED
     assert ap.purchase_calls == 0
+    assert ap.method_calls == 1
     assert store.observations == []
     assert dorm_calls == []
     assert store.state.status == "confirmed"
@@ -381,7 +430,8 @@ def test_pre_mutation_ap_outcomes_fail_closed_without_dorm_or_blind_retry(
 
     assert first is commission.CommissionRecoveryOutcome.BLOCKED
     assert second is commission.CommissionRecoveryOutcome.BLOCKED
-    assert ap.purchase_calls == 1
+    assert ap.purchase_calls == 0
+    assert ap.method_calls == 1
     assert dorm_calls == []
     assert store.state.status == "confirmed"
     assert store.state.remaining == 4

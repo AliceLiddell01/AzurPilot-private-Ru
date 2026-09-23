@@ -60,7 +60,7 @@ def _handler(
 def test_emergency_purchase_200_to_300_is_purchased_with_one_click(monkeypatch):
     handler, clicks, _events = _handler(monkeypatch, [5, 4])
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
     assert result.remaining_before == 5
@@ -82,7 +82,7 @@ def test_emergency_purchase_allows_ap_below_max_without_clamp(monkeypatch):
         ap_observations=(115, 215),
     )
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
     assert result.ap_before == 115
@@ -98,7 +98,7 @@ def test_emergency_purchase_at_ap_max_allows_200_to_300(monkeypatch):
         ap_observations=(250, 350),
     )
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
     assert result.ap_before == 250
@@ -115,7 +115,7 @@ def test_emergency_purchase_waits_through_unchanged_post_click_frame(monkeypatch
         oil_observations=(25000, 25000, 24000),
     )
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
     assert result.remaining_after == 4
@@ -131,7 +131,7 @@ def test_emergency_purchase_waits_through_partial_weekly_decrement(monkeypatch):
         ap_observations=(200, 200),
     )
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.UNKNOWN
     assert result.click_count == 1
@@ -149,7 +149,7 @@ def test_emergency_purchase_rejects_unknown_ap_after_click(monkeypatch):
         oil_observations=(25000, 24000, 24000),
     )
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.UNKNOWN
     assert result.click_count == 1
@@ -161,7 +161,7 @@ def test_emergency_purchase_rejects_unknown_ap_after_click(monkeypatch):
 def test_emergency_purchase_waits_through_partial_ap_delta(monkeypatch):
     handler, clicks, _events = _handler(monkeypatch, [5, 5])
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.UNKNOWN
     assert result.click_count == 1
@@ -178,7 +178,7 @@ def test_emergency_purchase_fails_on_contradictory_ap_increase(monkeypatch):
         ap_observations=(200, 301),
     )
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.FAILED
     assert result.ap_gain == 101
@@ -190,7 +190,7 @@ def test_emergency_purchase_ignores_stale_cached_ap_for_before_observation(monke
     handler, _clicks, events = _handler(monkeypatch, [5, 4])
     handler._action_point_current = 115
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     safe_gets = [event for event in events if isinstance(event, tuple) and event[0] == "safe_get"]
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
@@ -202,7 +202,7 @@ def test_emergency_purchase_ignores_stale_cached_ap_for_before_observation(monke
 def test_emergency_purchase_reads_ap_after_fresh_post_click_frame(monkeypatch):
     handler, _clicks, events = _handler(monkeypatch, [5, 4])
 
-    result = handler.action_point_buy_emergency_once(remaining=5)
+    result = handler.action_point_buy_emergency_once(expected_remaining=5)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
     click_index = events.index("click")
@@ -224,7 +224,7 @@ def test_emergency_purchase_does_not_retry_after_unknown_postcondition(monkeypat
         oil_observations=(25000, 24000, 24000, 24000, 24000),
     )
 
-    result = handler.action_point_buy_emergency_once(remaining=4, wait_timeout=0.01)
+    result = handler.action_point_buy_emergency_once(expected_remaining=4, wait_timeout=0.01)
 
     assert result.status is action_point.EmergencyActionPointPurchaseStatus.UNKNOWN
     assert result.click_count == 1

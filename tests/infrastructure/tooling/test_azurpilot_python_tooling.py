@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,7 +19,9 @@ import psutil
 import pytest
 from pydantic import ValidationError
 
+import azurpilot.tooling.application_state as tooling_application_state
 import azurpilot.tooling.coordination as tooling_coordination
+import azurpilot.tooling.mcp as tooling_mcp
 import azurpilot.tooling.path as tooling_path
 import azurpilot.tooling.process_core as tooling_process
 from azurpilot.cli import CliInvocationError, build_parser, main
@@ -38,6 +41,7 @@ from azurpilot.tooling.contracts import (
     CapabilityStatus,
     DoctorDetails,
     ExitCode,
+    McpAcceptanceDetails,
     OperationState,
     RepositoryRootEvidence,
     ResultCode,
@@ -49,6 +53,7 @@ from azurpilot.tooling.coordination import FileLock, observe_tcp_port
 from azurpilot.tooling.doctor import DoctorService
 from azurpilot.tooling.errors import RepositoryResolutionError, ToolingError
 from azurpilot.tooling.filesystem import ScopedPath, StateLayout
+from azurpilot.tooling.git import GitClient
 from azurpilot.tooling.process import (
     ProcessController,
     ProcessSpec,
@@ -655,8 +660,144 @@ def test_cli_has_one_typed_mcp_runtime_reconcile_route() -> None:
     assert source.source is True
     assert source.bump == "auto"
 
+    accept = parser.parse_args(["mcp", "accept"])
+    assert accept.mcp_command == "accept"
+
+    state = parser.parse_args(
+        ["app", "state", "commission/recovery", "--profile", "ap"]
+    )
+    assert state.app_command == "state"
+    assert state.state_id == "commission/recovery"
+    assert state.profile == "ap"
+
     with pytest.raises(CliInvocationError):
         parser.parse_args(["mcp", "reconcile", "--runtime"])
+
+
+def test_cli_routes_mcp_accept_to_canonical_service() -> None:
+    class McpStub:
+        def __init__(self) -> None:
+            self.calls: list[Path] = []
+
+        def accept(self, root: Path) -> ToolingResult[McpAcceptanceDetails, object]:
+            self.calls.append(root)
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="Fresh MCP acceptance подтверждён.",
+                details=McpAcceptanceDetails(
+                    acceptance_state="READY",
+                    reason_code="MCP_FRESH_CLIENT_READY",
+                    initialized=True,
+                    tool_count=2,
+                    tool_catalog_sha256="a" * 64,
+                    capability_catalog_sha256="b" * 64,
+                    contract_revision="c" * 64,
+                    called_tools=("dev_get_contract", "dev_list_smoke_capabilities"),
+                ),
+            )
+
+    mcp = McpStub()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = main(
+        [
+            "--json",
+            "mcp",
+            "accept",
+            "--repository-root",
+            str(REPOSITORY_ROOT),
+        ],
+        services=SimpleNamespace(mcp=mcp),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    report = json.loads(stdout.getvalue())
+    assert exit_code == 0
+    assert report["details"]["acceptance_state"] == "READY"
+    assert mcp.calls == [str(REPOSITORY_ROOT)]
+    assert stderr.getvalue() == ""
+
+
+def test_mcp_accept_uses_repository_owned_fresh_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dev_tools import mcp_acceptance
+
+    calls: list[Path] = []
+
+    async def accept(root: Path) -> object:
+        calls.append(root)
+        return SimpleNamespace(
+            state=IntegrationState.READY,
+            reason_code="MCP_FRESH_CLIENT_READY",
+            initialized=True,
+            protocol_version="2025-03-26",
+            server_name="azurpilot-dev",
+            server_version="1.2.3",
+            source_revision="a" * 40,
+            tool_count=2,
+            tool_catalog_sha256="b" * 64,
+            capability_catalog_sha256="c" * 64,
+            contract_revision="d" * 64,
+            called_tools=("dev_get_contract", "dev_list_smoke_capabilities"),
+            diagnostics=(),
+        )
+
+    monkeypatch.setattr(mcp_acceptance, "accept", accept)
+    result = tooling_mcp.McpService().accept(REPOSITORY_ROOT)
+
+    assert result.ok is True
+    assert result.details.acceptance_state == "READY"
+    assert result.details.called_tools == (
+        "dev_get_contract",
+        "dev_list_smoke_capabilities",
+    )
+    assert calls == [REPOSITORY_ROOT]
+
+
+def test_application_state_query_reads_store_without_webui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.application import commission_recovery
+
+    calls: list[object] = []
+
+    class Store:
+        @classmethod
+        def from_environment(cls):
+            calls.append("open")
+            return cls()
+
+        def read(self, profile: str) -> object:
+            calls.append(("read", profile))
+            return SimpleNamespace(
+                profile=profile,
+                status="confirmed",
+                remaining=4,
+                used=1,
+                next_oil_cost=110,
+                next_ap_gain=10,
+                confirmed_at=datetime(2026, 9, 23, tzinfo=UTC),
+                reset_at=datetime(2026, 9, 28, tzinfo=UTC),
+                source="game_ocr",
+                last_result=None,
+                cache_status="READY",
+                error=None,
+            )
+
+        def close(self) -> None:
+            calls.append("close")
+
+    monkeypatch.setattr(commission_recovery, "CommissionRecoveryStore", Store)
+
+    result = tooling_application_state.ApplicationStateService().read(
+        "commission/recovery", "ap"
+    )
+
+    assert result.ok is True
+    assert result.details.value.remaining == 4
+    assert calls == ["open", ("read", "ap"), "close"]
 
 
 def test_cli_unexpected_error_exposes_only_bounded_exception_type() -> None:
@@ -694,7 +835,14 @@ def test_doctor_reports_console_script_and_path_capabilities() -> None:
     assert checks["external_integrations"].status is CapabilityStatus.NOT_CHECKED
     assert "doctor --full" in checks["external_integrations"].message
     assert all(len(check.message) <= 240 for check in checks.values())
-    assert checks["git"].status is CapabilityStatus.READY
+    git = GitClient(REPOSITORY_ROOT)
+    assert git.executable is not None
+    try:
+        git.upstream()
+    except ToolingError:
+        assert checks["git"].status is CapabilityStatus.UNAVAILABLE
+    else:
+        assert checks["git"].status is CapabilityStatus.READY
     assert checks["console_script"].status.value == "ready"
     assert "console_path" in checks
     if checks["console_path"].status.value != "ready":

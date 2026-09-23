@@ -23,10 +23,17 @@ from module.config.profile import profile_identity_from_name
 from module.config.time_source import now as current_time
 
 EN_SERVER_TIMEZONE = timedelta(hours=-7)
-COMMISSION_RECOVERY_SCHEMA_VERSION = 1
+COMMISSION_RECOVERY_SCHEMA_VERSION = 2
 COMMISSION_RECOVERY_PREFIX = "commission/recovery/"
 MAX_WEEKLY_ACTION_POINT_PURCHASES = 5
 ACTION_POINT_GAIN_PER_PURCHASE = 100
+ACTION_POINTS_BUY = {
+    1: 4000,
+    2: 2000,
+    3: 2000,
+    4: 1000,
+    5: 1000,
+}
 
 _SOURCE_VALUES = frozenset(
     {
@@ -87,14 +94,7 @@ def _cache_status_value(status: RuntimeCacheStatus | str) -> str:
 def _purchase_cost(remaining: int | None) -> int | None:
     if remaining is None or remaining <= 0:
         return None
-    # Таблица стоимости остаётся у владельца игровой механики; импорт ленивый,
-    # поэтому прикладной слой не загружает UI/OCR при обычном импорте WebUI.
-    try:
-        from module.os_handler.action_point import ACTION_POINTS_BUY
-
-        return ACTION_POINTS_BUY.get(remaining)
-    except (ImportError, AttributeError):
-        return None
+    return ACTION_POINTS_BUY.get(remaining)
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,25 +245,16 @@ class CommissionRecoveryStore:
         document = json.loads(raw.decode("utf-8"))
         if not isinstance(document, dict):
             raise ValueError("Состояние Commission не является объектом.")
-        if document.get("schema_version") != COMMISSION_RECOVERY_SCHEMA_VERSION:
+        schema_version = document.get("schema_version")
+        if schema_version not in {1, COMMISSION_RECOVERY_SCHEMA_VERSION}:
             raise ValueError("Версия состояния Commission не поддерживается.")
         if document.get("profile") != profile or document.get("status") != "confirmed":
             raise ValueError("Профиль или статус состояния Commission не совпадает.")
         remaining = document.get("remaining")
-        used = document.get("used")
-        next_oil_cost = document.get("next_oil_cost")
-        next_ap_gain = document.get("next_ap_gain")
-        expected_cost = _purchase_cost(remaining) if isinstance(remaining, int) else None
         if (
             isinstance(remaining, bool)
             or not isinstance(remaining, int)
             or not 0 <= remaining <= MAX_WEEKLY_ACTION_POINT_PURCHASES
-            or isinstance(used, bool)
-            or not isinstance(used, int)
-            or used != MAX_WEEKLY_ACTION_POINT_PURCHASES - remaining
-            or next_oil_cost != expected_cost
-            or (remaining > 0 and next_ap_gain != ACTION_POINT_GAIN_PER_PURCHASE)
-            or (remaining == 0 and next_ap_gain is not None)
         ):
             raise ValueError("Числа состояния Commission не прошли проверку.")
         confirmed_at = _parse_datetime(document.get("confirmed_at"))
@@ -280,9 +271,9 @@ class CommissionRecoveryStore:
             profile=profile,
             status="confirmed",
             remaining=remaining,
-            used=used,
-            next_oil_cost=next_oil_cost,
-            next_ap_gain=next_ap_gain,
+            used=MAX_WEEKLY_ACTION_POINT_PURCHASES - remaining,
+            next_oil_cost=_purchase_cost(remaining),
+            next_ap_gain=ACTION_POINT_GAIN_PER_PURCHASE if remaining else None,
             confirmed_at=confirmed_at,
             reset_at=reset_at,
             source=source,
@@ -297,9 +288,6 @@ class CommissionRecoveryStore:
             "profile": state.profile,
             "status": "confirmed",
             "remaining": state.remaining,
-            "used": state.used,
-            "next_oil_cost": state.next_oil_cost,
-            "next_ap_gain": state.next_ap_gain,
             "confirmed_at": _serialize_datetime(state.confirmed_at),
             "reset_at": _serialize_datetime(state.reset_at),
             "source": state.source,
@@ -475,9 +463,9 @@ __all__ = (
     "ACTION_POINT_GAIN_PER_PURCHASE",
     "COMMISSION_RECOVERY_PREFIX",
     "COMMISSION_RECOVERY_SCHEMA_VERSION",
-    "CommissionRecoveryState",
-    "CommissionRecoveryStore",
     "EN_SERVER_TIMEZONE",
     "MAX_WEEKLY_ACTION_POINT_PURCHASES",
+    "CommissionRecoveryState",
+    "CommissionRecoveryStore",
     "next_en_weekly_reset",
 )

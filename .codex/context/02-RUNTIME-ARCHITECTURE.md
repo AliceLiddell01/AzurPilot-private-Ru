@@ -186,8 +186,10 @@ model для direct stdio и authenticated loopback HTTP. Единственны
 bundle находится в `config/mcp-versions.toml` и содержит server/API/contract
 identity, tool/capability fingerprints, source-set digests, plugin version и
 skill bundle revision. `azur mcp` выполняет status, versions, source/runtime
-reconciliation и owned lifecycle; runtime reconciliation не редактирует tracked
-source, а stale plugin/session классифицируется как `RELOAD_REQUIRED`. Source
+reconciliation, owned lifecycle и bounded read-only `accept`. Команда
+`azur app state <state-id> --profile <profile>` читает зарегистрированное
+application state без запуска WebUI. Runtime reconciliation не редактирует
+tracked source, а stale plugin/session классифицируется как `RELOAD_REQUIRED`. Source
 sets — bounded explicit mapping фактических application/persistence call graph;
 management-only MCP/Git/repository tooling из backend identity исключено.
 Постоянный compatibility gate отдельно проверяет целостность текущего дерева и
@@ -201,6 +203,11 @@ developer-only. Каждый snapshot имеет неизменяемую target
 provenance, ограниченный payload и checksum. Smoke Harness сохраняет `before`,
 `final` и объявленные промежуточные checkpoints в изолированном sidecar, а
 unknown/unavailable/missing required snapshot не может дать `PASS`.
+Для обычного bounded Smoke `dev_start_smoke` владеет запуском, ожиданием,
+автоматическими intermediate checkpoints, cleanup и terminal result; долгий
+или визуальный сценарий использует отдельный interactive path. Product может
+публиковать ограниченное structured evidence с session/Smoke correlation, а
+результат отдельно сохраняет product, evidence, harness и operator outcomes.
 
 Standalone Game MCP находится в `module.game_mcp` и использует тот же
 нейтральный application/domain слой через собственную lazy composition root.

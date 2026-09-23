@@ -1410,20 +1410,22 @@ def test_readiness_rejects_coderabbit_as_mandatory_gate() -> None:
         )
 
 
-def test_readiness_rejects_unrun_reviewer_as_ready_or_limitation() -> None:
+def test_readiness_allows_unrequested_reviewer_but_rejects_false_limitation() -> None:
     product_gate = MandatoryGate(
         name="product_gate",
         state=MandatoryGateState.PASS,
         evidence="Product gate пройден.",
     )
-    with pytest.raises(ValueError, match="не запущенный external reviewer"):
-        ReadinessState(
-            implementation_status="COMPLETE",
-            mcp_impact="NOT_REQUIRED",
-            mandatory_gates=(product_gate,),
-            overall_outcome="READY",
-            ready_for_chatgpt_review=True,
-        )
+    ready = ReadinessState(
+        implementation_status="COMPLETE",
+        mcp_impact="NOT_REQUIRED",
+        mandatory_gates=(product_gate,),
+        external_reviewer_status="NOT_RUN",
+        overall_outcome="READY",
+        ready_for_chatgpt_review=True,
+    )
+    assert ready.ready_for_chatgpt_review is True
+
     with pytest.raises(ValueError, match="NOT_RUN"):
         ReadinessState(
             implementation_status="COMPLETE",

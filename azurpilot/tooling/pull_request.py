@@ -125,10 +125,8 @@ class PullRequestBodyRenderer:
         review = body.coderabbit_review
         if review is None:
             review_text = (
-                "Проверка CodeRabbit ещё не выполнялась на этой точке lifecycle. "
-                "После создания draft PR проверка выполняется host-native provider-ом "
-                "в том же canonical checkout; "
-                "результат и disposition будут добавлены отдельным обновлением body."
+                "CodeRabbit не запускался: review не запрошен (`NOT_RUN`). "
+                "Его можно выполнить отдельной командой пользователя."
             )
         else:
             findings = list(review.findings)

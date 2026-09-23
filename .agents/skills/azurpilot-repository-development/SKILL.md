@@ -1,100 +1,71 @@
 ---
 name: azurpilot-repository-development
-description: "Разработка, исправление ошибок, рефакторинг, инфраструктура, CI/тесты, документация, адаптация upstream, подготовка или продолжение PR и явно разрешённый merge/cleanup в AzurPilot. Используй для изменения репозитория; не применяй для read-only объяснений и других задач без изменения файлов."
+description: "Разработка, исправления и рефакторинг AzurPilot: инфраструктура, CI/тесты, upstream, PR, merge и cleanup. Не используй для read-only объяснений и задач без изменения файлов."
 ---
 
 # Разработка AzurPilot
 
-Этот skill — маршрутизатор инженерной задачи. Он не является вторым владельцем
-Git lifecycle или общей матрицы проверок.
+Этот skill направляет к владельцам правил; он не дублирует Git lifecycle и
+матрицу проверок.
 
-## Что читать
+## Контекст
 
-1. Всегда: `AGENTS.md` и `.codex/context/INDEX.md`.
-2. Только относящиеся к фактическому diff доменные документы из INDEX.
-3. При Git/ветке/PR/публикации/merge/rollback/cleanup:
+1. Прочитай корневой `AGENTS.md` и `.codex/context/INDEX.md`.
+2. Открой документы, владельцы которых совпадают с фактическим diff.
+3. Для веток, публикации, PR и merge используй только
    `.codex/context/GIT-WORKFLOW.md`.
-4. Перед выбором и итоговой оценкой проверок:
-   `.codex/context/08-VERIFICATION.md`.
-5. Для GUI/WebUI/device/game acceptance при необходимости открой
+4. Проверки выбирай только по `.codex/context/08-VERIFICATION.md`.
+5. Для GUI/device/live testing используй только при необходимости
    [browser-and-live-testing.md](references/browser-and-live-testing.md).
-
-Не загружай Git workflow, verification или live-testing reference, если
-фактическая задача их не затрагивает.
 
 ## Рабочий цикл
 
-1. Восстанови фактическую область задачи и текущее состояние затронутых файлов.
-   Если задача продолжает существующий PR/ветку, сначала сравни live-state с
-   предыдущей подтверждённой точкой и не повторяй уже выполненную работу.
-2. Проследи владельца поведения, call sites, ближайшие тесты, конфигурацию и
-   generated/source границы. Не вводи данные конкретной задачи в production,
-   CI или постоянные tests.
-3. Для effective candidate diff относительно exact base выполни read-only
-   `azur mcp impact --base <exact-base-sha>`. Если результат `REQUIRED`,
-   выполни штатный `azur mcp reconcile --source --bump auto`, затем повтори
-   current-tree integrity и base-to-head compatibility checks. Это доказывает
-   только `source_reconciled`; оно не доказывает `runtime_ready`. Если текущая
-   verification/acceptance требует live MCP, после source reconciliation
-   буквально вызови через PATH текущей shell `azur mcp status`. При
-   `runtime_state=stale` или `runtime_state=stopped` выполни единственный
-   канонический runtime repair path — `azur mcp reconcile` без `--source`,
-   затем снова вызови `azur mcp status` и требуй `runtime_ready=true`. До этой
-   typed попытки stale/stopped является recoverable precondition, а не
-   конечным blocker-ом. `McpService.reconcile` использует typed supervisor
-   result: валидный same-repository stale marker может быть bounded recovered
-   только через recorded exact identities, unchanged marker и STOPPED/no-conflict
-   postcondition, затем запускает canonical owned services. При unknown/foreign
-   ownership, invalid marker/liveness, port conflict, failure stop/start или
-   mismatch postcondition обязательный live gate остаётся typed blocked/failed;
-   его нельзя выдать за завершённый. Не
-   запускай `module.*_mcp`, внутренние supervisor scripts или Python module
-   entrypoints напрямую. Любое новое изменение затронутого source set после
-   reconciliation делает прежний результат stale и требует повторной
-   reconciliation. `runtime_ready=true` вместе с
-   `session_state=not_observable` не является runtime failure: это trigger для
-   отдельного fresh MCP client/process через
-   `azurpilot.integrations.mcp_client` и отдельной проверки фактически
-   вызываемой MCP surface. `effective_codex_registration` проверяется только
-   если изменение затрагивает Codex/plugin registration, client-visible schema
-   или routing; по умолчанию она не является обязательной частью MCP impact.
-   `azur mcp status` сам по себе acceptance не закрывает.
-   Для затронутой Codex/plugin registration следуй [каноническому контракту
-   cross-thread continuation](references/cross-thread-task-delegation.md) как
-   отдельной integration check. Wrong-HEAD, недоступный `create_thread` или
-   другой Codex platform failure не превращают успешный MCP client gate в
-   blocker, если Codex surface не затронута.
-4. Перед CodeRabbit review создай или привяжи opaque logical task identity и
-   передай её в canonical review flow через `--task-id`; новый head той же
-   task продолжает её cycle, а другая task получает новый cycle.
-5. Реализуй минимальный связный diff. Обнови относящиеся к изменению тесты и
-   документацию. Во всех затронутых файлах с текстом для человека проверь русский язык.
-   Project-owned operator action с доступным в PATH `azur` запускай только как
-   буквальную команду `azur ...`. Запрещены `uv run ... azur`, `python -m
-   azurpilot`, `.venv/.../azur`, абсолютный путь к `azur.exe` и shell wrapper;
-   `uv` разрешён для dependency/bootstrap/test/build задач, но не как launcher
-   operator command. Если `azur` отсутствует, не используй fallback.
-6. Для репозиторных evidence при необходимости используй существующие прямые
-   адаптеры `azurpilot.integrations`. Не меняй user config, OAuth/grants,
-   dashboards/alerts или game/runtime state только ради получения evidence.
-7. Проверки выбирай **только** по `08-VERIFICATION.md`. Этот skill не
-   поддерживает собственную копию списка обязательных gates.
-8. Если canonical workflow требует CodeRabbit review checkpoint, явно делегируй
-   sibling skill `azurpilot-coderabbit-review`. Такая внутренняя делегация не
-   требует повторного пользовательского CodeRabbit-запроса. Специфичные для
-   провайдера правила triage, provider rate limit и retry принадлежат этому
-   sibling skill.
-9. Все правила commit/push/draft PR, состояния перед финальным пользовательским
-   ревью, merge authorization, rollback и cleanup бери **только** из
-   `GIT-WORKFLOW.md`. Этот skill не переопределяет их.
-   Не создавай temporary/scratch/transport/helper remote ref, `codex/base-*`
-   branch или вспомогательную remote publication. Typed delivery/PR workflow
-   использует только реальную parent/feature branch; если local parent HEAD
-   отличается от parent remote HEAD, результат — typed precondition blocker,
-   пока parent не опубликован штатным lifecycle. Workaround ref запрещён.
+1. Подтверди repository, текущую ветку, base SHA и пользовательские изменения.
+2. Найди owner поведения, реальные call sites, contract и ближайшие проверки.
+3. Внеси минимальное связное изменение и обнови только относящиеся tests/docs.
+4. Выполни targeted checks, затем только требуемые diff-derived integration gates.
+5. Проверь итоговый diff и сообщи фактические результаты.
 
-## Завершение
+Используй canonical typed service/CLI вместо ручного повторения его работы.
+Если обычная операция владеет lifecycle, она сама выполняет запуск, ожидание,
+evidence и cleanup; дополнительная диагностика нужна после конкретного typed
+failure.
 
-Сообщай фактический статус и evidence из документа-владельца. Не объявляй тест,
-CI, secret scan, live acceptance или внешнее ревью выполненными без реального
-результата.
+## Canonical developer operations
+
+- Для MCP impact вызови `azur mcp impact --base <exact-base-sha>`. Только при
+  `REQUIRED` выполни `azur mcp reconcile --source --bump auto` (либо явно
+  указанный typed minimum bump); когда нужен fresh-client acceptance, вызови
+  `azur mcp accept`.
+- Не собирай `FreshMcpClientPlan` и не запускай внутренние Python snippets,
+  когда доступна canonical `azur mcp accept`.
+- `source_reconciled` не означает runtime readiness. Если runtime сообщает
+  `stale`/`stopped`, одна typed `azur mcp reconcile` без `--source` должна
+  подтвердить `runtime_ready=true`. Same-repository stale recovery требует
+  recorded exact identities, unchanged marker и `STOPPED/no-conflict`; unknown
+  или foreign ownership остаётся fail-closed. `session_state=not_observable` сам
+  по себе не является runtime failure.
+- Обязательный gate `fresh_mcp_client_acceptance` использует отдельный fresh MCP client/process через `azur mcp accept`. Effective Codex registration —
+  отдельная optional check только при изменении registration/schema/routing;
+  тогда следуй [cross-thread-task-delegation.md](references/cross-thread-task-delegation.md).
+- Для обычного Smoke используй `dev_start_smoke`: bounded сценарий возвращает
+  terminal typed result и автоматически фиксирует объявленные checkpoints.
+  Долгий/интерактивный сценарий возвращает operator run id; `dev_get_smoke` и
+  ручной capture оставлены для диагностики.
+- Не делай предварительный runtime/game/WebUI/store запрос, если этот факт
+  принадлежит owner operation. Один факт имеет один authoritative source.
+
+Project-owned operator actions запускай буквальной командой `azur ...` через
+PATH текущей shell. `uv` используй для dependency, test и build задач.
+
+## Review и delivery
+
+CodeRabbit review checkpoint запускай только по явному запросу пользователя или
+обязательному project policy; незапрошенный review остаётся `NOT_RUN`. Если
+review требуется, явно делегируй sibling skill
+`azurpilot-coderabbit-review`. Provider lifecycle, provider rate limit, retry и
+triage принадлежат этому sibling skill. Самоотчёт `NOT_RUN` без запроса не
+является limitation.
+Для PR, Draft, exact-head gates, merge authorization и cleanup следуй
+`GIT-WORKFLOW.md`; не переводить PR в Ready и не выполнять merge без отдельного
+текущего разрешения пользователя.

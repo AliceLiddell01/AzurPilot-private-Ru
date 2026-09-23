@@ -237,37 +237,25 @@ MCP diagnostics должны различать:
 Нельзя объявлять effective registration «готовой» только потому, что
 `.codex/config.toml` корректен.
 
-Для MCP lifecycle различай минимум два typed результата:
+Для MCP-изменений используй короткий owner workflow:
 
-- `source_reconciled`: tracked source и generated metadata согласованы после
-  `azur mcp reconcile --source --bump auto`;
-- `runtime_ready`: owned runtime реально запущен, exact contract/catalog
-  подтверждены через `azur mcp status`.
+1. `azur mcp impact --base <exact-base-sha>` классифицирует effective diff.
+2. Только при `REQUIRED` выполни `azur mcp reconcile --source --bump auto`.
+3. Если нужен fresh client acceptance, вызови `azur mcp accept`; команда сама
+   создаёт session и выполняет contract/catalog/read-only probes.
+4. Читай `azur mcp status` только когда нужен отдельный runtime postcondition
+   или команда вернула typed runtime failure.
 
-Source reconciliation не закрывает live gate. Если live MCP обязателен, после
-source reconcile напрямую через PATH вызови `azur mcp status`. При
-`runtime_state=stale` или `runtime_state=stopped` выполни единственный
-канонический runtime repair path `azur mcp reconcile` без `--source`, затем
-повтори status и требуй `runtime_ready=true`. До этой typed попытки stale/stopped
-является recoverable precondition, а не конечным blocker-ом. Same-repository
-stale marker восстанавливается только typed recorded-identity cleanup с
-unchanged marker и STOPPED/no-conflict postcondition. `MCP_RUNTIME_UNAVAILABLE`
-после repair, unknown/foreign ownership, invalid marker/liveness, port conflict,
-ошибка stop/start или mismatch postcondition остаются blocker/limitation.
-`session_state=not_observable` при `runtime_ready=true` не является runtime
-failure. При `MCP impact=REQUIRED` mandatory product gate закрывается отдельным
-fresh MCP client/process через существующий SDK boundary: новая session обязана
-подтвердить initialize, negotiated catalog, contract/revision и обязательные
-read-only calls. `azur mcp status` остаётся отдельным source/runtime evidence и
-не заменяет эту acceptance.
+`source_reconciled` и `runtime_ready=true` — разные факты. Если отдельный
+runtime postcondition обязателен и status возвращает `stale`/`stopped`, выполни
+одну typed runtime repair через `azur mcp reconcile` без `--source`; same-repo
+stale recovery требует recorded-identity cleanup с recorded exact identities, unchanged marker и
+`STOPPED/no-conflict`, а `session_state=not_observable` само по себе не является
+runtime failure. Не запускай внутренние MCP modules, supervisor scripts или
+`FreshMcpClientPlan` snippets. Effective Codex/plugin registration — отдельная
+необязательная проверка только при изменении этой границы.
 
-Если изменение затрагивает Codex/plugin registration, client-visible schema или
-routing, effective registration проверяется отдельной необязательной integration
-check через [единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
-Создание task без terminal evidence не доказывает registration, а wrong-HEAD или
-недоступность `create_thread` фиксируются как ограничение Codex platform и не
-блокируют уже успешный MCP client gate. Не запускай `module.*_mcp`, supervisor
-modules или внутренние Python scripts напрямую.
+Для optional Codex registration используй [единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md); эта независимая check не заменяет fresh MCP acceptance.
 
 ## 8. Базовый кроссплатформенный контракт
 

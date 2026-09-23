@@ -6,11 +6,12 @@ Codex/plugin registration, client-visible schema или routing. Он не яв�
 обязательным MCP acceptance gate, не создаёт новую feature, ветку или PR и не
 передаёт другой task ownership разработки.
 
-Обязательный продуктовый gate `fresh_mcp_client_acceptance` закрывается отдельным
-новым MCP client/process через существующий `azurpilot.integrations.mcp_client`.
-Он выполняет `initialize()`, negotiated `tools/list`, contract/catalog/revision
-проверки и обязательные read-only calls. Codex task/thread не заменяет этот
-client gate и не должен использоваться как его транспорт.
+Обязательный продуктовый gate `fresh_mcp_client_acceptance` закрывается
+`azur mcp accept`: команда сама создаёт отдельный fresh MCP client/process,
+выполняет `initialize()`, negotiated `tools/list`, contract/catalog/revision
+проверки и обязательные read-only calls. Не создавай `FreshMcpClientPlan` и не
+импортируй внутренний `mcp_client` вне этой canonical capability. Codex
+task/thread не заменяет client gate и не используется как его транспорт.
 
 ## Когда контракт применяется
 

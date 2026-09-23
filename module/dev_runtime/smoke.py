@@ -63,6 +63,7 @@ from module.dev_runtime.evidence import (
     EvidenceScreenshot,
     GitSnapshot,
     capture_git_snapshot,
+    validate_product_evidence_payload,
 )
 from module.dev_runtime.game_bridge import (
     GAME_OBSERVATION_MAX_PARAMETER_VALUE,
@@ -86,9 +87,9 @@ from module.dev_runtime.task_sandbox import (
     write_profile_payload,
 )
 
-SMOKE_SCHEMA_VERSION = 2
+SMOKE_SCHEMA_VERSION = 3
 SMOKE_STATE_SCHEMA_VERSION = 2
-_LEGACY_SMOKE_SCHEMA_VERSION = 1
+_LEGACY_SMOKE_SCHEMA_VERSIONS = frozenset({1, 2})
 _LEGACY_SMOKE_CAPABILITY_IDS = frozenset(
     {
         "session_log_contains_literal",
@@ -109,6 +110,8 @@ SMOKE_MAX_SPEC_BYTES = 256 * 1024
 SMOKE_MAX_RUNS = 32
 SMOKE_MAX_RUN_AGE_SECONDS = 30 * 24 * 60 * 60
 SMOKE_POLL_SECONDS = 0.25
+SMOKE_SYNC_WAIT_MAX_SECONDS = 300.0
+SMOKE_SYNC_CLEANUP_GRACE_SECONDS = 60.0
 SMOKE_MIN_TIMEOUT_SECONDS = 1.0
 SMOKE_MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 SMOKE_MAX_OBSERVATION_SECONDS = 24 * 60 * 60
@@ -182,6 +185,31 @@ class SmokeOutcome(StrEnum):
     TIMEOUT = "TIMEOUT"
     INVALIDATED = "INVALIDATED"
     CANCELLED = "CANCELLED"
+
+
+class ProductExecutionOutcome(StrEnum):
+    NOT_STARTED = "NOT_STARTED"
+    RETURNED = "RETURNED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+
+
+class EvidenceCompletenessOutcome(StrEnum):
+    COMPLETE = "COMPLETE"
+    INCOMPLETE = "INCOMPLETE"
+    UNKNOWN = "UNKNOWN"
+
+
+class HarnessRuntimeOutcome(StrEnum):
+    PASS = "PASS"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+
+
+class OperatorInterventionOutcome(StrEnum):
+    NONE = "NONE"
+    CANCEL_REQUESTED = "CANCEL_REQUESTED"
+    UNKNOWN = "UNKNOWN"
 
 
 class SmokeAssertionStatus(StrEnum):
@@ -317,6 +345,22 @@ class EventOccurredAssertion(_AssertionBase):
     @classmethod
     def validate_event_type(cls, value: str) -> str:
         return _safe_event(value)
+
+
+class ProductEvidenceAssertion(_AssertionBase):
+    capability_id: Literal["product_evidence"]
+    event_type: str
+    payload_equals: dict[str, object] = Field(min_length=1, max_length=32)
+
+    @field_validator("event_type")
+    @classmethod
+    def validate_product_event_type(cls, value: str) -> str:
+        return _identifier(value, field_name="product_evidence.event_type")
+
+    @field_validator("payload_equals")
+    @classmethod
+    def validate_payload(cls, value: dict[str, object]) -> dict[str, object]:
+        return validate_product_evidence_payload(value)
 
 
 class EventNotOccurredAssertion(_AssertionBase):
@@ -461,6 +505,7 @@ class DurationWithinBoundAssertion(_AssertionBase):
 
 type SmokeAssertion = Annotated[
     EventOccurredAssertion
+    | ProductEvidenceAssertion
     | EventNotOccurredAssertion
     | TaskStartedAssertion
     | TaskNotStartedAssertion
@@ -592,6 +637,7 @@ class SmokeGameObservationRequest(_StrictModel):
 
 class SmokeGameCheckpoint(_StrictModel):
     checkpoint_id: str = Field(min_length=1, max_length=128)
+    capture_condition: VisualCaptureCondition | None = None
     observations: list[SmokeGameObservationRequest] = Field(
         min_length=1,
         max_length=SMOKE_MAX_GAME_OBSERVATIONS,
@@ -1030,6 +1076,10 @@ class SmokeRunRecord(_StrictModel):
     smoke_id: str
     state: SmokeState
     outcome: SmokeOutcome | None = None
+    product_execution_outcome: ProductExecutionOutcome = ProductExecutionOutcome.UNKNOWN
+    evidence_completeness: EvidenceCompletenessOutcome = EvidenceCompletenessOutcome.UNKNOWN
+    harness_runtime_outcome: HarnessRuntimeOutcome = HarnessRuntimeOutcome.UNKNOWN
+    operator_intervention_outcome: OperatorInterventionOutcome = OperatorInterventionOutcome.NONE
     spec_hash: str
     source: SmokeSourceSnapshot
     created_at: str
@@ -1113,6 +1163,10 @@ class SmokeResult(_StrictModel):
     smoke_id: str
     spec_hash: str
     outcome: SmokeOutcome
+    product_execution_outcome: ProductExecutionOutcome = ProductExecutionOutcome.UNKNOWN
+    evidence_completeness: EvidenceCompletenessOutcome = EvidenceCompletenessOutcome.UNKNOWN
+    harness_runtime_outcome: HarnessRuntimeOutcome = HarnessRuntimeOutcome.UNKNOWN
+    operator_intervention_outcome: OperatorInterventionOutcome = OperatorInterventionOutcome.NONE
     code: str
     message: str
     source: SmokeSourceSnapshot
@@ -1272,16 +1326,17 @@ def _drop_legacy_file_log_assertions(payload: Mapping[str, object]) -> dict[str,
 
 def _normalize_legacy_spec_payload(payload: Mapping[str, object]) -> dict[str, object]:
     normalized = dict(payload)
-    raw_assertions = normalized.get("assertions")
-    if isinstance(raw_assertions, list):
-        normalized["assertions"] = [
-            item
-            for item in raw_assertions
-            if not (
-                isinstance(item, Mapping)
-                and item.get("capability_id") in _LEGACY_SMOKE_CAPABILITY_IDS
-            )
-        ]
+    if normalized.get("schema_version") == 1:
+        raw_assertions = normalized.get("assertions")
+        if isinstance(raw_assertions, list):
+            normalized["assertions"] = [
+                item
+                for item in raw_assertions
+                if not (
+                    isinstance(item, Mapping)
+                    and item.get("capability_id") in _LEGACY_SMOKE_CAPABILITY_IDS
+                )
+            ]
     normalized["schema_version"] = SMOKE_SCHEMA_VERSION
     return normalized
 
@@ -1700,6 +1755,7 @@ class SmokeObservationContext:
     session_id: str | None
     structured_errors: tuple[StructuredErrorObservation, ...]
     screenshot_metadata: tuple[Mapping[str, object], ...]
+    smoke_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1767,7 +1823,20 @@ def _ref(source: str, reference: str, description: str) -> SmokeEvidenceRef:
 
 
 def _event_matches(ctx: SmokeObservationContext, event_type: str) -> TimelineObservation | None:
-    return next((event for event in ctx.timeline if event.event_type == event_type), None)
+    return next(
+        (
+            event
+            for event in ctx.timeline
+            if event.event_type == event_type
+            or (
+                event.event_type == "product_evidence"
+                and event.fields.get("event_type") == event_type
+                and event.fields.get("session_id") == ctx.session_id
+                and (ctx.smoke_id is None or event.fields.get("smoke_id") == ctx.smoke_id)
+            )
+        ),
+        None,
+    )
 
 
 def _task_event(ctx: SmokeObservationContext, event_type: str, task: str) -> TimelineObservation | None:
@@ -1793,6 +1862,43 @@ def _eval_event_occurred(assertion: EventOccurredAssertion, ctx: SmokeObservatio
         "canonical_timeline",
         f"Событие {assertion.event_type} наблюдалось",
         (_ref("canonical_timeline", f"sequence:{event.sequence}", "Каноническое событие Evidence API"),),
+    )
+
+
+def _eval_product_evidence(
+    assertion: ProductEvidenceAssertion,
+    ctx: SmokeObservationContext,
+) -> CapabilityEvaluation:
+    events = [
+        event
+        for event in ctx.timeline
+        if event.event_type == "product_evidence"
+        and event.fields.get("event_type") == assertion.event_type
+        and event.fields.get("session_id") == ctx.session_id
+        and (ctx.smoke_id is None or event.fields.get("smoke_id") == ctx.smoke_id)
+    ]
+    if not events:
+        return CapabilityEvaluation(
+            SmokeAssertionStatus.PENDING,
+            "canonical_timeline",
+            f"Структурированное событие {assertion.event_type} ещё не наблюдалось",
+            (_ref("canonical_timeline", "product-evidence", "Типизированная хронология продукта"),),
+        )
+    event = events[-1]
+    payload = event.fields.get("payload")
+    if not isinstance(payload, Mapping):
+        return CapabilityEvaluation(
+            SmokeAssertionStatus.UNAVAILABLE,
+            "canonical_timeline",
+            "Структурированное событие не содержит payload",
+            (_ref("canonical_timeline", f"sequence:{event.sequence}", "Типизированное событие продукта"),),
+        )
+    matched = all(payload.get(key) == value for key, value in assertion.payload_equals.items())
+    return CapabilityEvaluation(
+        SmokeAssertionStatus.PASS if matched else SmokeAssertionStatus.FAIL,
+        "canonical_timeline",
+        "Структурированный результат продукта совпал с условием" if matched else "Структурированный результат продукта нарушил условие",
+        (_ref("canonical_timeline", f"sequence:{event.sequence}", "Типизированный payload результата продукта"),),
     )
 
 
@@ -2049,6 +2155,7 @@ class SmokeCapabilityRegistry:
         required_field = _field("required", "boolean", False)
         definitions = [
             ("event_occurred", "assertion", "canonical_timeline", True, False, "Подтвердить наличие канонического события", _eval_event_occurred, _capability_fields(text_field, required_field, _field("event_type", "event_type", True, enum_values=sorted(EVIDENCE_EVENT_TYPES)))),
+            ("product_evidence", "assertion", "canonical_timeline", True, False, "Проверить typed result продукта в канонической хронологии", _eval_product_evidence, _capability_fields(text_field, required_field, _field("event_type", "event_type", True), _field("payload_equals", "bounded_object", True))),
             ("event_not_occurred", "assertion", "canonical_timeline", True, False, "Подтвердить отсутствие события после окна наблюдения", _eval_event_not_occurred, _capability_fields(text_field, required_field, _field("event_type", "event_type", True), _field("observation_window_seconds", "duration", False, minimum=0.1, maximum=SMOKE_MAX_OBSERVATION_SECONDS))),
             ("task_started", "assertion", "canonical_timeline", True, False, "Подтвердить запуск task через timeline", _eval_task_started, _capability_fields(text_field, required_field, _field("task", "task_selector", True))),
             ("task_not_started", "assertion", "canonical_timeline", True, False, "Подтвердить отсутствие запуска task после окна наблюдения", _eval_task_not_started, _capability_fields(text_field, required_field, _field("task", "task_selector", True), _field("observation_window_seconds", "duration", False, minimum=0.1, maximum=SMOKE_MAX_OBSERVATION_SECONDS))),
@@ -2172,6 +2279,7 @@ class SmokeSupervisorBackend:
             "stderr": subprocess.DEVNULL,
             "shell": False,
             "close_fds": True,
+            "env": {**os.environ, "AZURPILOT_DEV_SMOKE_ID": smoke_id},
         }
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
@@ -2367,7 +2475,7 @@ class SmokeStateStore:
         version = payload["schema_version"]
         if version == current_version:
             return payload, False
-        if version == _LEGACY_SMOKE_SCHEMA_VERSION:
+        if version in _LEGACY_SMOKE_SCHEMA_VERSIONS:
             return payload, True
         if version > current_version:
             raise SmokeStoreError(
@@ -2418,7 +2526,7 @@ class SmokeStateStore:
         if not isinstance(result, SmokeResult):
             raise SmokeStoreError("DEV_SMOKE_RESULT_CORRUPT", "SmokeResult имеет некорректный тип")
         if legacy:
-            object.__setattr__(result, "_legacy_schema_version", _LEGACY_SMOKE_SCHEMA_VERSION)
+            object.__setattr__(result, "_legacy_schema_version", raw.get("schema_version"))
         if not self._result_matches_record(result, loaded_record):
             raise SmokeStoreError("DEV_SMOKE_RESULT_MISMATCH", "SmokeResult не соответствует замороженному SmokeRun")
         return result
@@ -2478,7 +2586,7 @@ class SmokeStateStore:
         if not isinstance(record, SmokeRunRecord):
             raise SmokeStoreError("DEV_SMOKE_STATE_CORRUPT", "состояние SmokeRun имеет некорректный тип")
         if legacy:
-            object.__setattr__(record, "_legacy_schema_version", _LEGACY_SMOKE_SCHEMA_VERSION)
+            object.__setattr__(record, "_legacy_schema_version", raw.get("schema_version"))
         return record
 
     def load(self, smoke_id: str) -> SmokeRunRecord:
@@ -2508,7 +2616,7 @@ class SmokeStateStore:
             if expected_hash != record.spec_hash:
                 raise SmokeStoreError("DEV_SMOKE_SPEC_HASH_MISMATCH", "spec_hash не соответствует замороженной спецификации")
             if legacy:
-                object.__setattr__(spec, "_legacy_schema_version", _LEGACY_SMOKE_SCHEMA_VERSION)
+                object.__setattr__(spec, "_legacy_schema_version", payload.get("schema_version"))
                 object.__setattr__(spec, "_legacy_spec_hash", raw_hash)
             return spec
 
@@ -2763,68 +2871,6 @@ class SmokeValidationIssue(_StrictModel):
         return _text(value, field_name="validation.message", maximum=SMOKE_MAX_RESULT_TEXT)
 
 
-def _commission_recovery_preflight(
-    profile: str,
-) -> tuple[dict[str, object], SmokeValidationIssue | None]:
-    """Проверить Redis authority Commission до запуска root task."""
-
-    details: dict[str, object] = {"profile": profile}
-    try:
-        # Dev MCP работает отдельным process от WebUI, поэтому read-only
-        # preflight собирает тот же production composition root без health
-        # запроса PostgreSQL и не создаёт Redis client до store.read().
-        from module.persistence.runtime import bootstrap_runtime_storage
-
-        bootstrap_runtime_storage(require_ready=False)
-        from module.application.commission_recovery import CommissionRecoveryStore
-
-        store = CommissionRecoveryStore.from_environment()
-        try:
-            state = store.read(profile)
-        finally:
-            store.close()
-    except Exception as exc:  # noqa: BLE001 - preflight обязан завершаться fail-closed
-        details.update(
-            {
-                "status": "unavailable",
-                "cache_status": "UNKNOWN",
-                "error": type(exc).__name__,
-            }
-        )
-        return (
-            details,
-            SmokeValidationIssue(
-                code="DEV_SMOKE_COMMISSION_RECOVERY_PRECONDITION_FAILED",
-                message="SmokeRun Commission заблокирован: recovery authority недоступна",
-            ),
-        )
-
-    details.update(
-        {
-            "status": state.status,
-            "cache_status": state.cache_status,
-            "remaining": state.remaining,
-        }
-    )
-    if state.cache_status != "READY":
-        return (
-            details,
-            SmokeValidationIssue(
-                code="DEV_SMOKE_COMMISSION_RECOVERY_CACHE_NOT_READY",
-                message="SmokeRun Commission заблокирован: RuntimeCache не READY",
-            ),
-        )
-    if state.status not in {"unknown", "confirmed"}:
-        return (
-            details,
-            SmokeValidationIssue(
-                code="DEV_SMOKE_COMMISSION_RECOVERY_STATE_INVALID",
-                message="SmokeRun Commission заблокирован: recovery state не подтверждён",
-            ),
-        )
-    return details, None
-
-
 class SmokeRunManager:
     """Постоянная оркестрация SmokeRun через существующие API Dev Runtime."""
 
@@ -2845,11 +2891,16 @@ class SmokeRunManager:
         self.now = now or (lambda: datetime.now(UTC))
         self.poll_seconds = min(max(float(poll_seconds), 0.01), 5.0)
         self.capabilities = SmokeCapabilityRegistry()
-        self.store = SmokeStateStore(self.environment, now=self.now)
+        self.store = self._new_store()
         self._registry: ConfigRegistry | None = None
         self._manager_lock = threading.RLock()
         self._game_bridge = game_bridge
         self._game_bridge_factory = game_bridge_factory
+
+    def _new_store(self):
+        from module.dev_runtime.smoke_store import SmokeStateStore
+
+        return SmokeStateStore(self.environment, now=self.now)
 
     def _default_runtime_factory(self) -> object:
         from module.dev_runtime.manager import DevSessionManager
@@ -2893,7 +2944,7 @@ class SmokeRunManager:
             )
         if self.environment.dev_target != target:
             self.environment = replace(self.environment, dev_target=target)
-            self.store = SmokeStateStore(self.environment, now=self.now)
+            self.store = self._new_store()
             self._registry = None
             self._dispose_resource(self._game_bridge)
             self._game_bridge = None
@@ -2984,7 +3035,7 @@ class SmokeRunManager:
         self,
         raw_spec: object,
         *,
-        check_runtime_conflict: bool,
+        check_runtime_state: bool,
     ) -> tuple[
         SmokeSpec | None,
         SmokeSourceSnapshot | None,
@@ -3010,6 +3061,14 @@ class SmokeRunManager:
         try:
             self.capabilities.validate_spec(spec)
             if spec.game_observations is not None:
+                for checkpoint in spec.game_observations.checkpoints:
+                    if checkpoint.capture_condition is None:
+                        issues.append(
+                            SmokeValidationIssue(
+                                code="DEV_SMOKE_CHECKPOINT_TRIGGER_REQUIRED",
+                                message="Каждый промежуточный game checkpoint должен иметь условие автоматического захвата",
+                            )
+                        )
                 try:
                     bridge = self._get_game_bridge()
                 except GameObservationError as exc:
@@ -3049,13 +3108,6 @@ class SmokeRunManager:
             for assertion in spec.assertions:
                 if isinstance(assertion, (ConfigValueAssertion, ConfigRestoredAssertion)):
                     registry.leaf(assertion.path)
-            if "Commission" in spec.session.root_tasks:
-                commission_preflight, commission_issue = _commission_recovery_preflight(
-                    self.environment.profile_name
-                )
-                preconditions["commission_recovery"] = commission_preflight
-                if commission_issue is not None:
-                    issues.append(commission_issue)
         except SmokeStoreError as exc:
             issues.append(SmokeValidationIssue(code=exc.code, message=str(exc)))
         except GameObservationError as exc:
@@ -3076,34 +3128,34 @@ class SmokeRunManager:
         elif source.dirty is not False or source.changed_paths:
             issues.append(SmokeValidationIssue(code="DEV_SMOKE_SOURCE_DIRTY", message="Для доказательного smoke требуется чистое отслеживаемое дерево и индекс"))
 
-        try:
-            runtime = self.runtime_factory()
-            planned = runtime.plan(
-                root_tasks=list(spec.session.root_tasks),
-                excluded_tasks=list(spec.session.excluded_tasks),
-            )
-            if not _result_ok(planned):
-                issues.append(
-                    SmokeValidationIssue(
-                        code=str(getattr(planned, "code", "DEV_SMOKE_TASK_PLAN_FAILED")),
-                        message="Область задач не прошла существующую проверку политики Task Sandbox",
-                    )
+        if check_runtime_state:
+            try:
+                runtime = self.runtime_factory()
+                planned = runtime.plan(
+                    root_tasks=list(spec.session.root_tasks),
+                    excluded_tasks=list(spec.session.excluded_tasks),
                 )
-            if check_runtime_conflict:
+                if not _result_ok(planned):
+                    issues.append(
+                        SmokeValidationIssue(
+                            code=str(getattr(planned, "code", "DEV_SMOKE_TASK_PLAN_FAILED")),
+                            message="Область задач не прошла существующую проверку политики Task Sandbox",
+                        )
+                    )
                 status = runtime.status()
                 runtime_state = _runtime_state(_result_state(status))
                 if runtime_state in {"starting", "running"}:
                     issues.append(SmokeValidationIssue(code="DEV_SMOKE_RUNTIME_ACTIVE", message="Уже существует активная DevSession"))
                 elif _result_state(status) in {DevStatusKind.STALE.value, DevStatusKind.OWNERSHIP_MISMATCH.value}:
                     issues.append(SmokeValidationIssue(code="DEV_SMOKE_RUNTIME_STALE", message="Сначала требуется явное безопасное восстановление DevSession"))
-        except Exception as exc:  # noqa: BLE001 — граница предварительной проверки скрывает детали реализации
-            issues.append(SmokeValidationIssue(code="DEV_SMOKE_RUNTIME_UNAVAILABLE", message=f"Предварительные условия Dev Runtime недоступны: {type(exc).__name__}"))
+            except Exception as exc:  # noqa: BLE001 — граница предварительной проверки скрывает детали реализации
+                issues.append(SmokeValidationIssue(code="DEV_SMOKE_RUNTIME_UNAVAILABLE", message=f"Предварительные условия Dev Runtime недоступны: {type(exc).__name__}"))
         return spec, source, issues, preconditions
 
     def validate_smoke(self, spec: object) -> DevResult:
         parsed, source, issues, preconditions = self._validate_spec_and_preconditions(
             spec,
-            check_runtime_conflict=True,
+            check_runtime_state=True,
         )
         if parsed is None:
             return self._result(
@@ -3160,7 +3212,7 @@ class SmokeRunManager:
         return operation is not None and operation.active
 
     def _session_owner_issue(self) -> SmokeValidationIssue | None:
-        """Проверить marker DevSession без повторной полной диагностики runtime."""
+        """Проверить reservation marker без повторной диагностики runtime."""
 
         try:
             session = _read_session(self.environment)
@@ -3179,24 +3231,29 @@ class SmokeRunManager:
             DevSessionState.RUNNING,
             DevSessionState.STOPPING,
             DevSessionState.STALE,
-        } or (session.state in {DevSessionState.FAILED, DevSessionState.STOPPED} and session.process is not None):
-            code = (
-                "DEV_SMOKE_RUNTIME_ACTIVE"
-                if session.state in {DevSessionState.STARTING, DevSessionState.RUNNING, DevSessionState.STOPPING}
-                else "DEV_SMOKE_RUNTIME_STALE"
+        } or (
+            session.state in {DevSessionState.FAILED, DevSessionState.STOPPED}
+            and session.process is not None
+        ):
+            active = session.state in {
+                DevSessionState.STARTING,
+                DevSessionState.RUNNING,
+                DevSessionState.STOPPING,
+            }
+            return SmokeValidationIssue(
+                code="DEV_SMOKE_RUNTIME_ACTIVE" if active else "DEV_SMOKE_RUNTIME_STALE",
+                message=(
+                    "Уже существует активная DevSession"
+                    if active
+                    else "Сначала требуется явное безопасное восстановление DevSession"
+                ),
             )
-            message = (
-                "Уже существует активная DevSession"
-                if code == "DEV_SMOKE_RUNTIME_ACTIVE"
-                else "Сначала требуется явное безопасное восстановление DevSession"
-            )
-            return SmokeValidationIssue(code=code, message=message)
         return None
 
     def start_smoke(self, spec: object) -> DevResult:
         parsed, source, issues, preconditions = self._validate_spec_and_preconditions(
             spec,
-            check_runtime_conflict=True,
+            check_runtime_state=False,
         )
         if parsed is None or source is None or issues:
             return self._result(
@@ -3321,6 +3378,97 @@ class SmokeRunManager:
                 "progress": _safe_model_json(record.progress),
             },
         )
+
+    def run_smoke(self, spec: object) -> DevResult:
+        """Выполнить обычный недлительный Smoke и вернуть его terminal result."""
+
+        try:
+            parsed = self._spec_from_input(spec)
+        except (TypeError, ValueError, ValidationError):
+            return self._result(
+                ok=False,
+                code="DEV_SMOKE_SPEC_INVALID",
+                message="SmokeSpec не прошёл строгую проверку",
+                state=SmokeState.FINISHED.value,
+            )
+        if float(parsed.timeout_seconds) > SMOKE_SYNC_WAIT_MAX_SECONDS:
+            return self.start_smoke(parsed)
+        if parsed.visual_assertions:
+            return self.start_smoke(parsed)
+        started = self.start_smoke(parsed)
+        if not started.ok:
+            return started
+        smoke_id = _result_details(started).get("smoke_id")
+        if not isinstance(smoke_id, str):
+            return self._result(
+                ok=False,
+                code="DEV_SMOKE_ID_MISSING",
+                message="Запуск Smoke не вернул идентификатор",
+                state=SmokeState.FINISHED.value,
+            )
+        deadline = time.monotonic() + float(parsed.timeout_seconds) + SMOKE_SYNC_CLEANUP_GRACE_SECONDS
+        while True:
+            current = self.get_smoke(smoke_id)
+            state = _result_state(current)
+            details = _result_details(current)
+            if not current.ok:
+                return current
+            if state == SmokeState.FINISHED.value:
+                result = details.get("result")
+                if not isinstance(result, Mapping):
+                    return self._result(
+                        ok=False,
+                        code="DEV_SMOKE_RESULT_MISSING",
+                        message="Завершённый SmokeRun не вернул terminal result",
+                        state=state,
+                        smoke_id=smoke_id,
+                        session_id=_result_session_id(current),
+                        details=details,
+                    )
+                result_code = result.get("code")
+                result_message = result.get("message")
+                result_outcome = result.get("outcome")
+                if not all(isinstance(value, str) for value in (result_code, result_message, result_outcome)):
+                    return self._result(
+                        ok=False,
+                        code="DEV_SMOKE_RESULT_INVALID",
+                        message="Terminal result SmokeRun имеет неверную схему",
+                        state=state,
+                        smoke_id=smoke_id,
+                        session_id=_result_session_id(current),
+                        details=details,
+                    )
+                return self._result(
+                    ok=result_outcome == SmokeOutcome.PASS.value,
+                    code=result_code,
+                    message=result_message,
+                    state=state,
+                    smoke_id=smoke_id,
+                    session_id=_result_session_id(current),
+                    details=details,
+                )
+            if state == SmokeState.AWAITING_EXTERNAL_EVALUATION.value:
+                return self._result(
+                    ok=True,
+                    code="DEV_SMOKE_INTERACTIVE_EVALUATION_REQUIRED",
+                    message="Smoke завершил runtime и ожидает внешний визуальный вердикт",
+                    state=state,
+                    smoke_id=smoke_id,
+                    session_id=_result_session_id(current),
+                    details=details,
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return self._result(
+                    ok=False,
+                    code="DEV_SMOKE_WAIT_TIMEOUT",
+                    message="Ожидание terminal result SmokeRun истекло; supervisor продолжает работу",
+                    state=state or "unknown",
+                    smoke_id=smoke_id,
+                    session_id=_result_session_id(current),
+                    details=details,
+                )
+            time.sleep(min(self.poll_seconds, remaining))
 
     def get_smoke(self, smoke_id: str) -> DevResult:
         try:
@@ -3495,6 +3643,7 @@ class SmokeRunManager:
         updates = {
             "state": SmokeState.FINISHED,
             "outcome": outcome,
+            "evidence_completeness": EvidenceCompletenessOutcome.COMPLETE,
             "finished_at": finished_at,
             "pending_evaluation": None,
             "external_verdict": external,
@@ -3509,6 +3658,10 @@ class SmokeRunManager:
             smoke_id=candidate.smoke_id,
             spec_hash=candidate.spec_hash,
             outcome=outcome,
+            product_execution_outcome=candidate.product_execution_outcome,
+            evidence_completeness=candidate.evidence_completeness,
+            harness_runtime_outcome=candidate.harness_runtime_outcome,
+            operator_intervention_outcome=candidate.operator_intervention_outcome,
             code=code,
             message="SmokeRun завершён после внешнего визуального вердикта",
             source=candidate.source,
@@ -3783,6 +3936,49 @@ class SmokeRunManager:
                     message=f"Game checkpoint недоступен: {type(exc).__name__}",
                 ),
             )
+
+    @staticmethod
+    def _condition_observed(
+        condition: VisualCaptureCondition,
+        context: SmokeObservationContext,
+    ) -> bool:
+        if condition.kind == "event":
+            return _event_matches(context, condition.event_type or "") is not None
+        event_type = "task_started" if condition.kind == "task_started" else "task_finished"
+        return _task_event(context, event_type, condition.task or "") is not None
+
+    def _capture_triggered_game_checkpoints(
+        self,
+        record: SmokeRunRecord,
+        spec: SmokeSpec,
+        session_id: str,
+        context: SmokeObservationContext,
+        captured: set[str],
+    ) -> SmokeFailure | None:
+        game_spec = spec.game_observations
+        if game_spec is None:
+            return None
+        for checkpoint in game_spec.checkpoints:
+            condition = checkpoint.capture_condition
+            if (
+                checkpoint.checkpoint_id in captured
+                or condition is None
+                or not self._condition_observed(condition, context)
+            ):
+                continue
+            captured.add(checkpoint.checkpoint_id)
+            ok, _details, failure = self._capture_game_checkpoint(
+                record,
+                spec,
+                checkpoint.checkpoint_id,
+                session_id,
+            )
+            if not ok:
+                return failure or SmokeFailure(
+                    code="DEV_SMOKE_GAME_CHECKPOINT_CAPTURE_FAILED",
+                    message="Автоматический промежуточный game checkpoint не подтверждён",
+                )
+        return None
 
     def _game_required_complete(
         self,
@@ -4098,11 +4294,8 @@ class SmokeRunManager:
         primary_failure: SmokeFailure | None = None
         primary_outcome: SmokeOutcome | None = None
         pending_visual = record.pending_evaluation
+        captured_game_checkpoints: set[str] = set()
         while True:
-            if self.store.is_cancel_requested(smoke_id):
-                primary_outcome = SmokeOutcome.CANCELLED
-                primary_failure = SmokeFailure(code="DEV_SMOKE_CANCELLED", message="Получен проверенный cancel request")
-                break
             now_value = datetime.fromisoformat(_timestamp_now(self.now))
             deadline = datetime.fromisoformat(record.deadline_at)
             if now_value >= deadline:
@@ -4114,10 +4307,25 @@ class SmokeRunManager:
                 primary_outcome = SmokeOutcome.INVALIDATED
                 primary_failure = SmokeFailure(code="INVALIDATED_SOURCE_DRIFT", message="Снимок source изменился во время SmokeRun")
                 break
-            observed = self._observe(runtime, session_id, spec, transaction, completed=False)
+            observed = self._observe(runtime, session_id, spec, transaction, completed=False, smoke_id=smoke_id)
             if not observed.evidence_ok:
                 primary_outcome = SmokeOutcome.EVIDENCE_INCOMPLETE
                 primary_failure = SmokeFailure(code="DEV_SMOKE_EVIDENCE_INCOMPLETE", message=observed.evidence_reason or "Данные Evidence API неполны")
+                break
+            checkpoint_failure = self._capture_triggered_game_checkpoints(
+                record,
+                spec,
+                session_id,
+                observed.context,
+                captured_game_checkpoints,
+            )
+            if checkpoint_failure is not None:
+                primary_outcome = SmokeOutcome.EVIDENCE_INCOMPLETE
+                primary_failure = checkpoint_failure
+                break
+            if self.store.is_cancel_requested(smoke_id):
+                primary_outcome = SmokeOutcome.CANCELLED
+                primary_failure = SmokeFailure(code="DEV_SMOKE_CANCELLED", message="Получен проверенный cancel request")
                 break
             isolation_failure = self._unexpected_task_failure(spec, observed.context)
             if isolation_failure is not None:
@@ -4174,7 +4382,7 @@ class SmokeRunManager:
         record = self.store.update(smoke_id, {"state": SmokeState.CLEANING_UP})
         cleanup, cleanup_failure = self._cleanup_runtime(runtime, session_id, transaction, record)
         record = self.store.update(smoke_id, {"cleanup": cleanup})
-        final_observed = self._observe(runtime, session_id, spec, transaction, completed=True)
+        final_observed = self._observe(runtime, session_id, spec, transaction, completed=True, smoke_id=smoke_id)
         if final_observed.evidence_ok:
             final_results = self._evaluate_assertions(spec, final_observed.context, previous_results, final=True)
         else:
@@ -4207,6 +4415,16 @@ class SmokeRunManager:
             primary_outcome = SmokeOutcome.HARNESS_FAILED
             primary_failure = SmokeFailure(code=cleanup.failure_code or "DEV_SMOKE_CLEANUP_GATE_FAILED", message="Проверка очистки не подтверждена")
         if pending_visual is not None and primary_failure is None and cleanup.confirmed:
+            record = self._save_result_dimensions(
+                record,
+                spec,
+                final_observed.context,
+                final_results,
+                evidence_ok=final_observed.evidence_ok,
+                outcome=primary_outcome or SmokeOutcome.PASS,
+                cleanup=cleanup,
+                harness_failure=cleanup_failure,
+            )
             visual = next(item for item in spec.visual_assertions if item.assertion_id == pending_visual.assertion_id)
             visual_result = SmokeAssertionResult(
                 assertion_id=visual.assertion_id,
@@ -4242,13 +4460,23 @@ class SmokeRunManager:
         ):
             outcome = SmokeOutcome.HARNESS_FAILED
             primary_failure = SmokeFailure(code="DEV_SMOKE_PASS_GATE_FAILED", message="Одна из обязательных проверок целостности Smoke не подтверждена")
+        record = self._save_result_dimensions(
+            record,
+            spec,
+            final_observed.context,
+            final_results,
+            evidence_ok=final_observed.evidence_ok,
+            outcome=outcome,
+            cleanup=cleanup,
+            harness_failure=cleanup_failure,
+        )
         self._finish_record(record, outcome, _outcome_code(outcome), _outcome_message(outcome), cleanup, assertions=final_results, primary_failure=primary_failure, harness_failure=cleanup_failure)
 
-    def _observe(self, runtime: object, session_id: str, spec: SmokeSpec, transaction: SmokeOverrideTransaction, *, completed: bool) -> _RuntimeObservation:
+    def _observe(self, runtime: object, session_id: str, spec: SmokeSpec, transaction: SmokeOverrideTransaction, *, completed: bool, smoke_id: str | None = None) -> _RuntimeObservation:
         try:
             evidence = runtime.get_evidence(session_id=session_id)
             if not _result_ok(evidence):
-                return _RuntimeObservation(self._empty_context(session_id, completed), _source_snapshot(capture_git_snapshot(self.environment.repository_root)), False, "Evidence API вернул ошибку")
+                return _RuntimeObservation(self._empty_context(session_id, completed, smoke_id), _source_snapshot(capture_git_snapshot(self.environment.repository_root)), False, "Evidence API вернул ошибку")
             summary = _result_details(evidence)
             health_payload = summary.get("evidence_health")
             health = health_payload.get("status") if isinstance(health_payload, Mapping) else EVIDENCE_HEALTH_UNAVAILABLE
@@ -4285,17 +4513,18 @@ class SmokeRunManager:
                 elapsed_seconds=elapsed,
                 completed=completed,
                 session_id=session_id,
+                smoke_id=smoke_id,
                 structured_errors=tuple(errors),
                 screenshot_metadata=metadata,
             )
             return _RuntimeObservation(context, _source_snapshot(capture_git_snapshot(self.environment.repository_root)), health == EVIDENCE_HEALTH_COMPLETE, None if health == EVIDENCE_HEALTH_COMPLETE else f"evidence health={health}")
         except Exception as exc:  # noqa: BLE001 — ошибка наблюдения означает сбой Harness или evidence
-            return _RuntimeObservation(self._empty_context(session_id, completed), _source_snapshot(capture_git_snapshot(self.environment.repository_root)), False, f"Наблюдение Evidence API завершилось ошибкой: {type(exc).__name__}")
+            return _RuntimeObservation(self._empty_context(session_id, completed, smoke_id), _source_snapshot(capture_git_snapshot(self.environment.repository_root)), False, f"Наблюдение Evidence API завершилось ошибкой: {type(exc).__name__}")
 
     @staticmethod
-    def _empty_context(session_id: str, completed: bool) -> SmokeObservationContext:
+    def _empty_context(session_id: str, completed: bool, smoke_id: str | None = None) -> SmokeObservationContext:
         return SmokeObservationContext(
-            timeline=(), evidence_health=EVIDENCE_HEALTH_UNAVAILABLE, runtime_state="failed", task_policy_state=None, current_task=None, config_values=MappingProxyType({}), restored_paths=frozenset(), port_listening=None, elapsed_seconds=0.0, completed=completed, session_id=session_id, structured_errors=(), screenshot_metadata=(),
+            timeline=(), evidence_health=EVIDENCE_HEALTH_UNAVAILABLE, runtime_state="failed", task_policy_state=None, current_task=None, config_values=MappingProxyType({}), restored_paths=frozenset(), port_listening=None, elapsed_seconds=0.0, completed=completed, session_id=session_id, smoke_id=smoke_id, structured_errors=(), screenshot_metadata=(),
         )
 
     def _read_timeline(self, runtime: object, session_id: str) -> list[TimelineObservation]:
@@ -4313,11 +4542,21 @@ class SmokeRunManager:
                 if not isinstance(raw, Mapping) or not isinstance(raw.get("sequence"), int) or not isinstance(raw.get("type"), str):
                     continue
                 fields = raw.get("fields")
-                safe_fields = {
-                    str(key): value
-                    for key, value in fields.items()
-                    if isinstance(key, str) and isinstance(value, (str, bool, int, float))
-                } if isinstance(fields, Mapping) else {}
+                safe_fields: dict[str, object] = {}
+                if isinstance(fields, Mapping):
+                    for key, value in fields.items():
+                        if not isinstance(key, str):
+                            continue
+                        if isinstance(value, (str, bool, int, float)):
+                            safe_fields[key] = value
+                        elif key == "payload" and isinstance(value, Mapping):
+                            try:
+                                safe_fields[key] = validate_product_evidence_payload(value)
+                            except Exception as exc:
+                                raise SmokeStoreError(
+                                    "DEV_SMOKE_PRODUCT_EVIDENCE_INVALID",
+                                    "Timeline содержит некорректный payload результата продукта",
+                                ) from exc
                 events.append(TimelineObservation(raw["sequence"], raw["type"], MappingProxyType(safe_fields)))
             more = details.get("more") is True
             next_after = details.get("next_after_sequence")
@@ -4366,7 +4605,7 @@ class SmokeRunManager:
 
     def _evaluate_assertions(self, spec: SmokeSpec, context: SmokeObservationContext, previous: Sequence[SmokeAssertionResult], *, final: bool = False) -> list[SmokeAssertionResult]:
         previous_by_id = {item.assertion_id: item for item in previous}
-        latched = {"event_occurred", "task_started", "dependency_occurred", "expected_safe_error", "config_value", "dev_port_state", "runtime_state"}
+        latched = {"event_occurred", "product_evidence", "task_started", "dependency_occurred", "expected_safe_error", "config_value", "dev_port_state", "runtime_state"}
         results: list[SmokeAssertionResult] = []
         for assertion in spec.assertions:
             old = previous_by_id.get(assertion.assertion_id)
@@ -4406,8 +4645,7 @@ class SmokeRunManager:
     def _capture_visual_if_ready(runtime: object, session_id: str, spec: SmokeSpec, context: SmokeObservationContext) -> SmokePendingEvaluation | None:
         for visual in spec.visual_assertions:
             condition = visual.capture_condition
-            ready = _event_matches(context, condition.event_type) is not None if condition.kind == "event" else _task_event(context, "task_started" if condition.kind == "task_started" else "task_finished", condition.task or "") is not None
-            if not ready:
+            if not SmokeRunManager._condition_observed(condition, context):
                 continue
             screenshot = runtime.get_screenshot()
             if screenshot.image is None or not _result_ok(screenshot.result):
@@ -4431,6 +4669,98 @@ class SmokeRunManager:
         counts = {status: sum(item.status is status for item in results) for status in SmokeAssertionStatus}
         progress = SmokeProgress(passed=counts[SmokeAssertionStatus.PASS], failed=counts[SmokeAssertionStatus.FAIL], pending=counts[SmokeAssertionStatus.PENDING], unavailable=counts[SmokeAssertionStatus.UNAVAILABLE], elapsed_seconds=float(context.elapsed_seconds), current_task=context.current_task, evidence_health=context.evidence_health)
         return self.store.update(record.smoke_id, {"assertions": [_safe_model_json(item) for item in results], "progress": progress})
+
+    @staticmethod
+    def _product_execution_outcome(
+        root_tasks: Sequence[str],
+        context: SmokeObservationContext,
+        outcome: SmokeOutcome | None,
+    ) -> ProductExecutionOutcome:
+        if outcome is SmokeOutcome.PRODUCT_FAILED:
+            return ProductExecutionOutcome.FAILED
+        if context.session_id is None:
+            return ProductExecutionOutcome.NOT_STARTED
+        terminal: dict[str, str] = {}
+        started: set[str] = set()
+        for event in context.timeline:
+            task = event.fields.get("task")
+            if not isinstance(task, str) or task not in root_tasks:
+                continue
+            if event.event_type == "task_started":
+                started.add(task)
+            elif event.event_type == "task_finished":
+                outcome = event.fields.get("outcome")
+                if isinstance(outcome, str):
+                    terminal[task] = outcome
+        if any(terminal.get(task) not in {None, "returned"} for task in root_tasks):
+            return ProductExecutionOutcome.FAILED
+        if root_tasks and all(terminal.get(task) == "returned" for task in root_tasks):
+            return ProductExecutionOutcome.RETURNED
+        if started:
+            return ProductExecutionOutcome.UNKNOWN
+        return ProductExecutionOutcome.NOT_STARTED
+
+    def _save_result_dimensions(
+        self,
+        record: SmokeRunRecord,
+        spec: SmokeSpec,
+        context: SmokeObservationContext,
+        assertions: Sequence[SmokeAssertionResult],
+        *,
+        evidence_ok: bool,
+        outcome: SmokeOutcome | None,
+        cleanup: SmokeCleanup,
+        harness_failure: SmokeFailure | None,
+    ) -> SmokeRunRecord:
+        required_evidence_complete = all(
+            not item.required
+            or item.status not in {SmokeAssertionStatus.PENDING, SmokeAssertionStatus.UNAVAILABLE}
+            for item in assertions
+        )
+        evidence_complete = (
+            evidence_ok
+            and required_evidence_complete
+            and self._game_required_complete(record, spec)
+        )
+        harness_failed = (
+            outcome in {SmokeOutcome.HARNESS_FAILED, SmokeOutcome.INVALIDATED}
+            or harness_failure is not None
+            or (cleanup.attempted and not cleanup.confirmed)
+        )
+        try:
+            cancel_requested = self.store.is_cancel_requested(record.smoke_id)
+        except SmokeStoreError:
+            cancel_requested = None
+        operator_intervention = (
+            OperatorInterventionOutcome.CANCEL_REQUESTED
+            if outcome is SmokeOutcome.CANCELLED or cancel_requested is True
+            else OperatorInterventionOutcome.UNKNOWN
+            if cancel_requested is None
+            else OperatorInterventionOutcome.NONE
+        )
+        return self.store.update(
+            record.smoke_id,
+            {
+                "product_execution_outcome": self._product_execution_outcome(
+                    spec.session.root_tasks,
+                    context,
+                    outcome,
+                ),
+                "evidence_completeness": (
+                    EvidenceCompletenessOutcome.COMPLETE
+                    if evidence_complete
+                    else EvidenceCompletenessOutcome.INCOMPLETE
+                ),
+                "harness_runtime_outcome": (
+                    HarnessRuntimeOutcome.FAILED
+                    if harness_failed
+                    else HarnessRuntimeOutcome.PASS
+                    if cleanup.confirmed
+                    else HarnessRuntimeOutcome.UNKNOWN
+                ),
+                "operator_intervention_outcome": operator_intervention,
+            },
+        )
 
     def _cleanup_runtime(self, runtime: object, session_id: str | None, transaction: SmokeOverrideTransaction, record: SmokeRunRecord) -> tuple[SmokeCleanup, SmokeFailure | None]:
         failures: list[str] = []
@@ -4543,7 +4873,7 @@ class SmokeRunManager:
         candidate = _validate_json_model(SmokeRunRecord, _safe_model_json(candidate))
         if not isinstance(candidate, SmokeRunRecord):
             raise SmokeStoreError("DEV_SMOKE_STATE_INVALID", "Финальный SmokeRun имеет неверный тип")
-        result = SmokeResult(smoke_id=candidate.smoke_id, spec_hash=candidate.spec_hash, outcome=candidate.outcome, code=code, message=message, source=candidate.source, session_id=candidate.session_id, target_profile=candidate.target_profile, target_identity=candidate.target_identity, assertions=candidate.assertions, cleanup=candidate.cleanup, primary_failure=candidate.primary_failure, harness_failure=candidate.harness_failure, external_verdict=candidate.external_verdict, finished_at=candidate.finished_at or finished_at)
+        result = SmokeResult(smoke_id=candidate.smoke_id, spec_hash=candidate.spec_hash, outcome=candidate.outcome, product_execution_outcome=candidate.product_execution_outcome, evidence_completeness=candidate.evidence_completeness, harness_runtime_outcome=candidate.harness_runtime_outcome, operator_intervention_outcome=candidate.operator_intervention_outcome, code=code, message=message, source=candidate.source, session_id=candidate.session_id, target_profile=candidate.target_profile, target_identity=candidate.target_identity, assertions=candidate.assertions, cleanup=candidate.cleanup, primary_failure=candidate.primary_failure, harness_failure=candidate.harness_failure, external_verdict=candidate.external_verdict, finished_at=candidate.finished_at or finished_at)
         self.store.finish(record.smoke_id, updates, result)
         return result
 
@@ -4623,6 +4953,10 @@ class SmokeRunManager:
             "smoke_id": record.smoke_id,
             "state": record.state.value,
             "outcome": record.outcome.value if record.outcome is not None else None,
+            "product_execution_outcome": record.product_execution_outcome.value,
+            "evidence_completeness": record.evidence_completeness.value,
+            "harness_runtime_outcome": record.harness_runtime_outcome.value,
+            "operator_intervention_outcome": record.operator_intervention_outcome.value,
             "spec_hash": record.spec_hash,
             "source": _safe_model_json(record.source),
             "deadline_at": record.deadline_at,
@@ -4693,6 +5027,14 @@ def _outcome_message(outcome: SmokeOutcome) -> str:
         SmokeOutcome.INVALIDATED: "SmokeRun признан недействительным из-за изменения source",
         SmokeOutcome.CANCELLED: "SmokeRun отменён",
     }[outcome]
+
+
+def __getattr__(name: str) -> object:
+    if name == "SmokeStateStore":
+        from module.dev_runtime.smoke_store import SmokeStateStore
+
+        return SmokeStateStore
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

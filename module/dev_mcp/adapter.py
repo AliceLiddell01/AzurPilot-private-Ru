@@ -584,6 +584,10 @@ _SAFE_SMOKE_RESULT_KEYS = frozenset(
         "smoke_id",
         "spec_hash",
         "outcome",
+        "product_execution_outcome",
+        "evidence_completeness",
+        "harness_runtime_outcome",
+        "operator_intervention_outcome",
         "code",
         "message",
         "source",
@@ -1401,6 +1405,10 @@ _SMOKE_RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
     "smoke_id": "session_id",
     "spec_hash": "string",
     "outcome": "string",
+    "product_execution_outcome": "string",
+    "evidence_completeness": "string",
+    "harness_runtime_outcome": "string",
+    "operator_intervention_outcome": "string",
     "code": "string",
     "message": "string",
     "source": "smoke_source",
@@ -1699,6 +1707,7 @@ class DevRuntimeManager(Protocol):
     def validate_smoke(self, spec: object) -> object: ...
 
     def start_smoke(self, spec: object) -> object: ...
+    def run_smoke(self, spec: object) -> object: ...
 
     def get_smoke(self, smoke_id: str) -> object: ...
 
@@ -2368,7 +2377,7 @@ class DevMcpAdapter:
                 result = manager.validate_smoke(parsed)
             elif tool_name == "dev_start_smoke":
                 assert isinstance(parsed, SmokeSpec)
-                result = manager.start_smoke(parsed)
+                result = manager.run_smoke(parsed)
             elif tool_name == "dev_get_smoke":
                 assert isinstance(parsed, _SmokeIdArguments)
                 result = manager.get_smoke(parsed.smoke_id)

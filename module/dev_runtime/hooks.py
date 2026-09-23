@@ -64,6 +64,25 @@ def record_task_finished(
     return state_ok
 
 
+def record_product_evidence(
+    config_name: object,
+    event_type: str,
+    payload: object,
+    *,
+    task: object = None,
+) -> bool:
+    """Опубликовать typed product result только в активной DevSession."""
+
+    if not _enabled():
+        return False
+    try:
+        from module.dev_runtime.evidence import record_product_evidence as record
+
+        return record(config_name, event_type, payload, task=task)
+    except Exception:  # noqa: BLE001 - Optional product evidence must not change task execution.
+        return False
+
+
 def record_runtime_error(
     config_name: object,
     exception: BaseException,
@@ -206,8 +225,9 @@ def _worker_identity() -> tuple[int, float] | None:
 
 
 __all__ = [
-    "record_dependency_registered",
     "handover_requested",
+    "record_dependency_registered",
+    "record_product_evidence",
     "record_runtime_error",
     "record_task_finished",
     "record_task_started",

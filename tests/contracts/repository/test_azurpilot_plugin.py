@@ -311,8 +311,8 @@ def test_project_config_declares_separate_local_http_registration_aliases() -> N
     [
         ("contract_schema_version", 2),
         ("product_family", "OtherProduct"),
-        ("smoke_spec_schema_version", 3),
-        ("smoke_result_schema_version", 3),
+        ("smoke_spec_schema_version", SMOKE_SCHEMA_VERSION + 1),
+        ("smoke_result_schema_version", SMOKE_STATE_SCHEMA_VERSION + 1),
         ("server_name", "other-server"),
     ],
 )

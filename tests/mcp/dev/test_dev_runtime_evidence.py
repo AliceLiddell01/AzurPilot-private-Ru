@@ -1,6 +1,4 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
-
 
 import io
 import json
@@ -10,6 +8,7 @@ import threading
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -27,6 +26,7 @@ from module.dev_runtime.evidence import (
     validate_session_id,
 )
 from module.dev_runtime.target import DevTarget
+from tests.support.paths import REPOSITORY_ROOT
 
 _TIME = "2026-08-30T00:00:00+00:00"
 
@@ -37,10 +37,50 @@ def test_event_registry_is_public_and_single_source(tmp_path: Path) -> None:
     assert "session_ready" in EVIDENCE_EVENT_TYPES
     assert "runtime_error" in EVIDENCE_EVENT_TYPES
     assert "handover_transition" in EVIDENCE_EVENT_TYPES
+    assert "product_evidence" in EVIDENCE_EVENT_TYPES
     assert not hasattr(evidence_module, "_EVENT_TYPES")
     with pytest.raises(EvidenceError) as error:
         store.append_event("unknown_event", {}, timestamp=_TIME)
     assert error.value.code == "DEV_EVIDENCE_EVENT_INVALID"
+
+
+def test_product_evidence_event_has_session_smoke_and_task_correlation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _store(tmp_path)
+    monkeypatch.setenv("AZURPILOT_DEV_SMOKE_ID", "smoke-1")
+    monkeypatch.setattr(
+        evidence_module,
+        "_active_store_for_config",
+        lambda _config: store,
+    )
+    monkeypatch.setattr(
+        evidence_module.TaskPolicyStore,
+        "read",
+        lambda _self: SimpleNamespace(
+            state="active",
+            session_id="session-1",
+            allowed_tasks=("Commission",),
+        ),
+    )
+
+    assert evidence_module.record_product_evidence(
+        "ap",
+        "commission_ap_purchase",
+        {"click_count": 1, "remaining_after": 4},
+        task="Commission",
+    ) is True
+
+    event = store.timeline_page(limit=10)["events"][-1]
+    assert event["type"] == "product_evidence"
+    assert event["fields"] == {
+        "event_type": "commission_ap_purchase",
+        "payload": {"click_count": 1, "remaining_after": 4},
+        "session_id": "session-1",
+        "smoke_id": "smoke-1",
+        "task": "Commission",
+    }
 
 
 def _environment(tmp_path: Path) -> DevEnvironment:

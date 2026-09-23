@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -54,7 +55,7 @@ def test_en_weekly_reset_uses_server_boundary_not_local_midnight():
         (0, None, None),
     ],
 )
-def test_record_observation_persists_canonical_cost_and_gain(remaining, cost, gain):
+def test_record_observation_persists_canonical_state_and_projects_policy(remaining, cost, gain):
     now = datetime(2026, 9, 20, 16, 0, tzinfo=UTC)
     cache = _MemoryCache()
     store = CommissionRecoveryStore(cache, now=lambda: now)
@@ -69,6 +70,39 @@ def test_record_observation_persists_canonical_cost_and_gain(remaining, cost, ga
     assert state.reset_at == datetime(2026, 9, 21, 7, tzinfo=UTC)
     assert cache.set_calls[0][0] == "commission/recovery/ap"
     assert cache.set_calls[0][2] == state.reset_at
+    stored = json.loads(cache.values["commission/recovery/ap"])
+    assert stored["schema_version"] == 2
+    assert stored["remaining"] == remaining
+    assert not {"used", "next_oil_cost", "next_ap_gain"}.intersection(stored)
+
+
+def test_schema_v1_record_is_read_and_derived_fields_are_rebuilt():
+    now = datetime(2026, 9, 20, 16, tzinfo=UTC)
+    cache = _MemoryCache()
+    store = CommissionRecoveryStore(cache, now=lambda: now)
+    cache.values["commission/recovery/ap"] = json.dumps(
+        {
+            "schema_version": 1,
+            "profile": "ap",
+            "status": "confirmed",
+            "remaining": 3,
+            "used": 2,
+            "next_oil_cost": 2000,
+            "next_ap_gain": 100,
+            "confirmed_at": now.isoformat(),
+            "reset_at": next_en_weekly_reset(now).isoformat(),
+            "source": "game_ocr",
+            "last_result": None,
+        }
+    ).encode("utf-8")
+
+    state = store.read("ap")
+
+    assert state.status == "confirmed"
+    assert state.remaining == 3
+    assert state.used == 2
+    assert state.next_oil_cost == 2000
+    assert state.next_ap_gain == 100
 
 
 def test_cache_miss_is_unknown_and_never_false_zero():
