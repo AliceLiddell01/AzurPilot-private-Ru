@@ -11,14 +11,22 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from math import isfinite
 from pathlib import Path
-from threading import Lock
 from time import monotonic, sleep
 from typing import NamedTuple, NoReturn
 
+from module.application.adb_target import (
+    AdbTargetResolutionError,
+    cached_read_only_emulator_serial_aliases,
+    read_only_emulator_serial_aliases,
+    resolve_adb_target_serial,
+)
+from module.application.adb_target import (
+    safe_serial as _safe_serial,
+)
 from module.application.errors import (
     ApplicationError,
     OperationFailedError,
@@ -29,9 +37,11 @@ from module.application.errors import (
 from module.application.game_models import (
     ConfigUpdateRequest,
     CurrentTaskSnapshot,
+    DashboardResource,
     DashboardResources,
     GameApplicationState,
     GameLoginState,
+    LiveResourceObservation,
     MediaFrame,
     SchedulerEntry,
     thaw_payload,
@@ -70,7 +80,6 @@ _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
 _PASSIVE_SCREENSHOT_TIMEOUT_SECONDS = 10
 _PASSIVE_SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024
-_PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS = 1.0
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _ADB_PATH_CANDIDATES = (
     Path(".venv/Scripts/adb.exe"),
@@ -193,19 +202,6 @@ def _safe_segment(value: object) -> str:
     return value
 
 
-def _safe_serial(value: object) -> str:
-    if not isinstance(value, str):
-        raise TypeError("serial должен быть строкой")
-    value = value.strip()
-    if (
-        not value
-        or len(value) > 256
-        or any(char.isspace() or ord(char) < 32 for char in value)
-    ):
-        raise ValueError("serial содержит недопустимое значение")
-    return value
-
-
 def _safe_adb_state(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("state должен быть строкой")
@@ -308,38 +304,6 @@ def _find_passive_adb_path() -> str:
     if discovered is not None:
         return discovered
     raise ValueError("Исполняемый файл ADB не найден.")
-
-
-def _read_only_emulator_serial_aliases(target_serial: str) -> tuple[str, ...]:
-    """Найти aliases настроенного инстанса без Device и lifecycle recovery."""
-
-    try:
-        from module.device.platform.emulator_windows import EmulatorManager
-    except (ImportError, OSError):
-        return ()
-
-    try:
-        instances = tuple(EmulatorManager().all_emulator_instances)
-    except (AttributeError, OSError, TypeError, ValueError):
-        return ()
-
-    matches: list[tuple[str, ...]] = []
-    for instance in instances:
-        try:
-            aliases = getattr(instance, "adb_serials", ())
-        except (AttributeError, OSError, TypeError, ValueError):
-            continue
-        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
-            continue
-        normalized = tuple(
-            alias for alias in aliases if isinstance(alias, str) and alias
-        )
-        if target_serial in normalized:
-            matches.append(normalized)
-
-    if len(matches) != 1:
-        return ()
-    return matches[0]
 
 
 class LegacyConfigAdapter:
@@ -712,12 +676,8 @@ class LegacyScreenshotAdapter:
         self._adb_path_provider = adb_path_provider or _find_passive_adb_path
         self._target_serial_provider = target_serial_provider or _read_target_serial
         self._target_serial_aliases_provider = (
-            target_serial_aliases_provider or _read_only_emulator_serial_aliases
+            target_serial_aliases_provider or read_only_emulator_serial_aliases
         )
-        self._target_serial_aliases_cache: dict[
-            str, tuple[float, tuple[object, ...]]
-        ] = {}
-        self._target_serial_aliases_cache_lock = Lock()
 
     def read_frame(self, instance: str) -> MediaFrame:
         instance = _safe_instance_name(instance)
@@ -786,44 +746,22 @@ class LegacyScreenshotAdapter:
         ready_serials = tuple(
             device.serial for device in devices if device.state == "device"
         )
-        if target_serial in ready_serials:
-            return target_serial
-
-        aliases = self._read_target_serial_aliases(target_serial)
-        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
-            raise TypeError("Resolver ADB aliases вернул неверный формат.")
-        safe_aliases: set[str] = set()
-        for alias in aliases:
-            try:
-                safe_aliases.add(_safe_serial(alias))
-            except (TypeError, ValueError):
-                continue
-        matches = tuple(serial for serial in ready_serials if serial in safe_aliases)
-        if len(matches) != 1:
-            raise OSError("Настроенный ADB target не подтверждён.")
-        return matches[0]
+        try:
+            return resolve_adb_target_serial(
+                target_serial,
+                ready_serials,
+                aliases_provider=self._read_target_serial_aliases,
+            )
+        except AdbTargetResolutionError as exc:
+            if exc.reason == "unavailable":
+                raise TypeError("Resolver ADB aliases вернул неподтверждённый результат.") from None
+            raise OSError("Настроенный ADB target не подтверждён.") from None
 
     def _read_target_serial_aliases(self, target_serial: str) -> object:
-        now = monotonic()
-        with self._target_serial_aliases_cache_lock:
-            cached = self._target_serial_aliases_cache.get(target_serial)
-            if (
-                cached is not None
-                and now - cached[0] < _PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
-            ):
-                return cached[1]
-
-        aliases = self._target_serial_aliases_provider(target_serial)
-        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
-            return aliases
-
-        snapshot = tuple(aliases)
-        with self._target_serial_aliases_cache_lock:
-            self._target_serial_aliases_cache[target_serial] = (
-                monotonic(),
-                snapshot,
-            )
-        return snapshot
+        return cached_read_only_emulator_serial_aliases(
+            target_serial,
+            provider=self._target_serial_aliases_provider,
+        )
 
     @staticmethod
     def _run(argv: Sequence[str]) -> object:
@@ -863,13 +801,80 @@ class LegacyGameApplicationAdapter:
         self._ui_factory = ui_factory or self._default_ui_factory
         self._target_serial_provider = target_serial_provider or _read_target_serial
         self._target_serial_aliases_provider = (
-            target_serial_aliases_provider or _read_only_emulator_serial_aliases
+            target_serial_aliases_provider or read_only_emulator_serial_aliases
         )
 
     def read_state(self, instance: str) -> GameApplicationState:
         instance = _safe_instance_name(instance)
         with _adb_host_lock():
             return self._read_state(instance)
+
+    def read_live_resources(self, instance: str) -> LiveResourceObservation:
+        """Считать Oil и displayed MAX с одного свежего игрового экрана."""
+
+        instance = _safe_instance_name(instance)
+        device: object | None = None
+        with _adb_host_lock():
+            try:
+                config = self._make_config(instance)
+                device = self._device_factory(config)
+                screenshot = getattr(device, "screenshot", None)
+                if not callable(screenshot):
+                    raise OperationFailedError(
+                        "Device owner не предоставил свежий screenshot."
+                    )
+                screenshot()
+                from module.campaign.assets import OCR_OIL_CHECK
+                from module.campaign.campaign_status import CampaignStatus
+
+                campaign_status = CampaignStatus(config, device)
+                if not campaign_status.appear(OCR_OIL_CHECK, offset=(10, 2)):
+                    raise OperationFailedError(
+                        "CampaignStatus не подтвердил значок нефти на свежем экране."
+                    )
+                oil_snapshot = campaign_status.get_oil_snapshot(
+                    skip_first_screenshot=True,
+                    update=False,
+                    record=False,
+                )
+                if not isinstance(oil_snapshot, Mapping):
+                    raise OperationFailedError(
+                        "CampaignStatus не вернул snapshot ресурсов."
+                    )
+                value = oil_snapshot.get("Value")
+                limit = oil_snapshot.get("Limit")
+                if (
+                    not isinstance(value, int)
+                    or isinstance(value, bool)
+                    or value < 0
+                    or not isinstance(limit, int)
+                    or isinstance(limit, bool)
+                    or limit <= 0
+                ):
+                    raise OperationFailedError(
+                        "CampaignStatus не подтвердил числовой snapshot нефти."
+                    )
+                return LiveResourceObservation(
+                    instance=instance,
+                    resources=DashboardResources(
+                        items=(
+                            DashboardResource(
+                                key="Oil",
+                                label="Oil",
+                                value=value,
+                                limit=limit,
+                            ),
+                        )
+                    ),
+                    observed_at=datetime.now(UTC),
+                    current_state_authority=True,
+                    source="campaign_status_oil_snapshot",
+                )
+            finally:
+                if device is not None:
+                    release_resource = getattr(device, "release_resource", None)
+                    if callable(release_resource):
+                        release_resource()
 
     def start_game(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)
@@ -1258,33 +1263,25 @@ class LegacyGameApplicationAdapter:
             _device, serial, _state = ready[0]
             return _device, serial
 
-        exact = [record for record in ready if record[1] == target_serial]
-        if len(exact) == 1:
-            device, serial, _state = exact[0]
-            return device, serial
-
         try:
-            aliases = self._target_serial_aliases_provider(target_serial)
-        except Exception:  # noqa: BLE001 - aliases are not proof when unavailable.
+            resolved_serial = resolve_adb_target_serial(
+                target_serial,
+                tuple(record[1] for record in ready),
+                aliases_provider=self._target_serial_aliases_provider,
+            )
+        except AdbTargetResolutionError:
             raise OwnershipAmbiguousError(
-                "Ownership ADB target нельзя подтвердить по aliases."
+                "Ownership configured ADB target не подтверждён однозначно."
             ) from None
-        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+        selected = next(
+            (record for record in ready if record[1] == resolved_serial),
+            None,
+        )
+        if selected is None:
             raise OwnershipAmbiguousError(
-                "Resolver ADB aliases вернул неподтверждённый результат."
+                "Разрешённый ADB target отсутствует в готовом inventory."
             )
-        safe_aliases: set[str] = set()
-        for alias in aliases:
-            try:
-                safe_aliases.add(_safe_serial(alias))
-            except (TypeError, ValueError):
-                continue
-        matches = [record for record in ready if record[1] in safe_aliases]
-        if len(matches) != 1:
-            raise OwnershipAmbiguousError(
-                "Ownership configured ADB target не подтверждён."
-            )
-        device, serial, _state = matches[0]
+        device, serial, _state = selected
         return device, serial
 
     @staticmethod

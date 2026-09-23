@@ -98,6 +98,47 @@
 Специфичные для провайдера правила triage/retry/rate limit принадлежат
 соответствующему review skill; влияние результата CodeRabbit на Git lifecycle определяется только
 `GIT-WORKFLOW.md`. Остальные обязательные gates продолжают выполняться.
+Если native reviewer доступен, но checkpoint не запускался, состояние остаётся
+`NOT_RUN` и не может быть переименовано в provider limitation; сначала требуется
+одна bounded authoritative попытка на текущем exact head. Только фактически
+подтверждённые adapter-ом `disabled`, `unavailable`, `rate-limited` или иные
+внешние failure являются limitation. Actionable findings после authoritative
+review блокируют readiness до individual triage и fix.
+
+Для MCP-изменений первым repository gate является effective candidate
+classification: `azur mcp impact --base <exact-base-sha>`. Команда должна
+учитывать committed base..HEAD и staged/unstaged/untracked candidate paths.
+При `REQUIRED` обязательны source reconciliation, generated artifact check и
+base-to-head compatibility check; изменение соответствующего source set после
+reconciliation инвалидирует прежнее evidence.
+
+После source reconciliation coordinator обязан прочитать `azur mcp status`.
+Если он сообщает `runtime_state=stale` или `runtime_state=stopped`, обязательна
+одна попытка typed repair через `azur mcp reconcile` без `--source` и повторный
+status. Только доказанный failure/ambiguous ownership, foreign port owner,
+ошибка stop/start или нарушенный postcondition оставляет live gate в
+`BLOCKED_PRECONDITION`; исходный stale/stopped status до этой попытки не является
+финальным blocker-ом. Same-repository `LOCAL_MCP_SUPERVISOR_STALE` допустимо
+восстанавливать только typed recorded-identity cleanup с unchanged marker и
+STOPPED/no-conflict postcondition; foreign/invalid/unknown ownership остаётся
+fail-closed. При `runtime_ready=true` и
+`session_state=not_observable` runtime gate не считается failed. При
+`MCP impact=REQUIRED` workflow всё равно обязан выполнить отдельный fresh MCP
+client acceptance; effective Codex registration проверяется только отдельной
+optional integration check при затронутом Codex/plugin scope.
+
+При `MCP impact=REQUIRED` обязательный gate называется
+`fresh_mcp_client_acceptance`. Он доказывается независимым project-owned MCP
+client/process: новая SDK session должна выполнить `initialize()`, negotiated
+catalog, contract/revision checks и обязательные read-only capability calls.
+Один `azur mcp status`, source snapshot или unit tests этот gate не закрывают.
+
+Codex effective registration — отдельная необязательная integration check. Если
+изменение затрагивает Codex/plugin registration, client-visible tool schema или
+routing, её можно выполнить через [единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
+Wrong-HEAD, недоступный `create_thread` или другой platform failure фиксируется
+в этой check как external Codex limitation и не переводит успешный MCP client
+gate в `FAIL`/`BLOCKED_PRECONDITION`.
 
 ## Pre-merge и post-merge outcomes
 
@@ -106,6 +147,18 @@ required `Python`, `Windows`, `Security` на exact head, secret scan, self-revi
 и разрешения blocking review threads. Итоговый статус —
 `READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь, а merge не
 выполняется без отдельной текущей команды пользователя.
+
+Typed readiness разделяет implementation, mandatory gates, external reviewer
+limitation, `READY_FOR_CHATGPT_REVIEW` и merge-ready. Mandatory gate имеет
+terminal state `PASS`, `FAIL`, `BLOCKED_PRECONDITION` или `NOT_REQUIRED`; при
+`MCP impact=REQUIRED` `fresh_mcp_client_acceptance` обязателен и `NOT_REQUIRED`
+для него недопустим; `PASS` требует evidence независимой свежей MCP client
+session;
+`FAIL`/`BLOCKED_PRECONDITION` сохраняет полезный Draft, но требует blocked
+overall outcome и запрещает readiness/merge. CodeRabbit rate limit фиксируется
+отдельно и сам по себе не блокирует readiness при остальных фактически
+пройденных обязательных gates. Codex registration check хранится отдельно и
+сама по себе product readiness не блокирует.
 
 Post-merge verification и cleanup являются отдельным этапом и выполняются только
 после подтверждённого merge. Перед ним нужно повторно проверить exact head,
@@ -125,6 +178,16 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - чистое рабочее дерево после генераторов.
 
 Не повторять полный suite после каждого небольшого fix, если targeted checks покрывают изменённую область. После PR не дублировать локально тот же полный CI без причины: доверять exact-head required checks, а локальный повтор делать при диагностике падения или существенном post-CI изменении.
+
+### Game resource evidence
+
+- dashboard `game_get_resources` явно помечен как snapshot/history-derived
+  projection и сохраняет `Dashboard.<resource>.Record` в `last_update`;
+- неизвестный или старый timestamp не считается current state;
+- обязательный live gate использует fresh current observation, а не
+  dashboard snapshot;
+- displayed Oil `limit`/`MAX` не проверяется как hard storage cap: `25000` при
+  `17050` является допустимым структурным состоянием.
 
 ### Конфигурация
 

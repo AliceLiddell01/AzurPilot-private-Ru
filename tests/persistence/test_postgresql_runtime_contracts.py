@@ -14,7 +14,9 @@ from types import SimpleNamespace
 import pytest
 
 from module.application.canonical_payload import payload_digest
+from module.application.commission_recovery import CommissionRecoveryStore
 from module.application.errors import StorageConfigurationError, StorageInvalidDataError
+from module.application.runtime_cache import get_runtime_cache
 from module.application.runtime_storage import RuntimeStorageService
 from module.persistence import runtime as persistence_runtime
 from module.persistence.config import (
@@ -23,7 +25,11 @@ from module.persistence.config import (
     DatabaseSettings,
     migrate_legacy_backend_marker,
 )
-from module.persistence.local_environment import DEFAULT_LOCAL_ENV_PATH
+from module.persistence.local_environment import (
+    DEFAULT_LOCAL_ENV_PATH,
+    LocalPostgresEnvironment,
+)
+from module.persistence.redis_runtime_cache import RedisRuntimeCache
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from module.statistics import postgresql_stats
 from tests.support.paths import REPOSITORY_ROOT
@@ -60,6 +66,40 @@ def _marker_payload() -> dict[str, object]:
         "sslmode": "disable",
         "runtime_timezone": "Asia/Novosibirsk",
     }
+
+
+def _local_environment(tmp_path: Path, *, redis_host: str = "127.0.0.1") -> LocalPostgresEnvironment:
+    values = {
+        "AZURPILOT_POSTGRES_HOST": "127.0.0.1",
+        "AZURPILOT_POSTGRES_PORT": "5432",
+        "AZURPILOT_POSTGRES_DATABASE": "azurpilot",
+        "AZURPILOT_POSTGRES_USER": "azurpilot_app",
+        "AZURPILOT_POSTGRES_PASSWORD": "postgres-app-secret",
+        "AZURPILOT_POSTGRES_SSLMODE": "disable",
+        "AZURPILOT_POSTGRES_RUNTIME_TIMEZONE": "Asia/Novosibirsk",
+        "AZURPILOT_POSTGRES_PGPASSFILE": "C:/secure/pgpass.conf",
+        "AZURPILOT_POSTGRES_MIGRATOR_HOST": "127.0.0.1",
+        "AZURPILOT_POSTGRES_MIGRATOR_PORT": "5432",
+        "AZURPILOT_POSTGRES_MIGRATOR_DATABASE": "azurpilot",
+        "AZURPILOT_POSTGRES_MIGRATOR_USER": "azurpilot_migrator",
+        "AZURPILOT_POSTGRES_MIGRATOR_PASSWORD": "postgres-migrator-secret",
+        "AZURPILOT_POSTGRES_MIGRATOR_SSLMODE": "disable",
+        "AZURPILOT_POSTGRES_MIGRATOR_RUNTIME_TIMEZONE": "Asia/Novosibirsk",
+        "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE": "C:/secure/pgpass.conf",
+        "AZURPILOT_WSL_DISTRO": "archlinux",
+        "AZURPILOT_WSL_PGPASSFILE": "/etc/azurpilot/pgpass",
+    }
+    infrastructure = {
+        "AZURPILOT_REDIS_HOST": redis_host,
+        "AZURPILOT_REDIS_PORT": "6379",
+        "AZURPILOT_REDIS_USERNAME": "azurpilot_app",
+        "AZURPILOT_REDIS_PASSWORD": "redis-app-secret",
+    }
+    return LocalPostgresEnvironment(
+        path=tmp_path / ".env",
+        values=values,
+        infrastructure_values=infrastructure,
+    )
 
 
 def test_backend_marker_is_required_and_rejects_sqlite(tmp_path: Path):
@@ -258,6 +298,181 @@ dispose_runtime_storage()
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.parametrize("use_custom_path", [False, True])
+def test_runtime_bootstrap_binds_redis_provider_to_one_canonical_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    use_custom_path: bool,
+):
+    repository_root = tmp_path / "repository"
+    marker = repository_root / DEFAULT_BACKEND_MARKER_PATH
+    marker.parent.mkdir(parents=True)
+    marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+    default_path = repository_root / DEFAULT_LOCAL_ENV_PATH
+    custom_path = tmp_path / "custom" / ".env"
+    custom_path.parent.mkdir()
+    expected_path = custom_path if use_custom_path else default_path
+    local_environment = _local_environment(expected_path.parent)
+    local_environment = LocalPostgresEnvironment(
+        path=expected_path,
+        values=local_environment.values,
+        infrastructure_values=local_environment.infrastructure_values,
+    )
+    reads: list[Path] = []
+
+    class _Engine:
+        def __init__(self, settings: DatabaseSettings) -> None:
+            self.settings = settings
+
+        def dispose(self) -> None:
+            return None
+
+    monkeypatch.setattr(persistence_runtime, "_REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(
+        persistence_runtime,
+        "read_local_postgres_environment",
+        lambda path: reads.append(Path(path)) or local_environment,
+    )
+    monkeypatch.setattr(persistence_runtime, "LazyEngine", _Engine)
+    monkeypatch.setattr(persistence_runtime, "_service", None)
+    monkeypatch.setattr(persistence_runtime, "_engine", None)
+    monkeypatch.setattr(persistence_runtime, "_engine_settings", None)
+    monkeypatch.setattr(persistence_runtime, "_runtime_timezone", None)
+    for name in (
+        "AZURPILOT_LOCAL_ENV_PATH",
+        "AZURPILOT_REDIS_HOST",
+        "AZURPILOT_REDIS_PORT",
+        "AZURPILOT_REDIS_USERNAME",
+        "AZURPILOT_REDIS_PASSWORD",
+        "AZURPILOT_DOCKER_REDIS_HOST",
+        "AZURPILOT_DOCKER_REDIS_PORT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    if use_custom_path:
+        monkeypatch.setenv("AZURPILOT_LOCAL_ENV_PATH", str(custom_path))
+
+    persistence_runtime.bootstrap_runtime_storage(require_ready=False)
+    try:
+        cache = get_runtime_cache()
+
+        assert reads == [expected_path]
+        assert isinstance(cache, RedisRuntimeCache)
+        assert cache.settings.host == "127.0.0.1"
+        assert cache.settings.username == "azurpilot_app"
+        assert cache.settings.password
+        assert cache._client is None
+        assert "AZURPILOT_REDIS_PASSWORD" not in os.environ
+    finally:
+        persistence_runtime.dispose_runtime_storage()
+
+
+def test_runtime_bootstrap_composes_empty_commission_recovery_as_ready_unknown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    repository_root = tmp_path / "repository"
+    marker = repository_root / DEFAULT_BACKEND_MARKER_PATH
+    marker.parent.mkdir(parents=True)
+    marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+    local_environment = _local_environment(repository_root)
+
+    class _Engine:
+        def __init__(self, settings: DatabaseSettings) -> None:
+            self.settings = settings
+
+        def dispose(self) -> None:
+            return None
+
+    class _RedisClient:
+        def __init__(self) -> None:
+            self.keys: list[str] = []
+
+        def ping(self) -> bool:
+            return True
+
+        def get(self, key: str) -> None:
+            self.keys.append(key)
+
+        def close(self) -> None:
+            return None
+
+    client = _RedisClient()
+    monkeypatch.setattr(persistence_runtime, "_REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(
+        persistence_runtime,
+        "read_local_postgres_environment",
+        lambda _path: local_environment,
+    )
+    monkeypatch.setattr(persistence_runtime, "LazyEngine", _Engine)
+    monkeypatch.setattr(persistence_runtime, "_service", None)
+    monkeypatch.setattr(persistence_runtime, "_engine", None)
+    monkeypatch.setattr(persistence_runtime, "_engine_settings", None)
+    monkeypatch.setattr(persistence_runtime, "_runtime_timezone", None)
+    monkeypatch.setattr(
+        RedisRuntimeCache,
+        "_client_for_current_process",
+        lambda _cache: client,
+    )
+    for name in (
+        "AZURPILOT_LOCAL_ENV_PATH",
+        "AZURPILOT_REDIS_HOST",
+        "AZURPILOT_REDIS_PORT",
+        "AZURPILOT_REDIS_USERNAME",
+        "AZURPILOT_REDIS_PASSWORD",
+        "AZURPILOT_DOCKER_REDIS_HOST",
+        "AZURPILOT_DOCKER_REDIS_PORT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    try:
+        persistence_runtime.bootstrap_runtime_storage(require_ready=False)
+        store = CommissionRecoveryStore.from_environment()
+        try:
+            state = store.read("ap")
+        finally:
+            store.close()
+    finally:
+        persistence_runtime.dispose_runtime_storage()
+
+    assert state.status == "unknown"
+    assert state.cache_status == "READY"
+    assert state.remaining is None
+    assert client.keys == ["azurpilot:commission/recovery/ap"]
+
+
+def test_runtime_bootstrap_rejects_docker_redis_without_local_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository_root = tmp_path / "repository"
+    marker = repository_root / DEFAULT_BACKEND_MARKER_PATH
+    marker.parent.mkdir(parents=True)
+    marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+
+    monkeypatch.setattr(persistence_runtime, "_REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(
+        persistence_runtime,
+        "read_local_postgres_environment",
+        lambda _path: None,
+    )
+    monkeypatch.setattr(persistence_runtime, "_docker_postgres_transport", lambda: None)
+    monkeypatch.setattr(
+        persistence_runtime,
+        "_docker_redis_transport",
+        lambda: object(),
+    )
+    monkeypatch.setattr(persistence_runtime, "_service", None)
+    monkeypatch.setattr(persistence_runtime, "_engine", None)
+    monkeypatch.setattr(persistence_runtime, "_engine_settings", None)
+    monkeypatch.setattr(persistence_runtime, "_runtime_timezone", None)
+
+    try:
+        with pytest.raises(StorageConfigurationError, match="Docker Redis"):
+            persistence_runtime.bootstrap_runtime_storage(require_ready=False)
+    finally:
+        persistence_runtime.dispose_runtime_storage()
+
+
 def test_docker_transport_override_is_ephemeral_and_exact(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -295,6 +510,27 @@ def test_docker_transport_override_is_ephemeral_and_exact(
     monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_HOST", "host.docker.internal")
     with pytest.raises(StorageConfigurationError):
         persistence_runtime._docker_postgres_transport()
+
+
+def test_runtime_cache_docker_transport_uses_only_canonical_service(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    local_environment = _local_environment(tmp_path, redis_host="redis")
+    monkeypatch.setenv("AZURPILOT_DOCKER_REDIS_HOST", "redis")
+    monkeypatch.setenv("AZURPILOT_DOCKER_REDIS_PORT", "6379")
+
+    transport = persistence_runtime._docker_redis_transport()
+    settings = persistence_runtime._runtime_cache_settings(
+        local_environment,
+        transport,
+    )
+
+    assert transport is not None
+    assert (settings.host, settings.port) == ("redis", 6379)
+    monkeypatch.setenv("AZURPILOT_DOCKER_REDIS_HOST", "remote.redis")
+    with pytest.raises(StorageConfigurationError):
+        persistence_runtime._docker_redis_transport()
 
 
 def test_database_diagnostics_builds_standalone_read_only_engine_without_production_mutation(

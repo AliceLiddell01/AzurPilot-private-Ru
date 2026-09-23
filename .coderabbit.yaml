@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 language: ru-RU
 
-early_access: true
+early_access: false
 
 reviews:
   profile: assertive
@@ -28,6 +28,16 @@ reviews:
   suggested_reviewers: false
   in_progress_fortune: false
   path_instructions:
+    - path: "**/*"
+      instructions: >-
+        Сообщай каждое применимое correctness, architecture, maintainability, refactor, cleanup и trivial finding
+        независимо от severity или nit характера. Перед рекомендацией сверяй version-controlled repository contracts,
+        текущий task и scope, а также фактические dependency/runtime versions. Не предлагай изменение, прямо
+        противоречащее authoritative contract; при прямом конфликте явно опиши его. Mandatory review remediation,
+        непосредственно необходимая для actionable finding текущего candidate, разрешена даже если выглядит как
+        refactor или cleanup. Не выдумывай факт при недостатке контекста. Precedence: tracked repository/task/version
+        contracts выше CodeRabbit learnings; effective organization/workspace Global Overrides могут иметь более высокий
+        приоритет, но их фактическое применение не предполагай без evidence.
     - path: "**/*.py"
       instructions: Учитывай правила AzurPilot Private RU из корневого AGENTS.md. Не предлагай хардкод поведения, зависящего
         от событий, карт, магазинов, OCR, ассетов, задач, режимов и других изменяемых игровых сущностей, если это должно
@@ -59,12 +69,13 @@ reviews:
       enabled: false
   pre_merge_checks:
     docstrings:
-      mode: off
+      mode: "off"
     title:
+      mode: "error"
       requirements: Заголовок должен кратко и содержательно описывать основное изменение PR. Не используй бессодержательные
         названия вроде fix, final, update, test или again. Заголовок не должен обещать Scope шире фактического diff.
     issue_assessment:
-      mode: off
+      mode: "off"
     custom_checks:
       - mode: error
         name: Declared scope contract
@@ -82,7 +93,12 @@ reviews:
           поведение должно сохраняться.
 
           Для "Scope: bugfix": разрешены только изменения поведения, тесты и документация, необходимые для заявленного
-          исправления. FAIL на несвязанные feature, refactor, cleanup или изменения поведения.
+          исправления. Изменение, непосредственно необходимое для mandatory review remediation текущего actionable
+          CodeRabbit finding, разрешено независимо от его severity, refactor или cleanup характера. FAIL на реально
+          несвязанные feature, refactor, cleanup или изменения поведения. Если remediation противоречит
+          authoritative task scope, зафиксируй typed disposition `deferred` с
+          `deferral_reason=task_scope`, authoritative source и подробным объяснением, а не называй обязательную
+          remediation scope violation.
 
           Для "Scope: feature": разрешены новое или изменённое поведение, тесты и документация, необходимые для
           заявленной функции. FAIL на несвязанные изменения.
@@ -107,8 +123,18 @@ chat:
 
 knowledge_base:
   code_guidelines:
+    enabled: true
     filePatterns:
-      - .codex/context/GIT-WORKFLOW.md
+      - files: .codex/context/GIT-WORKFLOW.md
+        applyTo: "**/*"
+      - files: .codex/context/08-VERIFICATION.md
+        applyTo: "**/*"
+      - files: .codex/context/11-PYTHON-TOOLING.md
+        applyTo: "**/*"
+      - files: .agents/skills/azurpilot-coderabbit-review/SKILL.md
+        applyTo: "**/*"
+      - files: .agents/skills/azurpilot-coderabbit-review/references/review-workflow.md
+        applyTo: "**/*"
   learnings:
     scope: local
     approval_delay: 30

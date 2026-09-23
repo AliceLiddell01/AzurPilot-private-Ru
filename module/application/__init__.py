@@ -40,6 +40,11 @@ from module.application.runtime_cache import (
     RuntimeCacheHealth,
     RuntimeCacheStatus,
 )
+from module.application.commission_recovery import (
+    CommissionRecoveryState,
+    CommissionRecoveryStore,
+    next_en_weekly_reset,
+)
 from module.application.fleet_autoscan import (
     FLEET_AUTOSCAN_SOURCE,
     FleetAutoScanConfig,
@@ -94,6 +99,7 @@ from module.application.game_models import (
     GameRuntimeRestartResult,
     LifecycleOutcome,
     LifecycleResult,
+    LiveResourceObservation,
     MediaFrame,
     RuntimeLogTail,
     SchedulerEntry,
@@ -207,6 +213,8 @@ __all__ = (
     "ChannelCapabilities",
     "CommissionIncome",
     "CommissionItem",
+    "CommissionRecoveryState",
+    "CommissionRecoveryStore",
     "ConfigArgumentDefinition",
     "ConfigSnapshot",
     "ConfigUpdateRequest",
@@ -272,6 +280,7 @@ __all__ = (
     "InvalidRequestError",
     "LifecycleOutcome",
     "LifecycleResult",
+    "LiveResourceObservation",
     "MediaFrame",
     "MigrationService",
     "MonthlyAggregate",
@@ -353,5 +362,6 @@ __all__ = (
     "TaskOption",
     "TaskSummary",
     "finalize_rehearsal",
+    "next_en_weekly_reset",
     "project_morale",
 )

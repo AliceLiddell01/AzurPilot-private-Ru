@@ -53,18 +53,14 @@ startup_timeout_sec = 20
 tool_timeout_sec = 120
 
 [mcp_servers.grafana_direct]
-command = "docker"
+command = "uv"
 args = [
     "run",
-    "--rm",
-    "-i",
-    "mcp/grafana@sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014",
-    "-transport",
-    "stdio",
-    "-disable-write",
-    "-disable-api",
-    "-enabled-tools",
-    "datasource,loki,prometheus,dashboard,search,navigation,proxied",
+    "--locked",
+    "--no-sync",
+    "python",
+    "-m",
+    "azurpilot.integrations.grafana_stdio",
 ]
 enabled_tools = [
     "check_datasources_health",
@@ -108,7 +104,7 @@ disabled_tools = [
     "update_dashboard",
     "update_datasource",
 ]
-env_vars = ["GRAFANA_URL", "GRAFANA_SERVICE_ACCOUNT_TOKEN"]
+env_vars = ["GRAFANA_SERVICE_ACCOUNT_TOKEN"]
 cwd = "."
 enabled = true
 required = false

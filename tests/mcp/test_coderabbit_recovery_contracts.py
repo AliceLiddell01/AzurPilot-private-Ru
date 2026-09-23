@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import json
-from dataclasses import replace
+import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,1248 +11,1619 @@ from azurpilot.integrations import coderabbit
 from azurpilot.integrations.config import IntegrationConfig
 from azurpilot.integrations.contracts import IntegrationState
 from azurpilot.tooling.contracts import ResultCode
-from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.filesystem import StateLayout
+from azurpilot.tooling.process import ProcessIdentity, ProcessResult
 
-REPOSITORY_IDENTITY = "hosted:github.com/aliceliddell01/azurpilot-private-ru"
-BASE_SHA = "a" * 40
-HEAD_SHA = "b" * 40
+
+def _identity(root: Path) -> ProcessIdentity:
+    return ProcessIdentity(
+        pid=999999,
+        start_time=1.0,
+        executable=Path("C:/tools/coderabbit.exe"),
+        argv=("C:/tools/coderabbit.exe", "review", "--agent"),
+        cwd=root,
+    )
 
 
 def _result(
+    root: Path,
     *,
     stdout: str = "",
-    stderr: str = "",
     returncode: int = 0,
     timed_out: bool = False,
-    stdout_truncated: bool = False,
-    stderr_truncated: bool = False,
-) -> coderabbit._WslCommandResult:
-    return coderabbit._WslCommandResult(
-        returncode,
-        stdout,
-        stderr,
-        timed_out,
-        stdout_truncated,
-        stderr_truncated,
+    termination_state: str | None = None,
+) -> ProcessResult:
+    identity = _identity(root)
+    return ProcessResult(
+        returncode=returncode,
+        stdout=stdout,
+        stderr="",
+        stdout_truncated=False,
+        stderr_truncated=False,
+        timed_out=timed_out,
+        pid=identity.pid,
+        identity=identity,
+        termination_state=termination_state,  # type: ignore[arg-type]
     )
 
 
-class _CandidateRuntime:
-    coderabbit_command = "coderabbit"
-
-    def __init__(self, branch: str) -> None:
-        self.branch = branch
-        self.calls: list[tuple[str, ...]] = []
-
-    def git(self, *arguments: str, timeout: float = 30.0) -> coderabbit._WslCommandResult:
-        del timeout
-        self.calls.append(arguments)
-        if arguments == ("branch", "--show-current"):
-            return _result(stdout=self.branch)
-        raise AssertionError(arguments)
-
-
-def _configure_runtime_discovery(
-    monkeypatch: pytest.MonkeyPatch,
-    runtimes: dict[str, _CandidateRuntime | None],
-    clones: tuple[str, ...],
-) -> None:
-    monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: "wsl.exe")
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_wsl_inventory",
-        staticmethod(
-            lambda *_args: (
-                (coderabbit.WslDistribution("ReviewLinux", "Running", 2),),
-                None,
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_expected_repository",
-        staticmethod(lambda *_args: REPOSITORY_IDENTITY),
-    )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_discover_review_clones",
-        staticmethod(lambda *_args: (clones, None)),
-    )
-
-    def candidate_environment(
-        _root: Path,
-        _executable: str,
-        _distro: coderabbit.WslDistribution,
-        clone: str,
-        _settings: dict[str, object],
-    ) -> tuple[_CandidateRuntime | None, str | None]:
-        runtime = runtimes[clone]
-        return (
-            (runtime, None)
-            if runtime is not None
-            else (None, "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL")
-        )
-
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_candidate_environment",
-        staticmethod(candidate_environment),
-    )
-
-
-def test_configured_runtime_selects_the_only_detached_clone(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    selected = _CandidateRuntime("")
-    attached = _CandidateRuntime("feature")
-    clones = ("/home/reviewer/attached", "/home/reviewer/selected")
-    _configure_runtime_discovery(
-        monkeypatch,
-        {clones[0]: attached, clones[1]: selected},
-        clones,
-    )
-
-    runtime, error_code = coderabbit.CodeRabbitAdapter._configured_runtime(
-        tmp_path,
-        {"wsl_distribution": "ReviewLinux"},
-    )
-
-    assert runtime is selected
-    assert error_code is None
-    assert selected.calls == [("branch", "--show-current")]
-    assert attached.calls == [("branch", "--show-current")]
-
-
-@pytest.mark.parametrize(
-    "clones",
-    [
-        ("/home/reviewer/first", "/home/reviewer/second"),
-        ("/home/reviewer/second", "/home/reviewer/first"),
-    ],
-)
-def test_configured_runtime_does_not_resolve_ambiguous_detached_clones_by_order(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    clones: tuple[str, str],
-) -> None:
-    runtimes = {clone: _CandidateRuntime("") for clone in clones}
-    _configure_runtime_discovery(monkeypatch, runtimes, clones)
-
-    runtime, error_code = coderabbit.CodeRabbitAdapter._configured_runtime(
-        tmp_path,
-        {"wsl_distribution": "ReviewLinux"},
-    )
-
-    assert runtime is None
-    assert error_code == "CODERABBIT_REVIEW_CLONE_AMBIGUOUS"
-
-
-def test_configured_runtime_returns_candidate_validation_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    clone = "/home/reviewer/invalid"
-    _configure_runtime_discovery(monkeypatch, {clone: None}, (clone,))
-
-    runtime, error_code = coderabbit.CodeRabbitAdapter._configured_runtime(
-        tmp_path,
-        {"wsl_distribution": "ReviewLinux"},
-    )
-
-    assert runtime is None
-    assert error_code == "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL"
-
-
-def test_configured_runtime_auto_discovery_keeps_only_one_valid_detached_clone(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    entries = (
-        coderabbit.WslDistribution("FirstLinux", "Running", 2),
-        coderabbit.WslDistribution("SecondLinux", "Running", 2),
-    )
-    invalid_clone = "/home/reviewer/invalid"
-    selected_clone = "/home/reviewer/selected"
-    selected = _CandidateRuntime("")
-    monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: "wsl.exe")
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_wsl_inventory",
-        staticmethod(lambda *_args: (entries, None)),
-    )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_expected_repository",
-        staticmethod(lambda *_args: REPOSITORY_IDENTITY),
-    )
-
-    def discover(
-        _root: Path,
-        _executable: str,
-        distro: coderabbit.WslDistribution,
-        _expected: str,
-    ) -> tuple[tuple[str, ...], None]:
-        return (
-            (invalid_clone,) if distro.name == "FirstLinux" else (selected_clone,),
-            None,
-        )
-
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_discover_review_clones",
-        staticmethod(discover),
-    )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_candidate_environment",
-        staticmethod(
-            lambda _root, _executable, _distro, clone, _settings: (
-                (None, "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL")
-                if clone == invalid_clone
-                else (selected, None)
-            )
-        ),
-    )
-
-    runtime, error_code = coderabbit.CodeRabbitAdapter._configured_runtime(
-        tmp_path, {}
-    )
-
-    assert runtime is selected
-    assert error_code is None
-
-
-@pytest.mark.parametrize(
-    "review_clone",
-    ["relative/clone", "/home/reviewer/../other", "/home/reviewer\x00clone", 42],
-)
-def test_configured_runtime_rejects_unsafe_review_clone_without_discovery(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    review_clone: object,
-) -> None:
-    monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: "wsl.exe")
-    inventory_calls: list[object] = []
-
-    def unexpected_inventory(*_args: object) -> object:
-        inventory_calls.append(True)
-        raise AssertionError("WSL/Git discovery не должна выполняться")
-
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_wsl_inventory",
-        staticmethod(unexpected_inventory),
-    )
-
-    runtime, error_code = coderabbit.CodeRabbitAdapter._configured_runtime(
-        tmp_path,
-        {"review_clone": review_clone},
-    )
-
-    assert runtime is None
-    assert error_code == "CODERABBIT_REVIEW_CLONE_NOT_CONFIGURED"
-    assert inventory_calls == []
-
-
-def test_configured_runtime_does_not_bypass_corrupt_persisted_metadata(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
-    metadata_path = StateLayout.for_repository(tmp_path / "checkout").path(
-        "coderabbit-runtime.json"
-    )
-    metadata_path.parent.mkdir(parents=True, exist_ok=True)
-    metadata_path.write_text("{broken", encoding="utf-8")
-    monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: "wsl.exe")
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_wsl_inventory",
-        staticmethod(
-            lambda *_args: (_ for _ in ()).throw(
-                AssertionError("повреждённое canonical state нельзя обходить")
-            )
-        ),
-    )
-
-    runtime, error_code = coderabbit.CodeRabbitAdapter._configured_runtime(
-        tmp_path / "checkout",
-        {},
-    )
-
-    assert runtime is None
-    assert error_code == "CODERABBIT_RUNTIME_STATE_UNAVAILABLE"
-
-
-@pytest.mark.parametrize("canonical", [True, False])
-def test_candidate_environment_requires_canonical_clone_path(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    canonical: bool,
-) -> None:
-    distro = coderabbit.WslDistribution("ReviewLinux", "Running", 2)
-    clone = "/home/reviewer/canonical"
-    runtime_result = _result(stdout=(clone if canonical else "/home/reviewer/other") + "\n")
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_wsl_identity",
-        staticmethod(lambda *_args: (("reviewer", "/home/reviewer"), None)),
-    )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_expected_repository",
-        staticmethod(lambda *_args: REPOSITORY_IDENTITY),
-    )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_wsl_path",
-        staticmethod(lambda *_args, **_kwargs: ("/usr/bin:/bin", None)),
-    )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_verify_clone_identity",
-        staticmethod(lambda *_args: (True, "CODERABBIT_REVIEW_CLONE_IDENTITY_READY")),
-    )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_linux_executable",
-        staticmethod(lambda *_args: ("/home/reviewer/bin/coderabbit", None)),
-    )
-    monkeypatch.setattr(
-        coderabbit._WslRuntime,
-        "command",
-        lambda _self, _command, *_args, **_kwargs: runtime_result,
-    )
-
-    runtime, error_code = coderabbit.CodeRabbitAdapter._candidate_environment(
-        tmp_path,
-        "wsl.exe",
-        distro,
-        clone,
-        {},
-    )
-
-    if canonical:
-        assert runtime is not None
-        assert runtime.clone == clone
-        assert runtime.environment.coderabbit_executable == "/home/reviewer/bin/coderabbit"
-        assert error_code is None
-    else:
-        assert runtime is None
-        assert error_code == "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL"
-
-
-class _ManagedRuntime:
-    distro = "ReviewLinux"
-    user = "reviewer"
-    home = "/home/reviewer"
-    clone = "/home/reviewer/canonical"
-
-    def __init__(
-        self,
-        *,
-        current_branch: str = "personal/stable",
-        status: str = "",
-        counts: str = "0 0",
-        head: str = "a" * 40,
-        remote_head: str = "a" * 40,
-        upstream: str = "origin/personal/stable",
-        local_branch_exists: bool = False,
-        local_counts: str = "0 0",
-        merge_returncode: int = 0,
-        switch_returncode: int = 0,
-        track_returncode: int = 0,
-    ) -> None:
-        self.current_branch = current_branch
-        self.status = status
-        self.counts = counts
-        self.head = head
-        self.remote_head = remote_head
-        self.upstream = upstream
-        self.local_branch_exists = local_branch_exists
-        self.local_counts = local_counts
-        self.merge_returncode = merge_returncode
-        self.switch_returncode = switch_returncode
-        self.track_returncode = track_returncode
-        self.after_merge = False
-        self.calls: list[tuple[str, ...]] = []
-
-    def git(self, *arguments: str, timeout: float = 30.0) -> coderabbit._WslCommandResult:
-        del timeout
-        self.calls.append(arguments)
-        if arguments == ("fetch", "--no-tags", "--prune", "origin"):
-            return _result()
-        if arguments == ("rev-parse", "--show-toplevel"):
-            return _result(stdout=self.clone)
-        if arguments == ("remote", "get-url", "origin"):
-            return _result(
-                stdout="https://github.com/AliceLiddell01/AzurPilot-private-Ru.git"
-            )
-        if arguments == ("status", "--porcelain=v1", "--untracked-files=all"):
-            return _result(stdout=self.status)
-        if arguments == ("status", "--porcelain=v1"):
-            return _result(stdout=self.status)
-        if arguments == ("rev-parse", "HEAD"):
-            head = self.remote_head if self.after_merge else self.head
-            return _result(stdout=head)
-        if arguments == ("branch", "--show-current"):
-            return _result(stdout=self.current_branch)
-        if arguments == ("rev-parse", "refs/remotes/origin/personal/stable"):
-            return _result(stdout=self.remote_head)
-        if arguments == (
-            "rev-list",
-            "--left-right",
-            "--count",
-            "HEAD...refs/remotes/origin/personal/stable",
-        ):
-            return _result(stdout="0 0" if self.after_merge else self.counts)
-        if arguments == (
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{upstream}",
-        ):
-            return _result(stdout=self.upstream)
-        if arguments == (
-            "show-ref",
-            "--verify",
-            "--quiet",
-            "refs/heads/personal/stable",
-        ):
-            return _result(returncode=0 if self.local_branch_exists else 1)
-        if arguments == ("rev-parse", "refs/heads/personal/stable"):
-            return _result(stdout=self.remote_head)
-        if arguments == (
-            "rev-list",
-            "--left-right",
-            "--count",
-            "refs/heads/personal/stable...origin/personal/stable",
-        ):
-            return _result(stdout=self.local_counts)
-        if arguments in {
-            ("switch", "personal/stable"),
-            (
-                "switch",
-                "--create",
-                "personal/stable",
-                "--track",
-                "origin/personal/stable",
-            ),
-        }:
-            self.current_branch = "personal/stable"
-            return _result(returncode=self.switch_returncode)
-        if arguments == (
-            "branch",
-            "--set-upstream-to",
-            "origin/personal/stable",
-            "personal/stable",
-        ):
-            if self.track_returncode == 0:
-                self.upstream = "origin/personal/stable"
-            return _result(returncode=self.track_returncode)
-        if arguments == ("merge", "--ff-only", "origin/personal/stable"):
-            if self.merge_returncode == 0:
-                self.after_merge = True
-            return _result(returncode=self.merge_returncode)
-        raise AssertionError(arguments)
-
-
-def test_managed_snapshot_metadata_controls_ownership_without_overriding_risk(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    metadata = {
-        "distro": "ReviewLinux",
-        "linux_user": "reviewer",
-        "home": "/home/reviewer",
-        "managed_clone": "/home/reviewer/canonical",
-        "repository_identity": REPOSITORY_IDENTITY,
-        "management_branch": "personal/stable",
-        "upstream_ref": "origin/personal/stable",
-        "last_sync_at": "2026-09-20T00:00:00+00:00",
+def test_legacy_historical_finding_is_copied_before_active_fields_are_cleared():
+    candidate = {
+        "severity": "minor",
+        "path": "azurpilot/integrations/coderabbit.py",
+        "title": "legacy evidence",
+        "line": 10,
+        "impact": "legacy impact",
+        "resolution": "legacy resolution",
+        "disposition": "insufficient evidence",
+        "fix_head": "b" * 40,
     }
-    adapter = coderabbit.CodeRabbitAdapter()
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_load_runtime_metadata",
-        staticmethod(lambda _root: metadata),
+
+    state = coderabbit.CodeRabbitAdapter._normalise_state(
+        {
+            "schema_version": 5,
+            "findings": [candidate],
+        },
+        migrated=True,
     )
 
-    dirty = adapter._managed_clone_snapshot(
-        tmp_path,
-        _ManagedRuntime(status=" M tracked.py"),
-        expected_repository=REPOSITORY_IDENTITY,
-        remote="origin",
-        branch="personal/stable",
-    )
-    ready = adapter._managed_clone_snapshot(
-        tmp_path,
-        _ManagedRuntime(),
-        expected_repository=REPOSITORY_IDENTITY,
-        remote="origin",
-        branch="personal/stable",
-    )
-
-    assert dirty.sync_state == "DIRTY"
-    assert dirty.ownership_state == "MANUAL_ATTENTION_REQUIRED"
-    assert ready.sync_state == "READY"
-    assert ready.ownership_state == "OWNED"
-
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_load_runtime_metadata",
-        staticmethod(lambda _root: {**metadata, "managed_clone": "/other/clone"}),
-    )
-    mismatched = adapter._managed_clone_snapshot(
-        tmp_path,
-        _ManagedRuntime(),
-        expected_repository=REPOSITORY_IDENTITY,
-        remote="origin",
-        branch="personal/stable",
-    )
-    assert mismatched.ownership_state == "MANUAL_ATTENTION_REQUIRED"
+    historical = state["historical_non_authoritative_findings"]
+    assert isinstance(historical, list)
+    assert historical == [candidate]
+    assert state["findings"][0]["disposition"] is None
+    assert state["findings"][0]["fix_head"] is None
 
 
-def test_sync_managed_clone_switches_to_existing_clean_management_branch(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_management_contract",
-        staticmethod(lambda _root: ("origin", "personal/stable", "origin/personal/stable")),
-    )
-    runtime = _ManagedRuntime(current_branch="feature", local_branch_exists=True)
+class _DiscoveryRunner:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.calls: list[tuple[str, ...]] = []
 
-    result = coderabbit.CodeRabbitAdapter()._sync_managed_clone(
-        tmp_path, runtime, expected_repository=REPOSITORY_IDENTITY
-    )
-
-    assert result.sync_state == "READY"
-    assert ("switch", "personal/stable") in runtime.calls
-    assert not any(
-        argument in {"reset", "clean", "checkout"}
-        for call in runtime.calls
-        for argument in call
-    )
-
-
-def test_sync_managed_clone_blocks_existing_local_branch_with_extra_commits(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_management_contract",
-        staticmethod(lambda _root: ("origin", "personal/stable", "origin/personal/stable")),
-    )
-    runtime = _ManagedRuntime(
-        current_branch="feature", local_branch_exists=True, local_counts="1 0"
-    )
-
-    with pytest.raises(ToolingError) as error:
-        coderabbit.CodeRabbitAdapter()._sync_managed_clone(
-            tmp_path, runtime, expected_repository=REPOSITORY_IDENTITY
+    def with_repository_config(self) -> _DiscoveryRunner:
+        (self.root / ".coderabbit.yaml").write_text(
+            "language: ru-RU\n", encoding="utf-8"
         )
+        return self
 
-    assert error.value.code is ResultCode.TOOLING_UPDATE_LOCAL_AHEAD
-    assert not any(call[0] == "switch" for call in runtime.calls)
+    def run(self, spec):  # type: ignore[no-untyped-def]
+        self.calls.append(spec.argv)
+        outputs = {
+            ("--version",): "0.7.8\n",
+            ("review", "--help"): "--agent --committed --base-commit\n",
+            ("auth", "--help"): "status login\n",
+            ("auth", "status"): "Signed in\n",
+            ("doctor",): "Summary: 9 passed\n",
+            ("config", "validate", ".coderabbit.yaml"): "Configuration is valid\n",
+        }
+        return _result(self.root, stdout=outputs.get(spec.argv, ""))
 
 
-def test_sync_managed_clone_repairs_wrong_upstream_without_force_operations(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+class _Running:
+    def __init__(self, result: ProcessResult) -> None:
+        self.identity = result.identity
+        self.result = result
+        self.collected = False
+
+    def collect(self, *, timeout_seconds: float):  # type: ignore[no-untyped-def]
+        del timeout_seconds
+        self.collected = True
+        return self.result
+
+
+class _StartCapture:
+    def __init__(self) -> None:
+        self.argv: tuple[str, ...] | None = None
+
+    def start(self, spec):  # type: ignore[no-untyped-def]
+        self.argv = spec.argv
+        return object()
+
+
+def _ready_provider(root: Path, runner: _DiscoveryRunner) -> coderabbit.NativeCodeRabbit:
+    return coderabbit.NativeCodeRabbit(
+        executable=Path("C:/tools/coderabbit.exe"),
+        version="0.7.8",
+        review_help="--agent --committed --base-commit",
+        root=root,
+        runner=runner,  # type: ignore[arg-type]
+    )
+
+
+def _prepared_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    root: Path,
+    *,
+    results: tuple[ProcessResult, ...],
+    fingerprints: tuple[coderabbit.CandidateFingerprint, ...],
+) -> coderabbit.CodeRabbitAdapter:
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    result_iterator = iter(results)
+    fingerprint_iterator = iter(fingerprints)
     monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_management_contract",
-        staticmethod(lambda _root: ("origin", "personal/stable", "origin/personal/stable")),
-    )
-    runtime = _ManagedRuntime(upstream="origin/other")
-
-    result = coderabbit.CodeRabbitAdapter()._sync_managed_clone(
-        tmp_path, runtime, expected_repository=REPOSITORY_IDENTITY
-    )
-
-    assert result.sync_state == "READY"
-    assert (
-        "branch",
-        "--set-upstream-to",
-        "origin/personal/stable",
-        "personal/stable",
-    ) in runtime.calls
-    assert not any(
-        argument in {"reset", "clean", "checkout"}
-        for call in runtime.calls
-        for argument in call
-    )
-
-
-@pytest.mark.parametrize(
-    ("runtime_kwargs", "expected_code"),
-    [
-        ({"remote_head": ""}, ResultCode.TOOLING_REMOTE_REF_CONFLICT),
-        (
-            {
-                "current_branch": "feature",
-                "local_branch_exists": True,
-                "switch_returncode": 1,
-            },
-            ResultCode.TOOLING_GIT_FAILED,
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
         ),
-        ({"upstream": "origin/other", "track_returncode": 1}, ResultCode.TOOLING_GIT_FAILED),
-    ],
-)
-def test_sync_managed_clone_reports_typed_reconcile_failures(
-    monkeypatch: pytest.MonkeyPatch,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (next(fingerprint_iterator), None, None),
+    )
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(next(result_iterator)),
+    )
+    return adapter
+
+
+def test_native_discovery_requires_binary_syntax_auth_and_doctor(tmp_path: Path):
+    executable = tmp_path / "coderabbit.exe"
+    executable.write_bytes(b"native")
+    runner = _DiscoveryRunner(tmp_path).with_repository_config()
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="nt")  # type: ignore[arg-type]
+    settings = {"route": "direct_native_agent", "executable": str(executable)}
+
+    check = adapter._discover_provider(tmp_path, settings)
+
+    assert check.state is IntegrationState.READY
+    assert check.reason_code == "CODERABBIT_NATIVE_READY"
+    assert check.provider is not None
+    assert check.provider.version == "0.7.8"
+    assert {
+        "platform=windows-native",
+        "review_syntax=agent-committed-base-commit",
+        "auth=ready",
+        "readiness=doctor_passed",
+        "repository_config=.coderabbit.yaml",
+        "config_validation=passed",
+        "effective_config_provenance=not_observable_through_native_surface",
+        "transport=native_process",
+    }.issubset(check.diagnostics)
+    assert runner.calls == [
+        ("--version",),
+        ("review", "--help"),
+        ("auth", "--help"),
+        ("auth", "status"),
+        ("doctor",),
+        ("config", "validate", ".coderabbit.yaml"),
+    ]
+
+
+def test_native_status_probe_checks_only_executable_and_version(tmp_path: Path):
+    executable = tmp_path / "coderabbit.exe"
+    executable.write_bytes(b"native")
+    runner = _DiscoveryRunner(tmp_path)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="nt")  # type: ignore[arg-type]
+
+    check = adapter._discover_provider(
+        tmp_path,
+        {"route": "direct_native_agent", "executable": str(executable)},
+        False,
+    )
+
+    assert check.state is IntegrationState.READY
+    assert check.provider is not None
+    assert check.provider.version == "0.7.8"
+    assert runner.calls == [("--version",)]
+
+
+def test_native_review_does_not_use_config_flag_to_enable_repository_config(
     tmp_path: Path,
-    runtime_kwargs: dict[str, object],
-    expected_code: ResultCode,
-) -> None:
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_management_contract",
-        staticmethod(lambda _root: ("origin", "personal/stable", "origin/personal/stable")),
-    )
-    runtime = _ManagedRuntime(**runtime_kwargs)
-
-    with pytest.raises(ToolingError) as error:
-        coderabbit.CodeRabbitAdapter()._sync_managed_clone(
-            tmp_path, runtime, expected_repository=REPOSITORY_IDENTITY
-        )
-
-    assert error.value.code is expected_code
-
-
-def test_sync_managed_clone_reports_impossible_fast_forward(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_management_contract",
-        staticmethod(lambda _root: ("origin", "personal/stable", "origin/personal/stable")),
-    )
-    runtime = _ManagedRuntime(
-        head="a" * 40,
-        remote_head="b" * 40,
-        counts="0 2",
-        merge_returncode=1,
+):
+    runner = _StartCapture()
+    provider = coderabbit.NativeCodeRabbit(
+        executable=Path("C:/tools/coderabbit.exe"),
+        version="0.7.8",
+        review_help="--agent --committed --base-commit",
+        root=tmp_path,
+        runner=runner,  # type: ignore[arg-type]
     )
 
-    with pytest.raises(ToolingError) as error:
-        coderabbit.CodeRabbitAdapter()._sync_managed_clone(
-            tmp_path, runtime, expected_repository=REPOSITORY_IDENTITY
-        )
+    provider.start_review("a" * 40)
 
-    assert error.value.code is ResultCode.TOOLING_UPDATE_DIVERGED
-    assert ("merge", "--ff-only", "origin/personal/stable") in runtime.calls
-    assert not any(
-        argument in {"reset", "clean", "checkout"}
-        for call in runtime.calls
-        for argument in call
+    assert runner.argv == (
+        "review",
+        "--agent",
+        "--committed",
+        "--base-commit",
+        "a" * 40,
     )
-
-
-def _ready_snapshot() -> coderabbit.ManagedCloneSnapshot:
-    return coderabbit.ManagedCloneSnapshot(
-        repository_identity=REPOSITORY_IDENTITY,
-        origin_identity=REPOSITORY_IDENTITY,
-        management_branch="personal/stable",
-        upstream_ref="origin/personal/stable",
-        head_sha=HEAD_SHA,
-        remote_head_sha=HEAD_SHA,
-        clean=True,
-        ahead=0,
-        behind=0,
-        diverged=False,
-        sync_state="READY",
-        ownership_state="OWNED",
-    )
+    assert "--config" not in runner.argv
 
 
 @pytest.mark.parametrize(
-    "final_snapshot",
-    [
-        replace(_ready_snapshot(), clean=False, sync_state="DIRTY"),
-        replace(_ready_snapshot(), management_branch="feature", sync_state="WRONG_BRANCH"),
-        replace(_ready_snapshot(), remote_head_sha=None, sync_state="REMOTE_UNAVAILABLE"),
-        replace(_ready_snapshot(), head_sha="c" * 40, sync_state="SYNCABLE"),
-        replace(_ready_snapshot(), upstream_ref="origin/other", sync_state="WRONG_UPSTREAM"),
-        replace(_ready_snapshot(), ahead=1, sync_state="AHEAD"),
-        replace(_ready_snapshot(), behind=1, sync_state="SYNCABLE"),
-        replace(_ready_snapshot(), ahead=1, behind=1, diverged=True, sync_state="DIVERGED"),
-    ],
+    ("name", "expected"),
+    [("coderabbit.cmd", "CODERABBIT_EXECUTABLE_WRAPPER_REJECTED"),
+     ("other.exe", "CODERABBIT_EXECUTABLE_NOT_NATIVE")],
 )
-def test_sync_managed_clone_fails_closed_on_any_bad_postcondition(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    final_snapshot: coderabbit.ManagedCloneSnapshot,
-) -> None:
-    adapter = coderabbit.CodeRabbitAdapter()
-    monkeypatch.setattr(
-        adapter,
-        "_management_contract",
-        lambda _root: ("origin", "personal/stable", "origin/personal/stable"),
-    )
-    snapshots = iter((_ready_snapshot(), final_snapshot))
-    monkeypatch.setattr(
-        adapter,
-        "_managed_clone_snapshot",
-        lambda *_args, **_kwargs: next(snapshots),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_write_runtime_metadata",
-        lambda *_args, **_kwargs: pytest.fail("metadata нельзя писать без postcondition"),
+def test_native_discovery_rejects_wrappers_and_other_binaries(
+    tmp_path: Path, name: str, expected: str
+):
+    executable = tmp_path / name
+    executable.write_bytes(b"not-provider")
+    adapter = coderabbit.CodeRabbitAdapter(host_os="nt")
+
+    check = adapter._discover_provider(
+        tmp_path,
+        {"route": "direct_native_agent", "executable": str(executable)},
     )
 
-    with pytest.raises(ToolingError) as error:
-        adapter._sync_managed_clone(
-            tmp_path,
-            _ManagedRuntime(),
-            expected_repository=REPOSITORY_IDENTITY,
-        )
+    assert check.reason_code == expected
+    assert check.provider is None
+
+
+def test_native_discovery_has_no_fallback_when_executable_is_missing(tmp_path: Path, monkeypatch):
+    adapter = coderabbit.CodeRabbitAdapter(host_os="nt")
+    monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: None)
+
+    check = adapter._discover_provider(tmp_path, {"route": "direct_native_agent"})
+
+    assert check.reason_code == "CODERABBIT_NATIVE_EXECUTABLE_UNAVAILABLE"
+    assert check.state is IntegrationState.UNAVAILABLE
+
+
+def test_native_discovery_uses_posix_provider_name_without_mutating_platform(
+    tmp_path: Path,
+):
+    executable = tmp_path / "coderabbit"
+    executable.write_bytes(b"native")
+    executable.chmod(0o755)
+    runner = _DiscoveryRunner(tmp_path).with_repository_config()
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="posix")  # type: ignore[arg-type]
+
+    check = adapter._discover_provider(
+        tmp_path,
+        {"route": "direct_native_agent", "executable": str(executable)},
+    )
+
+    assert check.state is IntegrationState.READY
+    assert check.provider is not None
+    assert "platform=posix-native" in check.diagnostics
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable discovery contract")
+def test_native_discovery_allows_posix_path_symlink_to_host_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    target = tmp_path / "coderabbit"
+    target.write_bytes(b"native")
+    target.chmod(0o755)
+    entry = tmp_path / "bin" / "coderabbit"
+    entry.parent.mkdir()
+    entry.symlink_to(target)
+    monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: str(entry))
+    runner = _DiscoveryRunner(tmp_path).with_repository_config()
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner, host_os="posix")  # type: ignore[arg-type]
+
+    check = adapter._discover_provider(
+        tmp_path,
+        {"route": "direct_native_agent"},
+    )
+
+    assert check.state is IntegrationState.READY
+    assert check.provider is not None
+    assert check.provider.executable == target.resolve()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable discovery contract")
+def test_native_discovery_rejects_posix_path_symlink_to_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    target = tmp_path / "coderabbit"
+    target.write_text("#!/bin/sh\necho fake\n", encoding="utf-8")
+    target.chmod(0o755)
+    entry = tmp_path / "bin" / "coderabbit"
+    entry.parent.mkdir()
+    entry.symlink_to(target)
+    monkeypatch.setattr(coderabbit.shutil, "which", lambda _name: str(entry))
+    adapter = coderabbit.CodeRabbitAdapter(host_os="posix")
+
+    check = adapter._discover_provider(tmp_path, {"route": "direct_native_agent"})
+
+    assert check.reason_code == "CODERABBIT_EXECUTABLE_WRAPPER_REJECTED"
+    assert check.provider is None
+
+
+@pytest.mark.parametrize(
+    ("host_os", "name"),
+    [("nt", "coderabbit"), ("posix", "coderabbit.exe")],
+)
+def test_native_discovery_rejects_provider_name_for_other_host(
+    tmp_path: Path, host_os: str, name: str
+):
+    executable = tmp_path / name
+    executable.write_bytes(b"native")
+    adapter = coderabbit.CodeRabbitAdapter(host_os=host_os)
+
+    check = adapter._discover_provider(
+        tmp_path,
+        {"route": "direct_native_agent", "executable": str(executable)},
+    )
+
+    assert check.reason_code == "CODERABBIT_EXECUTABLE_NOT_NATIVE"
+    assert check.provider is None
+
+
+def test_status_checks_fresh_canonical_checkout_before_reporting_ready(
+    monkeypatch, tmp_path: Path
+):
+    adapter = coderabbit.CodeRabbitAdapter()
+    provider = _ready_provider(tmp_path, _DiscoveryRunner(tmp_path))
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_canonical_checkout_preflight",
+        lambda *_args: (None, "CODERABBIT_CANDIDATE_DIRTY", "dirty"),
+    )
+
+    record = adapter.status(tmp_path, IntegrationConfig())
+
+    assert record.reason_code == "CODERABBIT_CANDIDATE_DIRTY"
+    assert record.state is IntegrationState.INCOMPATIBLE
+
+
+def test_candidate_preflight_requires_clean_exact_canonical_checkout(monkeypatch, tmp_path: Path):
+    class FakeGit:
+        def __init__(self, root: Path) -> None:
+            self.root = root
+
+        def text(self, *args: str) -> str:
+            assert args == ("rev-parse", "--show-toplevel")
+            return str(tmp_path)
+
+        def remote_identity(self, remote: str) -> str:
+            assert remote == "origin"
+            return "hosted:github.com/example/project"
+
+        def head(self) -> str:
+            return "b" * 40
+
+        def object_exists(self, _revision: str) -> bool:
+            return True
+
+        def is_ancestor(self, _base: str, _head: str) -> bool:
+            return True
+
+        def status_z(self) -> str:
+            return ""
+
+    monkeypatch.setattr(coderabbit, "GitClient", FakeGit)
+    monkeypatch.setattr(
+        coderabbit,
+        "load_deploy_settings",
+        lambda _root: SimpleNamespace(
+            repository_url="git@github.com:example/project.git"
+        ),
+    )
+    fingerprint, code, detail = coderabbit.CodeRabbitAdapter._candidate_preflight(
+        tmp_path,
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        settings={"repository": "hosted:github.com/example/project"},
+    )
+
+    assert code is None
+    assert detail is None
+    assert fingerprint is not None
+    assert fingerprint.repository_identity == "hosted:github.com/example/project"
+    assert fingerprint.status_digest
+
+
+def test_candidate_preflight_rejects_fork_against_project_owned_repository(
+    monkeypatch, tmp_path: Path
+):
+    class ForkGit:
+        def __init__(self, root: Path) -> None:
+            self.root = root
+
+        def text(self, *args: str) -> str:
+            assert args == ("rev-parse", "--show-toplevel")
+            return str(tmp_path)
+
+        def remote_identity(self, remote: str) -> str:
+            assert remote == "origin"
+            return "hosted:github.com/fork/project"
+
+        def head(self) -> str:
+            return "b" * 40
+
+        def object_exists(self, _revision: str) -> bool:
+            return True
+
+        def is_ancestor(self, _base: str, _head: str) -> bool:
+            return True
+
+        def status_z(self) -> str:
+            return ""
+
+    monkeypatch.setattr(coderabbit, "GitClient", ForkGit)
+    monkeypatch.setattr(
+        coderabbit,
+        "load_deploy_settings",
+        lambda _root: SimpleNamespace(
+            repository_url="git@github.com:example/project.git"
+        ),
+    )
+
+    fingerprint, code, detail = coderabbit.CodeRabbitAdapter._candidate_preflight(
+        tmp_path,
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        settings={"repository": "hosted:github.com/fork/project"},
+    )
+
+    assert fingerprint is None
+    assert code == "CODERABBIT_REPOSITORY_IDENTITY_MISMATCH"
+    assert detail
+
+
+def test_legacy_active_state_is_migrated_without_becoming_native_active(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    layout = StateLayout.for_repository(root)
+    layout.ensure()
+    layout.path("coderabbit-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+                "substantive_iterations": 2,
+                "active": True,
+                "operation_id": "coderabbit-old",
+                "managed_clone": {"path": "/foreign"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = coderabbit.CodeRabbitAdapter._load_review_state(root)
+
+    assert state["schema_version"] == coderabbit.REVIEW_STATE_SCHEMA_VERSION
+    assert state["substantive_iterations"] == 2
+    assert state["active"] is False
+    assert state["provider_identity"] is None
+    assert state["candidate_fingerprint"] is None
+    assert state["provider_state"] == "legacy_state_migrated"
+
+
+def test_legacy_default_finding_disposition_is_not_verified_triage(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    layout = StateLayout.for_repository(root)
+    layout.ensure()
+    layout.path("coderabbit-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+                "base_sha": "a" * 40,
+                "reviewed_head": "b" * 40,
+                "substantive_iterations": 2,
+                "terminal": True,
+                "findings": [
+                    {
+                        "severity": "major",
+                        "path": "azurpilot/tooling/git.py",
+                        "impact": "Provider finding",
+                        "disposition": "insufficient evidence",
+                        "resolution": "Provider suggestion",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = coderabbit.CodeRabbitAdapter._load_review_state(root)
+
+    assert state["findings"][0]["disposition"] is None
+    assert state["triage_complete"] is False
+    assert state["cycle_status"] == "triage_required"
+    assert state["terminal"] is False
+
+
+def test_large_finding_state_remains_readable_for_project_owned_queries(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    layout = StateLayout.for_repository(root)
+    layout.ensure()
+    long_text = "provider finding " * 40
+    layout.path("coderabbit-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": coderabbit.REVIEW_STATE_SCHEMA_VERSION,
+                "findings": [
+                    {
+                        "severity": "minor",
+                        "path": "azurpilot/integrations/coderabbit.py",
+                        "impact": long_text,
+                        "resolution": long_text,
+                    }
+                    for _ in range(32)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = coderabbit.CodeRabbitAdapter._load_review_state(root)
+
+    assert len(state["findings"]) == 32
+
+
+def test_corrupted_finding_state_fails_closed(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    layout = StateLayout.for_repository(root)
+    layout.ensure()
+    layout.path("coderabbit-review.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 4,
+                "findings": [{"path": "azurpilot/integrations/coderabbit.py"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(coderabbit.ToolingError) as error:
+        coderabbit.CodeRabbitAdapter._load_review_state(root)
 
     assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
 
 
-class _ReviewRuntime:
-    coderabbit_command = "coderabbit"
-
-    def __init__(self, provider_result: coderabbit._WslCommandResult) -> None:
-        self.provider_result = provider_result
-        self.calls = 0
-
-    def command(self, *arguments: str, **_kwargs: object) -> coderabbit._WslCommandResult:
-        if "--agent" in arguments:
-            self.calls += 1
-            return self.provider_result
-        raise AssertionError(arguments)
-
-
-def _install_review_runtime(
-    monkeypatch: pytest.MonkeyPatch,
-    provider_result: coderabbit._WslCommandResult,
-) -> _ReviewRuntime:
-    runtime = _ReviewRuntime(provider_result)
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_configured_runtime",
-        staticmethod(lambda _root, _settings: (runtime, None)),
+def test_exact_liveness_blocks_duplicate_review(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    adapter = coderabbit.CodeRabbitAdapter()
+    state = coderabbit._default_review_state()
+    identity = _identity(root)
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "active": True,
+            "provider_identity": coderabbit._serialize_identity(identity),
+        }
     )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_expected_repository",
-        staticmethod(lambda _root, _settings: REPOSITORY_IDENTITY),
+    adapter._save_review_state(root, state)
+    monkeypatch.setattr(coderabbit.ProcessController, "inspect_state", staticmethod(lambda _identity: "alive"))
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
     )
-    monkeypatch.setattr(
-        coderabbit.CodeRabbitAdapter,
-        "_runtime_preflight",
-        lambda _self, _runtime, _command: (
-            IntegrationState.READY,
-            "CODERABBIT_RUNTIME_READY",
-            (),
-        ),
-    )
-    return runtime
+
+    assert outcome.record.reason_code == "CODERABBIT_REVIEW_STILL_ALIVE"
+    assert outcome.record.state is IntegrationState.DEGRADED
 
 
-def _complete_output(*, finding: bool) -> str:
-    events: list[str] = []
-    if finding:
-        events.append(
+def test_recovery_only_closes_proven_absent_identity(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    adapter = coderabbit.CodeRabbitAdapter()
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "active": True,
+            "provider_identity": coderabbit._serialize_identity(_identity(root)),
+            "substantive_iterations": 1,
+        }
+    )
+    adapter._save_review_state(root, state)
+    monkeypatch.setattr(coderabbit.ProcessController, "inspect_state", staticmethod(lambda _identity: "absent"))
+
+    outcome = adapter.recover_interrupted_review(root, IntegrationConfig())
+    recovered = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == "CODERABBIT_REVIEW_RECOVERED"
+    assert recovered["active"] is False
+    assert recovered["substantive_iterations"] == 1
+    assert recovered["provider_state"] == "interrupted_recovered"
+    assert recovered["phase"] == "idle"
+    assert recovered["recovery"]["status"] == "completed"
+
+
+def test_unknown_liveness_does_not_recover_or_start_duplicate(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    adapter = coderabbit.CodeRabbitAdapter()
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "active": True,
+            "provider_identity": coderabbit._serialize_identity(_identity(root)),
+        }
+    )
+    adapter._save_review_state(root, state)
+    monkeypatch.setattr(coderabbit.ProcessController, "inspect_state", staticmethod(lambda _identity: "unknown"))
+
+    outcome = adapter.recover_interrupted_review(root, IntegrationConfig())
+
+    assert outcome.record.reason_code == "CODERABBIT_REVIEW_LIVENESS_UNKNOWN"
+    assert adapter._load_review_state(root)["active"] is True
+
+
+def test_review_persists_native_identity_then_clears_it_after_exact_postcondition(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    review_result = _result(root, stdout=json.dumps({"type": "complete", "findings": []}) + "\n")
+    adapter = _prepared_adapter(
+        monkeypatch,
+        root,
+        results=(review_result,),
+        fingerprints=(fingerprint, fingerprint),
+    )
+
+    outcome = adapter.review(root, IntegrationConfig(), base_sha="a" * 40, head_sha="b" * 40, task_id="task-1")
+    state = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    assert state["substantive_iterations"] == 1
+    assert state["terminal"] is True
+    assert state["active"] is False
+    assert state["provider_identity"] is None
+
+
+def test_incomplete_provider_finding_does_not_consume_substantive_budget(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    incomplete_result = _result(
+        root,
+        stdout=(
             json.dumps(
                 {
                     "type": "finding",
                     "finding": {
-                        "path": "azurpilot/tooling/process_core.py",
-                        "severity": "major",
-                        "comment": "Проверить ownership boundary.",
-                        "classification": "confirmed",
+                        "fileName": "azurpilot/tooling/contracts.py",
+                        "severity": "minor",
                     },
                 }
             )
-        )
-    events.append(json.dumps({"type": "complete"}))
-    return "\n".join(events) + "\n"
-
-
-@pytest.mark.parametrize(
-    ("provider_result", "expected_code", "expected_state", "provider_state"),
-    [
-        (_result(timed_out=True), "CODERABBIT_REVIEW_TIMEOUT", IntegrationState.UNAVAILABLE, "timeout"),
-        (_result(stdout_truncated=True), "CODERABBIT_REVIEW_OUTPUT_TRUNCATED", IntegrationState.UNKNOWN, "stream_error"),
-        (_result(stderr_truncated=True), "CODERABBIT_REVIEW_OUTPUT_TRUNCATED", IntegrationState.UNKNOWN, "stream_error"),
-        (_result(returncode=1, stderr="provider crashed"), "CODERABBIT_REVIEW_FAILED", IntegrationState.UNAVAILABLE, "failed"),
-        (_result(returncode=1, stderr="429"), "CODERABBIT_RATE_LIMITED", IntegrationState.RATE_LIMITED, coderabbit._RATE_LIMIT_WAITING),
-        (_result(returncode=1, stderr="rate limit"), "CODERABBIT_RATE_LIMITED", IntegrationState.RATE_LIMITED, coderabbit._RATE_LIMIT_WAITING),
-        (_result(returncode=1, stderr="too many requests"), "CODERABBIT_RATE_LIMITED", IntegrationState.RATE_LIMITED, coderabbit._RATE_LIMIT_WAITING),
-    ],
-)
-def test_review_provider_failure_matrix_persists_incomplete_state_without_iteration(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    provider_result: coderabbit._WslCommandResult,
-    expected_code: str,
-    expected_state: IntegrationState,
-    provider_state: str,
-) -> None:
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
-    runtime = _install_review_runtime(monkeypatch, provider_result)
-    root = tmp_path / "checkout"
-
-    outcome = coderabbit.CodeRabbitAdapter().review(
-        root,
-        IntegrationConfig(),
-        base_sha=BASE_SHA,
-        head_sha=HEAD_SHA,
+            + "\n"
+            + json.dumps({"type": "complete", "findings": 1})
+            + "\n"
+        ),
     )
-    state = coderabbit.CodeRabbitAdapter()._load_review_state(root)
-
-    assert runtime.calls == 1
-    assert outcome.record.reason_code == expected_code
-    assert outcome.record.state is expected_state
-    assert state["provider_state"] == provider_state
-    assert state["complete_received"] is False
-    assert state["substantive_iterations"] == 0
-    assert state["base_sha"] == BASE_SHA
-    assert state["last_head"] == HEAD_SHA
-    if expected_state is IntegrationState.RATE_LIMITED:
-        assert state["rate_limited_at"]
-        assert state["retry_not_before"] is None
-        assert "too many requests" not in json.dumps(state).casefold()
-
-
-def test_review_parser_error_is_incomplete_and_does_not_consume_iteration(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
-    _install_review_runtime(monkeypatch, _result(stdout="not-json\n"))
-    root = tmp_path / "checkout"
-
-    outcome = coderabbit.CodeRabbitAdapter().review(
-        root, IntegrationConfig(), base_sha=BASE_SHA, head_sha=HEAD_SHA
-    )
-    state = coderabbit.CodeRabbitAdapter()._load_review_state(root)
-
-    assert outcome.record.reason_code == "CODERABBIT_NDJSON_INVALID"
-    assert outcome.record.state is IntegrationState.UNKNOWN
-    assert state["provider_state"] == "stream_error"
-    assert state["complete_received"] is False
-    assert state["substantive_iterations"] == 0
-
-
-def test_review_parser_rate_limit_keeps_only_bounded_retry_metadata(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
-    output = json.dumps(
-        {"type": "error", "message": "too many requests", "retry_after_seconds": 60}
-    )
-    _install_review_runtime(monkeypatch, _result(stdout=output + "\n"))
-    root = tmp_path / "checkout"
-
-    outcome = coderabbit.CodeRabbitAdapter().review(
-        root, IntegrationConfig(), base_sha=BASE_SHA, head_sha=HEAD_SHA
-    )
-    state = coderabbit.CodeRabbitAdapter()._load_review_state(root)
-
-    assert outcome.record.reason_code == "CODERABBIT_RATE_LIMITED"
-    assert outcome.record.state is IntegrationState.RATE_LIMITED
-    assert state["provider_state"] == coderabbit._RATE_LIMIT_WAITING
-    assert state["rate_limited_at"]
-    assert state["retry_not_before"]
-    assert state["retry_source"] == "provider"
-    assert "too many requests" not in json.dumps(state).casefold()
-
-
-def test_review_missing_complete_result_is_persisted_as_stream_truncation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
-    _install_review_runtime(monkeypatch, _result(stdout="{" + '"type":"status"' + "}\n"))
-    monkeypatch.setattr(
-        coderabbit,
-        "parse_agent_ndjson",
-        lambda _lines: coderabbit.ParsedCodeRabbitReview((), complete=False),
-    )
-    root = tmp_path / "checkout"
-
-    outcome = coderabbit.CodeRabbitAdapter().review(
-        root, IntegrationConfig(), base_sha=BASE_SHA, head_sha=HEAD_SHA
-    )
-    state = coderabbit.CodeRabbitAdapter()._load_review_state(root)
-
-    assert outcome.record.reason_code == "CODERABBIT_STREAM_TRUNCATED"
-    assert outcome.record.state is IntegrationState.UNKNOWN
-    assert state["provider_state"] == "stream_error"
-    assert state["complete_received"] is False
-    assert state["substantive_iterations"] == 0
-
-
-@pytest.mark.parametrize("finding", [True, False])
-def test_review_complete_persists_exact_head_findings_and_quota(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, finding: bool
-) -> None:
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
-    _install_review_runtime(
+    adapter = _prepared_adapter(
         monkeypatch,
-        _result(stdout=_complete_output(finding=finding)),
-    )
-    root = tmp_path / "checkout"
-
-    outcome = coderabbit.CodeRabbitAdapter().review(
-        root, IntegrationConfig(), base_sha=BASE_SHA, head_sha=HEAD_SHA
-    )
-    state = coderabbit.CodeRabbitAdapter()._load_review_state(root)
-
-    assert outcome.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
-    assert state["provider_state"] == "complete"
-    assert state["complete_received"] is True
-    assert state["substantive_iterations"] == 1
-    assert state["terminal"] is (not finding)
-    assert state["reviewed_head"] == HEAD_SHA
-    assert state["findings_count"] == (1 if finding else 0)
-    persisted_findings = tuple(
-        coderabbit._parse_finding(item) for item in state["findings"]
-    )
-    assert state["findings_digest"] == coderabbit._normalized_findings_digest(
-        persisted_findings
-    )
-    assert state["provider_quota"]["state"] == "available"
-
-
-class _CleanupReviewRuntime(coderabbit._WslRuntime):
-    def __init__(self, provider_result: coderabbit._WslCommandResult, root: Path) -> None:
-        super().__init__(
-            root,
-            "wsl.exe",
-            distro="ReviewLinux",
-            user="reviewer",
-            home="/home/reviewer",
-            clone="/home/reviewer/canonical",
-            repository_identity=REPOSITORY_IDENTITY,
-            coderabbit_executable="/home/reviewer/bin/coderabbit",
-            coderabbit_command="/home/reviewer/bin/coderabbit",
-        )
-        self.provider_result = provider_result
-
-    def command(
-        self, _command: str, *arguments: str, timeout: float = 30.0
-    ) -> coderabbit._WslCommandResult:
-        del timeout
-        if "--agent" in arguments:
-            return self.provider_result
-        raise AssertionError(arguments)
-
-
-@pytest.mark.parametrize(
-    "provider_result",
-    [
-        _result(timed_out=True),
-        _result(returncode=1, stderr="provider failed"),
-        _result(stdout=_complete_output(finding=False)),
-    ],
-)
-def test_review_cleanup_failure_overrides_provider_outcome_and_requires_recovery(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    provider_result: coderabbit._WslCommandResult,
-) -> None:
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
-    root = tmp_path / "checkout"
-    runtime = _CleanupReviewRuntime(provider_result, root)
-    checkout = "/home/reviewer/.cache/azurpilot/coderabbit/reviews/coderabbit-op"
-    adapter = coderabbit.CodeRabbitAdapter()
-    monkeypatch.setattr(
-        adapter,
-        "_settings",
-        lambda _config: {},
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_configured_runtime",
-        lambda _root, _settings: (runtime, None),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_expected_repository",
-        lambda _root, _settings: REPOSITORY_IDENTITY,
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_sync_managed_clone",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_prepare_review_checkout",
-        lambda *_args, **_kwargs: (
-            runtime,
-            checkout,
-            "CODERABBIT_REVIEW_CHECKOUT_READY",
-        ),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_runtime_preflight",
-        lambda *_args: (IntegrationState.READY, "CODERABBIT_RUNTIME_READY", ()),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_cleanup_review_checkout",
-        lambda *_args, **_kwargs: (
-            False,
-            "CODERABBIT_REVIEW_CHECKOUT_REMOVE_FAILED",
-        ),
+        root,
+        results=(incomplete_result,),
+        fingerprints=(fingerprint, fingerprint),
     )
 
     outcome = adapter.review(
         root,
         IntegrationConfig(),
-        base_sha=BASE_SHA,
-        head_sha=HEAD_SHA,
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-incomplete",
     )
     state = adapter._load_review_state(root)
 
-    assert outcome.record.reason_code == "CODERABBIT_REVIEW_CHECKOUT_REMOVE_FAILED"
-    assert outcome.record.state is IntegrationState.INCOMPATIBLE
-    assert "CODERABBIT_REVIEW_COMPLETE" not in outcome.record.reason_code
-    assert state["cleanup_state"] == "recovery_required"
-    assert state["review_checkout"] == checkout
-    assert state["provider_liveness"] == "verified_absent"
-    assert state["phase"] == "recovery_required"
-    assert any(
-        item == "provider_process_liveness=verified_absent"
-        for item in outcome.record.evidence.diagnostics
-    )
+    assert outcome.record.reason_code == "CODERABBIT_FINDING_INCOMPLETE"
+    assert state["substantive_iterations"] == 0
+    assert state["cycle_status"] == "provider_error"
+    assert state["terminal"] is False
 
 
-def _probe_state(
-    adapter: coderabbit.CodeRabbitAdapter,
-    root: Path,
-    *,
-    provider_state: str,
-    active: bool,
-    complete_received: bool,
-) -> None:
-    adapter._save_state(
-        root,
-        iterations=0,
-        head=HEAD_SHA,
-        terminal=False,
-        base_sha=BASE_SHA,
-        repository_identity=REPOSITORY_IDENTITY,
-        attempt=1,
-        operation_id="coderabbit-0123456789abcdef",
-        started_at="2026-09-20T00:00:00+00:00",
-        provider_state=provider_state,
-        active=active,
-        complete_received=complete_received,
-        last_event_type="review_start",
-    )
-
-
-class _PreflightRuntime(coderabbit._WslRuntime):
-    def __init__(
-        self, responses: dict[tuple[str, ...], coderabbit._WslCommandResult]
-    ) -> None:
-        super().__init__(
-            Path.cwd(),
-            "wsl.exe",
-            distro="ReviewLinux",
-            user="reviewer",
-            home="/home/reviewer",
-            clone="/home/reviewer/canonical",
-            repository_identity=REPOSITORY_IDENTITY,
-            coderabbit_executable="/home/reviewer/bin/coderabbit",
-            coderabbit_command="/home/reviewer/bin/coderabbit",
-        )
-        self.responses = responses
-
-    def command(
-        self, command: str, *arguments: str, timeout: float = 30.0
-    ) -> coderabbit._WslCommandResult:
-        del timeout
-        return self.responses[(command, *arguments)]
-
-
-@pytest.mark.parametrize(
-    ("stage", "result", "expected_state", "expected_reason"),
-    [
-        ("version", _result(timed_out=True), IntegrationState.INCOMPATIBLE, "CODERABBIT_VERSION_TIMEOUT"),
-        ("version", _result(returncode=1), IntegrationState.INCOMPATIBLE, "CODERABBIT_VERSION_UNAVAILABLE"),
-        ("version", _result(stdout="not-a-version"), IntegrationState.INCOMPATIBLE, "CODERABBIT_VERSION_INVALID"),
-        ("help", _result(timed_out=True), IntegrationState.INCOMPATIBLE, "CODERABBIT_HELP_TIMEOUT"),
-        ("help", _result(stdout="review"), IntegrationState.INCOMPATIBLE, "CODERABBIT_REVIEW_SYNTAX_INCOMPATIBLE"),
-        ("auth", _result(timed_out=True), IntegrationState.UNAUTHENTICATED, "CODERABBIT_AUTH_TIMEOUT"),
-        ("auth", _result(returncode=1), IntegrationState.UNAUTHENTICATED, "CODERABBIT_AUTH_NOT_CONFIGURED"),
-    ],
-)
-def test_runtime_preflight_preserves_typed_failure_stage(
-    stage: str,
-    result: coderabbit._WslCommandResult,
-    expected_state: IntegrationState,
-    expected_reason: str,
-) -> None:
-    version = _result(stdout="CodeRabbit CLI 1.2.3\n")
-    help_result = _result(stdout="review --agent --committed --base-commit\n")
-    auth = _result(stdout="authenticated")
-    responses = {
-        ("coderabbit", "--version"): version,
-        ("coderabbit", "review", "--help"): help_result,
-        ("coderabbit", "auth", "status", "--agent"): auth,
-    }
-    responses[
-        {
-            "version": ("coderabbit", "--version"),
-            "help": ("coderabbit", "review", "--help"),
-            "auth": ("coderabbit", "auth", "status", "--agent"),
-        }[stage]
-    ] = result
-    runtime = _PreflightRuntime(responses)
-
-    state, reason, diagnostics = coderabbit.CodeRabbitAdapter()._runtime_preflight(
-        runtime, "coderabbit"
-    )
-
-    assert state is expected_state
-    assert reason == expected_reason
-    assert diagnostics
-
-
-def test_runtime_preflight_returns_ready_only_after_version_help_and_auth(
-) -> None:
-    runtime = _PreflightRuntime(
-        {
-            ("coderabbit", "--version"): _result(stdout="CodeRabbit CLI 1.2.3\n"),
-            ("coderabbit", "review", "--help"): _result(
-                stdout="review --agent --committed --base-commit\n"
-            ),
-            ("coderabbit", "auth", "status", "--agent"): _result(),
-        }
-    )
-
-    state, reason, diagnostics = coderabbit.CodeRabbitAdapter()._runtime_preflight(
-        runtime, "coderabbit"
-    )
-
-    assert state is IntegrationState.READY
-    assert reason == "CODERABBIT_RUNTIME_READY"
-    assert "cli_version=1.2.3" in diagnostics
-    assert "auth=verified" in diagnostics
-
-
-@pytest.mark.parametrize(
-    ("provider_state", "active", "complete_received", "expected_code", "expected_state"),
-    [
-        ("reviewing", True, False, "CODERABBIT_ACTIVE_REVIEW", IntegrationState.INCOMPATIBLE),
-        ("timeout", False, False, "CODERABBIT_REVIEW_RECOVERY_REQUIRED", IntegrationState.INCOMPATIBLE),
-        ("interrupted", False, False, "CODERABBIT_REVIEW_RECOVERY_REQUIRED", IntegrationState.INCOMPATIBLE),
-        (coderabbit._RATE_LIMIT_WAITING, False, False, "CODERABBIT_RATE_LIMITED", IntegrationState.RATE_LIMITED),
-    ],
-)
-def test_probe_recovery_guards_do_not_start_another_provider_call(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    provider_state: str,
-    active: bool,
-    complete_received: bool,
-    expected_code: str,
-    expected_state: IntegrationState,
-) -> None:
+def test_review_reserves_starting_state_before_provider_spawn(
+    monkeypatch, tmp_path: Path
+):
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
     root = tmp_path / "checkout"
-    adapter = coderabbit.CodeRabbitAdapter()
-    _probe_state(
-        adapter,
-        root,
-        provider_state=provider_state,
-        active=active,
-        complete_received=complete_received,
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
     )
+    starts: list[str] = []
+
     monkeypatch.setattr(
         adapter,
-        "_configured_runtime",
-        lambda *_args: pytest.fail("probe не должен запускать runtime preflight"),
-    )
-
-    outcome = asyncio.run(adapter.probe(root, IntegrationConfig()))
-
-    assert outcome.record.reason_code == expected_code
-    assert outcome.record.state is expected_state
-
-
-class _ProbeRuntime:
-    coderabbit_command = "coderabbit"
-
-
-@pytest.mark.parametrize("sync_state", ["DIRTY", "SYNCABLE"])
-def test_probe_stops_before_runtime_preflight_when_managed_clone_is_not_ready(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    sync_state: str,
-) -> None:
-    adapter = coderabbit.CodeRabbitAdapter()
-    runtime = _ProbeRuntime()
-    monkeypatch.setattr(
-        adapter,
-        "_configured_runtime",
-        lambda *_args: (runtime, None),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_management_contract",
-        lambda _root: ("origin", "personal/stable", "origin/personal/stable"),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_expected_repository",
-        lambda _root, _settings: REPOSITORY_IDENTITY,
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_managed_clone_snapshot",
-        lambda *_args, **_kwargs: replace(_ready_snapshot(), sync_state=sync_state),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_runtime_preflight",
-        lambda *_args: pytest.fail("runtime preflight не должен запускаться"),
-    )
-
-    outcome = asyncio.run(adapter.probe(tmp_path, IntegrationConfig()))
-
-    assert outcome.record.reason_code == "CODERABBIT_MANAGED_CLONE_" + sync_state
-
-
-def test_probe_preserves_typed_runtime_preflight_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    adapter = coderabbit.CodeRabbitAdapter()
-    runtime = _ProbeRuntime()
-    monkeypatch.setattr(adapter, "_configured_runtime", lambda *_args: (runtime, None))
-    monkeypatch.setattr(
-        adapter,
-        "_management_contract",
-        lambda _root: ("origin", "personal/stable", "origin/personal/stable"),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_expected_repository",
-        lambda _root, _settings: REPOSITORY_IDENTITY,
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_managed_clone_snapshot",
-        lambda *_args, **_kwargs: _ready_snapshot(),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_runtime_preflight",
-        lambda *_args: (
-            IntegrationState.INCOMPATIBLE,
-            "CODERABBIT_VERSION_INVALID",
-            ("wsl_version=2",),
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
         ),
     )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (fingerprint, None, None),
+    )
 
-    outcome = asyncio.run(adapter.probe(tmp_path, IntegrationConfig()))
+    def fail_start(_self, _base: str):  # type: ignore[no-untyped-def]
+        starts.append("called")
+        raise OSError("spawn uncertain")
 
-    assert outcome.record.reason_code == "CODERABBIT_VERSION_INVALID"
-    assert outcome.record.state is IntegrationState.INCOMPATIBLE
-    assert outcome.record.evidence.diagnostics == ("wsl_version=2",)
+    monkeypatch.setattr(coderabbit.NativeCodeRabbit, "start_review", fail_start)
+
+    first = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-starting",
+    )
+    state = adapter._load_review_state(root)
+
+    assert first.record.reason_code == "CODERABBIT_PROVIDER_START_FAILED_RETRYABLE"
+    assert state["active"] is False
+    assert state["phase"] == "failed"
+    assert state["cycle_status"] == "provider_error"
+    assert state["provider_state"] == "start_failed_not_spawned"
+    assert state["reservation_state"] == "retryable"
+    assert state["provider_identity"] is None
+
+    second = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-starting",
+    )
+
+    assert second.record.reason_code == "CODERABBIT_PROVIDER_START_FAILED_RETRYABLE"
+    assert starts == ["called", "called"]
+
+
+@pytest.mark.parametrize(
+    ("liveness", "expected_reason", "expected_state", "active", "reservation_state"),
+    [
+        (
+            "absent",
+            "CODERABBIT_PROVIDER_STATE_SAVE_FAILED_RECOVERED",
+            IntegrationState.UNAVAILABLE,
+            False,
+            "retryable",
+        ),
+        (
+            "alive",
+            "CODERABBIT_PROVIDER_STATE_SAVE_RECOVERY_REQUIRED",
+            IntegrationState.DEGRADED,
+            True,
+            "owned",
+        ),
+        (
+            "unknown",
+            "CODERABBIT_PROVIDER_STATE_SAVE_RECOVERY_REQUIRED",
+            IntegrationState.UNKNOWN,
+            True,
+            "owned",
+        ),
+    ],
+)
+def test_provider_identity_save_failure_preserves_recoverable_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    liveness: str,
+    expected_reason: str,
+    expected_state: IntegrationState,
+    active: bool,
+    reservation_state: str,
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (fingerprint, None, None),
+    )
+    result = _result(root, stdout=json.dumps({"type": "complete", "findings": []}) + "\n")
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(result),
+    )
+    monkeypatch.setattr(
+        coderabbit.ProcessController,
+        "terminate",
+        staticmethod(lambda _identity: False),
+    )
+    monkeypatch.setattr(
+        coderabbit.ProcessController,
+        "inspect_state",
+        staticmethod(lambda _identity: liveness),
+    )
+
+    original_save = adapter._save_review_state
+    save_calls = 0
+
+    def fail_identity_save(save_root: Path, save_state: dict[str, object]) -> None:
+        nonlocal save_calls
+        save_calls += 1
+        if save_calls == 2:
+            raise OSError("identity save failed")
+        original_save(save_root, save_state)
+
+    monkeypatch.setattr(adapter, "_save_review_state", fail_identity_save)
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-save-failure",
+    )
+    state = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == expected_reason
+    assert outcome.record.state is expected_state
+    assert state["active"] is active
+    assert state["reservation_state"] == reservation_state
+    if active:
+        assert state["provider_identity"] is not None
+        assert state["phase"] == "recovery"
+        assert state["recovery"]["status"] == "required"
+        blocked = adapter.review(
+            root,
+            IntegrationConfig(),
+            base_sha="a" * 40,
+            head_sha="b" * 40,
+            task_id="task-save-failure",
+        )
+        assert blocked.record.reason_code in {
+            "CODERABBIT_REVIEW_STILL_ALIVE",
+            "CODERABBIT_REVIEW_LIVENESS_UNKNOWN",
+        }
+    else:
+        assert state["provider_identity"] is None
+        assert state["phase"] == "failed"
+        assert state["recovery"]["status"] == "completed"
+
+
+def test_startup_uncertainty_has_typed_recovery_path(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    adapter = coderabbit.CodeRabbitAdapter()
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "active": True,
+            "reservation_state": "pre_spawn",
+            "provider_state": "starting",
+            "phase": "starting",
+        }
+    )
+    adapter._save_review_state(root, state)
+
+    outcome = adapter.recover_interrupted_review(root, IntegrationConfig())
+
+    assert outcome.record.reason_code == "CODERABBIT_PROVIDER_START_RECOVERY_REQUIRED"
+    assert outcome.record.state is IntegrationState.UNKNOWN
+    recovered = adapter._load_review_state(root)
+    assert recovered["active"] is True
+    assert recovered["phase"] == "recovery"
+    assert recovered["recovery"]["status"] == "required"
+    assert recovered["recovery"]["next_action"] == (
+        "verify_provider_process_or_explicit_abandon"
+    )
+
+
+def test_unexpected_provider_start_failure_never_leaves_pre_spawn_reservation(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root).with_repository_config()
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        "a" * 24,
+        "hosted:github.com/example/project",
+        "a" * 40,
+        "b" * 40,
+        "c" * 64,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (fingerprint, None, None),
+    )
+
+    def fail_start(_self, _base):
+        raise RuntimeError("unexpected provider launcher failure")
+
+    monkeypatch.setattr(coderabbit.NativeCodeRabbit, "start_review", fail_start)
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-unexpected-start",
+    )
+    state = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == "CODERABBIT_PROVIDER_START_UNKNOWN"
+    assert outcome.record.state is IntegrationState.UNKNOWN
+    assert state["active"] is True
+    assert state["reservation_state"] == "unknown"
+    assert state["provider_identity"] is None
+    assert state["cycle_status"] == "recovery_required"
+    assert state["phase"] == "recovery"
+
+
+def test_operator_confirmed_abandon_clears_only_unknown_start_and_preserves_budget(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    adapter = coderabbit.CodeRabbitAdapter()
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "logical_task_id": "task-abandon",
+            "base_sha": "a" * 40,
+            "substantive_iterations": 2,
+            "iterations": 2,
+            "active": True,
+            "reservation_state": "unknown",
+            "provider_identity": None,
+            "phase": "recovery",
+            "cycle_status": "recovery_required",
+        }
+    )
+    adapter._save_review_state(root, state)
+
+    requested = adapter.abandon_uncertain_start(
+        root,
+        IntegrationConfig(),
+        confirmed=False,
+    )
+    unchanged = adapter._load_review_state(root)
+    assert requested.record.reason_code == (
+        "CODERABBIT_PROVIDER_ABANDON_CONFIRMATION_REQUIRED"
+    )
+    assert unchanged["active"] is True
+    assert unchanged["reservation_state"] == "unknown"
+    assert unchanged["substantive_iterations"] == 2
+    assert unchanged["previous_cycles"] == []
+
+    abandoned = adapter.abandon_uncertain_start(
+        root,
+        IntegrationConfig(),
+        confirmed=True,
+    )
+    cleared = adapter._load_review_state(root)
+    assert abandoned.record.reason_code == "CODERABBIT_PROVIDER_START_ABANDONED"
+    assert cleared["active"] is False
+    assert cleared["reservation_state"] == "idle"
+    assert cleared["provider_identity"] is None
+    assert cleared["cycle_status"] == "provider_error"
+    assert cleared["recovery"]["next_action"] == "retry_review"
+    assert cleared["substantive_iterations"] == 2
+    assert len(cleared["previous_cycles"]) == 1
+    assert cleared["previous_cycles"][0]["terminal_reason"] == (
+        "operator_abandoned_provider_ownership"
+    )
+
+
+@pytest.mark.parametrize(
+    ("termination_state", "expected_state", "expected_reason", "active"),
+    [
+        ("absent", IntegrationState.UNAVAILABLE, "CODERABBIT_REVIEW_TIMEOUT", False),
+        (
+            "alive",
+            IntegrationState.DEGRADED,
+            "CODERABBIT_REVIEW_TIMEOUT_RECOVERY_REQUIRED",
+            True,
+        ),
+        (
+            "unknown",
+            IntegrationState.UNKNOWN,
+            "CODERABBIT_REVIEW_TIMEOUT_RECOVERY_REQUIRED",
+            True,
+        ),
+    ],
+)
+def test_timeout_clears_only_proven_absent_provider(
+    monkeypatch,
+    tmp_path: Path,
+    termination_state: str,
+    expected_state: IntegrationState,
+    expected_reason: str,
+    active: bool,
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    result = _result(
+        root,
+        timed_out=True,
+        termination_state=termination_state,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (fingerprint, None, None),
+    )
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(result),
+    )
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-timeout",
+    )
+    state = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == expected_reason
+    assert outcome.record.state is expected_state
+    assert state["active"] is active
+    if active:
+        assert state["provider_identity"] is not None
+        assert state["phase"] == "recovery"
+        assert state["cycle_status"] == "recovery_required"
+        assert state["recovery"]["status"] == "required"
+    else:
+        assert state["provider_identity"] is None
+
+
+def test_provider_findings_require_individual_triage_before_next_review(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        root_identity="a" * 24,
+        repository_identity="hosted:github.com/example/project",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        status_digest="c" * 64,
+    )
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "base_sha": "a" * 40,
+            "substantive_iterations": 1,
+            "iterations": 1,
+        }
+    )
+    adapter._save_review_state(root, state)
+    long_provider_claim = (
+        "Длинный provider claim должен сохраниться в bounded IntegrationFinding без "
+        "обрезания до старого лимита DTO. "
+    ) * 8
+    provider_findings = "\n".join(
+        json.dumps(
+            {
+                "type": "finding",
+                "finding": {
+                    "path": f"azurpilot/module_{index}.py",
+                    "severity": "major",
+                    "comment": (
+                        long_provider_claim
+                        if index == 1
+                        else f"Проверить finding {index}."
+                    ),
+                    "classification": "confirmed",
+                },
+            },
+            ensure_ascii=False,
+        )
+        for index in range(1, 9)
+    )
+    review_result = _result(
+        root,
+        stdout=provider_findings + "\n" + json.dumps({"type": "complete"}) + "\n",
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    candidate_calls = iter(((fingerprint, None, None), (fingerprint, None, None)))
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: next(candidate_calls),
+    )
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(review_result),
+    )
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-1",
+    )
+    saved = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == "CODERABBIT_TRIAGE_REQUIRED"
+    assert outcome.record.state is IntegrationState.DEGRADED
+    assert len(outcome.findings) == 8
+    assert all(finding.disposition is None for finding in outcome.findings)
+    assert outcome.findings[0].message == long_provider_claim.strip()
+    assert saved["substantive_iterations"] == 2
+    assert saved["cycle_status"] == "triage_required"
+    assert saved["terminal"] is False
+    assert saved["triage_complete"] is False
+    assert outcome.coderabbit_cycle is not None
+    assert outcome.coderabbit_cycle.triaged_findings_count == 0
+    assert outcome.coderabbit_cycle.triage_required is True
+
+    blocked = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-1",
+    )
+    assert blocked.record.reason_code == "CODERABBIT_TRIAGE_REQUIRED"
+    assert blocked.record.state is IntegrationState.DEGRADED
+
+
+def test_triage_requires_evidence_and_new_exact_head_for_confirmed_findings(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    first = coderabbit.CandidateFingerprint(
+        "a" * 24, "hosted:github.com/example/project", "a" * 40, "b" * 40, "c" * 64
+    )
+    second = coderabbit.CandidateFingerprint(
+        "a" * 24, "hosted:github.com/example/project", "a" * 40, "c" * 40, "d" * 64
+    )
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "base_sha": "a" * 40,
+            "substantive_iterations": 1,
+            "iterations": 1,
+        }
+    )
+    adapter._save_review_state(root, state)
+    first_review = "\n".join(
+        json.dumps(
+            {
+                "type": "finding",
+                "finding": {
+                    "path": f"azurpilot/module_{index}.py",
+                    "severity": "major",
+                    "comment": f"Проверить finding {index}.",
+                },
+            },
+            ensure_ascii=False,
+        )
+        for index in range(1, 9)
+    )
+    provider_results = iter(
+        (
+            _result(root, stdout=first_review + "\n" + json.dumps({"type": "complete"}) + "\n"),
+            _result(root, stdout=json.dumps({"type": "complete", "findings": []}) + "\n"),
+        )
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    candidate_calls = iter(
+        ((first, None, None), (first, None, None), (second, None, None), (second, None, None))
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: next(candidate_calls),
+    )
+    monkeypatch.setattr(
+        coderabbit.NativeCodeRabbit,
+        "start_review",
+        lambda _self, _base: _Running(next(provider_results)),
+    )
+
+    first_outcome = adapter.review(
+        root, IntegrationConfig(), base_sha="a" * 40, head_sha="b" * 40, task_id="task-1"
+    )
+    assert first_outcome.record.reason_code == "CODERABBIT_TRIAGE_REQUIRED"
+
+    manifest = tmp_path / "triage.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "base_sha": "a" * 40,
+                "reviewed_head": "b" * 40,
+                "findings": [
+                    {
+                        "index": index,
+                        "triage": {
+                            "disposition": "confirmed" if index == 1 else "false positive",
+                            "reviewed_head": "b" * 40,
+                            "affected_code": f"affected code {index}",
+                            "call_sites": f"call sites {index}",
+                            "nearest_tests": f"nearest tests {index}",
+                            "relevant_contracts": f"relevant contracts {index}",
+                            "claimed_impact": f"claimed impact {index}",
+                            "decision_reason": (
+                                f"Решение основано на проверке реализации, call sites и тестов для finding {index}."
+                            ),
+                            "change_summary": (
+                                f"Для finding {index} требуется применить remediation или зафиксировать conflict."
+                            ),
+                            **(
+                                {
+                                    "conflict_kind": "repository_contract_conflict",
+                                    "authoritative_source": ".codex/context/GIT-WORKFLOW.md",
+                                }
+                                if index != 1
+                                else {}
+                            ),
+                        },
+                    }
+                    for index in range(1, 9)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    triaged = adapter.triage(root, IntegrationConfig(), manifest_path=manifest)
+
+    assert triaged.record.reason_code == "CODERABBIT_TRIAGE_COMPLETE_FIXES_REQUIRED"
+    assert triaged.record.state is IntegrationState.DEGRADED
+    assert triaged.coderabbit_cycle is not None
+    assert triaged.coderabbit_cycle.triaged_findings_count == 8
+    assert triaged.coderabbit_cycle.triage_required is False
+    assert triaged.coderabbit_cycle.terminal is False
+
+    same_head = adapter.review(
+        root, IntegrationConfig(), base_sha="a" * 40, head_sha="b" * 40, task_id="task-1"
+    )
+    assert same_head.record.reason_code == "CODERABBIT_FIX_REQUIRED"
+
+    after_fixes = adapter.review(
+        root, IntegrationConfig(), base_sha="a" * 40, head_sha="c" * 40, task_id="task-1"
+    )
+    final_state = adapter._load_review_state(root)
+    assert after_fixes.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    assert final_state["substantive_iterations"] == 3
+    assert final_state["reviewed_head"] == "c" * 40
+    assert final_state["terminal"] is True
+
+
+def test_triage_respects_shared_lifecycle_lock(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    class BusyLock:
+        def acquire(self, _timeout: float) -> bool:
+            return False
+
+        def release(self) -> None:
+            raise AssertionError("busy lock must not be released")
+
+    class Coordinator:
+        def lock(self, operation: str) -> BusyLock:
+            assert operation == "coderabbit-review"
+            return BusyLock()
+
+    monkeypatch.setattr(
+        coderabbit.RepositoryCoordinator,
+        "for_root",
+        lambda _root: Coordinator(),
+    )
+    manifest = tmp_path / "triage.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "base_sha": "a" * 40,
+                "reviewed_head": "b" * 40,
+                "findings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    outcome = coderabbit.CodeRabbitAdapter().triage(
+        root,
+        IntegrationConfig(),
+        manifest_path=manifest,
+    )
+
+    assert outcome.record.reason_code == "CODERABBIT_REVIEW_IN_PROGRESS"
+
+
+def test_review_postcondition_mismatch_is_not_substantive_success(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root)
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    first = coderabbit.CandidateFingerprint("a" * 24, "hosted:github.com/example/project", "a" * 40, "b" * 40, "c" * 64)
+    changed = coderabbit.CandidateFingerprint("a" * 24, "hosted:github.com/example/project", "a" * 40, "b" * 40, "d" * 64)
+    review_result = _result(root, stdout=json.dumps({"type": "complete", "findings": []}) + "\n")
+    monkeypatch.setattr(adapter, "_discover_provider", lambda *_args: coderabbit.ProviderCheck(IntegrationState.READY, "CODERABBIT_NATIVE_READY", "ready", provider=provider, configured=True, authenticated=True))
+    candidate_calls = iter(((first, None, None), (changed, None, None)))
+    monkeypatch.setattr(adapter, "_candidate_preflight", lambda *_args, **_kwargs: next(candidate_calls))
+    monkeypatch.setattr(coderabbit.NativeCodeRabbit, "start_review", lambda _self, _base: _Running(review_result))
+
+    outcome = adapter.review(root, IntegrationConfig(), base_sha="a" * 40, head_sha="b" * 40)
+    state = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == "CODERABBIT_CANDIDATE_CHANGED"
+    assert state["substantive_iterations"] == 0
+    assert state["provider_state"] == "candidate_changed"
+
+
+def test_rate_limit_metadata_and_budget_remain_bounded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    error = coderabbit.CodeRabbitStreamError("CODERABBIT_RATE_LIMITED", rate_limited=True, retry_source="provider")
+    assert error.retry_source == "provider"
+    assert coderabbit.review_iteration_allowed(0)
+    assert coderabbit.review_iteration_allowed(2)
+    assert not coderabbit.review_iteration_allowed(3)
+    assert not coderabbit.review_iteration_allowed(0, terminal=True)
+
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    fingerprint = coderabbit.CandidateFingerprint(
+        "a" * 24,
+        "hosted:github.com/example/project",
+        "a" * 40,
+        "b" * 40,
+        "c" * 64,
+    )
+    rate_limited = _result(
+        root,
+        stdout=json.dumps({"type": "error", "code": "429"}) + "\n",
+    )
+    complete = _result(
+        root,
+        stdout=json.dumps({"type": "complete", "findings": []}) + "\n",
+    )
+    adapter = _prepared_adapter(
+        monkeypatch,
+        root,
+        results=(rate_limited, complete),
+        fingerprints=(fingerprint, fingerprint, fingerprint, fingerprint),
+    )
+
+    first = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="rate-limit-cycle",
+    )
+    first_state = adapter._load_review_state(root)
+    assert first.record.reason_code == "CODERABBIT_RATE_LIMITED"
+    assert first_state["cycle_status"] == "rate_limited_retry_allowed"
+    assert first_state["substantive_iterations"] == 0
+
+    second = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="rate-limit-cycle",
+    )
+    second_state = adapter._load_review_state(root)
+    assert second.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    assert second_state["substantive_iterations"] == 1
+
+
+def test_parse_provider_findings_output_without_suggested_fix() -> None:
+    findings = coderabbit.parse_provider_findings_output(
+        """major [Без блока исправления]
+→ azurpilot/tooling/git.py:12
+Описание проблемы без отдельного блока исправления.
+"""
+    )
+
+    assert len(findings) == 1
+    assert findings[0].path == "azurpilot/tooling/git.py"
+    assert findings[0].impact == "Описание проблемы без отдельного блока исправления."
+    assert findings[0].resolution == findings[0].impact
+
+
+def test_obsolete_reconcile_route_is_not_in_provider_cli():
+    from azurpilot.cli import CliInvocationError, build_parser
+
+    parser = build_parser()
+    with pytest.raises(CliInvocationError):
+        parser.parse_args(["integrations", "coderabbit", "reconcile"])
+
+
+def test_coderabbit_cli_exposes_typed_triage_manifest_action():
+    from azurpilot.cli import build_parser
+
+    parsed = build_parser().parse_args(
+        [
+            "integrations",
+            "coderabbit",
+            "triage",
+            "--manifest",
+            "C:/temp/coderabbit-triage.json",
+            "--json",
+        ]
+    )
+
+    assert parsed.integration_target == "coderabbit"
+    assert parsed.integration_action == "triage"
+    assert parsed.manifest == "C:/temp/coderabbit-triage.json"
+
+
+def test_coderabbit_cli_exposes_confirmed_cycle_abandon_action():
+    from azurpilot.cli import build_parser
+
+    parsed = build_parser().parse_args(
+        [
+            "integrations",
+            "coderabbit",
+            "cycle",
+            "abandon",
+            "--confirm",
+            "--json",
+        ]
+    )
+
+    assert parsed.integration_target == "coderabbit"
+    assert parsed.integration_action == "cycle"
+    assert parsed.coderabbit_cycle_action == "abandon"
+    assert parsed.confirm_abandon is True

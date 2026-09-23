@@ -42,6 +42,11 @@ paths, serials, account identifiers и необработанные логи. Ev
 AzurPilot plugins и не разрешает mutation. Retired MCP intermediary routes не
 используются как маршрут или fallback.
 
+Для CodeRabbit проверяй host-native provider текущей OS через
+`azur integrations coderabbit status|doctor`: executable, auth, agent syntax,
+canonical checkout и exact process liveness. Не заменяй этот маршрут wrapper,
+другим checkout, clone, WSL bridge или ручным повторным provider call.
+
 Различай repository source, user-configured direct adapter и фактический
 negotiated discovery/`tools/list`/read-only call: это разные доказательства.
 Для внешних интеграций используй закрытый `IntegrationRegistry` и
@@ -74,14 +79,22 @@ fallback или source of truth. Если нужный direct server или tool
 4. Сравни source/deployment/runtime только когда это релевантно: Git HEAD,
    backend PID/start time/cwd и contract/catalog fingerprint. Новый checkout не
    означает, что уже работающий процесс загрузил новый код.
-5. Выбери ровно один refresh/recovery для доказанно stale слоя. Для direct
-   Codex route это новый project-scoped task/process или штатное обновление
-   source/plugin, а не Reconnect Connected App. После него
+5. Выбери ровно один refresh/recovery для доказанно stale слоя. Для обязательного
+   MCP acceptance это новый SDK client/process через существующий
+   `azurpilot.integrations.mcp_client`, а не Reconnect Connected App. Effective
+   Codex registration при затронутом Codex/plugin scope проверяется отдельно
+   через cross-thread contract. После этого
    повторно проверь callable catalog и соответствующий backend contract. Для
    Development снова вызови `dev_get_contract` и прогони существующую
    compatibility validation; для Game снова вызови `game_get_contract`, если
    он callable, и сопоставь contract с текущей callable surface. При недоступном
    или несовместимом contract оставайся fail-closed.
+   Для host runtime stale marker допустим только canonical `azur mcp reconcile`:
+   same-repository marker восстанавливается через typed cleanup записанных exact
+   identities, с проверкой неизменности marker и STOPPED/no-conflict
+   postcondition. Invalid/foreign marker, unknown liveness, port conflict и
+   termination/readiness failure не являются recoverable и остаются
+   fail-closed.
 6. Только когда и callable catalog содержит требуемое действие, и
    соответствующий contract получен и признан совместимым, верни normal
    operation в `azurpilot-game-control` или `azurpilot-development`.
@@ -178,9 +191,16 @@ capability gap, а не доказанный stale client. Зафиксируй 
 
 Состояния `MCP_RUNTIME_STALE`, `MCP_PLUGIN_RUNTIME_INCOMPATIBLE` и
 `MCP_RELOAD_REQUIRED` требуют read-only фиксации source/runtime/plugin-source/session
-расхождения. Для доказанно owned runtime разрешён один штатный
-`azur mcp restart`; при изменении plugin/skill сначала требуется новая
-session или явное подтверждение reload, а hot reload не предполагается.
+расхождения. `azur mcp reconcile --source --bump auto` доказывает только
+`source_reconciled`; для обязательного live gate после него вызови `azur mcp
+status` и требуй `runtime_ready=true`. При `runtime_state=stale` или
+`runtime_state=stopped` выполни `azur mcp reconcile` без `--source`, после чего
+снова прочитай status. До этой typed попытки stale/stopped является
+recoverable precondition, а не конечным blocker-ом. При unknown/foreign
+ownership, invalid marker/liveness, port conflict, failure stop/start или
+нарушенном postcondition остановись typed fail-closed.
+Не запускай внутренние MCP modules/scripts напрямую; не используй `uv`, Python
+module entrypoint или wrapper вместо доступного literal `azur`.
 
 `GAME_*` или `DEV_*` machine-readable response означает, что вызов достиг
 backend boundary. `Unknown tool`, platform block или отсутствие callable
@@ -200,6 +220,12 @@ binding до этого — другой слой и не Game/Dev backend failu
 | remote app Connected, но не callable в явно выбранном ChatGPT/public route | проверить workspace/account/surface и открыть новый chat/task. Это не меняет Codex direct route. |
 | provider grant/scope не соответствует remote action | штатный `Reconnect` с повторной проверкой запрошенных permissions; только для remote route. |
 | fork/subtask/same-directory fork без гарантированного catalog refresh | не считать refresh и не считать действия выполненными. |
+
+Если source/runtime уже подтверждены, а устарела только task/session registration,
+действуй по [единому контракту cross-thread continuation](../../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md):
+coordinator создаёт свежую независимую task/thread и получает terminal evidence,
+а не просит пользователя открыть новый чат. Это не Reconnect Connected App и
+не subagent/fork/same-session retry.
 
 Не выполняй все варианты подряд. Reconnect одного account не обновляет другие
 accounts; новый chat не перезапускает backend; plugin refresh не выдаёт OAuth

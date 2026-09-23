@@ -13,11 +13,35 @@ from azurpilot.tooling.errors import ToolingError
 from dev_tools import mcp_status
 from dev_tools.mcp_status import first_party_source_registration
 from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
+from module.mcp_shared.local_http_supervisor import (
+    LocalHttpSupervisorStopOutcome,
+    LocalHttpSupervisorStopResult,
+)
 from module.mcp_shared.versioning import (
     VersioningError,
     load_mcp_bundle,
 )
 from tests.support.paths import REPOSITORY_ROOT
+
+
+def _successful_stop_result() -> LocalHttpSupervisorStopResult:
+    return LocalHttpSupervisorStopResult(
+        outcome=LocalHttpSupervisorStopOutcome.EXACT_LIVE_OWNER_STOPPED,
+        marker_present=True,
+        marker_removed=True,
+        ownership_confirmed=True,
+        postcondition_confirmed=True,
+    )
+
+
+def _stale_recovery_stop_result() -> LocalHttpSupervisorStopResult:
+    return LocalHttpSupervisorStopResult(
+        outcome=LocalHttpSupervisorStopOutcome.STALE_RECORDED_OWNER_RECOVERED,
+        marker_present=True,
+        marker_removed=True,
+        ownership_confirmed=True,
+        postcondition_confirmed=True,
+    )
 
 
 def test_canonical_bundle_is_strict_and_reconciled() -> None:
@@ -175,6 +199,116 @@ def test_game_application_service_file_is_in_game_backend_identity() -> None:
     assert classification.affected_servers == ("azurpilot-game",)
 
 
+def test_mcp_impact_reports_not_required_for_non_source_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeGit:
+        def __init__(self, _root: Path) -> None:
+            pass
+
+        def head(self) -> str:
+            return "b" * 40
+
+        def is_ancestor(self, _base: str, _head: str) -> bool:
+            return True
+
+        def changed_paths(self, _base: str, _head: str) -> tuple[str, ...]:
+            return ("docs/notes.md",)
+
+        def status_z(self) -> str:
+            return " M docs/working-notes.md\x00"
+
+    monkeypatch.setattr(mcp_tooling, "GitClient", FakeGit)
+
+    details = mcp_tooling._candidate_mcp_impact(tmp_path, base_commit="a" * 40)
+
+    assert details.status == "NOT_REQUIRED"
+    assert details.reconciliation_required is False
+    assert details.candidate_paths == (
+        "docs/notes.md",
+        "docs/working-notes.md",
+    )
+    assert details.candidate_path_count == 2
+    assert details.path_impacts == ()
+    assert details.generated_artifacts == ()
+
+
+def test_mcp_impact_includes_uncommitted_persistence_and_both_servers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeGit:
+        def __init__(self, _root: Path) -> None:
+            pass
+
+        def head(self) -> str:
+            return "b" * 40
+
+        def is_ancestor(self, _base: str, _head: str) -> bool:
+            return True
+
+        def changed_paths(self, _base: str, _head: str) -> tuple[str, ...]:
+            return ()
+
+        def status_z(self) -> str:
+            return " M module/persistence/runtime.py\x00"
+
+    monkeypatch.setattr(mcp_tooling, "GitClient", FakeGit)
+
+    details = mcp_tooling._candidate_mcp_impact(tmp_path, base_commit="a" * 40)
+
+    assert details.status == "REQUIRED"
+    assert details.reconciliation_required is True
+    assert details.changed_components == (
+        "DEV_MCP_SOURCE_SET",
+        "GAME_MCP_SOURCE_SET",
+    )
+    assert details.affected_servers == ("azurpilot-dev", "azurpilot-game")
+    assert details.path_impacts[0].affected_servers == (
+        "azurpilot-dev",
+        "azurpilot-game",
+    )
+    assert details.generated_artifacts == (
+        "config/mcp-versions.toml",
+        "plugins/azurpilot/.codex-plugin/plugin.json",
+        "plugins/azurpilot/compatibility.json",
+    )
+
+
+def test_mcp_impact_classifies_full_candidate_set_and_returns_bounded_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path = "module/persistence/runtime.py"
+    committed_paths = tuple(f"docs/candidate-{index:03d}.md" for index in range(300)) + (
+        source_path,
+    )
+
+    class FakeGit:
+        def __init__(self, _root: Path) -> None:
+            pass
+
+        def head(self) -> str:
+            return "b" * 40
+
+        def is_ancestor(self, _base: str, _head: str) -> bool:
+            return True
+
+        def changed_paths(self, _base: str, _head: str) -> tuple[str, ...]:
+            return committed_paths
+
+        def status_z(self) -> str:
+            return ""
+
+    monkeypatch.setattr(mcp_tooling, "GitClient", FakeGit)
+
+    details = mcp_tooling._candidate_mcp_impact(tmp_path, base_commit="a" * 40)
+
+    assert details.candidate_path_count == 301
+    assert len(details.candidate_paths) == mcp_tooling._MCP_IMPACT_SAMPLE_LIMIT
+    assert len(details.committed_paths) == mcp_tooling._MCP_IMPACT_SAMPLE_LIMIT
+    assert all(item.source_sets for item in details.path_impacts)
+    assert tuple(item.path for item in details.path_impacts) == (source_path,)
+
+
 @pytest.mark.parametrize(
     "changed_path",
     (
@@ -274,9 +408,52 @@ def test_status_preserves_plugin_drift_when_runtime_is_stopped(
     assert result.code is ResultCode.MCP_RELOAD_REQUIRED
     assert result.details is not None
     assert result.details.runtime_state == "stopped"
+    assert result.details.source_reconciled is False
+    assert result.details.runtime_ready is False
     assert result.details.plugin_source_state == "drift"
     assert result.details.session_state == "reload_required"
     assert result.details.reload_required is True
+
+
+def test_status_does_not_claim_live_ready_after_source_reconciliation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    build = SimpleNamespace(
+        bundle=bundle,
+        changed_components=(),
+        affected_servers=(),
+        plugin_changed=False,
+        skill_changed=False,
+    )
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(service.source, "build", lambda _root, requested_bump: build)
+    monkeypatch.setattr(service.source, "check", lambda _root, **_kwargs: build)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: (
+            "stopped",
+            {
+                "services": [],
+                "supervisors": {
+                    name: {"code": "LOCAL_MCP_SUPERVISOR_STOPPED"}
+                    for name in mcp_tooling.MCP_SERVER_NAMES
+                },
+            },
+        ),
+    )
+    monkeypatch.setattr(service, "_registration_state", lambda _root: "ready")
+
+    result = service.status(REPOSITORY_ROOT)
+
+    assert not result.ok
+    assert result.code is ResultCode.MCP_RUNTIME_UNAVAILABLE
+    assert result.details is not None
+    assert result.details.source_reconciled is True
+    assert result.details.runtime_ready is False
+    assert result.details.runtime_state == "stopped"
 
 
 def test_status_preserves_version_bump_required_result(
@@ -345,11 +522,152 @@ def test_reconcile_rejects_unknown_restart_postcondition(
         "_start_owned",
         lambda _root, _bundle, *, server_names: (True, {}),
     )
+    monkeypatch.setattr(
+        service,
+        "_supervisor",
+        lambda _root, _server_name: SimpleNamespace(
+            stop_result=_successful_stop_result
+        ),
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service.reconcile(REPOSITORY_ROOT)
+
+    assert error.value.code is ResultCode.MCP_RUNTIME_UNAVAILABLE
+
+
+def test_runtime_reconcile_repairs_only_stale_owned_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    stale_name = "azurpilot-dev"
+    ready_name = "azurpilot-game"
+    runtime_results = [
+        (
+            "stale",
+            {
+                "services": [
+                    {"server_name": stale_name, "ready": False},
+                    {"server_name": ready_name, "ready": True},
+                ],
+                "supervisors": {
+                    stale_name: {"code": "LOCAL_MCP_SUPERVISOR_STALE"},
+                    ready_name: {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                },
+            },
+        ),
+        (
+            "ready",
+            {
+                "services": [
+                    {"server_name": stale_name, "ready": True},
+                    {"server_name": ready_name, "ready": True},
+                ],
+                "supervisors": {
+                    stale_name: {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                    ready_name: {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                },
+            },
+        ),
+    ]
+    stopped: list[str] = []
+    started: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: runtime_results.pop(0),
+    )
+    monkeypatch.setattr(
+        service,
+        "_supervisor",
+        lambda _root, name: SimpleNamespace(
+            stop_result=lambda: stopped.append(name)
+            or _stale_recovery_stop_result()
+        ),
+    )
+
+    def start_owned(
+        _root: Path,
+        _bundle: object,
+        *,
+        server_names: tuple[str, ...],
+    ) -> tuple[bool, dict[str, object]]:
+        started.append(server_names)
+        return True, {}
+
+    monkeypatch.setattr(service, "_start_owned", start_owned)
+
+    result = service.reconcile(REPOSITORY_ROOT)
+
+    assert result.ok
+    assert stopped == [stale_name]
+    assert started == [(stale_name,)]
+    assert result.details is not None
+    assert result.details.runtime_ready is True
+    assert result.details.restarted_servers == (stale_name,)
+    assert result.details.session_state == "not_observable"
+
+
+@pytest.mark.parametrize(
+    "supervisor_code",
+    (
+        "LOCAL_MCP_SUPERVISOR_OWNERSHIP_MISMATCH",
+        "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
+        "LOCAL_MCP_SUPERVISOR_UNKNOWN",
+    ),
+)
+def test_runtime_reconcile_fails_closed_for_unowned_stale_service(
+    monkeypatch: pytest.MonkeyPatch,
+    supervisor_code: str,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    stale_name = "azurpilot-dev"
+    stopped: list[str] = []
+    started = False
+
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: (
+            "stale",
+            {
+                "services": [
+                    {"server_name": stale_name, "ready": False},
+                    {"server_name": "azurpilot-game", "ready": True},
+                ],
+                "supervisors": {
+                    stale_name: {"code": supervisor_code},
+                    "azurpilot-game": {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                },
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_supervisor",
+        lambda _root, name: SimpleNamespace(
+            stop_result=lambda: stopped.append(name) or _successful_stop_result()
+        ),
+    )
+
+    def start_owned(*_args: object, **_kwargs: object) -> tuple[bool, dict[str, object]]:
+        nonlocal started
+        started = True
+        return True, {}
+
+    monkeypatch.setattr(service, "_start_owned", start_owned)
 
     with pytest.raises(ToolingError) as error:
         service.reconcile(REPOSITORY_ROOT)
 
     assert error.value.code is ResultCode.MCP_RUNTIME_STALE
+    assert stopped == []
+    assert started is False
 
 
 def test_shared_registration_model_reports_stdio_and_loopback_routes() -> None:
@@ -473,7 +791,10 @@ def test_explicit_bump_can_raise_a_proven_change_without_auto_major_guess() -> N
 
     assert mcp_tooling._server_version(server, bump="patch") != server.version
     assert mcp_tooling._server_version(server, bump="minor").endswith(".0")
-    assert mcp_tooling._server_version(server, bump="major").startswith("2.")
+    current_major = int(server.version.split(".", 1)[0])
+    assert mcp_tooling._server_version(server, bump="major").startswith(
+        f"{current_major + 1}."
+    )
 
 
 def test_auth_readiness_is_scoped_to_servers_being_started(monkeypatch) -> None:
@@ -518,35 +839,51 @@ def test_runtime_source_revision_is_sanitized_before_status_model() -> None:
     assert status.source_revision is None
 
 
-def test_runtime_reconcile_can_start_service_with_stopped_supervisor(
+@pytest.mark.parametrize(
+    "stopped_servers",
+    [
+        pytest.param(("azurpilot-dev",), id="one-stopped-supervisor"),
+        pytest.param(mcp_tooling.MCP_SERVER_NAMES, id="all-stopped-supervisors"),
+    ],
+)
+def test_runtime_reconcile_starts_stopped_owned_supervisors(
     monkeypatch: pytest.MonkeyPatch,
+    stopped_servers: tuple[str, ...],
 ) -> None:
     service = mcp_tooling.McpService()
     bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    initial_services = (
+        []
+        if stopped_servers == mcp_tooling.MCP_SERVER_NAMES
+        else [
+            {"server_name": name, "ready": name not in stopped_servers}
+            for name in mcp_tooling.MCP_SERVER_NAMES
+        ]
+    )
+    initial_supervisors = {
+        name: {
+            "code": (
+                "LOCAL_MCP_SUPERVISOR_STOPPED"
+                if name in stopped_servers
+                else "LOCAL_MCP_SUPERVISOR_READY"
+            )
+        }
+        for name in mcp_tooling.MCP_SERVER_NAMES
+    }
     runtime_results = [
         (
-            "stale",
+            "stopped" if stopped_servers == mcp_tooling.MCP_SERVER_NAMES else "stale",
             {
-                "services": [
-                    {"server_name": "azurpilot-dev", "ready": False},
-                    {"server_name": "azurpilot-game", "ready": True},
-                ],
-                "supervisors": {
-                    "azurpilot-dev": {
-                        "code": "LOCAL_MCP_SUPERVISOR_STOPPED"
-                    },
-                    "azurpilot-game": {
-                        "code": "LOCAL_MCP_SUPERVISOR_READY"
-                    },
-                },
+                "services": initial_services,
+                "supervisors": initial_supervisors,
             },
         ),
         (
             "ready",
             {
                 "services": [
-                    {"server_name": "azurpilot-dev", "ready": True},
-                    {"server_name": "azurpilot-game", "ready": True},
+                    {"server_name": name, "ready": True}
+                    for name in mcp_tooling.MCP_SERVER_NAMES
                 ],
                 "supervisors": {},
             },
@@ -560,6 +897,7 @@ def test_runtime_reconcile_can_start_service_with_stopped_supervisor(
         "_runtime_status",
         lambda _root, _bundle: runtime_results.pop(0),
     )
+    monkeypatch.setattr(service, "_session_state", lambda *_args, **_kwargs: "not_observable")
 
     def start_owned(
         _root: Path,
@@ -575,9 +913,12 @@ def test_runtime_reconcile_can_start_service_with_stopped_supervisor(
     result = service.reconcile(REPOSITORY_ROOT)
 
     assert result.ok
-    assert start_calls == [("azurpilot-dev",)]
+    assert start_calls == [stopped_servers]
     assert result.details is not None
-    assert result.details.restarted_servers == ("azurpilot-dev",)
+    assert result.details.source_reconciled is True
+    assert result.details.runtime_ready is True
+    assert result.details.restarted_servers == stopped_servers
+    assert result.details.session_state == "not_observable"
 
 
 def test_reconciler_detects_unreconciled_source_without_mutating_repository(

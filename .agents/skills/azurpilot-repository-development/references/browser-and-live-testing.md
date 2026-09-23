@@ -34,3 +34,13 @@ sessions и временные профили.
 действие или недоступная foreground capability, укажи один точный внешний шаг,
 ожидаемый результат и evidence при ошибке. Это исключение не превращает
 пользователя в ручного CI.
+
+Если live acceptance требует свежего client/session после уже доказанного
+source/runtime state, создай прямой fresh MCP client/process через
+`azurpilot.integrations.mcp_client` и заново проверь фактически вызываемую MCP
+surface, contract, catalog и `runtime_ready`. Регистрацию Codex/plugin нужно
+проверять отдельно только при затронутой Codex surface; она не обязательна по
+умолчанию; при затронутой Codex surface используй [контракт cross-thread continuation](cross-thread-task-delegation.md).
+Subagent, fork и same-session worker не заменяют fresh client.
+Fresh independent task/thread также не освобождает от проверки фактического
+client contract и exact runtime state.

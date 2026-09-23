@@ -11,7 +11,7 @@ import tomllib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +39,8 @@ from module.mcp_shared.versioning import (
 from .config import project_python
 from .contracts import (
     McpDigest,
+    McpImpactDetails,
+    McpImpactPath,
     McpLifecycleDetails,
     McpReconcileDetails,
     McpServerStatus,
@@ -64,10 +66,19 @@ from .process import (
 )
 from .repository import RepositoryResolver
 
+if TYPE_CHECKING:
+    from module.mcp_shared.local_http_supervisor import LocalHttpSupervisorStopResult
+
 MCP_SERVER_NAMES = ("azurpilot-dev", "azurpilot-game")
 PLUGIN_MANIFEST_PATH = Path("plugins/azurpilot/.codex-plugin/plugin.json")
 PLUGIN_COMPATIBILITY_PATH = Path("plugins/azurpilot/compatibility.json")
 CODEX_CONFIG_PATH = Path(".codex/config.toml")
+MCP_GENERATED_ARTIFACTS = (
+    Path("config/mcp-versions.toml"),
+    PLUGIN_MANIFEST_PATH,
+    PLUGIN_COMPATIBILITY_PATH,
+)
+_MCP_IMPACT_SAMPLE_LIMIT = 256
 
 SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
     # Эти пути отражают реальные import/lazy-import границы backend-ов. Здесь
@@ -78,6 +89,7 @@ SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
         Path("module/dev_mcp"),
         Path("module/dev_runtime"),
         Path("module/application/canonical_payload.py"),
+        Path("module/application/adb_target.py"),
         Path("module/application/database_diagnostics.py"),
         Path("module/application/errors.py"),
         Path("module/application/fleet_manual_scan.py"),
@@ -111,6 +123,7 @@ SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
     "GAME_MCP_SOURCE_SET": (
         Path("module/game_mcp"),
         Path("module/application/canonical_payload.py"),
+        Path("module/application/adb_target.py"),
         Path("module/application/database_diagnostics.py"),
         Path("module/application/errors.py"),
         Path("module/application/fleet_manual_scan.py"),
@@ -406,6 +419,90 @@ def classify_source_changes(paths: Iterable[str | Path]) -> SourceChangeClassifi
         ),
         skill_changed="SKILL_BUNDLE_SOURCE_SET" in changed,
         unknown_paths=tuple(unknown),
+    )
+
+
+def _working_tree_paths(git: GitClient) -> tuple[str, ...]:
+    """Получить staged/unstaged/untracked paths без потери rename preimage."""
+
+    tokens = [token for token in git.status_z().split("\x00") if token]
+    paths: set[str] = set()
+    index = 0
+    while index < len(tokens):
+        record = tokens[index]
+        if len(record) < 4 or record[2] != " ":
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Git status вернул неподдерживаемую porcelain-запись.",
+            )
+        status = record[:2]
+        path = record[3:]
+        if path:
+            paths.add(path)
+        index += 1
+        if status[0] in {"R", "C"} or status[1] in {"R", "C"}:
+            if index >= len(tokens) or not tokens[index]:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Git status не содержит второй путь rename/copy.",
+                )
+            paths.add(tokens[index])
+            index += 1
+    return tuple(sorted(paths))
+
+
+def _candidate_mcp_impact(
+    root: Path, *, base_commit: str
+) -> McpImpactDetails:
+    """Классифицировать committed и working-tree candidate относительно exact base."""
+
+    if _REVISION_RE.fullmatch(base_commit) is None:
+        raise ToolingError(
+            ResultCode.TOOLING_INVALID_INVOCATION,
+            "MCP impact base должен быть полным SHA.",
+        )
+    git = GitClient(root)
+    head = git.head()
+    if not git.is_ancestor(base_commit, head):
+        raise ToolingError(
+            ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+            "MCP impact base не является предком текущего HEAD.",
+        )
+    committed_paths = git.changed_paths(base_commit, head)
+    working_tree_paths = _working_tree_paths(git)
+    candidate_paths = tuple(sorted(set(committed_paths) | set(working_tree_paths)))
+    classification = classify_source_changes(candidate_paths)
+    path_impacts = tuple(
+        impact
+        for path in candidate_paths
+        for path_classification in (classify_source_changes((path,)),)
+        if path_classification.changed_components
+        for impact in (
+            McpImpactPath(
+                path=path,
+                source_sets=path_classification.changed_components,
+                affected_servers=path_classification.affected_servers,
+            ),
+        )
+    )
+    required = bool(classification.changed_components)
+    return McpImpactDetails(
+        base_sha=base_commit,
+        head_sha=head,
+        status="REQUIRED" if required else "NOT_REQUIRED",
+        candidate_path_count=len(candidate_paths),
+        candidate_paths=candidate_paths[:_MCP_IMPACT_SAMPLE_LIMIT],
+        committed_paths=committed_paths[:_MCP_IMPACT_SAMPLE_LIMIT],
+        working_tree_paths=working_tree_paths[:_MCP_IMPACT_SAMPLE_LIMIT],
+        path_impacts=path_impacts[:_MCP_IMPACT_SAMPLE_LIMIT],
+        changed_components=classification.changed_components,
+        affected_servers=classification.affected_servers,
+        generated_artifacts=(
+            tuple(path.as_posix() for path in MCP_GENERATED_ARTIFACTS)
+            if required
+            else ()
+        ),
+        reconciliation_required=required,
     )
 
 
@@ -1470,6 +1567,9 @@ class McpService:
         elif all(code == "LOCAL_MCP_SUPERVISOR_STOPPED" for code in codes):
             state = "stopped"
             aggregate_code = "LOCAL_MCP_SUPERVISOR_STOPPED"
+        elif any(code == "LOCAL_MCP_SUPERVISOR_UNKNOWN" for code in codes):
+            state = "unknown"
+            aggregate_code = "LOCAL_MCP_SUPERVISOR_UNKNOWN"
         elif all(item.get("ready") is True for item in services):
             state = "ready"
             aggregate_code = "LOCAL_MCP_SUPERVISOR_READY"
@@ -1610,10 +1710,16 @@ class McpService:
                     ),
                 )
             )
+        source_reconciled = source_state == "ready" and plugin_source_state == "ready"
+        runtime_ready = runtime_state == "ready" and all(
+            status.status == "ready" for status in statuses
+        )
         return build, runtime_state, runtime, McpStatusDetails(
             action=action,
             source_state=source_state,
             runtime_state=runtime_state,
+            source_reconciled=source_reconciled,
+            runtime_ready=runtime_ready,
             plugin_state=plugin_state,
             plugin_source_state=plugin_source_state,
             session_state=session_state,
@@ -1658,17 +1764,24 @@ class McpService:
             code = ResultCode.MCP_RUNTIME_UNAVAILABLE
         else:
             code = ResultCode.OK
+        if code is ResultCode.MCP_RUNTIME_UNAVAILABLE and details.source_reconciled:
+            message = (
+                "MCP source reconciled, но live runtime не готов; обязательная "
+                "live-проверка не завершена."
+            )
+        else:
+            message = (
+                "MCP source, routes и bounded runtime status прочитаны."
+                if code is ResultCode.OK
+                else "MCP source, runtime или derived metadata требуют reconciliation."
+            )
         return ToolingResult(
             ok=code is ResultCode.OK,
             code=code,
             state=(
                 OperationState.READY if code is ResultCode.OK else OperationState.FAILED
             ),
-            message=(
-                "MCP source, routes и bounded runtime status прочитаны."
-                if code is ResultCode.OK
-                else "MCP source, runtime или derived metadata требуют reconciliation."
-            ),
+            message=message,
             details=details,
         )
 
@@ -1685,6 +1798,28 @@ class McpService:
             component_digests=_digest_models(bundle.source_digests),
         )
         return ToolingResult(ok=True, code=ResultCode.OK, state=OperationState.READY, message="Canonical MCP versions и revisions подтверждены.", details=details)
+
+    def impact(
+        self,
+        repository_root: str | Path | None = None,
+        *,
+        base_commit: str,
+    ) -> ToolingResult[McpImpactDetails, McpLifecycleDetails]:
+        """Прочитать MCP impact effective candidate diff относительно exact base."""
+
+        root = self._root(repository_root)
+        details = _candidate_mcp_impact(root, base_commit=base_commit)
+        return ToolingResult(
+            ok=True,
+            code=ResultCode.OK,
+            state=OperationState.READY,
+            message=(
+                "MCP source reconciliation требуется для effective candidate diff."
+                if details.reconciliation_required
+                else "Effective candidate diff не затрагивает MCP source sets."
+            ),
+            details=details,
+        )
 
     @staticmethod
     def _auth_ready(server_names: Iterable[str] = MCP_SERVER_NAMES) -> bool:
@@ -1824,6 +1959,29 @@ class McpService:
             "Локальный MCP supervisor не достиг readiness.",
         )
 
+    def _stop_owned_supervisor(
+        self, root: Path, server_name: str
+    ) -> LocalHttpSupervisorStopResult:
+        """Остановить supervisor по typed exact/stale recovery result."""
+
+        from module.mcp_shared.local_http_supervisor import (
+            LocalHttpSupervisorStopOutcome,
+        )
+
+        result = self._supervisor(root, server_name).stop_result()
+        if result.outcome is LocalHttpSupervisorStopOutcome.PORT_CONFLICT:
+            raise ToolingError(
+                ResultCode.TOOLING_PORT_CONFLICT,
+                "Порт локального first-party MCP уже занят чужим процессом.",
+            )
+        if not result.ok:
+            raise ToolingError(
+                ResultCode.MCP_RUNTIME_STALE,
+                "Владение локальным MCP не подтверждено: "
+                f"{result.outcome.value}; {result.detail}",
+            )
+        return result
+
     def start(self, repository_root: str | Path | None = None) -> ToolingResult[McpLifecycleDetails, McpLifecycleDetails]:
         root = self._root(repository_root)
         self.source.check(root)
@@ -1855,11 +2013,7 @@ class McpService:
                         "Порт локального first-party MCP уже занят чужим процессом.",
                     )
                 continue
-            if not supervisor.stop():
-                raise ToolingError(
-                    ResultCode.MCP_RUNTIME_STALE,
-                    "Владение локальным MCP при остановке не подтверждено.",
-                )
+            self._stop_owned_supervisor(root, name)
         _runtime_state, runtime = self._runtime_status(root, bundle)
         details = self._lifecycle_details(bundle, "stop", runtime, ownership=True)
         return ToolingResult(
@@ -1884,11 +2038,7 @@ class McpService:
                         "Порт локального first-party MCP уже занят чужим процессом.",
                     )
                 continue
-            if not supervisor.stop():
-                raise ToolingError(
-                    ResultCode.MCP_RUNTIME_STALE,
-                    "Перед restart владение локальным MCP не подтверждено.",
-                )
+            self._stop_owned_supervisor(root, name)
         _changed, runtime = self._start_owned(root, bundle)
         details = self._lifecycle_details(bundle, "restart", runtime, ownership=True)
         return ToolingResult(
@@ -1914,6 +2064,8 @@ class McpService:
                 mode="source",
                 source_state="ready",
                 runtime_state="unknown",
+                source_reconciled=True,
+                runtime_ready=False,
                 mutation_performed=True,
                 changed_components=build.changed_components,
                 affected_servers=build.affected_servers,
@@ -1963,14 +2115,14 @@ class McpService:
                 ResultCode.MCP_RUNTIME_STALE,
                 "Состояние local MCP runtime нельзя безопасно классифицировать.",
             )
-        if runtime_state == "stale":
+        if runtime_state in {"stale", "stopped"}:
             service_items = {
                 item.get("server_name"): item
                 for item in runtime.get("services", [])
                 if isinstance(item, dict)
             }
             supervisors = runtime.get("supervisors", {})
-            stale_names = tuple(
+            repair_names = tuple(
                 name
                 for name in MCP_SERVER_NAMES
                 if service_items.get(name, {}).get("ready") is not True
@@ -1979,35 +2131,35 @@ class McpService:
                 in {
                     "LOCAL_MCP_SUPERVISOR_READY",
                     "LOCAL_MCP_SUPERVISOR_STOPPED",
+                    "LOCAL_MCP_SUPERVISOR_STALE",
                 }
             )
-            if not stale_names:
+            if not repair_names:
                 raise ToolingError(
                     ResultCode.MCP_RUNTIME_STALE,
-                    "Устаревший local MCP runtime не имеет безопасного exact owner.",
+                    "Остановленный или устаревший local MCP runtime не имеет безопасного exact owner.",
                 )
-            for name in stale_names:
+            for name in repair_names:
                 if supervisors[name].get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED":
                     continue
-                if not self._supervisor(root, name).stop():
-                    raise ToolingError(
-                        ResultCode.MCP_RUNTIME_STALE,
-                        "Устаревший локальный MCP runtime нельзя безопасно остановить.",
-                    )
+                self._stop_owned_supervisor(root, name)
             _changed, runtime = self._start_owned(
-                root, bundle, server_names=stale_names
+                root, bundle, server_names=repair_names
             )
-            restarted = stale_names
+            restarted = repair_names
             runtime_state, runtime = self._runtime_status(root, bundle)
             if runtime_state != "ready":
                 raise ToolingError(
-                    ResultCode.MCP_RUNTIME_STALE,
-                    "После restart readiness и exact MCP runtime postcondition не подтверждены.",
+                    ResultCode.MCP_RUNTIME_UNAVAILABLE,
+                    "После start/restart readiness и exact MCP runtime postcondition не подтверждены.",
                 )
+            session_state = self._session_state(root, runtime, changed_paths=changed_paths)
         details = McpReconcileDetails(
             mode="runtime",
             source_state="ready",
             runtime_state=runtime_state,
+            source_reconciled=True,
+            runtime_ready=runtime_state == "ready",
             mutation_performed=bool(restarted),
             changed_components=(),
             affected_servers=restarted,
@@ -2030,7 +2182,7 @@ class McpService:
             message=(
                 "MCP runtime уже согласован; mutation не потребовалась."
                 if not restarted
-                else "Устаревший owned MCP runtime перезапущен; readiness подтверждён."
+                else "Остановленный или устаревший owned MCP runtime запущен/перезапущен; readiness подтверждён."
             ),
             details=details,
         )

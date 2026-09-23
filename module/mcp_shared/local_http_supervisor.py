@@ -12,6 +12,7 @@ import argparse
 import http.client
 import json
 import logging
+import math
 import os
 import re
 import signal
@@ -20,12 +21,14 @@ import sys
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 import psutil
 
 from azurpilot.tooling.mcp_coordination import FileLock
+from azurpilot.tooling.mcp_errors import ToolingError
 from azurpilot.tooling.process_core import (
     MCP_LOCAL_TEST_ENVIRONMENT_PREFIX,
     ProcessController,
@@ -80,6 +83,41 @@ LOCAL_HTTP_SERVICES = (
 
 class LocalHttpSupervisorError(RuntimeError):
     """Supervisor не может безопасно подтвердить ownership/readiness."""
+
+
+class LocalHttpSupervisorStopOutcome(StrEnum):
+    """Закрытые результаты bounded stop/recovery операции supervisor."""
+
+    EXACT_LIVE_OWNER_STOPPED = "exact_live_owner_stopped"
+    ALREADY_STOPPED = "already_stopped"
+    STALE_RECORDED_OWNER_RECOVERED = "stale_recorded_owner_recovered"
+    OWNERSHIP_MISMATCH = "ownership_mismatch"
+    INVALID_MARKER = "invalid_marker"
+    UNKNOWN_RECOVERY = "unknown_recovery"
+    TERMINATION_FAILED = "termination_failed"
+    MARKER_CHANGED = "marker_changed"
+    POSTCONDITION_FAILED = "postcondition_failed"
+    PORT_CONFLICT = "port_conflict"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalHttpSupervisorStopResult:
+    """Доказательный результат остановки без неоднозначного bool contract."""
+
+    outcome: LocalHttpSupervisorStopOutcome
+    marker_present: bool
+    marker_removed: bool = False
+    ownership_confirmed: bool = False
+    postcondition_confirmed: bool = False
+    detail: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.outcome in {
+            LocalHttpSupervisorStopOutcome.EXACT_LIVE_OWNER_STOPPED,
+            LocalHttpSupervisorStopOutcome.ALREADY_STOPPED,
+            LocalHttpSupervisorStopOutcome.STALE_RECORDED_OWNER_RECOVERED,
+        }
 
 
 def _same_path(left: str | Path, right: str | Path) -> bool:
@@ -158,9 +196,11 @@ def _identity_from_marker(value: object) -> ProcessIdentity | None:
             or not isinstance(created_at, (int, float))
             or isinstance(created_at, bool)
             or not isinstance(executable, str)
+            or not executable.strip()
             or not isinstance(command, list)
             or any(not isinstance(item, str) for item in command)
             or not isinstance(cwd, str)
+            or not cwd.strip()
             or (
                 process_group is not None
                 and (isinstance(process_group, bool) or not isinstance(process_group, int))
@@ -177,6 +217,18 @@ def _identity_from_marker(value: object) -> ProcessIdentity | None:
         )
     except (TypeError, ValueError, KeyError, OSError):
         return None
+
+
+def _valid_recorded_identity(identity: ProcessIdentity) -> bool:
+    """Проверить bounded поля identity до любой операции с процессом."""
+
+    return bool(
+        identity.pid > 0
+        and math.isfinite(identity.start_time)
+        and str(identity.executable).strip() not in {"", "."}
+        and identity.argv
+        and str(identity.cwd).strip() not in {"", "."}
+    )
 
 
 class LocalHttpSupervisor:
@@ -498,25 +550,339 @@ class LocalHttpSupervisor:
         except OSError:
             pass
 
-    def _remove_recorded_marker(self, payload: object) -> None:
-        """Удалить marker только если он всё ещё описывает exact owner."""
+    def _read_marker_payload(
+        self,
+    ) -> tuple[
+        dict[str, object] | None,
+        LocalHttpSupervisorStopOutcome | None,
+    ]:
+        """Прочитать marker с различением absent, invalid и unknown."""
 
-        if not isinstance(payload, dict) or not isinstance(
-            payload.get("supervisor"), dict
+        try:
+            payload = json.loads(self.marker_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None, None
+        except UnicodeDecodeError:
+            return None, LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        except (OSError, UnicodeError):
+            return None, LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY
+        except (TypeError, ValueError):
+            return None, LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        if not isinstance(payload, dict):
+            return None, LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        return payload, None
+
+    def _validated_marker_identities(
+        self, payload: dict[str, object]
+    ) -> tuple[ProcessIdentity, tuple[ProcessIdentity, ...]] | LocalHttpSupervisorStopOutcome:
+        """Проверить marker schema и вернуть supervisor/recorded identities."""
+
+        if payload.get("schema_version") != 1:
+            return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        repository_root = payload.get("repository_root")
+        if not isinstance(repository_root, str):
+            return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        if not _same_path(repository_root, self.repository_root):
+            return LocalHttpSupervisorStopOutcome.OWNERSHIP_MISMATCH
+        python_executable = payload.get("python_executable")
+        if not isinstance(python_executable, str):
+            return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        if not _same_path(python_executable, self.python_executable):
+            return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        supervisor_value = payload.get("supervisor")
+        supervisor = _identity_from_marker(supervisor_value)
+        if supervisor is None or not _valid_recorded_identity(supervisor):
+            return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        supervisor_launcher: ProcessIdentity | None = None
+        if isinstance(supervisor_value, dict) and "launcher_process" in supervisor_value:
+            supervisor_launcher = _identity_from_marker(
+                supervisor_value.get("launcher_process")
+            )
+            if supervisor_launcher is None or not _valid_recorded_identity(
+                supervisor_launcher
+            ):
+                return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        marker_services = payload.get("services")
+        if not isinstance(marker_services, list) or len(marker_services) != len(
+            self.services
         ):
-            return
+            return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+
+        service_records: dict[str, dict[str, object]] = {}
+        for item in marker_services:
+            if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+                return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+            name = item["name"]
+            if name in service_records:
+                return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+            service_records[name] = item
+
+        identities: list[ProcessIdentity] = [supervisor]
+        if supervisor_launcher is not None:
+            identities.append(supervisor_launcher)
+        for service in self.services:
+            item = service_records.get(service.name)
+            if item is None or item.get("port") != service.port:
+                return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+            if item.get("token_env_var") != service.token_env_var:
+                return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+            process = _identity_from_marker(item.get("process"))
+            launcher = _identity_from_marker(item.get("launcher_process"))
+            if (
+                process is None
+                or launcher is None
+                or not _valid_recorded_identity(process)
+                or not _valid_recorded_identity(launcher)
+            ):
+                return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+            # Сначала останавливать родительские launchers; ProcessController
+            # повторно проверяет exact identity и descendants перед каждой
+            # остановкой.
+            identities.extend((launcher, process))
+
+        unique: list[ProcessIdentity] = []
+        seen: set[tuple[object, ...]] = set()
+        for identity in identities:
+            key = (
+                identity.pid,
+                identity.start_time,
+                str(identity.executable),
+                identity.argv,
+                str(identity.cwd),
+                identity.process_group,
+            )
+            if key not in seen:
+                seen.add(key)
+                unique.append(identity)
+        return supervisor, tuple(unique)
+
+    def _try_recovery_lock(self) -> FileLock | None:
+        """Захватить coordination lock или вернуть unknown без ожидания."""
+
+        lock = FileLock(self.lock_path)
+        try:
+            if lock.acquire(timeout_seconds=0):
+                return lock
+        except (OSError, ToolingError):
+            return None
+        return None
+
+    def _remove_recorded_marker(self, payload: object) -> bool:
+        """Удалить marker только при полном unchanged payload."""
+
+        if not isinstance(payload, dict):
+            return False
         try:
             current = json.loads(self.marker_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            return
-        if not isinstance(current, dict) or current.get("supervisor") != payload[
-            "supervisor"
-        ]:
-            return
+        except FileNotFoundError:
+            return True
+        except (OSError, UnicodeError, TypeError, ValueError):
+            return False
+        if not isinstance(current, dict) or current != payload:
+            return False
         try:
             self.marker_path.unlink()
+        except FileNotFoundError:
+            return True
         except OSError:
-            pass
+            return False
+        return True
+
+    @staticmethod
+    def _safe_identity_matches(identity: ProcessIdentity) -> bool:
+        """Не превращать ошибку liveness в разрешение на recovery."""
+
+        try:
+            return identity.matches()
+        except (OSError, ValueError, psutil.Error):
+            return False
+
+    @staticmethod
+    def _safe_inspect_state(identity: ProcessIdentity) -> str:
+        """Вернуть unknown при любой ошибке проверки процесса."""
+
+        try:
+            return ProcessController.inspect_state(identity)
+        except (OSError, ValueError, psutil.Error, ToolingError):
+            return "unknown"
+
+    @staticmethod
+    def _terminate_exact_identity(identity: ProcessIdentity) -> bool:
+        """Остановить identity только после typed liveness проверки."""
+
+        state = LocalHttpSupervisor._safe_inspect_state(identity)
+        if state == "unknown":
+            return False
+        if state == "absent":
+            return True
+        try:
+            ProcessController.terminate(identity, timeout_seconds=STOP_TIMEOUT_SECONDS)
+        except (OSError, ValueError, psutil.Error, ToolingError):
+            return False
+        return LocalHttpSupervisor._safe_inspect_state(identity) == "absent"
+
+    def _stopped_postcondition(
+        self, *, port_conflicts: tuple[str, ...] | None = None
+    ) -> bool:
+        """Подтвердить marker absent/stopped и отсутствие port conflict."""
+
+        return (
+            self.status().get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED"
+            and not (
+                self.port_conflicts()
+                if port_conflicts is None
+                else port_conflicts
+            )
+        )
+
+    def stop_result(self) -> LocalHttpSupervisorStopResult:
+        """Остановить owner или bounded-recover stale marker с typed evidence."""
+
+        payload, read_outcome = self._read_marker_payload()
+        if read_outcome is not None:
+            return LocalHttpSupervisorStopResult(
+                outcome=read_outcome,
+                marker_present=True,
+                detail="Marker нельзя безопасно прочитать или классифицировать.",
+            )
+        if payload is None:
+            if self.port_conflicts():
+                return LocalHttpSupervisorStopResult(
+                    outcome=LocalHttpSupervisorStopOutcome.PORT_CONFLICT,
+                    marker_present=False,
+                    detail="Marker отсутствует, но owned port занят.",
+                )
+            return LocalHttpSupervisorStopResult(
+                outcome=LocalHttpSupervisorStopOutcome.ALREADY_STOPPED,
+                marker_present=False,
+                marker_removed=False,
+                postcondition_confirmed=True,
+                detail="Marker отсутствует; runtime уже остановлен.",
+            )
+
+        validated = self._validated_marker_identities(payload)
+        if isinstance(validated, LocalHttpSupervisorStopOutcome):
+            return LocalHttpSupervisorStopResult(
+                outcome=validated,
+                marker_present=True,
+                detail="Marker ownership/schema не подтверждены.",
+            )
+        supervisor_identity, identities = validated
+        exact_live_owner = self._safe_identity_matches(supervisor_identity)
+        if not exact_live_owner and self._safe_inspect_state(supervisor_identity) == "unknown":
+            return LocalHttpSupervisorStopResult(
+                outcome=LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY,
+                marker_present=True,
+                detail="Liveness recorded supervisor нельзя безопасно подтвердить.",
+            )
+
+        lock: FileLock | None = None
+        if not exact_live_owner:
+            # Stale marker можно очищать только пока новый supervisor не может
+            # заменить его параллельно. Второе чтение закрывает race между
+            # status() и cleanup.
+            lock = self._try_recovery_lock()
+            if lock is None:
+                return LocalHttpSupervisorStopResult(
+                    outcome=LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY,
+                    marker_present=True,
+                    detail="Coordination lock занят или недоступен.",
+                )
+            current, current_outcome = self._read_marker_payload()
+            if current_outcome is not None:
+                lock.release()
+                return LocalHttpSupervisorStopResult(
+                    outcome=current_outcome,
+                    marker_present=True,
+                    detail="Marker изменился или стал нечитаемым до cleanup.",
+                )
+            if current is None or current != payload:
+                lock.release()
+                return LocalHttpSupervisorStopResult(
+                    outcome=LocalHttpSupervisorStopOutcome.MARKER_CHANGED,
+                    marker_present=True,
+                    detail="Marker изменился между read и cleanup.",
+                )
+            current_validated = self._validated_marker_identities(current)
+            if isinstance(current_validated, LocalHttpSupervisorStopOutcome):
+                lock.release()
+                return LocalHttpSupervisorStopResult(
+                    outcome=current_validated,
+                    marker_present=True,
+                    detail="Marker стал invalid/foreign до cleanup.",
+                )
+            supervisor_identity, identities = current_validated
+            if self._safe_identity_matches(supervisor_identity):
+                lock.release()
+                return LocalHttpSupervisorStopResult(
+                    outcome=LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY,
+                    marker_present=True,
+                    detail="Recorded supervisor стал exact live owner до cleanup.",
+                )
+
+        try:
+            for identity in identities:
+                if identity == supervisor_identity and not exact_live_owner:
+                    # Первичная проверка stale классифицировала identity как
+                    # отсутствующую или несовпадающую; нельзя останавливать её
+                    # только по предположению на основе PID.
+                    continue
+                if not self._terminate_exact_identity(identity):
+                    return LocalHttpSupervisorStopResult(
+                        outcome=LocalHttpSupervisorStopOutcome.TERMINATION_FAILED,
+                        marker_present=True,
+                        ownership_confirmed=exact_live_owner,
+                        detail="Остановка recorded exact process или postcondition не подтверждена.",
+                    )
+            # При foreign listener marker нужно сохранить и заблокировать
+            # recovery; нельзя удалять evidence ownership при port conflict.
+            if self.port_conflicts():
+                return LocalHttpSupervisorStopResult(
+                    outcome=LocalHttpSupervisorStopOutcome.PORT_CONFLICT,
+                    marker_present=True,
+                    ownership_confirmed=exact_live_owner,
+                    detail="После exact cleanup остался port conflict.",
+                )
+            if not self._remove_recorded_marker(payload):
+                return LocalHttpSupervisorStopResult(
+                    outcome=LocalHttpSupervisorStopOutcome.MARKER_CHANGED,
+                    marker_present=True,
+                    ownership_confirmed=exact_live_owner,
+                    detail="Marker изменился или не может быть безопасно удалён.",
+                )
+            port_conflicts = self.port_conflicts()
+            if not self._stopped_postcondition(port_conflicts=port_conflicts):
+                outcome = (
+                    LocalHttpSupervisorStopOutcome.PORT_CONFLICT
+                    if port_conflicts
+                    else LocalHttpSupervisorStopOutcome.POSTCONDITION_FAILED
+                )
+                return LocalHttpSupervisorStopResult(
+                    outcome=outcome,
+                    marker_present=True,
+                    marker_removed=True,
+                    ownership_confirmed=exact_live_owner,
+                    detail="STOPPED/no-conflict postcondition не подтверждён.",
+                )
+            return LocalHttpSupervisorStopResult(
+                outcome=(
+                    LocalHttpSupervisorStopOutcome.EXACT_LIVE_OWNER_STOPPED
+                    if exact_live_owner
+                    else LocalHttpSupervisorStopOutcome.STALE_RECORDED_OWNER_RECOVERED
+                ),
+                marker_present=True,
+                marker_removed=True,
+                ownership_confirmed=True,
+                postcondition_confirmed=True,
+                detail=(
+                    "Exact live owner остановлен."
+                    if exact_live_owner
+                    else "Stale recorded owner безопасно очищен."
+                ),
+            )
+        finally:
+            if lock is not None:
+                lock.release()
 
     def _stop_children(self) -> None:
         stopped_pids: set[int] = set()
@@ -599,49 +965,50 @@ class LocalHttpSupervisor:
     def status(self) -> dict[str, object]:
         """Вернуть bounded состояние marker/process/readiness без token данных."""
 
-        try:
-            payload = json.loads(self.marker_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
+        payload, read_outcome = self._read_marker_payload()
+        if read_outcome is not None:
+            code = (
+                "LOCAL_MCP_SUPERVISOR_MARKER_INVALID"
+                if read_outcome is LocalHttpSupervisorStopOutcome.INVALID_MARKER
+                else "LOCAL_MCP_SUPERVISOR_UNKNOWN"
+            )
+            return {
+                "ok": False,
+                "code": code,
+                "repository_root": str(self.repository_root),
+            }
+        if payload is None:
             return {
                 "ok": False,
                 "code": "LOCAL_MCP_SUPERVISOR_STOPPED",
                 "repository_root": str(self.repository_root),
             }
-        if payload.get("repository_root") != str(self.repository_root):
+
+        validated = self._validated_marker_identities(payload)
+        if isinstance(validated, LocalHttpSupervisorStopOutcome):
+            code = (
+                "LOCAL_MCP_SUPERVISOR_OWNERSHIP_MISMATCH"
+                if validated is LocalHttpSupervisorStopOutcome.OWNERSHIP_MISMATCH
+                else "LOCAL_MCP_SUPERVISOR_MARKER_INVALID"
+            )
             return {
                 "ok": False,
-                "code": "LOCAL_MCP_SUPERVISOR_OWNERSHIP_MISMATCH",
+                "code": code,
                 "repository_root": str(self.repository_root),
             }
-        supervisor = payload.get("supervisor")
-        if not isinstance(supervisor, dict):
+        supervisor_identity, _identities = validated
+        if not self._safe_identity_matches(supervisor_identity):
+            if self._safe_inspect_state(supervisor_identity) == "unknown":
+                code = "LOCAL_MCP_SUPERVISOR_UNKNOWN"
+            else:
+                code = "LOCAL_MCP_SUPERVISOR_STALE"
             return {
                 "ok": False,
-                "code": "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
-                "repository_root": str(self.repository_root),
-            }
-        supervisor_identity = _identity_from_marker(supervisor)
-        if supervisor_identity is None:
-            return {
-                "ok": False,
-                "code": "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
-                "repository_root": str(self.repository_root),
-            }
-        if not supervisor_identity.matches():
-            return {
-                "ok": False,
-                "code": "LOCAL_MCP_SUPERVISOR_STALE",
+                "code": code,
                 "repository_root": str(self.repository_root),
             }
         marker_services = payload.get("services")
-        if not isinstance(marker_services, list) or len(marker_services) != len(
-            self.services
-        ):
-            return {
-                "ok": False,
-                "code": "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
-                "repository_root": str(self.repository_root),
-            }
+        assert isinstance(marker_services, list)
         services: list[dict[str, object]] = []
         for expected_service in self.services:
             item = next(
@@ -667,7 +1034,7 @@ class LocalHttpSupervisor:
                     "code": "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
                     "repository_root": str(self.repository_root),
                 }
-            alive = child_identity.matches()
+            alive = self._safe_identity_matches(child_identity)
             ready_payload = self._ready_payload(expected_service) if alive else None
             services.append(
                 {
@@ -691,66 +1058,9 @@ class LocalHttpSupervisor:
             "services": services,
         }
 
-    @staticmethod
-    def _terminate_recorded_processes(payload: object) -> None:
-        """Завершить только recorded owner/service trees из marker."""
-
-        if not isinstance(payload, dict):
-            return
-        records: list[object] = []
-        supervisor = payload.get("supervisor")
-        if isinstance(supervisor, dict):
-            records.append(supervisor)
-        services = payload.get("services")
-        if isinstance(services, list):
-            records.extend(services)
-        for item in records:
-            if not isinstance(item, dict):
-                continue
-            if item is supervisor:
-                expected_records = [item, item.get("launcher_process")]
-            else:
-                expected_records = [item.get("process"), item.get("launcher_process")]
-            for expected in expected_records:
-                if not isinstance(expected, dict):
-                    continue
-                identity = _identity_from_marker(expected)
-                if identity is None:
-                    continue
-                ProcessController.terminate(
-                    identity, timeout_seconds=STOP_TIMEOUT_SECONDS
-                )
-
     def stop(self) -> bool:
         """Остановить только supervisor с exact recorded identity."""
-
-        try:
-            payload = json.loads(self.marker_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            return False
-        if payload.get("repository_root") != str(self.repository_root):
-            return False
-        supervisor = payload.get("supervisor")
-        if not isinstance(supervisor, dict):
-            return False
-        identity = _identity_from_marker(supervisor)
-        if identity is None:
-            self._terminate_recorded_processes(payload)
-            self._remove_recorded_marker(payload)
-            return False
-        if not identity.matches():
-            self._terminate_recorded_processes(payload)
-            self._remove_recorded_marker(payload)
-            return False
-        try:
-            # Общий ProcessController повторно проверяет exact identity,
-            # descendants и process group перед мягким и принудительным stop.
-            return ProcessController.terminate(
-                identity, timeout_seconds=STOP_TIMEOUT_SECONDS
-            )
-        finally:
-            self._terminate_recorded_processes(payload)
-            self._remove_recorded_marker(payload)
+        return self.stop_result().ok
 
 
 def _default_repository_root() -> Path:
@@ -807,6 +1117,8 @@ __all__ = (
     "LocalHttpService",
     "LocalHttpSupervisor",
     "LocalHttpSupervisorError",
+    "LocalHttpSupervisorStopOutcome",
+    "LocalHttpSupervisorStopResult",
     "main",
 )
 

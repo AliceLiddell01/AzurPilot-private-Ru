@@ -10,6 +10,7 @@ from pathlib import Path
 
 from azurpilot.tooling.contracts import (
     AnalysisScope,
+    CodeRabbitDeferredBacklog,
     OperationState,
     ResultCode,
     ToolingResult,
@@ -185,6 +186,21 @@ class IntegrationService:
 
         return self.resolver.resolve(repository_root).path
 
+    def _coderabbit_context(
+        self, repository_root: str | Path | None = None
+    ) -> tuple[Path, IntegrationConfig, CodeRabbitAdapter]:
+        """Подготовить общий root/config/typed CodeRabbit adapter context."""
+
+        root = self.resolve_root(repository_root)
+        config = load_integration_config(root)
+        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
+        if not isinstance(adapter, CodeRabbitAdapter):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "CodeRabbit adapter имеет неверный тип.",
+            )
+        return root, config, adapter
+
     @staticmethod
     def _state(records: tuple[IntegrationRecord, ...]) -> IntegrationState:
         states = {record.state for record in records}
@@ -230,6 +246,7 @@ class IntegrationService:
         scope: AnalysisScope | None = None,
         findings: tuple[IntegrationFinding, ...] = (),
         coderabbit_cycle: CodeRabbitCycleSummary | None = None,
+        coderabbit_backlog: CodeRabbitDeferredBacklog | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
         aggregate = self._state(records)
         return ToolingResult[IntegrationDetails, IntegrationEvidenceBundle](
@@ -246,6 +263,7 @@ class IntegrationService:
                 scope=scope,
                 findings=findings,
                 coderabbit_cycle=coderabbit_cycle,
+                coderabbit_backlog=coderabbit_backlog,
             ),
             evidence=IntegrationEvidenceBundle(generated_at=_now()),
         )
@@ -347,19 +365,17 @@ class IntegrationService:
         *,
         base_sha: str,
         head_sha: str,
+        task_id: str | None = None,
         repository_root: str | Path | None = None,
         progress_callback: Callable[[CodeRabbitProgress], None] | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
-        root = self.resolve_root(repository_root)
-        config = load_integration_config(root)
-        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
-        if not isinstance(adapter, CodeRabbitAdapter):
-            raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "CodeRabbit adapter имеет неверный тип.")
+        root, config, adapter = self._coderabbit_context(repository_root)
         outcome = adapter.review(
             root,
             config,
             base_sha=base_sha,
             head_sha=head_sha,
+            task_id=task_id,
             progress_callback=progress_callback,
         )
         cycle_summary = outcome.coderabbit_cycle
@@ -374,6 +390,21 @@ class IntegrationService:
             target=IntegrationName.CODERABBIT,
             findings=outcome.findings,
             coderabbit_cycle=cycle_summary,
+            coderabbit_backlog=outcome.coderabbit_backlog,
+        )
+
+    def validate_coderabbit_config(
+        self, repository_root: str | Path | None = None
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        """Проверить repository CodeRabbit config через project-owned adapter."""
+
+        root, config, adapter = self._coderabbit_context(repository_root)
+        outcome = adapter.validate_config(root, config)
+        return self._result(
+            "config-validate",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            coderabbit_cycle=outcome.coderabbit_cycle,
         )
 
     def findings(
@@ -383,41 +414,94 @@ class IntegrationService:
         head_sha: str,
         repository_root: str | Path | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
-        root = self.resolve_root(repository_root)
-        config = load_integration_config(root)
-        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
-        if not isinstance(adapter, CodeRabbitAdapter):
-            raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "CodeRabbit adapter имеет неверный тип.")
+        root, config, adapter = self._coderabbit_context(repository_root)
         outcome = adapter.findings(root, config, base_sha=base_sha, head_sha=head_sha)
-        return self._result("findings", (outcome.record,), target=IntegrationName.CODERABBIT, findings=outcome.findings, coderabbit_cycle=outcome.coderabbit_cycle)
+        return self._result(
+            "findings",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            findings=outcome.findings,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+            coderabbit_backlog=outcome.coderabbit_backlog,
+        )
+
+    def triage(
+        self,
+        *,
+        manifest_path: str,
+        repository_root: str | Path | None = None,
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        root, config, adapter = self._coderabbit_context(repository_root)
+        outcome = adapter.triage(root, config, manifest_path=manifest_path)
+        return self._result(
+            "triage",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            findings=outcome.findings,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+            coderabbit_backlog=outcome.coderabbit_backlog,
+        )
+
+    def backlog(
+        self, *, repository_root: str | Path | None = None
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        root, config, adapter = self._coderabbit_context(repository_root)
+        outcome = adapter.backlog(root, config)
+        return self._result(
+            "backlog",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+            coderabbit_backlog=outcome.coderabbit_backlog,
+        )
+
+    def resolve_coderabbit_backlog(
+        self,
+        *,
+        backlog_id: str,
+        fix_head: str,
+        resolution_summary: str,
+        repository_root: str | Path | None = None,
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        root, config, adapter = self._coderabbit_context(repository_root)
+        outcome = adapter.resolve_deferred_finding(
+            root,
+            config,
+            backlog_id=backlog_id,
+            fix_head=fix_head,
+            resolution_summary=resolution_summary,
+        )
+        return self._result(
+            "backlog-resolve",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+            coderabbit_backlog=outcome.coderabbit_backlog,
+        )
 
     def recover_coderabbit_review(
         self, *, repository_root: str | Path | None = None
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
-        root = self.resolve_root(repository_root)
-        config = load_integration_config(root)
-        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
-        if not isinstance(adapter, CodeRabbitAdapter):
-            raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "CodeRabbit adapter имеет неверный тип.")
+        root, config, adapter = self._coderabbit_context(repository_root)
         outcome = adapter.recover_interrupted_review(root, config)
         return self._result("recover", (outcome.record,), target=IntegrationName.CODERABBIT, findings=outcome.findings, coderabbit_cycle=outcome.coderabbit_cycle)
 
-    def reconcile_coderabbit(
-        self, *, repository_root: str | Path | None = None
+    def abandon_coderabbit_review(
+        self,
+        *,
+        confirmed: bool = False,
+        repository_root: str | Path | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
-        """Явно согласовать постоянный WSL managed clone CodeRabbit."""
+        """Закрыть неизвестную CodeRabbit reservation по явному подтверждению."""
 
-        root = self.resolve_root(repository_root)
-        config = load_integration_config(root)
-        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
-        if not isinstance(adapter, CodeRabbitAdapter):
-            raise ToolingError(
-                ResultCode.TOOLING_PRECONDITION_FAILED,
-                "CodeRabbit adapter имеет неверный тип.",
-            )
-        outcome = adapter.reconcile(root, config)
+        root, config, adapter = self._coderabbit_context(repository_root)
+        outcome = adapter.abandon_uncertain_start(
+            root,
+            config,
+            confirmed=confirmed,
+        )
         return self._result(
-            "reconcile",
+            "abandon",
             (outcome.record,),
             target=IntegrationName.CODERABBIT,
             findings=outcome.findings,
@@ -428,19 +512,13 @@ class IntegrationService:
         self,
         *,
         base_sha: str | None = None,
+        task_id: str | None = None,
         repository_root: str | Path | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
         """Создать новый CodeRabbit cycle без запуска provider review."""
 
-        root = self.resolve_root(repository_root)
-        config = load_integration_config(root)
-        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
-        if not isinstance(adapter, CodeRabbitAdapter):
-            raise ToolingError(
-                ResultCode.TOOLING_PRECONDITION_FAILED,
-                "CodeRabbit adapter имеет неверный тип.",
-            )
-        outcome = adapter.start_cycle(root, config, base_sha=base_sha)
+        root, config, adapter = self._coderabbit_context(repository_root)
+        outcome = adapter.start_cycle(root, config, base_sha=base_sha, task_id=task_id)
         return self._result(
             "cycle-start",
             (outcome.record,),

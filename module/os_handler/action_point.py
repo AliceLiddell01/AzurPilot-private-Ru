@@ -7,7 +7,10 @@
 """
 # Этот файл обрабатывает очки действия (Action Point, AP) в режиме Операции «Сирена» (Operation Siren).
 # Включает OCR очков действия, разбор запасов контейнеров AP и автоматическую покупку или использование припасов.
+from dataclasses import dataclass
 from datetime import timedelta
+from enum import StrEnum
+from numbers import Integral
 
 import module.config.server as server
 from module.base.button import ButtonGrid
@@ -106,6 +109,34 @@ ACTION_POINTS_BUY = {
     4: 1000,
     5: 1000,
 }
+ACTION_POINT_BUY_GAIN = 100
+
+
+class EmergencyActionPointPurchaseStatus(StrEnum):
+    """Результат одной ограниченной попытки покупки AP для восстановления Commission."""
+
+    PURCHASED = "purchased"
+    UNAVAILABLE = "unavailable"
+    INSUFFICIENT_OIL = "insufficient_oil"
+    UNSAFE = "unsafe"
+    UNKNOWN = "unknown"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class EmergencyActionPointPurchase:
+    """Наблюдаемый результат покупки AP с явным числом кликов."""
+
+    status: EmergencyActionPointPurchaseStatus
+    remaining_before: int | None = None
+    remaining_after: int | None = None
+    oil_cost: int | None = None
+    oil_before: int | None = None
+    oil_after: int | None = None
+    ap_before: int | None = None
+    ap_after: int | None = None
+    ap_gain: int | None = None
+    click_count: int = 0
 ACTION_POINT_BOX = {
     0: 0,
     1: 20,
@@ -220,12 +251,16 @@ class ActionPointHandler(UI, MapEventHandler):
         # Обрабатываем превышение верхнего предела
         if total > 3000:
             self.config.override(OpsiGeneral_DoRandomMapEvent=False)
+        return current
 
     def action_point_safe_get(self):
         """
         Безопасно получить информацию об очках действия.
 
         Ожидает полной загрузки всплывающего окна AP и обрабатывает возможные события карты.
+
+        Returns:
+            int | None: AP, распознанные на свежем кадре, либо ``None``.
         """
         timeout = Timer(3, count=6).start()
         for _ in self.loop():
@@ -256,7 +291,7 @@ class ActionPointHandler(UI, MapEventHandler):
                 timeout.reset()
                 continue
 
-            self.action_point_update()
+            current = self.action_point_update()
 
             # Текущих очков действия слишком много — возможно, ошибка OCR
             if self._action_point_current > 600:
@@ -266,7 +301,7 @@ class ActionPointHandler(UI, MapEventHandler):
             # Есть контейнеры очков действия
             if sum(boxes) > 0:
                 if oil > 100:
-                    break
+                    return current
                 else:
                     # [11, 0, 1, 0]
                     continue
@@ -274,7 +309,9 @@ class ActionPointHandler(UI, MapEventHandler):
             # Пока страница загружена не полностью, значение может быть 0 или 1
             # [1, 0, 0, 0]
             if oil > 100:
-                break
+                return current
+
+        return None
 
     @staticmethod
     def action_point_get_cost(zone, pinned):
@@ -355,20 +392,190 @@ class ActionPointHandler(UI, MapEventHandler):
         Pages:
             in: ACTION_POINT_USE
         """
-        current = 0
-        for _ in self.loop(timeout=1):
+        current = self.action_point_get_buy_remain_optional(timeout=1)
+        if current is None:
+            logger.warning('[Операция «Сирена» — очки действия] Истекло время получения остатка доступных покупок очков действия')
+            return 0
+        return current
 
+    def action_point_get_buy_remain_optional(self, timeout=1):
+        """Распознать остаток покупок AP или вернуть ``None`` при неизвестности."""
+
+        for _ in self.loop(timeout=timeout):
             current, _, total = OCR_ACTION_POINT_BUY_REMAIN.ocr(self.device.image)
 
-            # Возможные результаты: 0/5, 05
+            # Возможные результаты: 0/5, 05. Нулевой total означает, что OCR
+            # ещё не увидел окно и не должен превращаться в ложный 0/5.
             if total == 0:
                 continue
+            if not isinstance(current, Integral) or not 0 <= current <= 5:
+                continue
+            return int(current)
+        return None
 
-            break
-        else:
-            logger.warning('[Операция «Сирена» — очки действия] Истекло время получения остатка доступных покупок очков действия')
+    def action_point_buy_emergency_once(
+        self,
+        *,
+        remaining: int | None = None,
+        wait_timeout: float = 5,
+    ):
+        """Выполнить не более одной покупки AP и доказать её постусловие.
 
-        return current
+        Метод намеренно не вызывает ``action_point_buy``: месячный блок,
+        пользовательский лимит и резерв нефти относятся к обычной политике
+        Operation Siren и не должны скрыто влиять на аварийное восстановление
+        комиссии. После клика новый экран только распознаётся; повторного
+        клика в этом методе нет.
+        """
+
+        if not self.action_point_set_button(0):
+            return EmergencyActionPointPurchase(
+                status=EmergencyActionPointPurchaseStatus.UNSAFE,
+            )
+
+        # Перед mutation требуется отдельная свежая граница кадра. AP и Oil
+        # читаются с popup, а не из LogRes/config snapshot или арифметики.
+        self.device.screenshot()
+        ap_before = self.action_point_safe_get()
+        if not isinstance(ap_before, Integral) or isinstance(ap_before, bool) or ap_before < 0:
+            return EmergencyActionPointPurchase(
+                status=EmergencyActionPointPurchaseStatus.UNKNOWN,
+                remaining_before=remaining,
+            )
+        ap_before = int(ap_before)
+
+        # Повторно подтверждаем weekly counter после свежего AP/Oil кадра.
+        # Переданный remaining остаётся Redis-first guard, но не заменяет OCR.
+        observed_before = self.action_point_get_buy_remain_optional(timeout=1)
+        if observed_before is None:
+            return EmergencyActionPointPurchase(
+                status=EmergencyActionPointPurchaseStatus.UNKNOWN,
+                remaining_before=remaining,
+                ap_before=ap_before,
+            )
+        if remaining is not None and observed_before != remaining:
+            return EmergencyActionPointPurchase(
+                status=EmergencyActionPointPurchaseStatus.UNKNOWN,
+                remaining_before=observed_before,
+                ap_before=ap_before,
+            )
+        remaining = observed_before
+        if remaining == 0:
+            return EmergencyActionPointPurchase(
+                status=EmergencyActionPointPurchaseStatus.UNAVAILABLE,
+                remaining_before=remaining,
+                ap_before=ap_before,
+            )
+        cost = ACTION_POINTS_BUY.get(remaining)
+        if cost is None:
+            return EmergencyActionPointPurchase(
+                status=EmergencyActionPointPurchaseStatus.UNKNOWN,
+                remaining_before=remaining,
+                ap_before=ap_before,
+            )
+
+        oil = self._action_point_box[0]
+        if not isinstance(oil, Integral) or isinstance(oil, bool) or oil < 0:
+            return EmergencyActionPointPurchase(
+                status=EmergencyActionPointPurchaseStatus.UNKNOWN,
+                remaining_before=remaining,
+                oil_cost=cost,
+                ap_before=ap_before,
+            )
+        oil = int(oil)
+        if oil < cost:
+            return EmergencyActionPointPurchase(
+                status=EmergencyActionPointPurchaseStatus.INSUFFICIENT_OIL,
+                remaining_before=remaining,
+                oil_cost=cost,
+                oil_before=oil,
+                ap_before=ap_before,
+            )
+        if not self.appear(ACTION_POINT_USE, offset=(20, 20)):
+            return EmergencyActionPointPurchase(
+                status=EmergencyActionPointPurchaseStatus.UNSAFE,
+                remaining_before=remaining,
+                oil_cost=cost,
+                oil_before=oil,
+                ap_before=ap_before,
+            )
+
+        self.device.click(ACTION_POINT_USE)
+        # Ровно один mutation-клик. Все следующие итерации только получают
+        # свежие screenshots и OCR, чтобы исключить повторный цикл кликов.
+        self.device.screenshot()
+        remaining_after = None
+        ap_after = None
+        ap_gain = None
+        oil_after = None
+        for _ in self.loop(timeout=wait_timeout):
+            after = self.action_point_get_buy_remain_optional(timeout=0.25)
+            if after is None:
+                continue
+            remaining_after = after
+            self.device.screenshot()
+            observed_after = self.action_point_safe_get()
+            if (
+                not isinstance(observed_after, Integral)
+                or isinstance(observed_after, bool)
+                or observed_after < 0
+            ):
+                continue
+            ap_after = int(observed_after)
+            after_oil = self._action_point_box[0]
+            if not isinstance(after_oil, Integral) or isinstance(after_oil, bool) or after_oil < 0:
+                continue
+            oil_after = int(after_oil)
+            ap_gain = ap_after - ap_before
+            if (
+                after == remaining - 1
+                and ap_gain == ACTION_POINT_BUY_GAIN
+                and oil_after == oil - cost
+            ):
+                return EmergencyActionPointPurchase(
+                    status=EmergencyActionPointPurchaseStatus.PURCHASED,
+                    remaining_before=remaining,
+                    remaining_after=after,
+                    oil_cost=cost,
+                    oil_before=oil,
+                    oil_after=oil_after,
+                    ap_before=ap_before,
+                    ap_after=ap_after,
+                    ap_gain=ap_gain,
+                    click_count=1,
+                )
+            if (
+                after == remaining
+                and ap_gain == 0
+                and oil_after == oil
+            ):
+                continue
+            if ap_gain > ACTION_POINT_BUY_GAIN or oil_after > oil:
+                return EmergencyActionPointPurchase(
+                    status=EmergencyActionPointPurchaseStatus.FAILED,
+                    remaining_before=remaining,
+                    remaining_after=after,
+                    oil_cost=cost,
+                    oil_before=oil,
+                    oil_after=oil_after,
+                    ap_before=ap_before,
+                    ap_after=ap_after,
+                    ap_gain=ap_gain,
+                    click_count=1,
+                )
+
+        return EmergencyActionPointPurchase(
+            status=EmergencyActionPointPurchaseStatus.UNKNOWN,
+            remaining_before=remaining,
+            remaining_after=remaining_after,
+            oil_cost=cost,
+            oil_before=oil,
+            oil_after=oil_after,
+            ap_before=ap_before,
+            ap_after=ap_after,
+            ap_gain=ap_gain,
+            click_count=1,
+        )
 
     def action_point_buy(self, preserve=1000):
         """
@@ -404,7 +611,7 @@ class ActionPointHandler(UI, MapEventHandler):
             logger.info('[Операция «Сирена» — очки действия] Недостаточно нефти для покупки')
             return False
 
-    def action_point_quit(self):
+    def action_point_quit(self, timeout=None):
         """
         Выйти из всплывающего окна очков действия.
 
@@ -412,19 +619,21 @@ class ActionPointHandler(UI, MapEventHandler):
             in: ACTION_POINT_USE
             out: page_os
         """
-        for _ in self.loop():
+        for _ in self.loop(timeout=timeout):
             # Завершение
             # Иногда у окна очков действия нет чёрного размытого фона
             # ACTION_POINT_CANCEL и OS_CHECK появляются одновременно
             if not self.appear(ACTION_POINT_CANCEL, offset=(20, 20)):
                 if self.appear(OS_CHECK, offset=(20, 20)):
-                    break
+                    return True
             # Нажатие
             if self.appear_then_click(ACTION_POINT_CANCEL, offset=(20, 20), interval=3):
                 continue
             # Обрабатываем обязательные события карты поверх окна очков действия
             if self.handle_map_event():
                 continue
+        logger.warning('[Операция «Сирена» — очки действия] Истекло время закрытия окна очков действия')
+        return False
 
     def handle_action_point(self, zone, pinned, cost=None, keep_current_ap=True, check_rest_ap=False):
         """
@@ -536,7 +745,7 @@ class ActionPointHandler(UI, MapEventHandler):
         logger.warning('[Операция «Сирена» — очки действия] Не удалось получить очки действия за 12 попыток')
         return False
 
-    def action_point_enter(self):
+    def action_point_enter(self, timeout=None):
         """
         Войти во всплывающее окно очков действия.
 
@@ -544,9 +753,9 @@ class ActionPointHandler(UI, MapEventHandler):
             in: OS_CHECK
             out: ACTION_POINT_USE
         """
-        for _ in self.loop():
+        for _ in self.loop(timeout=timeout):
             if self.appear(ACTION_POINT_USE, offset=(20, 20)):
-                break
+                return True
 
             if self.appear(OS_CHECK, offset=(20, 20), interval=3):
                 self.device.click(ACTION_POINT_REMAIN_OS)
@@ -557,6 +766,8 @@ class ActionPointHandler(UI, MapEventHandler):
                 continue
             if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50)):
                 continue
+        logger.warning('[Операция «Сирена» — очки действия] Истекло время открытия окна очков действия')
+        return False
 
     def action_point_set(self, zone=None, pinned=None, cost=None, keep_current_ap=True, check_rest_ap=False):
         """

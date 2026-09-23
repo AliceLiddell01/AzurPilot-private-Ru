@@ -11,6 +11,7 @@ from typing import ClassVar
 
 import pytest
 
+from module.application.commission_recovery import CommissionRecoveryStore
 from module.application.runtime_cache import RuntimeCacheError, RuntimeCacheStatus
 from module.persistence import redis_runtime_cache
 from module.persistence.redis_runtime_cache import (
@@ -314,3 +315,26 @@ def test_runtime_cache_factory_distinguishes_missing_configuration():
         RedisRuntimeCache.from_environment({})
 
     assert error.value.status is RuntimeCacheStatus.NOT_CONFIGURED
+
+
+def test_commission_recovery_uses_physical_application_namespace(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_fake_redis(monkeypatch)
+    cache = RedisRuntimeCache(_settings())
+    store = CommissionRecoveryStore(
+        cache,
+        now=lambda: datetime.now(UTC) + timedelta(days=1),
+    )
+
+    observed = store.record_observation("ap", 4)
+    read_back = store.read("ap")
+
+    assert observed.status == "confirmed"
+    assert read_back.status == "confirmed"
+    assert read_back.remaining == 4
+    assert read_back.used == 1
+    client = _FakeRedis.instances[0]
+    assert client.set_calls[0][0] == "azurpilot:commission/recovery/ap"
+    assert client.set_calls[0][2] == ceil(observed.reset_at.timestamp())
+    store.close()

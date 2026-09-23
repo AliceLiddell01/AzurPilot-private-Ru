@@ -2139,6 +2139,21 @@ class SmokeCapabilityRegistry:
             return CapabilityEvaluation(SmokeAssertionStatus.UNAVAILABLE, "runtime_state", "Типизированный оценщик не смог обработать assertion", (_ref("runtime_state", "assertion", "Проверка typed assertion"),))
 
 
+def smoke_capabilities_result(
+    registry: SmokeCapabilityRegistry | None = None,
+) -> DevResult:
+    """Вернуть каталог Smoke без разрешения target или создания runtime state."""
+
+    capabilities = registry or SmokeCapabilityRegistry()
+    return DevResult(
+        ok=True,
+        code="DEV_SMOKE_CAPABILITIES_READY",
+        message="Реестр возможностей Smoke готов",
+        state=SmokeState.CREATED.value,
+        details={"capabilities": [_safe_model_json(item) for item in capabilities.descriptors()]},
+    )
+
+
 class SmokeSupervisorBackend:
     """Только фиксированный запуск независимого supervisor через Python проекта."""
 
@@ -2251,6 +2266,26 @@ class _RuntimeObservation:
     source: SmokeSourceSnapshot
     evidence_ok: bool
     evidence_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _GameEvidenceContract:
+    """Ожидаемый и фактически подтверждённый game evidence одного SmokeRun."""
+
+    expected: frozenset[tuple[str, str]]
+    intermediate: frozenset[tuple[str, str]]
+    captured: frozenset[tuple[str, str]]
+    known: frozenset[tuple[str, str]]
+    pending: frozenset[tuple[str, str]]
+    intermediate_pending: frozenset[tuple[str, str]]
+
+    @property
+    def complete(self) -> bool:
+        return not self.pending
+
+    @property
+    def intermediate_complete(self) -> bool:
+        return not self.intermediate_pending
 
 
 class SmokeStateStore:
@@ -2728,6 +2763,68 @@ class SmokeValidationIssue(_StrictModel):
         return _text(value, field_name="validation.message", maximum=SMOKE_MAX_RESULT_TEXT)
 
 
+def _commission_recovery_preflight(
+    profile: str,
+) -> tuple[dict[str, object], SmokeValidationIssue | None]:
+    """Проверить Redis authority Commission до запуска root task."""
+
+    details: dict[str, object] = {"profile": profile}
+    try:
+        # Dev MCP работает отдельным process от WebUI, поэтому read-only
+        # preflight собирает тот же production composition root без health
+        # запроса PostgreSQL и не создаёт Redis client до store.read().
+        from module.persistence.runtime import bootstrap_runtime_storage
+
+        bootstrap_runtime_storage(require_ready=False)
+        from module.application.commission_recovery import CommissionRecoveryStore
+
+        store = CommissionRecoveryStore.from_environment()
+        try:
+            state = store.read(profile)
+        finally:
+            store.close()
+    except Exception as exc:  # noqa: BLE001 - preflight обязан завершаться fail-closed
+        details.update(
+            {
+                "status": "unavailable",
+                "cache_status": "UNKNOWN",
+                "error": type(exc).__name__,
+            }
+        )
+        return (
+            details,
+            SmokeValidationIssue(
+                code="DEV_SMOKE_COMMISSION_RECOVERY_PRECONDITION_FAILED",
+                message="SmokeRun Commission заблокирован: recovery authority недоступна",
+            ),
+        )
+
+    details.update(
+        {
+            "status": state.status,
+            "cache_status": state.cache_status,
+            "remaining": state.remaining,
+        }
+    )
+    if state.cache_status != "READY":
+        return (
+            details,
+            SmokeValidationIssue(
+                code="DEV_SMOKE_COMMISSION_RECOVERY_CACHE_NOT_READY",
+                message="SmokeRun Commission заблокирован: RuntimeCache не READY",
+            ),
+        )
+    if state.status not in {"unknown", "confirmed"}:
+        return (
+            details,
+            SmokeValidationIssue(
+                code="DEV_SMOKE_COMMISSION_RECOVERY_STATE_INVALID",
+                message="SmokeRun Commission заблокирован: recovery state не подтверждён",
+            ),
+        )
+    return details, None
+
+
 class SmokeRunManager:
     """Постоянная оркестрация SmokeRun через существующие API Dev Runtime."""
 
@@ -2839,13 +2936,7 @@ class SmokeRunManager:
         return DevResult(ok, code, message, state, session_id, payload)
 
     def list_capabilities(self) -> DevResult:
-        return self._result(
-            ok=True,
-            code="DEV_SMOKE_CAPABILITIES_READY",
-            message="Реестр возможностей Smoke готов",
-            state=SmokeState.CREATED.value,
-            details={"capabilities": [_safe_model_json(item) for item in self.capabilities.descriptors()]},
-        )
+        return smoke_capabilities_result(self.capabilities)
 
     @staticmethod
     def _spec_from_input(spec: object) -> SmokeSpec:
@@ -2858,11 +2949,14 @@ class SmokeRunManager:
         spec: SmokeSpec | None,
         source: SmokeSourceSnapshot | None,
         issues: Sequence[SmokeValidationIssue],
+        preconditions: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         details: dict[str, object] = {
             "valid": not issues,
             "issues": [_safe_model_json(item) for item in issues],
         }
+        if preconditions:
+            details["preconditions"] = dict(preconditions)
         if spec is not None:
             details["spec_hash"] = spec.spec_hash()
             details["scope"] = {
@@ -2891,12 +2985,28 @@ class SmokeRunManager:
         raw_spec: object,
         *,
         check_runtime_conflict: bool,
-    ) -> tuple[SmokeSpec | None, SmokeSourceSnapshot | None, list[SmokeValidationIssue]]:
+    ) -> tuple[
+        SmokeSpec | None,
+        SmokeSourceSnapshot | None,
+        list[SmokeValidationIssue],
+        dict[str, object],
+    ]:
         issues: list[SmokeValidationIssue] = []
+        preconditions: dict[str, object] = {}
         try:
             spec = self._spec_from_input(raw_spec)
         except (TypeError, ValueError, ValidationError):
-            return None, None, [SmokeValidationIssue(code="DEV_SMOKE_SPEC_INVALID", message="SmokeSpec не прошёл строгую проверку")]
+            return (
+                None,
+                None,
+                [
+                    SmokeValidationIssue(
+                        code="DEV_SMOKE_SPEC_INVALID",
+                        message="SmokeSpec не прошёл строгую проверку",
+                    )
+                ],
+                preconditions,
+            )
         try:
             self.capabilities.validate_spec(spec)
             if spec.game_observations is not None:
@@ -2939,6 +3049,13 @@ class SmokeRunManager:
             for assertion in spec.assertions:
                 if isinstance(assertion, (ConfigValueAssertion, ConfigRestoredAssertion)):
                     registry.leaf(assertion.path)
+            if "Commission" in spec.session.root_tasks:
+                commission_preflight, commission_issue = _commission_recovery_preflight(
+                    self.environment.profile_name
+                )
+                preconditions["commission_recovery"] = commission_preflight
+                if commission_issue is not None:
+                    issues.append(commission_issue)
         except SmokeStoreError as exc:
             issues.append(SmokeValidationIssue(code=exc.code, message=str(exc)))
         except GameObservationError as exc:
@@ -2981,24 +3098,37 @@ class SmokeRunManager:
                     issues.append(SmokeValidationIssue(code="DEV_SMOKE_RUNTIME_STALE", message="Сначала требуется явное безопасное восстановление DevSession"))
         except Exception as exc:  # noqa: BLE001 — граница предварительной проверки скрывает детали реализации
             issues.append(SmokeValidationIssue(code="DEV_SMOKE_RUNTIME_UNAVAILABLE", message=f"Предварительные условия Dev Runtime недоступны: {type(exc).__name__}"))
-        return spec, source, issues
+        return spec, source, issues, preconditions
 
     def validate_smoke(self, spec: object) -> DevResult:
-        parsed, source, issues = self._validate_spec_and_preconditions(spec, check_runtime_conflict=True)
+        parsed, source, issues, preconditions = self._validate_spec_and_preconditions(
+            spec,
+            check_runtime_conflict=True,
+        )
         if parsed is None:
             return self._result(
                 ok=False,
                 code="DEV_SMOKE_VALIDATION_FAILED",
                 message="SmokeSpec отклонён строгой проверкой",
                 state=SmokeState.FINISHED.value,
-                details=self._validation_details(parsed, source, issues),
+                details=self._validation_details(
+                    parsed,
+                    source,
+                    issues,
+                    preconditions,
+                ),
             )
         return self._result(
             ok=not issues,
             code="DEV_SMOKE_VALID" if not issues else "DEV_SMOKE_VALIDATION_FAILED",
             message="SmokeSpec прошёл предварительную проверку условий" if not issues else "SmokeSpec не прошёл предварительную проверку условий",
             state=SmokeState.CREATED.value if not issues else SmokeState.FINISHED.value,
-            details=self._validation_details(parsed, source, issues),
+            details=self._validation_details(
+                parsed,
+                source,
+                issues,
+                preconditions,
+            ),
         )
 
     def _active_record(self) -> SmokeRunRecord | None:
@@ -3064,14 +3194,22 @@ class SmokeRunManager:
         return None
 
     def start_smoke(self, spec: object) -> DevResult:
-        parsed, source, issues = self._validate_spec_and_preconditions(spec, check_runtime_conflict=True)
+        parsed, source, issues, preconditions = self._validate_spec_and_preconditions(
+            spec,
+            check_runtime_conflict=True,
+        )
         if parsed is None or source is None or issues:
             return self._result(
                 ok=False,
                 code="DEV_SMOKE_PRECONDITION_FAILED",
                 message="SmokeRun не создан: предварительная проверка условий не пройдена",
                 state=SmokeState.FINISHED.value,
-                details=self._validation_details(parsed, source, issues),
+                details=self._validation_details(
+                    parsed,
+                    source,
+                    issues,
+                    preconditions,
+                ),
             )
         try:
             with runtime_coordination_lock(self.environment):
@@ -3434,6 +3572,74 @@ class SmokeRunManager:
             for snapshot in observations[:SMOKE_MAX_EVIDENCE_REFS]
         ]
 
+    @staticmethod
+    def _game_expected_keys(
+        spec: SmokeSpec,
+    ) -> tuple[frozenset[tuple[str, str]], frozenset[tuple[str, str]]]:
+        game_spec = spec.game_observations
+        if game_spec is None:
+            return frozenset(), frozenset()
+        automatic = {
+            (checkpoint_id, request.capability_id)
+            for checkpoint_id in ("before", "final")
+            for request in game_spec.observations
+        }
+        intermediate = {
+            (checkpoint.checkpoint_id, request.capability_id)
+            for checkpoint in game_spec.checkpoints
+            for request in checkpoint.observations
+        }
+        return frozenset((*automatic, *intermediate)), frozenset(intermediate)
+
+    def _game_evidence_contract(
+        self,
+        record: SmokeRunRecord,
+        spec: SmokeSpec,
+    ) -> _GameEvidenceContract:
+        expected, intermediate = self._game_expected_keys(spec)
+        if not expected:
+            return _GameEvidenceContract(
+                expected=frozenset(),
+                intermediate=frozenset(),
+                captured=frozenset(),
+                known=frozenset(),
+                pending=frozenset(),
+                intermediate_pending=frozenset(),
+            )
+        try:
+            items = GameObservationStore(self.environment, record.smoke_id).read()
+        except GameObservationError:
+            captured = frozenset()
+            known = frozenset()
+        else:
+            if record.target_profile is None or record.target_identity is None:
+                captured = frozenset()
+                known = frozenset()
+            else:
+                captured = frozenset(
+                    (item.checkpoint_id, item.capability_id)
+                    for item in items
+                    if item.profile_name == record.target_profile
+                    and item.target_identity == record.target_identity
+                    and item.session_id == record.session_id
+                )
+                known = frozenset(
+                    (item.checkpoint_id, item.capability_id)
+                    for item in items
+                    if item.profile_name == record.target_profile
+                    and item.target_identity == record.target_identity
+                    and item.session_id == record.session_id
+                    and item.status.value == "known"
+                )
+        return _GameEvidenceContract(
+            expected=expected,
+            intermediate=intermediate,
+            captured=captured,
+            known=known,
+            pending=expected - known,
+            intermediate_pending=intermediate - captured,
+        )
+
     def _capture_game_checkpoint(
         self,
         record: SmokeRunRecord,
@@ -3563,7 +3769,7 @@ class SmokeRunManager:
             )
         except SmokeStoreError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — граница provider завершается fail-closed.
             return (
                 False,
                 {
@@ -3583,35 +3789,7 @@ class SmokeRunManager:
         record: SmokeRunRecord,
         spec: SmokeSpec,
     ) -> bool:
-        if spec.game_observations is None:
-            return True
-        try:
-            items = GameObservationStore(self.environment, record.smoke_id).read()
-        except GameObservationError:
-            return False
-        expected = {
-            (checkpoint_id, request.capability_id)
-            for checkpoint_id in ("before", "final")
-            for request in spec.game_observations.observations
-        }
-        expected.update(
-            (checkpoint.checkpoint_id, request.capability_id)
-            for checkpoint in spec.game_observations.checkpoints
-            for request in checkpoint.observations
-        )
-        if record.target_profile is None or record.target_identity is None:
-            return False
-        target_profile = record.target_profile
-        target_id = record.target_identity
-        actual = {
-            (item.checkpoint_id, item.capability_id)
-            for item in items
-            if item.profile_name == target_profile
-            and item.target_identity == target_id
-            and item.session_id == record.session_id
-            and item.status.value == "known"
-        }
-        return expected.issubset(actual)
+        return self._game_evidence_contract(record, spec).complete
 
     def capture_game_checkpoint(self, smoke_id: str, checkpoint_id: str) -> DevResult:
         try:
@@ -3966,8 +4144,13 @@ class SmokeRunManager:
                 not item.required or item.status is SmokeAssertionStatus.PASS
                 for item in previous_results
             )
-            if deterministic_done and (not spec.visual_assertions or pending_visual is not None):
-                break
+            if deterministic_done:
+                game_contract = self._game_evidence_contract(record, spec)
+                if (
+                    game_contract.intermediate_complete
+                    and (not spec.visual_assertions or pending_visual is not None)
+                ):
+                    break
             now_value = datetime.fromisoformat(_timestamp_now(self.now))
             deadline = datetime.fromisoformat(record.deadline_at)
             if now_value >= deadline:
@@ -4559,4 +4742,5 @@ __all__ = [
     "TaskNotStartedAssertion",
     "TaskStartedAssertion",
     "VisualCaptureCondition",
+    "smoke_capabilities_result",
 ]

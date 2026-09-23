@@ -1,6 +1,4 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
-
 
 import asyncio
 import base64
@@ -9,6 +7,7 @@ import os
 import shutil
 import struct
 import zlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -52,6 +51,7 @@ from module.application import (
     InstanceStatus,
     LifecycleOutcome,
     LifecycleResult,
+    LiveResourceObservation,
     MediaFrame,
     MoraleFleetState,
     MoraleKnowledge,
@@ -114,6 +114,7 @@ from module.game_mcp.server import (
     create_server,
     tool_definitions,
 )
+from tests.support.paths import REPOSITORY_ROOT
 
 pytestmark = pytest.mark.xdist_group("game_runtime")
 
@@ -254,7 +255,35 @@ class _Read:
     def get_resources(self, profile: str) -> DashboardResources:
         self.profiles.append(profile)
         return DashboardResources(
-            (DashboardResource("Oil", "Нефть", 10 if profile == "alpha" else 20),)
+            (
+                DashboardResource(
+                    "Oil",
+                    "Нефть",
+                    10 if profile == "alpha" else 20,
+                    limit=17050,
+                    last_update=datetime(2026, 9, 11, 18, 48, 53, tzinfo=UTC),
+                ),
+            )
+        )
+
+    def get_live_resources(self, profile: str) -> LiveResourceObservation:
+        self.profiles.append(profile)
+        return LiveResourceObservation(
+            profile,
+            DashboardResources(
+                (
+                    DashboardResource(
+                        "Oil",
+                        "Нефть",
+                        25000,
+                        limit=17050,
+                        last_update=None,
+                    ),
+                )
+            ),
+            datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+            current_state_authority=True,
+            source="live_test_screen",
         )
 
     def get_current_running_task(self, profile: str) -> CurrentTaskSnapshot:
@@ -541,7 +570,13 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         "game_get_contract": {"contract", "request_context", "tool"},
         "game_list_profiles": {"profiles", "tool"},
         "game_get_profile_status": {"profile", "running", "state", "tool"},
-        "game_get_resources": {"profile", "resources", "tool"},
+        "game_get_resources": {
+            "mode",
+            "profile",
+            "resource_provenance",
+            "resources",
+            "tool",
+        },
         "game_get_current_task": {"profile", "task", "tool"},
         "game_get_scheduler_queue": {"entries", "profile", "tool"},
         "game_list_tasks": {"tasks", "tool"},
@@ -1165,6 +1200,80 @@ def test_adapter_is_stateless_and_profile_reads_are_isolated() -> None:
         == "beta"
     )
     assert backend.fleet_state.calls == [("beta", (2,))]
+
+
+def test_resource_provenance_separates_dashboard_snapshot_from_live_observation() -> None:
+    adapter = GameMcpAdapter(lambda: _backend())
+
+    snapshot = adapter.call("game_get_resources", {"profile": "alpha"})
+    snapshot_details = snapshot["details"]
+    assert snapshot_details["mode"] == "dashboard_snapshot"
+    assert snapshot_details["resource_provenance"] == {
+        "source": "dashboard_snapshot",
+        "freshness": "snapshot_time_only",
+        "observed_at": None,
+        "current_state_authority": False,
+    }
+    assert snapshot_details["resources"][0]["last_update"] == (
+        "2026-09-11T18:48:53+00:00"
+    )
+
+    current = adapter.call(
+        "game_get_resources",
+        {"profile": "alpha", "mode": "live_current"},
+    )
+    current_details = current["details"]
+    assert current_details["mode"] == "live_current"
+    assert current_details["resource_provenance"] == {
+        "source": "live_test_screen",
+        "freshness": "current_observation",
+        "observed_at": "2026-09-21T12:00:00+00:00",
+        "current_state_authority": True,
+    }
+    oil = current_details["resources"][0]
+    assert oil["value"] == 25000
+    assert oil["limit"] == 17050
+    assert "last_update" not in oil
+
+
+def test_live_resource_authority_is_not_inferred_from_dataclass_type() -> None:
+    backend = _backend()
+    original_reader = backend.read.get_live_resources
+
+    def unverified_reader(profile: str) -> LiveResourceObservation:
+        return replace(
+            original_reader(profile),
+            current_state_authority=False,
+        )
+
+    backend.read.get_live_resources = unverified_reader
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_get_resources",
+        {"profile": "alpha", "mode": "live_current"},
+    )
+
+    assert result["code"] == "GAME_SERVICE_UNAVAILABLE"
+
+
+def test_resource_mode_is_validated_as_a_strict_optional_selector() -> None:
+    adapter = GameMcpAdapter(lambda: _backend())
+    for mode in ("unknown", 1, True):
+        result = adapter.call(
+            "game_get_resources", {"profile": "alpha", "mode": mode}
+        )
+        assert result["code"] == "GAME_MCP_INVALID_REQUEST"
+
+    schema = next(
+        tool.input_schema
+        for tool in tool_definitions()
+        if tool.name == "game_get_resources"
+    )
+    assert Draft202012Validator(schema).is_valid(
+        {"profile": "alpha", "mode": "live_current"}
+    )
+    assert not Draft202012Validator(schema).is_valid(
+        {"profile": "alpha", "mode": "unknown"}
+    )
 
 
 def test_adapter_does_not_hold_lifecycle_lock_during_dispatch() -> None:

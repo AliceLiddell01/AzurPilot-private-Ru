@@ -93,7 +93,7 @@ async def _remote_probe(name: str) -> dict[str, object]:
 
 def _patch_ready_collectors(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        status, "_git_source_snapshot", lambda _root: ("a" * 40, "clean")
+        status, "git_source_snapshot", lambda _root: ("a" * 40, "clean")
     )
     monkeypatch.setattr(
         status,
@@ -277,7 +277,7 @@ def test_first_party_source_registration_remains_readable():
 
 def test_child_environment_does_not_inherit_unknown_secret(monkeypatch):
     monkeypatch.setenv("AZURPILOT_TEST_SECRET", "not-for-child")
-    environment = status._child_environment("a" * 40)
+    environment = status.child_environment("a" * 40)
 
     assert environment["AZURPILOT_SOURCE_REVISION"] == "a" * 40
     assert "AZURPILOT_TEST_SECRET" not in environment

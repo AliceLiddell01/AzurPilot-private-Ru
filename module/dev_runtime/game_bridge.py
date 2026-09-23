@@ -551,13 +551,16 @@ class GameObservationRegistry:
 
 
 class ResourcesObservationProvider:
-    """Provider поверх текущего GameReadService, без чтения config напрямую."""
+    """Провайдер snapshot-ресурсов без stale AP в current evidence."""
 
     def __init__(self, service_factory: Callable[[], GameReadService]) -> None:
         self._service_factory = service_factory
         self._capability = GameObservationCapability(
             capability_id="resources",
-            description="Текущая типизированная projection ресурсов dashboard для назначенного target",
+            description=(
+                "Snapshot ресурсов dashboard для target; "
+                "ActionPoint из snapshot не является свежим доказательством состояния"
+            ),
             source="application.game_read_service",
         )
 
@@ -588,6 +591,7 @@ class ResourcesObservationProvider:
                     "last_update": thaw_payload(item.last_update),
                 }
                 for item in resources.items
+                if item.key.casefold().replace("_", "") != "actionpoint"
             ]
         }
         return GameObservationCapture(
@@ -596,7 +600,8 @@ class ResourcesObservationProvider:
             provenance={
                 "capability_id": self.capability.capability_id,
                 "owner": "GameReadService",
-                "freshness": "source_read",
+                "freshness": "snapshot_time_only",
+                "omitted_snapshot_fields": ("ActionPoint",),
             },
             payload=payload,
         )

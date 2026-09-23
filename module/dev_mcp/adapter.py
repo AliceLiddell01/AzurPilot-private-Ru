@@ -24,7 +24,7 @@ from module.dev_mcp.contract import DEV_MCP_REQUIRED_SCOPE, contract_result
 from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
-from module.dev_runtime.smoke import SmokeSpec
+from module.dev_runtime.smoke import SmokeSpec, smoke_capabilities_result
 from module.dev_runtime.target import DevTargetError, DevTargetRegistry
 from module.dev_runtime.task_sandbox import TaskSandboxError
 from module.mcp_shared.auth import current_access_token, current_transport
@@ -200,6 +200,7 @@ _SAFE_DETAIL_KEYS = frozenset(
         "phase",
         "cleanup_required",
         "cleanup_summary",
+        "preconditions",
         "created_at",
         "started_at",
         "stopped_at",
@@ -447,6 +448,10 @@ _SAFE_TASK_PLAN_KEYS = frozenset(
     {"root_tasks", "excluded_tasks", "catalog"}
 )
 _SAFE_ERROR_KEYS = frozenset({"type", "code", "message", "field", "tasks"})
+_SAFE_PRECONDITIONS_KEYS = frozenset({"commission_recovery"})
+_SAFE_COMMISSION_RECOVERY_KEYS = frozenset(
+    {"profile", "status", "cache_status", "remaining", "error"}
+)
 _SAFE_HANDOVER_KEYS = frozenset(
     {"ok", "code", "message", "profile", "operation_id", "phases", "details"}
 )
@@ -623,7 +628,14 @@ _SAFE_GAME_CAPABILITY_KEYS = frozenset(
     {"capability_id", "kind", "description", "source", "parameters"}
 )
 _SAFE_GAME_PROVENANCE_KEYS = frozenset(
-    {"capability_id", "owner", "freshness", "reason_code", "reason_type"}
+    {
+        "capability_id",
+        "owner",
+        "freshness",
+        "reason_code",
+        "reason_type",
+        "omitted_snapshot_fields",
+    }
 )
 _SAFE_GAME_RESOURCE_KEYS = frozenset(
     {"key", "label", "value", "limit", "total", "last_update"}
@@ -772,6 +784,8 @@ _SCHEMA_KEYS = {
     "task_catalog": _SAFE_TASK_CATALOG_KEYS,
     "task_plan": _SAFE_TASK_PLAN_KEYS,
     "error": _SAFE_ERROR_KEYS,
+    "preconditions": _SAFE_PRECONDITIONS_KEYS,
+    "commission_recovery": _SAFE_COMMISSION_RECOVERY_KEYS,
     "evidence_summary": _SAFE_EVIDENCE_SUMMARY_KEYS,
     "evidence_health": _SAFE_EVIDENCE_HEALTH_KEYS,
     "startup_failure": _SAFE_STARTUP_FAILURE_KEYS,
@@ -898,6 +912,7 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "policy_state": "string",
     "port": "int",
     "preflight": "result",
+    "preconditions": "preconditions",
     "preserve_task_state": "bool",
     "preserved_task_state": "bool",
     "present": "bool",
@@ -1420,6 +1435,7 @@ _GAME_PROVENANCE_CHILD_SCHEMAS: dict[str, str | None] = {
     "freshness": "string",
     "reason_code": "string",
     "reason_type": "string",
+    "omitted_snapshot_fields": "string_list",
 }
 _GAME_RESOURCE_CHILD_SCHEMAS: dict[str, str | None] = {
     "key": "string",
@@ -1541,6 +1557,14 @@ _SCHEMA_CHILD_SCHEMAS = {
     "task_catalog": _TASK_CATALOG_CHILD_SCHEMAS,
     "task_plan": _TASK_PLAN_CHILD_SCHEMAS,
     "error": _ERROR_CHILD_SCHEMAS,
+    "preconditions": {"commission_recovery": "commission_recovery"},
+    "commission_recovery": {
+        "profile": "string",
+        "status": "string",
+        "cache_status": "string",
+        "remaining": "int",
+        "error": "string",
+    },
     "startup_failure": _STARTUP_FAILURE_CHILD_SCHEMAS,
     "handover": _HANDOVER_CHILD_SCHEMAS,
     "handover_details": _HANDOVER_DETAILS_CHILD_SCHEMAS,
@@ -2287,6 +2311,11 @@ class DevMcpAdapter:
             return _input_error(tool_name)
         if tool_name == "dev_get_contract":
             return serialize_dev_result(contract_result(request_context=_request_context()))
+        if tool_name == "dev_list_smoke_capabilities" and self._uses_default_manager:
+            # Каталог декларативных Smoke capability не зависит от target. Не
+            # создаём DevSessionManager только для этого read-only probe: в
+            # чистом CI checkout пользовательский config/ap.json отсутствует.
+            return serialize_dev_result(smoke_capabilities_result())
 
         self._manager_lock.acquire()
         redirect_stack = ExitStack()

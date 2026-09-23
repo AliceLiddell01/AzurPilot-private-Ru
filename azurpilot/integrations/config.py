@@ -27,6 +27,16 @@ _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS: dict[str, str] = {
     "grafana": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
     "docker-hub": "DOCKERHUB_PAT",
 }
+def _native_coderabbit_name(host_os: str | None = None) -> str | None:
+    """Вернуть допустимое имя host-native provider для указанной host OS."""
+
+    # Импортируем лениво: coderabbit.py владеет native platform/name mapping и
+    # импортирует IntegrationConfig из этого модуля.
+    from .coderabbit import host_platform, provider_name
+
+    if host_platform(host_os) == "unsupported":
+        return None
+    return provider_name(host_os)
 
 # Это vendor defaults, а не credentials или machine identity. Image refs
 # намеренно immutable; изменять их можно только через явную конфигурацию.
@@ -64,7 +74,7 @@ DEFAULTS: dict[str, dict[str, object]] = {
         "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["docker-hub"],
         "username_env": "DOCKERHUB_USERNAME",
     },
-    "coderabbit": {"route": "direct_wsl_agent"},
+    "coderabbit": {"route": "direct_native_agent"},
 }
 
 REPOSITORY_MCP_ALIASES = {
@@ -76,6 +86,17 @@ REPOSITORY_MCP_ALIASES = {
     "grafana_direct": "grafana",
 }
 
+GRAFANA_STDIO_LAUNCHER_COMMAND = "uv"
+GRAFANA_STDIO_LAUNCHER_ARGS = (
+    "run",
+    "--locked",
+    "--no-sync",
+    "python",
+    "-m",
+    "azurpilot.integrations.grafana_stdio",
+)
+GRAFANA_STDIO_LAUNCHER_CWD = "."
+
 _REPOSITORY_FIXED_VALUES: dict[str, dict[str, str]] = {
     "semgrep": {"command": "semgrep"},
     "context7": {
@@ -83,11 +104,6 @@ _REPOSITORY_FIXED_VALUES: dict[str, dict[str, str]] = {
         "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["context7"],
     },
     "docker-docs": {"endpoint": "https://mcp-docs.docker.com/mcp"},
-    "grafana": {
-        "command": "docker",
-        "image": str(DEFAULTS["grafana"]["image"]),
-        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["grafana"],
-    },
     "docker-hub": {
         "command": "docker",
         "image": str(DEFAULTS["docker-hub"]["image"]),
@@ -97,8 +113,6 @@ _REPOSITORY_FIXED_VALUES: dict[str, dict[str, str]] = {
 
 _ENV_OVERRIDES = {
     "coderabbit": {
-        "wsl_distribution": "AZURPILOT_CODERABBIT_WSL_DISTRIBUTION",
-        "review_clone": "AZURPILOT_CODERABBIT_REVIEW_CLONE",
         "executable": "AZURPILOT_CODERABBIT_EXECUTABLE",
     },
     "grafana": {
@@ -221,6 +235,14 @@ def _provider_table(document: dict[str, Any]) -> dict[str, dict[str, object]]:
             continue
         if not isinstance(raw_values, dict):
             _raise(f"Секция интеграции {normalized} должна быть отображением.")
+        if normalized == "coderabbit" and any(
+            key in raw_values
+            for key in ("wsl_distribution", "review_clone", "command")
+        ):
+            _raise(
+                "Legacy CodeRabbit host settings больше не поддерживаются; "
+                "используйте native executable override."
+            )
         result[normalized] = dict(raw_values)
     return result
 
@@ -237,6 +259,31 @@ def _repo_mcp_table(root: Path) -> dict[str, dict[str, object]]:
     for raw_name, raw_values in servers.items():
         name = REPOSITORY_MCP_ALIASES.get(str(raw_name))
         if name is None or not isinstance(raw_values, dict):
+            continue
+        if name == "grafana":
+            launcher_args = raw_values.get("args")
+            if (
+                raw_values.get("command") != GRAFANA_STDIO_LAUNCHER_COMMAND
+                or not isinstance(launcher_args, list)
+                or tuple(launcher_args) != GRAFANA_STDIO_LAUNCHER_ARGS
+                or raw_values.get("cwd") != GRAFANA_STDIO_LAUNCHER_CWD
+                or any(
+                    key in raw_values
+                    for key in (
+                        "url",
+                        "image",
+                        "credential_env_var",
+                        "bearer_token_env_var",
+                    )
+                )
+            ):
+                _raise(
+                    "Регистрация grafana в repository config должна использовать "
+                    "штатный repository-owned stdio launcher без route overrides."
+                )
+            # Registration запускает только launcher. Provider command, immutable
+            # image, endpoint, network и read-only flags принадлежат adapter.
+            result[name] = {}
             continue
         values: dict[str, object] = {}
         for key in (
@@ -279,16 +326,21 @@ def _repo_mcp_table(root: Path) -> dict[str, dict[str, object]]:
     return result
 
 
-def _validate_value(name: str, key: str, value: object) -> object:
+def _validate_value(
+    name: str,
+    key: str,
+    value: object,
+    *,
+    host_os: str | None = None,
+) -> object:
     if key in {
         "endpoint",
         "image",
         "command",
         "route",
+        "transport",
         "credential_env",
         "username_env",
-        "wsl_distribution",
-        "review_clone",
         "executable",
     }:
         if not isinstance(value, str) or not value.strip() or len(value.strip()) > 1024:
@@ -315,12 +367,25 @@ def _validate_value(name: str, key: str, value: object) -> object:
     if key == "executable":
         if not isinstance(value, str):
             _raise(f"Параметр {name}.executable имеет неверный тип.")
-        if "\x00" in value or "\\" in value or (
-            value.startswith("/") and ".." in Path(value).parts
-        ):
+        path = Path(value)
+        if "\x00" in value or ".." in path.parts:
             _raise(f"Параметр {name}.executable имеет небезопасный путь.")
-        if not value.startswith("/") and _IDENTIFIER_RE.fullmatch(value) is None:
+        if path.suffix.casefold() in {".cmd", ".bat", ".ps1"}:
+            _raise(f"Параметр {name}.executable не должен быть shell wrapper.")
+        if not path.is_absolute() and _IDENTIFIER_RE.fullmatch(value) is None:
             _raise(f"Параметр {name}.executable имеет неверное имя.")
+        if name == "coderabbit":
+            expected_name = _native_coderabbit_name(host_os)
+            if expected_name is None:
+                _raise("Текущая host OS не поддерживает host-native provider CodeRabbit.")
+            if path.name.casefold() != expected_name:
+                _raise(
+                    f"Параметр {name}.executable не является исполняемым файлом host-native CodeRabbit для текущей host OS."
+                )
+    if name == "coderabbit" and key == "route" and value != "direct_native_agent":
+        _raise("Параметр coderabbit.route должен использовать direct_native_agent.")
+    if name == "coderabbit" and key == "transport" and value != "native_process":
+        _raise("Параметр coderabbit.transport должен использовать native_process.")
     if key == "credential_file":
         if not isinstance(value, str):
             _raise(f"Параметр {name}.credential_file имеет неверный тип.")
@@ -389,12 +454,21 @@ def load_integration_config(root: Path) -> IntegrationConfig:
                 sources[name] = "environment"
 
     normalized: dict[str, dict[str, object]] = {}
+    host_os = os.name
     for name in DEFAULTS:
         merged = values.get(name, {})
         normalized[name] = {
-            key: _validate_value(name, key, value) for key, value in merged.items()
+            key: _validate_value(name, key, value, host_os=host_os)
+            for key, value in merged.items()
         }
     return IntegrationConfig(normalized, sources)
 
 
-__all__ = ["DEFAULTS", "IntegrationConfig", "load_integration_config"]
+__all__ = [
+    "DEFAULTS",
+    "GRAFANA_STDIO_LAUNCHER_ARGS",
+    "GRAFANA_STDIO_LAUNCHER_COMMAND",
+    "GRAFANA_STDIO_LAUNCHER_CWD",
+    "IntegrationConfig",
+    "load_integration_config",
+]

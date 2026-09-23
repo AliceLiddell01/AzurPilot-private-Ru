@@ -202,6 +202,20 @@ def test_contract_is_static_safe_and_does_not_construct_runtime_manager() -> Non
     assert manager.calls == []
 
 
+def test_default_adapter_lists_smoke_capabilities_without_runtime_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "module.dev_mcp.adapter._default_manager",
+        lambda: pytest.fail("target-neutral capability listing must not create a runtime manager"),
+    )
+
+    result = DevMcpAdapter().call("dev_list_smoke_capabilities", {})
+
+    assert result["ok"] is True
+    assert result["code"] == "DEV_SMOKE_CAPABILITIES_READY"
+
+
 def test_adapter_serializes_task_sandbox_error_from_manager() -> None:
     result = DevMcpAdapter(lambda: _TaskSandboxErrorManager()).call("dev_status", {})
 
@@ -259,6 +273,30 @@ def test_adapter_serializes_mixed_game_and_smoke_capabilities_by_item_schema() -
         "available": True,
         "description": "Состояние задачи",
     }
+
+
+def test_adapter_preserves_omitted_game_snapshot_fields_in_provenance() -> None:
+    result = serialize_dev_result(
+        DevResult(
+            ok=True,
+            code="DEV_GAME_OBSERVATION_READY",
+            message="Наблюдение готово",
+            state="known",
+            details={
+                "observation": {
+                    "status": "known",
+                    "provenance": {
+                        "owner": "tests",
+                        "omitted_snapshot_fields": ["ActionPoint"],
+                    },
+                }
+            },
+        )
+    )
+
+    assert result["details"]["observation"]["provenance"]["omitted_snapshot_fields"] == [
+        "ActionPoint"
+    ]
 
 
 def test_adapter_rebinds_manager_when_registry_target_changes(tmp_path: Path) -> None:
@@ -654,6 +692,37 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
     assert "apiKey" not in result["details"]
     assert "x-api-key" not in result["details"]
     assert "unexpected" not in result
+
+
+def test_serializer_preserves_commission_recovery_precondition_projection() -> None:
+    result = serialize_dev_result(
+        {
+            "ok": False,
+            "code": "DEV_SMOKE_PRECONDITION_FAILED",
+            "message": "SmokeRun заблокирован",
+            "state": "finished",
+            "details": {
+                "preconditions": {
+                    "commission_recovery": {
+                        "profile": "ap",
+                        "status": "unknown",
+                        "cache_status": "READY",
+                        "remaining": None,
+                        "error": None,
+                    }
+                }
+            },
+        }
+    )
+
+    assert result["details"]["preconditions"]["commission_recovery"] == {
+        "profile": "ap",
+        "status": "unknown",
+        "cache_status": "READY",
+        "remaining": None,
+        "error": None,
+    }
+
 
 def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
     result = serialize_dev_result(

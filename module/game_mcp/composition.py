@@ -16,6 +16,7 @@ from module.application.legacy_adapters import (
 )
 from module.application.legacy_game_adapters import (
     LegacyConfigAdapter,
+    LegacyGameApplicationAdapter,
     LegacyRuntimeExecutionReader,
     LegacyRuntimeLogAdapter,
     LegacyScreenshotAdapter,
@@ -44,6 +45,7 @@ class GameMcpBackend:
         config_reader: object | None = None,
         log_reader: object | None = None,
         screenshot_reader: object | None = None,
+        live_resource_reader: object | None = None,
         fleet_state_reader: object | None = None,
         morale_reader: object | None = None,
         persistence_factory: Callable[[GameMcpEnvironment], object] | None = None,
@@ -65,6 +67,8 @@ class GameMcpBackend:
             )
         if screenshot_reader is None:
             screenshot_reader = LegacyScreenshotAdapter()
+        if live_resource_reader is None:
+            live_resource_reader = LegacyGameApplicationAdapter()
         runtime_execution_reader = LegacyRuntimeExecutionReader(
             resolved_repository_root
         )
@@ -81,6 +85,7 @@ class GameMcpBackend:
             screenshot_reader=screenshot_reader,  # type: ignore[arg-type]
             scheduler_tasks=task_catalog,  # type: ignore[arg-type]
             runtime_execution_reader=runtime_execution_reader,
+            live_resource_reader=live_resource_reader,  # type: ignore[arg-type]
         )
         self._fleet_state = fleet_state_reader
         self._morale = morale_reader
@@ -127,7 +132,6 @@ class GameMcpBackend:
                 from module.application.legacy_game_adapters import (
                     LegacyAdbAdapter,
                     LegacyEmulatorAdapter,
-                    LegacyGameApplicationAdapter,
                     LegacyProcessManagerAdapter,
                     legacy_current_time,
                 )

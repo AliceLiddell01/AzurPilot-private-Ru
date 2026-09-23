@@ -14,8 +14,9 @@ redacted config, sanitized logs или screenshot, получить справк
 разрешённый параметр или выполнить опубликованное runtime-control действие.
 
 В standalone Codex CLI источник действий — project-scoped `azurpilot-game`,
-зарегистрированный в `.codex/config.toml` и запущенный через direct local stdio:
-`uv run --locked --no-sync python -m module.game_mcp`. Codex Desktop также явно
+зарегистрированный в `.codex/config.toml` как direct local stdio route; lifecycle этого route проверяется и
+восстанавливается только через буквальные `azur mcp ...` команды из PATH. Не
+запускай `module.game_mcp` или другой внутренний module напрямую. Codex Desktop также явно
 поддерживает first-class authenticated loopback route `azurpilot_game`; protocol
 identity остаётся `azurpilot-game`. Проверяй фактический
 MCP callable catalog текущей сессии. Этот skill не добавляет MCP-сервер, не
@@ -70,7 +71,16 @@ fallback для обычного Codex route. Если выбранный route,
 `azur mcp restart`. При session/plugin mismatch зафиксируй `RELOAD_REQUIRED`;
 не называй обновление tracked bundle или owned process hot reload. Проверяй
 `plugin_source_state` отдельно от runtime; `MCP_RELOAD_REQUIRED` означает
-неуспешную reconciliation до подтверждения новой session.
+неуспешную reconciliation до подтверждения новой session. После
+`azur mcp reconcile --source --bump auto` source считается только
+`source_reconciled`; live workflow требует `azur mcp status` и
+`runtime_ready=true`. При `runtime_state=stale` или `runtime_state=stopped`
+используй `azur mcp reconcile` без `--source` как единственный typed runtime
+repair path; он должен подтвердить exact ownership и postcondition. Unknown
+ownership, invalid marker/liveness, port conflict или readiness failure остаются
+fail-closed; same-repository stale marker допускает только recorded
+exact-identity cleanup с unchanged marker и STOPPED/no-conflict postcondition.
+`MCP_RUNTIME_UNAVAILABLE` не является live acceptance.
 
 ## Модель состояния
 
@@ -103,6 +113,27 @@ queue и logs не подменяют этот read path и не должны и
 ответ `GAME_PROFILE_NOT_RUNNING` с top-level `state: "failed"`; значение
 `stopped` относится к подтверждённой domain projection, а не к этому error
 envelope.
+
+## Resources: snapshot и current observation
+
+`game_get_resources` без `mode` возвращает `mode=dashboard_snapshot` и
+`resource_provenance.freshness=snapshot_time_only`. Такой ответ является
+исторической dashboard/config projection: его `Dashboard.<resource>.Record`
+сохраняется в `resource.last_update`, но отсутствие или давность этого поля
+никогда не означает «измерено сейчас». `value` и `limit` относятся к одному
+времени snapshot и не доказывают current game state.
+
+Для обязательного live precondition используй только
+`game_get_resources(profile, mode=live_current)` с
+`resource_provenance.freshness=current_observation` и
+`current_state_authority=true`, полученным в рамках текущего acceptance run.
+Если такой callable path или его postcondition недоступны, зафиксируй
+`BLOCKED_PRECONDITION`; не вводи TTL и не заменяй current observation старым
+dashboard snapshot.
+
+Dashboard `limit`/displayed `MAX` — soft/displayed value, а не абсолютная
+вместимость Oil. Состояние `Oil=25000` при `MAX=17050` структурно допустимо и
+не должно отклоняться правилом `value <= limit`.
 
 ## Нормальный read workflow
 

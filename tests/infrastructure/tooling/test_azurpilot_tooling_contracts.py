@@ -48,6 +48,7 @@ from azurpilot.tooling.filesystem import JournalStore, StateLayout, path_identit
 from azurpilot.tooling.git import canonical_remote_identity
 from azurpilot.tooling.infrastructure import InfrastructureService
 from azurpilot.tooling.lifecycle import LifecycleService
+from azurpilot.tooling.operator import validate_direct_azur_invocation
 from azurpilot.tooling.postgres import BackupOutcome, PostgreSqlBackupService
 from azurpilot.tooling.process import (
     DOCKER_ENVIRONMENT_KEYS,
@@ -77,6 +78,48 @@ def _layout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> StateLayout:
     state = tmp_path / "state"
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state))
     return StateLayout.for_repository(root)
+
+
+def test_project_operator_actions_require_literal_direct_azur() -> None:
+    assert (
+        validate_direct_azur_invocation(("azur", "mcp", "status"), azur_available=True)
+        is ResultCode.OK
+    )
+    assert (
+        validate_direct_azur_invocation(
+            ("uv", "run", "--locked", "--no-sync", "azur", "mcp", "status"),
+            azur_available=True,
+        )
+        is ResultCode.TOOLING_INVALID_INVOCATION
+    )
+    assert (
+        validate_direct_azur_invocation(
+            ("uv", "run", "python", "-m", "azurpilot", "mcp", "status"),
+            azur_available=True,
+        )
+        is ResultCode.TOOLING_INVALID_INVOCATION
+    )
+    assert (
+        validate_direct_azur_invocation(
+            ("python", "-m", "azurpilot", "mcp", "status"),
+            azur_available=True,
+        )
+        is ResultCode.TOOLING_INVALID_INVOCATION
+    )
+    for launcher in (
+        (".venv\\Scripts\\azur.exe", "mcp", "status"),
+        ("C:\\work\\.venv\\Scripts\\azur.exe", "mcp", "status"),
+        ("powershell", "-Command", "azur mcp status"),
+        ("cmd", "/c", "azur mcp status"),
+    ):
+        assert (
+            validate_direct_azur_invocation(launcher, azur_available=True)
+            is ResultCode.TOOLING_INVALID_INVOCATION
+        )
+    assert (
+        validate_direct_azur_invocation(("azur", "mcp", "status"), azur_available=False)
+        is ResultCode.TOOLING_CAPABILITY_UNAVAILABLE
+    )
 
 
 def test_cli_human_output_uses_russian_operator_presentation() -> None:

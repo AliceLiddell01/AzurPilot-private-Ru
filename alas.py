@@ -828,7 +828,7 @@ class AzurLaneAutoScript:
             time_key = incident_directory_time_key(name)
             if time_key is not None:
                 managed_folders.append((time_key, folder))
-        managed_folders.sort(key=lambda item: item[0])
+        managed_folders.sort(key=lambda item: (item[0], os.path.basename(item[1])))
         for _, folder in managed_folders[:-n]:
             shutil.rmtree(folder)
 

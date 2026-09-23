@@ -167,6 +167,48 @@ def test_process_identity_capture_tolerates_posix_process_group_race(
     assert captured.process_group is None
 
 
+@pytest.mark.parametrize(
+    ("process_state", "expected"),
+    [("exact", "alive"), ("different_start", "absent"), ("unreadable", "unknown")],
+)
+def test_process_controller_inspect_state_is_exact_and_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, process_state: str, expected: str
+) -> None:
+    identity = _identity()
+
+    class InspectableProcess(_IdentityProcess):
+        def is_running(self) -> bool:
+            return True
+
+    if process_state == "exact":
+        process = InspectableProcess()
+    elif process_state == "different_start":
+        process = InspectableProcess(start_time=11.0)
+    else:
+        process = InspectableProcess()
+
+        def unreadable() -> str:
+            raise psutil.AccessDenied(pid=identity.pid)
+
+        process.exe = unreadable  # type: ignore[method-assign]
+
+    monkeypatch.setattr(tooling_process.psutil, "Process", lambda _pid: process)
+
+    assert ProcessController.inspect_state(identity) == expected
+
+
+def test_process_controller_inspect_state_returns_absent_for_missing_pid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tooling_process.psutil,
+        "Process",
+        lambda _pid: (_ for _ in ()).throw(psutil.NoSuchProcess(pid=12345)),
+    )
+
+    assert ProcessController.inspect_state(_identity()) == "absent"
+
+
 class _FakeStream:
     def __init__(
         self,
@@ -533,6 +575,9 @@ def test_structured_runner_start_maps_popen_failures_to_capability_unavailable(
         StructuredProcessRunner().start(_process_spec())
 
     assert caught.value.code is ResultCode.TOOLING_CAPABILITY_UNAVAILABLE
+    assert isinstance(caught.value, tooling_process.ProcessStartError)
+    assert caught.value.spawn_state == "not_spawned"
+    assert caught.value.cleanup_state == "absent"
 
 
 def test_structured_runner_start_cleans_up_after_identity_capture_failure(
@@ -560,7 +605,12 @@ def test_structured_runner_start_cleans_up_after_identity_capture_failure(
         StructuredProcessRunner().start(_process_spec())
 
     assert caught.value.code is ResultCode.TOOLING_CAPABILITY_UNAVAILABLE
+    assert isinstance(caught.value, tooling_process.ProcessStartError)
+    assert caught.value.spawn_state == "unknown"
+    assert caught.value.cleanup_state == "unknown"
     assert cleanup_calls == [process]
+    assert process.stdout.closed
+    assert process.stderr.closed
 
 
 @pytest.mark.parametrize("error", [OSError("popen"), ValueError("popen")])
@@ -699,10 +749,16 @@ def test_structured_runner_bounds_second_wait_after_timeout_escalation(
         "_terminate_process",
         lambda candidate, identity: terminate_calls.append((candidate, identity)),
     )
+    monkeypatch.setattr(
+        tooling_process.ProcessController,
+        "inspect_state",
+        staticmethod(lambda _identity: "unknown"),
+    )
 
     result = StructuredProcessRunner().run(_process_spec())
 
     assert result.timed_out is True
+    assert result.termination_state == "unknown"
     assert terminate_calls == [(process, result.identity)]
     assert len(process.wait_calls) == 2
 

@@ -12,13 +12,14 @@ from pathlib import Path
 import psutil
 import pytest
 
+import module.mcp_shared.local_http_supervisor as supervisor_module
 from azurpilot.tooling.coordination import FileLock
 from azurpilot.tooling.process import ProcessIdentity
-import module.mcp_shared.local_http_supervisor as supervisor_module
 from module.mcp_shared.local_http_supervisor import (
     LocalHttpService,
     LocalHttpSupervisor,
     LocalHttpSupervisorError,
+    LocalHttpSupervisorStopOutcome,
     _identity_from_marker,
     _identity_to_marker,
 )
@@ -297,6 +298,50 @@ def _observer(tmp_path: Path, specs: list[dict[str, object]]) -> LocalHttpSuperv
     )
 
 
+def _stale_supervisor(tmp_path: Path) -> LocalHttpSupervisor:
+    return _observer(
+        tmp_path,
+        [
+            _spec(
+                module_name="test_stale_marker",
+                server_name="azurpilot-dev",
+                port=_free_port(),
+                token_env_var=_DEV_TOKEN_ENV,
+            )
+        ],
+    )
+
+
+def _write_valid_stale_marker(observer: LocalHttpSupervisor) -> dict[str, object]:
+    current = _process_identity(os.getpid())
+    assert current is not None
+    stale = dict(current)
+    stale["created_at"] = float(current["created_at"]) + 1.0
+    services = [
+        {
+            "name": service.name,
+            "port": service.port,
+            "token_env_var": service.token_env_var,
+            "process": dict(stale),
+            "launcher_process": dict(stale),
+        }
+        for service in observer.services
+    ]
+    supervisor_launcher = dict(stale)
+    supervisor_launcher["pid"] = 2_147_000_000
+    supervisor_marker = dict(stale)
+    supervisor_marker["launcher_process"] = supervisor_launcher
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "repository_root": str(observer.repository_root),
+        "python_executable": str(observer.python_executable),
+        "supervisor": supervisor_marker,
+        "services": services,
+    }
+    observer.marker_path.write_text(json.dumps(payload), encoding="utf-8")
+    return payload
+
+
 def _wait_ready(observer: LocalHttpSupervisor) -> dict[str, object]:
     _wait_until(lambda: observer.status().get("code") == "LOCAL_MCP_SUPERVISOR_READY")
     return observer.status()
@@ -434,7 +479,9 @@ def test_supervisor_real_services_readiness_status_marker_and_cleanup(
         assert "game-test-token" not in marker
         assert _DEV_TOKEN_ENV in marker and _GAME_TOKEN_ENV in marker
 
-        assert observer.stop() is True
+        result = observer.stop_result()
+        assert result.outcome is LocalHttpSupervisorStopOutcome.EXACT_LIVE_OWNER_STOPPED
+        assert result.ok is True
         _finish_process(process)
         assert observer.status()["code"] == "LOCAL_MCP_SUPERVISOR_STOPPED"
         assert not observer.marker_path.exists()
@@ -468,13 +515,17 @@ def test_status_does_not_publish_readiness_metadata_for_dead_owned_service(
     observer.marker_path.write_text(
         json.dumps(
             {
+                "schema_version": 1,
                 "repository_root": str(observer.repository_root),
+                "python_executable": str(observer.python_executable),
                 "supervisor": supervisor_identity,
                 "services": [
                     {
                         "name": service.name,
                         "port": service.port,
+                        "token_env_var": service.token_env_var,
                         "process": dead_service_identity,
+                        "launcher_process": supervisor_identity,
                     }
                 ],
             }
@@ -638,10 +689,10 @@ def test_supervisor_port_collision_fails_closed_without_orphan(
         listener.close()
 
 
-def test_supervisor_stale_marker_and_pid_reuse_are_not_owned(
+def test_supervisor_invalid_marker_and_pid_reuse_are_not_owned(
     tmp_path: Path,
 ) -> None:
-    supervisor = _supervisor(tmp_path)
+    supervisor = _stale_supervisor(tmp_path)
     supervisor.marker_path.write_text(
         json.dumps(
             {
@@ -659,29 +710,284 @@ def test_supervisor_stale_marker_and_pid_reuse_are_not_owned(
         ),
         encoding="utf-8",
     )
-    assert supervisor.status()["code"] == "LOCAL_MCP_SUPERVISOR_STALE"
+    assert supervisor.status()["code"] == "LOCAL_MCP_SUPERVISOR_MARKER_INVALID"
 
-    current = _process_identity(os.getpid())
-    assert current is not None
-    mismatched = dict(current)
-    mismatched["created_at"] = float(current["created_at"]) + 1.0
-    supervisor.marker_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "repository_root": str(tmp_path.absolute()),
-                "supervisor": mismatched,
-                "services": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    assert supervisor.stop() is False
+    payload = _write_valid_stale_marker(supervisor)
+    for field in ("executable", "cwd"):
+        invalid_payload = json.loads(json.dumps(payload))
+        invalid_payload["supervisor"][field] = " "
+        supervisor.marker_path.write_text(
+            json.dumps(invalid_payload),
+            encoding="utf-8",
+        )
+        assert supervisor.status()["code"] == "LOCAL_MCP_SUPERVISOR_MARKER_INVALID"
+        assert supervisor.stop_result().outcome is LocalHttpSupervisorStopOutcome.INVALID_MARKER
+
+    supervisor.marker_path.write_text(json.dumps(payload), encoding="utf-8")
+    result = supervisor.stop_result()
+    assert result.outcome is LocalHttpSupervisorStopOutcome.STALE_RECORDED_OWNER_RECOVERED
+    assert supervisor.stop() is True
+    assert not supervisor.marker_path.exists()
     assert psutil.Process(os.getpid()).is_running()
-    supervisor_module.LocalHttpSupervisor._terminate_recorded_processes(
-        {"supervisor": mismatched}
-    )
+
+
+def test_supervisor_rejects_invalid_utf8_marker_as_invalid_marker(
+    tmp_path: Path,
+) -> None:
+    supervisor = _supervisor(tmp_path)
+    supervisor.marker_path.write_bytes(b"{\xff")
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.INVALID_MARKER
+
+
+def test_supervisor_recovers_valid_same_repository_stale_marker(
+    tmp_path: Path,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    payload = _write_valid_stale_marker(supervisor)
+    validated = supervisor._validated_marker_identities(payload)
+    assert not isinstance(validated, LocalHttpSupervisorStopOutcome)
+    _supervisor_identity, identities = validated
+    assert any(identity.pid == 2_147_000_000 for identity in identities)
+
+    assert supervisor.status()["code"] == "LOCAL_MCP_SUPERVISOR_STALE"
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.STALE_RECORDED_OWNER_RECOVERED
+    assert result.marker_removed is True
+    assert result.postcondition_confirmed is True
+    assert supervisor.status()["code"] == "LOCAL_MCP_SUPERVISOR_STOPPED"
     assert psutil.Process(os.getpid()).is_running()
+
+
+def test_supervisor_normalizes_owned_marker_paths_and_rejects_non_string_identity(
+    tmp_path: Path,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    payload = _write_valid_stale_marker(supervisor)
+    payload["repository_root"] = str(supervisor.repository_root) + os.sep + "."
+    payload["python_executable"] = (
+        str(supervisor.python_executable.parent)
+        + os.sep
+        + "."
+        + os.sep
+        + supervisor.python_executable.name
+    )
+
+    validated = supervisor._validated_marker_identities(payload)
+    assert not isinstance(validated, LocalHttpSupervisorStopOutcome)
+
+    payload["repository_root"] = None
+    assert (
+        supervisor._validated_marker_identities(payload)
+        is LocalHttpSupervisorStopOutcome.INVALID_MARKER
+    )
+
+
+def test_supervisor_absent_marker_does_not_claim_removal(tmp_path: Path) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.ALREADY_STOPPED
+    assert result.marker_present is False
+    assert result.marker_removed is False
+
+
+def test_supervisor_rejects_foreign_repository_marker(
+    tmp_path: Path,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    payload = _write_valid_stale_marker(supervisor)
+    payload["repository_root"] = "C:/foreign/repository"
+    supervisor.marker_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.OWNERSHIP_MISMATCH
+    assert result.marker_removed is False
+    assert supervisor.marker_path.exists()
+    assert psutil.Process(os.getpid()).is_running()
+
+
+def test_supervisor_fails_closed_for_access_denied_stale_identity_liveness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    _write_valid_stale_marker(supervisor)
+
+    def denied(_identity: ProcessIdentity) -> str:
+        raise psutil.AccessDenied()
+
+    monkeypatch.setattr(
+        supervisor_module.ProcessController,
+        "inspect_state",
+        staticmethod(denied),
+    )
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY
+    assert result.marker_removed is False
+    assert supervisor.marker_path.exists()
+
+
+def test_supervisor_preserves_marker_after_exact_termination_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    payload = _write_valid_stale_marker(supervisor)
+    services = list(payload["services"])
+    first = dict(services[0])
+    launcher = dict(first["launcher_process"])
+    launcher["pid"] = 2_147_000_000
+    first["launcher_process"] = launcher
+    services[0] = first
+    payload["services"] = services
+    supervisor.marker_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(
+        supervisor_module.LocalHttpSupervisor,
+        "_terminate_exact_identity",
+        staticmethod(lambda _identity: False),
+    )
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.TERMINATION_FAILED
+    assert result.marker_removed is False
+    assert supervisor.marker_path.exists()
+
+
+def test_supervisor_reports_postcondition_failure_after_safe_marker_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    _write_valid_stale_marker(supervisor)
+    monkeypatch.setattr(
+        supervisor,
+        "_stopped_postcondition",
+        lambda **_kwargs: False,
+    )
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.POSTCONDITION_FAILED
+    assert result.marker_removed is True
+    assert not supervisor.marker_path.exists()
+
+
+def test_supervisor_reuses_post_cleanup_port_probe_for_postcondition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    _write_valid_stale_marker(supervisor)
+    calls: list[None] = []
+    monkeypatch.setattr(
+        supervisor,
+        "port_conflicts",
+        lambda: calls.append(None) or (),
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "status",
+        lambda: {"code": "LOCAL_MCP_SUPERVISOR_UNKNOWN"},
+    )
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.POSTCONDITION_FAILED
+    assert len(calls) == 2
+
+
+def test_supervisor_keeps_marker_when_foreign_port_remains(
+    tmp_path: Path,
+) -> None:
+    spec = _spec(
+        module_name="test_foreign_port",
+        server_name="azurpilot-dev",
+        port=_free_port(),
+        token_env_var=_DEV_TOKEN_ENV,
+    )
+    supervisor = _observer(tmp_path, [spec])
+    _write_valid_stale_marker(supervisor)
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", int(spec["port"])))
+    listener.listen()
+    try:
+        result = supervisor.stop_result()
+    finally:
+        listener.close()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.PORT_CONFLICT
+    assert result.marker_removed is False
+    assert supervisor.marker_path.exists()
+
+
+def test_supervisor_rejects_marker_race_without_removing_new_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    payload = _write_valid_stale_marker(supervisor)
+    original_remove = supervisor._remove_recorded_marker
+
+    def change_marker_before_remove(recorded: object) -> bool:
+        changed = dict(payload)
+        services = list(changed["services"])
+        first = dict(services[0])
+        first["port"] = int(first["port"]) + 1
+        services[0] = first
+        changed["services"] = services
+        supervisor.marker_path.write_text(json.dumps(changed), encoding="utf-8")
+        return original_remove(recorded)
+
+    monkeypatch.setattr(
+        supervisor,
+        "_remove_recorded_marker",
+        change_marker_before_remove,
+    )
+
+    result = supervisor.stop_result()
+
+    assert result.outcome is LocalHttpSupervisorStopOutcome.MARKER_CHANGED
+    assert result.marker_removed is False
+    assert supervisor.marker_path.exists()
+
+
+def test_supervisor_recovers_stale_owner_with_exact_live_service_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_tokens(monkeypatch)
+    spec = _spec(
+        module_name="test_stale_live_descendant",
+        server_name="azurpilot-dev",
+        port=_free_port(),
+        token_env_var=_DEV_TOKEN_ENV,
+    )
+    _write_service(tmp_path, spec["module"], spec["name"], spec["port"])
+    process = _launch(tmp_path, [spec])
+    observer = _observer(tmp_path, [spec])
+    try:
+        _wait_ready(observer)
+        process.kill()
+        _finish_process(process)
+        _wait_until(lambda: observer.status()["code"] == "LOCAL_MCP_SUPERVISOR_STALE")
+
+        result = observer.stop_result()
+
+        assert result.outcome is LocalHttpSupervisorStopOutcome.STALE_RECORDED_OWNER_RECOVERED
+        assert result.postcondition_confirmed is True
+        assert observer.status()["code"] == "LOCAL_MCP_SUPERVISOR_STOPPED"
+        _assert_ports_closed([spec["port"]])
+    finally:
+        _cleanup_running_supervisor(process, observer)
 
 
 def test_supervisor_forced_termination_cleans_uncooperative_child(

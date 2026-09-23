@@ -20,6 +20,7 @@ from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocketDisconnect
 
+from module.application.commission_recovery import CommissionRecoveryStore
 from module.application.errors import StorageError, StorageUnavailableError
 from module.application.notifications.agent import (
     AGENT_POLL_SECONDS,
@@ -39,7 +40,11 @@ from module.application.notifications.models import (
     DeliveryState,
     NotificationAgentAckStatus,
 )
-from module.config.profile import InvalidProfileConfigError, parse_profile_config_bytes
+from module.config.profile import (
+    InvalidProfileConfigError,
+    parse_profile_config_bytes,
+    profile_identity_from_name,
+)
 from module.config.utils import DEFAULT_CONFIG_NAME
 from module.device.method.scrcpy import const as scrcpy_const
 from module.device.method.scrcpy.control import ControlSender
@@ -116,6 +121,35 @@ def api_ap_timeline(request):
     except Exception as e:
         logger.error(f"Ошибка api_ap_timeline: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+def api_commission_recovery(request):
+    """Вернуть состояние восстановления Commission только для чтения."""
+
+    instance_name = request.query_params.get("instance", DEFAULT_CONFIG_NAME)
+    if profile_identity_from_name(instance_name) is None:
+        return JSONResponse(
+            {"success": False, "error": "INVALID_PROFILE"},
+            status_code=400,
+        )
+
+    store = None
+    try:
+        store = CommissionRecoveryStore.from_environment()
+        state = store.read(instance_name)
+        return JSONResponse({"success": True, "data": state.as_dict()})
+    except Exception as error:  # noqa: BLE001 - API не раскрывает provider payload
+        logger.error(
+            "Ошибка api_commission_recovery: %s",
+            type(error).__name__,
+        )
+        return JSONResponse(
+            {"success": False, "error": "COMMISSION_RECOVERY_UNAVAILABLE"},
+            status_code=503,
+        )
+    finally:
+        if store is not None:
+            store.close()
 
 def serve_obs_overlay(request):
     """
@@ -2098,6 +2132,7 @@ async def _ws_live_control_guarded(websocket):
 api_routes = [
     Route("/api/cl1_stats", api_cl1_stats),
     Route("/api/ap_timeline", api_ap_timeline),
+    Route("/api/commission/recovery", api_commission_recovery),
     Route("/api/notify", api_notify, methods=["POST"]),
     Route("/api/notify_stream", api_notify_stream),
     Route(DESKTOP_AGENT_STREAM_PATH, api_notification_agent_stream),

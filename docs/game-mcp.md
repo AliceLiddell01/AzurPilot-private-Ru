@@ -157,9 +157,19 @@ initialize negotiation сохраняется только как совмест
 `azur mcp status` разделяет `source_state`, `runtime_state`,
 `plugin_source_state` и `session_state`. Runtime readiness не доказывает
 актуальность plugin session; подтверждённый plugin/skill drift возвращает
-`MCP_RELOAD_REQUIRED` с `reload_required=true`. `azur mcp reconcile --runtime`
-может перезапустить только доказанно owned backend и не заявляет, что session
-перезагружена.
+`MCP_RELOAD_REQUIRED` с `reload_required=true`. `azur mcp reconcile` без
+`--source` — канонический typed runtime repair path: при stale/stopped он
+перезапускает только доказанные exact-owned services и подтверждает
+`runtime_ready=true`; для `LOCAL_MCP_SUPERVISOR_STALE` это включает только
+валидный same-repository marker, recorded exact-identity cleanup, unchanged
+marker и STOPPED/no-conflict postcondition. Foreign/invalid marker, unknown
+liveness, port conflict или failure остаются fail-closed. Session не считается
+перезагруженной. Отдельного
+устаревшего runtime-флага в текущем CLI нет. Если runtime готов, а
+`session_state=not_observable`, это отдельная граница effective Codex
+registration, а не runtime failure. Обязательный MCP acceptance выполняется
+новым SDK client/process; Codex fresh-task verification остаётся отдельной
+optional integration check.
 
 Read-инструменты имеют read-only annotations, а control-инструменты публикуют
 честные mutation/destructive/idempotency hints. Все инструменты используют

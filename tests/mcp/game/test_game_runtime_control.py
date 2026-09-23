@@ -586,6 +586,25 @@ def test_application_adapter_resolves_fresh_alias_without_touching_neighbor() ->
     assert neighbor.start_calls == 0
 
 
+def test_application_adapter_maps_missing_resolved_record_to_ownership_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.application import legacy_game_adapters
+
+    target = _Device("target")
+    adapter = _application_adapter(_Client([target]))
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "resolve_adb_target_serial",
+        lambda *_args, **_kwargs: "missing-after-resolution",
+    )
+
+    with pytest.raises(OwnershipAmbiguousError, match="готовом inventory"):
+        adapter.start_game("alas")
+
+    assert target.start_calls == 0
+
+
 def test_application_adapter_rejects_non_ready_target_before_start() -> None:
     target = _Device("target", state="offline")
     adapter = _application_adapter(_Client([target]))

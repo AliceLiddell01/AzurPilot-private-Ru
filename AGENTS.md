@@ -87,8 +87,12 @@ Python tooling, принадлежащее репозиторию, находи�
 адаптера.
 
 Операции Start/Stop/Update/Repair/Build принадлежат `azurpilot.tooling` и
-вызываются через `azur`/`python -m azurpilot`; PowerShell не является
-production operator path.
+вызываются для project-owned operator actions только буквальной прямой командой
+`azur ...`, разрешённой через PATH текущей shell. `uv`, `.venv` executable,
+`python -m azurpilot`, PowerShell/cmd wrapper и другие launchers не являются
+fallback для уже доступной `azur` capability; при её отсутствии workflow
+останавливается fail-closed или исправляет сам `azur`. `uv` остаётся допустимым
+для dependency/bootstrap/test/build задач, где он является владельцем операции.
 
 ## 7. Безопасность
 

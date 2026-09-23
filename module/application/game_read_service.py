@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 
 from module.application.errors import InvalidRequestError, ServiceUnavailableError
 from module.application.game_models import (
     ConfigSnapshot,
     CurrentTaskSnapshot,
     DashboardResources,
+    LiveResourceObservation,
     MediaFrame,
     RuntimeLogTail,
     SchedulerEntry,
@@ -16,6 +18,7 @@ from module.application.game_models import (
 )
 from module.application.game_ports import (
     GameConfigReader,
+    LiveResourceReader,
     RuntimeExecutionStateReader,
     RuntimeLogReader,
     SchedulerTaskReader,
@@ -42,6 +45,7 @@ class GameReadService:
         screenshot_reader: ScreenshotReader,
         scheduler_tasks: SchedulerTaskReader,
         runtime_execution_reader: RuntimeExecutionStateReader | None = None,
+        live_resource_reader: LiveResourceReader | None = None,
     ) -> None:
         self._instance_reader = instance_reader
         self._config_reader = config_reader
@@ -49,6 +53,7 @@ class GameReadService:
         self._screenshot_reader = screenshot_reader
         self._scheduler_tasks = scheduler_tasks
         self._runtime_execution_reader = runtime_execution_reader
+        self._live_resource_reader = live_resource_reader
 
     def get_resources(self, instance: str) -> DashboardResources:
         instance = known_instance(self._instance_reader, instance)
@@ -76,6 +81,31 @@ class GameReadService:
             raise ServiceUnavailableError(
                 "Адаптер вернул конфигурацию неподдерживаемой структуры."
             ) from None
+
+    def get_live_resources(self, instance: str) -> LiveResourceObservation:
+        """Получить одно свежее observation, не подменяя его dashboard snapshot."""
+
+        instance = known_instance(self._instance_reader, instance)
+        live_resource_reader = self._live_resource_reader
+        if live_resource_reader is None:
+            raise ServiceUnavailableError(
+                "Источник текущего наблюдения ресурсов недоступен."
+            )
+        result = safe_read(
+            "текущего наблюдения ресурсов",
+            lambda: live_resource_reader.read_live_resources(instance),
+        )
+        if not isinstance(result, LiveResourceObservation) or result.instance != instance:
+            raise ServiceUnavailableError(
+                "Адаптер вернул некорректное текущее наблюдение ресурсов."
+            )
+        if not isinstance(result.observed_at, datetime) or result.observed_at.tzinfo is None:
+            raise ServiceUnavailableError("Текущее наблюдение ресурсов не содержит времени.")
+        if result.current_state_authority is not True:
+            raise ServiceUnavailableError(
+                "Текущее наблюдение ресурсов не имеет current-state authority."
+            )
+        return result
 
     def get_recent_logs(self, instance: str, limit: int = 50) -> RuntimeLogTail:
         instance = known_instance(self._instance_reader, instance)

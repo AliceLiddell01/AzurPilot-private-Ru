@@ -11,15 +11,26 @@ import pytest
 
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling.contracts import (
+    CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME,
+    FRESH_MCP_ACCEPTANCE_GATE_NAME,
+    CodeRabbitFinding,
+    CodeRabbitFindingTriage,
     CodeRabbitReview,
     DeliveryChange,
     DeliveryDetails,
     DeliveryEvidence,
     DeliveryPhase,
+    FindingDisposition,
+    FindingSeverity,
     GitSnapshot,
+    IntegrationCheck,
+    IntegrationCheckState,
+    MandatoryGate,
+    MandatoryGateState,
     OperationState,
     PrPublicationSpec,
     PullRequestBody,
+    ReadinessState,
     RepositoryIdentity,
     ResultCode,
     ToolingResult,
@@ -30,6 +41,7 @@ from azurpilot.tooling.filesystem import path_identity
 from azurpilot.tooling.git import (
     GitClient,
     canonical_remote_identity,
+    is_ad_hoc_remote_ref,
     repository_identity_from_remote,
 )
 from azurpilot.tooling.pull_request import (
@@ -79,6 +91,18 @@ def _fixture_repository(tmp_path: Path) -> tuple[Path, Path, str, str, Repositor
     return root, bare, base_sha, str(bare), identity
 
 
+def test_ad_hoc_ref_detection_preserves_hyphenated_product_branches() -> None:
+    assert is_ad_hoc_remote_ref("codex/base-review")
+    assert not is_ad_hoc_remote_ref("feature/temporary/review")
+    assert not is_ad_hoc_remote_ref("feature/transport/review")
+    assert not is_ad_hoc_remote_ref("feature/tmp/review")
+    assert not is_ad_hoc_remote_ref("feature/helper/review")
+    assert not is_ad_hoc_remote_ref("feature/aux/review")
+    assert is_ad_hoc_remote_ref("helper/review")
+    assert not is_ad_hoc_remote_ref("fix/transport-timeout")
+    assert not is_ad_hoc_remote_ref("feature/temporary-cache")
+
+
 def _resolved(root: Path) -> ResolvedRepository:
     from azurpilot.tooling.contracts import RepositoryRootEvidence, RootSource
 
@@ -111,9 +135,11 @@ def _write_delivery_manifest(
     base_sha: str,
     branch: str,
     targets: list[dict[str, object]],
+    base_branch: str = "personal/stable",
     publication_intent: str = "commit_and_push",
     base_remote_name: str = "origin",
     remote_name: str = "origin",
+    remote_branch: str | None = None,
     expected_remote_sha: str | None = None,
 ) -> Path:
     path.write_text(
@@ -125,9 +151,9 @@ def _write_delivery_manifest(
                 "expected_local_head": base_sha,
                 "expected_base_sha": base_sha,
                 "base_remote_name": base_remote_name,
-                "base_branch": "personal/stable",
+                "base_branch": base_branch,
                 "remote_name": remote_name,
-                "remote_branch": branch,
+                "remote_branch": remote_branch or branch,
                 "expected_remote_sha": expected_remote_sha,
                 "targets": targets,
                 "commit_message": "feat(test): проверить delivery contract",
@@ -137,6 +163,96 @@ def _write_delivery_manifest(
         encoding="utf-8",
     )
     return path
+
+
+def test_delivery_rejects_ad_hoc_remote_topology(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    before = b"base\n"
+    after = b"changed\n"
+    (root / "README.md").write_bytes(after)
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        base_branch="codex/base-coderabbit-native-windows-boundary",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(before).hexdigest(),
+                    "size": len(before),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(after).hexdigest(),
+                    "size": len(after),
+                },
+            }
+        ],
+        publication_intent="validate_only",
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).validate(manifest_path, root)
+
+    assert error.value.code is ResultCode.TOOLING_AD_HOC_REMOTE_TOPOLOGY
+
+
+def test_stacked_delivery_fails_closed_without_temporary_parent_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, remote_url, identity = _fixture_repository(tmp_path)
+    _git(root, "push", "origin", f"{base_sha}:refs/heads/parent-local")
+    _git(root, "switch", "-c", "parent-local")
+    (root / "README.md").write_bytes(b"parent\n")
+    _git(root, "add", "--", "README.md")
+    _git(root, "commit", "-m", "feat(test): добавить parent change")
+    parent_sha = _git(root, "rev-parse", "HEAD")
+    _git(root, "switch", "-c", "cli/stacked-delivery")
+    before = b"parent\n"
+    after = b"child\n"
+    (root / "README.md").write_bytes(after)
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=parent_sha,
+        branch="cli/stacked-delivery",
+        base_branch="parent-local",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(before).hexdigest(),
+                    "size": len(before),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(after).hexdigest(),
+                    "size": len(after),
+                },
+            }
+        ],
+        publication_intent="validate_only",
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).validate(manifest_path, root)
+
+    assert error.value.code is ResultCode.TOOLING_STACKED_PARENT_UNPUBLISHED
+    assert _git(root, "ls-remote", "--refs", remote_url, "refs/heads/codex/base-*") == ""
 
 
 def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
@@ -1079,7 +1195,8 @@ def test_structured_pr_body_contains_required_sections_and_exact_review_head() -
             "Ограничения текущего checkpoint:\n"
             "- PR остаётся Draft до финального ChatGPT review пользователя; merge не выполняется;\n"
             "- physical device, MuMu, ADB и игровой acceptance в scope не входят;\n"
-            "- CodeRabbit является внешним review checkpoint в постоянном WSL2 clone;\n"
+            "- CodeRabbit является внешним review checkpoint через host-native provider "
+            "в canonical checkout;\n"
             "- provider требует GitHub CLI `gh >= 2.63.0` для поля `baseRefOid`."
         ),
     )
@@ -1109,6 +1226,390 @@ def test_structured_pr_body_rejects_thin_operator_report() -> None:
         PullRequestBodyRenderer.render(body, base_sha="a" * 40, head_sha="b" * 40)
 
     assert error.value.code is ResultCode.TOOLING_PR_BODY_INVALID
+
+
+def test_structured_pr_body_renders_each_coderabbit_decision_with_evidence() -> None:
+    triage_common = {
+        "reviewed_head": "b" * 40,
+        "affected_code": "Проверен parser и сохранение typed provider evidence.",
+        "call_sites": "Проверены adapter, service и CLI call sites.",
+        "nearest_tests": "Проверены targeted parser, migration и renderer tests.",
+        "relevant_contracts": "Сверены repository contract и текущий task scope.",
+        "claimed_impact": "Наблюдаемое влияние подтверждено по exact candidate.",
+    }
+    fixed_triage = CodeRabbitFindingTriage(
+        disposition=FindingDisposition.CONFIRMED,
+        decision_reason="Finding подтверждён сравнением provider claim с текущим кодом.",
+        change_summary="Добавлена remediation и regression coverage на этом exact head.",
+        **triage_common,
+    )
+    rejected_triage = CodeRabbitFindingTriage(
+        disposition=FindingDisposition.FALSE_POSITIVE,
+        decision_reason="Рекомендация прямо нарушает обязательный repository contract.",
+        change_summary="Изменение отклонено только по доказанному contract conflict.",
+        conflict_kind="repository_contract_conflict",
+        authoritative_source=".codex/context/GIT-WORKFLOW.md: merge policy",
+        **triage_common,
+    )
+    review = CodeRabbitReview(
+        reviewed_head="b" * 40,
+        base_sha="a" * 40,
+        findings=(
+            CodeRabbitFinding(
+                severity=FindingSeverity.MAJOR,
+                path="azurpilot/integrations/coderabbit.py",
+                line=12,
+                line_end=14,
+                title="Потеря provider context",
+                impact="Official agent context не публикуется в typed finding.",
+                resolution="Сохранить codegenInstructions и показать его оператору.",
+                codegen_instructions="Добавьте bounded agent fix context в DTO и renderer.",
+                suggestions=("Добавьте regression test.",),
+                disposition=FindingDisposition.CONFIRMED,
+                fix_head="c" * 40,
+                triage=fixed_triage,
+            ),
+            CodeRabbitFinding(
+                severity=FindingSeverity.MINOR,
+                path=".coderabbit.yaml",
+                title="Конфликт policy",
+                impact="Provider предложил нарушить repository review policy.",
+                resolution="Изменить policy согласно provider recommendation.",
+                disposition=FindingDisposition.FALSE_POSITIVE,
+                triage=rejected_triage,
+            ),
+        ),
+    )
+    body = PullRequestBody(
+        goal=(
+            "Цель изменения — сохранить полный CodeRabbit evidence и сделать каждое решение аудируемым. "
+            "Operator должен видеть provider claim, independent conclusion и точный fix head. "
+            "Это позволяет воспроизвести решение на exact candidate и отличить remediation от rejection. " * 2
+        ),
+        scope=(
+            "В scope входят typed CodeRabbit protocol, triage, state migration и PR rendering.\n"
+            "- Provider payload и independent evidence.\n"
+            "- Strict disposition и conflict basis.\n"
+            "- Exact reviewed head и bounded audit trail по каждому provider finding.\n" * 2
+        ),
+        implementation=(
+            "Adapter сохраняет official fields, state migration удаляет terminal authority legacy result, "
+            "а renderer публикует отдельный блок для каждого finding.\n"
+            "- codegenInstructions является основным fix context.\n"
+            "- conflict rejection содержит source и decision reason.\n"
+            "- Fixed finding сохраняет change summary и fix head для последующей проверки.\n" * 2
+        ),
+        checks=(
+            "Проверены parser, typed triage, renderer и exact-head invariants.\n"
+            "- Targeted tests покрывают valid, incomplete и rejected payload.\n"
+            "- Renderer regression проверяет оба disposition.\n"
+            "- Legacy migration не может выдать старый provider result за terminal clean state.\n" * 2
+        ),
+        ci=(
+            "Exact-head CI проверяет Python, Windows и Security jobs.\n"
+            "- Каждый обязательный context сверяется с текущим commit.\n"
+            "- Review и security status не подменяют друг друга.\n" * 2
+        ),
+        security_secret_scan=(
+            "Secret scan ограничен source и staged content.\n"
+            "- Provider payload остаётся bounded и untrusted.\n"
+            "- Секреты, команды и непроверенный raw output не исполняются автоматически.\n" * 2
+        ),
+        coderabbit_review=review,
+        migration_rollback=(
+            "State migration сохраняет historical evidence без terminal authority.\n"
+            "- Rollback выполняется через согласованный Git workflow.\n"
+            "- Новый logical cycle стартует только через project-owned boundary.\n" * 2
+        ),
+        limitations=(
+            "Effective organization override provenance не раскрывается native surface.\n"
+            "- Merge и Ready lifecycle остаются отдельным решением.\n"
+            "- Отсутствие provenance evidence не заменяется предположением об effective config.\n" * 2
+        ),
+    )
+
+    rendered = PullRequestBodyRenderer.render(
+        body,
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+    )
+
+    assert rendered.count("### Finding ") == 2
+    assert "Добавьте bounded agent fix context" in rendered
+    assert "Fix head: `" + "c" * 40 in rendered
+    assert "repository_contract_conflict" in rendered
+    assert ".codex/context/GIT-WORKFLOW.md: merge policy" in rendered
+    assert "Изменение отклонено только по доказанному contract conflict." in rendered
+
+
+def test_readiness_state_blocks_ready_when_mandatory_gate_is_blocked() -> None:
+    gate = MandatoryGate(
+        name="product_live_acceptance",
+        state=MandatoryGateState.BLOCKED_PRECONDITION,
+        evidence="Текущее live observation Oil недоступно.",
+    )
+    blocked = ReadinessState(
+        implementation_status="COMPLETE",
+        mcp_impact="NOT_REQUIRED",
+        mandatory_gates=(gate,),
+        overall_outcome="BLOCKED",
+    )
+    assert blocked.ready_for_chatgpt_review is False
+    assert blocked.merge_ready is False
+
+    with pytest.raises(ValueError):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(gate,),
+            overall_outcome="IN_PROGRESS",
+        )
+    with pytest.raises(ValueError):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(gate,),
+            overall_outcome="BLOCKED",
+            ready_for_chatgpt_review=True,
+        )
+
+
+def test_readiness_rate_limit_is_independent_from_product_gate() -> None:
+    readiness = ReadinessState(
+        implementation_status="COMPLETE",
+        mcp_impact="NOT_REQUIRED",
+        mandatory_gates=(
+            MandatoryGate(
+                name="product_live_acceptance",
+                state=MandatoryGateState.PASS,
+                evidence="Свежий current observation и postcondition подтверждены.",
+            ),
+        ),
+        external_reviewer_status="RATE_LIMITED",
+        reviewer_limitation="Provider rate limit; substantive review не завершён.",
+        overall_outcome="READY",
+        ready_for_chatgpt_review=True,
+    )
+    assert readiness.merge_ready is False
+    assert readiness.overall_outcome == "READY"
+
+
+def test_readiness_rejects_coderabbit_as_mandatory_gate() -> None:
+    with pytest.raises(ValueError, match="external reviewer limitation"):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(
+                MandatoryGate(
+                    name=CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME,
+                    state=MandatoryGateState.BLOCKED_PRECONDITION,
+                    evidence="Текущий provider checkpoint не выполнен.",
+                ),
+            ),
+            overall_outcome="BLOCKED",
+        )
+
+
+def test_readiness_rejects_unrun_reviewer_as_ready_or_limitation() -> None:
+    product_gate = MandatoryGate(
+        name="product_gate",
+        state=MandatoryGateState.PASS,
+        evidence="Product gate пройден.",
+    )
+    with pytest.raises(ValueError, match="не запущенный external reviewer"):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(product_gate,),
+            overall_outcome="READY",
+            ready_for_chatgpt_review=True,
+        )
+    with pytest.raises(ValueError, match="NOT_RUN"):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(product_gate,),
+            external_reviewer_status="NOT_RUN",
+            reviewer_limitation="Provider недоступен.",
+            overall_outcome="BLOCKED",
+        )
+
+
+def test_pr_body_rejects_actionable_coderabbit_findings_when_ready() -> None:
+    finding = CodeRabbitFinding(
+        severity=FindingSeverity.MINOR,
+        path="azurpilot/tooling/contracts.py",
+        impact="Provider finding требует отдельного triage.",
+        resolution="Проверить finding и применить remediation.",
+    )
+    with pytest.raises(ValueError, match="actionable CodeRabbit findings"):
+        PullRequestBody(
+            goal="Цель",
+            scope="Scope",
+            implementation="Реализация",
+            checks="Проверки",
+            ci="CI",
+            security_secret_scan="Security",
+            coderabbit_review=CodeRabbitReview(
+                reviewed_head="b" * 40,
+                base_sha="a" * 40,
+                findings=(finding,),
+            ),
+            readiness=ReadinessState(
+                implementation_status="COMPLETE",
+                mcp_impact="NOT_REQUIRED",
+                mandatory_gates=(
+                    MandatoryGate(
+                        name="product_gate",
+                        state=MandatoryGateState.PASS,
+                        evidence="Product gate пройден.",
+                    ),
+                ),
+                external_reviewer_status="SUBSTANTIVE",
+                overall_outcome="READY",
+                ready_for_chatgpt_review=True,
+            ),
+            migration_rollback="Rollback",
+            limitations="Ограничения",
+        )
+
+
+def test_pr_body_allows_fixed_confirmed_coderabbit_finding_when_ready() -> None:
+    finding = CodeRabbitFinding(
+        severity=FindingSeverity.MINOR,
+        path="azurpilot/tooling/contracts.py",
+        impact="Provider finding исправлен на exact head.",
+        resolution="Добавлена remediation.",
+        disposition=FindingDisposition.CONFIRMED,
+        fix_head="c" * 40,
+        triage=CodeRabbitFindingTriage(
+            disposition=FindingDisposition.CONFIRMED,
+            reviewed_head="b" * 40,
+            affected_code="Проверена модель readiness.",
+            call_sites="Проверены renderer и contract tests.",
+            nearest_tests="Запущен targeted readiness test.",
+            relevant_contracts="Сверен exact-head workflow.",
+            claimed_impact="Fixed finding не блокирует readiness.",
+            decision_reason="Finding подтверждён и исправлен.",
+            change_summary="Remediation зафиксирована в fix_head.",
+        ),
+    )
+
+    body = PullRequestBody(
+        goal="Цель",
+        scope="Scope",
+        implementation="Реализация",
+        checks="Проверки",
+        ci="CI",
+        security_secret_scan="Security",
+        coderabbit_review=CodeRabbitReview(
+            reviewed_head="b" * 40,
+            base_sha="a" * 40,
+            findings=(finding,),
+        ),
+        readiness=ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(
+                MandatoryGate(
+                    name="product_gate",
+                    state=MandatoryGateState.PASS,
+                    evidence="Product gate пройден.",
+                ),
+            ),
+            external_reviewer_status="SUBSTANTIVE",
+            overall_outcome="READY",
+            ready_for_chatgpt_review=True,
+        ),
+        migration_rollback="Rollback",
+        limitations="Ограничения",
+    )
+
+    assert body.coderabbit_review is not None
+
+
+def test_required_mcp_impact_requires_fresh_mcp_client_gate() -> None:
+    fresh_gate = MandatoryGate(
+        name=FRESH_MCP_ACCEPTANCE_GATE_NAME,
+        state=MandatoryGateState.PASS,
+        evidence="Fresh MCP client подтвердил initialize, catalog, contract и read-only calls.",
+        evidence_kind="fresh_mcp_client",
+    )
+    readiness = ReadinessState(
+        implementation_status="COMPLETE",
+        mcp_impact="REQUIRED",
+        mandatory_gates=(fresh_gate,),
+        external_reviewer_status="SUBSTANTIVE",
+        overall_outcome="READY",
+        ready_for_chatgpt_review=True,
+    )
+    assert readiness.mcp_impact == "REQUIRED"
+
+    with pytest.raises(ValueError, match="mcp_impact"):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mandatory_gates=(),
+            overall_outcome="BLOCKED",
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="MCP impact REQUIRED требует ровно один mandatory fresh MCP gate",
+    ):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="REQUIRED",
+            mandatory_gates=(),
+            overall_outcome="BLOCKED",
+        )
+    with pytest.raises(
+        ValueError,
+        match="PASS fresh MCP gate требует evidence независимой MCP client session",
+    ):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="REQUIRED",
+            mandatory_gates=(
+                MandatoryGate(
+                    name=FRESH_MCP_ACCEPTANCE_GATE_NAME,
+                    state=MandatoryGateState.PASS,
+                    evidence="Только source evidence.",
+                    evidence_kind="source",
+                ),
+            ),
+            external_reviewer_status="SUBSTANTIVE",
+            overall_outcome="READY",
+            ready_for_chatgpt_review=True,
+        )
+
+
+def test_codex_registration_failure_is_separate_from_mcp_readiness() -> None:
+    readiness = ReadinessState(
+        implementation_status="COMPLETE",
+        mcp_impact="REQUIRED",
+        mandatory_gates=(
+            MandatoryGate(
+                name=FRESH_MCP_ACCEPTANCE_GATE_NAME,
+                state=MandatoryGateState.PASS,
+                evidence="Independent MCP client session доказала exact contract и catalog.",
+                evidence_kind="fresh_mcp_client",
+            ),
+        ),
+        integration_checks=(
+            IntegrationCheck(
+                name="codex_registration_check",
+                state=IntegrationCheckState.BLOCKED_PRECONDITION,
+                evidence="create_thread создал worktree на другом HEAD; MCP calls не выполнялись.",
+                evidence_kind="codex_registration",
+            ),
+        ),
+        external_reviewer_status="SUBSTANTIVE",
+        overall_outcome="READY",
+        ready_for_chatgpt_review=True,
+    )
+
+    assert readiness.overall_outcome == "READY"
+    assert readiness.integration_checks[0].state is IntegrationCheckState.BLOCKED_PRECONDITION
 
 
 def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> None:

@@ -46,6 +46,17 @@ Rich/ANSI/progress не меняют JSON schema. Сервисный слой н
 identity не доказана. Explicit/configured/installation provenance валидируется,
 а неоднозначность завершается типизированной ошибкой.
 
+### Literal operator boundary
+
+Если project-owned capability уже представлена через установленный `azur` и
+PATH текущей shell её подтверждает, operator action вызывается только
+буквальной командой `azur ...`. `uv run ... azur`, `uv run python -m
+azurpilot`, `python -m azurpilot`, `.venv/.../azur`, absolute `azur.exe` path и
+PowerShell/cmd wrapper являются обходом operator path и запрещены. Отсутствие
+`azur` — typed unavailable/precondition, а не разрешение на fallback. `uv`
+остаётся допустимым для dependency/bootstrap/test/build задач, не представленных
+через project-owned operator capability.
+
 ## 3. Типизированные результаты и evidence
 
 `ToolingResult[TDetails, TEvidence]` и DTO конкретных операций — каноническая модель
@@ -85,6 +96,11 @@ identity не доказана. Explicit/configured/installation provenance ва
   состояние, recovery сначала делает read-only verification;
 - Gitleaks evidence относится к staged/committed scope, определённому operation,
   а не заменяется случайным regex search.
+- remote mutation публикует только реальную `expected_branch` через typed
+  lifecycle; temporary/scratch/transport/helper refs и `codex/base-*` запрещены;
+- если stacked parent local HEAD отличается от parent remote HEAD, typed delivery
+  возвращает `TOOLING_STACKED_PARENT_UNPUBLISHED` и ждёт canonical publication
+  parent branch; вспомогательный remote ref не создаётся.
 
 Git lifecycle, ветки и разрешение merge принадлежат
 `.codex/context/GIT-WORKFLOW.md`, а не этому документу.
@@ -156,15 +172,38 @@ CodeRabbit — консультативный reviewer, а не источник
 
 Текущая граница:
 
-- adapter выбирает доказанный WSL2 Linux review environment;
-- используется отдельный persistent review clone canonical repository;
+- adapter выбирает доказанный host-native executable текущей OS (`coderabbit.exe`
+  на Windows и `coderabbit` на POSIX);
+- provider запускается в том же canonical checkout, что прошёл exact
+  repository/root/head и clean-candidate preflight;
 - review scope — exact committed head/base; implementation checkout не
-  подменяется review clone;
-- review clone во время active review не используется для product fixes;
-- finding triage: confirmed / partially confirmed / false positive /
-  insufficient evidence;
+  подменяется другим checkout;
+- pre/post candidate fingerprint должен совпасть; mutation в checkout во время
+  active review не допускается;
+- provider finding не равен verified finding disposition;
+- до classification каждый finding проходит individual exact-head triage по
+  affected code, call sites, ближайшим tests, relevant contracts и заявленному
+  impact;
+- `insufficient evidence` удалён из disposition model; provider не может
+  автоматически назначить ни эту, ни любую другую verified classification;
+- triage фиксируется typed manifest-ом через прямой `azur integrations
+  coderabbit triage`; provider findings до этого остаются `triage_required`;
+- `confirmed`/`partially confirmed` требуют fix и нового exact-head review;
+  технически правдоподобный finding вне scope получает отдельный `deferred`
+  с `task_scope`, а не `false positive`, и сохраняется в ignored
+  `.codex/local/coderabbit-deferred-findings.json`;
+- если после individual triage actionable findings нет, текущий cycle terminal
+  без no-op commit и нового review; backlog читается через
+  `azur integrations coderabbit backlog`, максимум substantive budget — `3/3`;
+- repository `.coderabbit.yaml` является auto-discovered repository source;
+  `--config .coderabbit.yaml` не является обязательным и не должен добавляться
+  ради включения этого файла. Project-owned `config validate` проверяет сам
+  файл, а effective Global Override provenance считается неизвестной без
+  native evidence;
 - ограниченный цикл review ограничивает substantive iterations и сохраняет типизированное
   state;
+- pre-spawn reservation не расходует budget: доказанный `not_spawned`/`absent_after_cleanup`
+  очищает state для retry, а `alive`/`unknown` сохраняет точное ownership для recovery;
 - provider rate limit/cooldown не расходует substantive iteration и не запускает
   blind retry;
 - text/location/title провайдера нормализуются в ограниченное evidence;
@@ -198,6 +237,38 @@ MCP diagnostics должны различать:
 Нельзя объявлять effective registration «готовой» только потому, что
 `.codex/config.toml` корректен.
 
+Для MCP lifecycle различай минимум два typed результата:
+
+- `source_reconciled`: tracked source и generated metadata согласованы после
+  `azur mcp reconcile --source --bump auto`;
+- `runtime_ready`: owned runtime реально запущен, exact contract/catalog
+  подтверждены через `azur mcp status`.
+
+Source reconciliation не закрывает live gate. Если live MCP обязателен, после
+source reconcile напрямую через PATH вызови `azur mcp status`. При
+`runtime_state=stale` или `runtime_state=stopped` выполни единственный
+канонический runtime repair path `azur mcp reconcile` без `--source`, затем
+повтори status и требуй `runtime_ready=true`. До этой typed попытки stale/stopped
+является recoverable precondition, а не конечным blocker-ом. Same-repository
+stale marker восстанавливается только typed recorded-identity cleanup с
+unchanged marker и STOPPED/no-conflict postcondition. `MCP_RUNTIME_UNAVAILABLE`
+после repair, unknown/foreign ownership, invalid marker/liveness, port conflict,
+ошибка stop/start или mismatch postcondition остаются blocker/limitation.
+`session_state=not_observable` при `runtime_ready=true` не является runtime
+failure. При `MCP impact=REQUIRED` mandatory product gate закрывается отдельным
+fresh MCP client/process через существующий SDK boundary: новая session обязана
+подтвердить initialize, negotiated catalog, contract/revision и обязательные
+read-only calls. `azur mcp status` остаётся отдельным source/runtime evidence и
+не заменяет эту acceptance.
+
+Если изменение затрагивает Codex/plugin registration, client-visible schema или
+routing, effective registration проверяется отдельной необязательной integration
+check через [единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
+Создание task без terminal evidence не доказывает registration, а wrong-HEAD или
+недоступность `create_thread` фиксируются как ограничение Codex platform и не
+блокируют уже успешный MCP client gate. Не запускай `module.*_mcp`, supervisor
+modules или внутренние Python scripts напрямую.
+
 ## 8. Базовый кроссплатформенный контракт
 
 Базовый Python tooling/CLI сохраняет одинаковую semantic model для Windows, Linux и
@@ -209,7 +280,8 @@ invocation и bounded filesystem/Git primitives.
 - WSL/COM shortcut — Windows-specific;
 - конкретный emulator/device backend требует отдельного подтверждения;
 - Docker/PostgreSQL availability зависит от configured runtime;
-- CodeRabbit review environment зависит от доказанного adapter/runtime.
+- CodeRabbit review environment зависит от доказанного native adapter/runtime и
+  exact process identity.
 
 Запуск core CLI на ОС сам по себе не доказывает поддержку device/emulator или
 внешнего провайдера на этой ОС.

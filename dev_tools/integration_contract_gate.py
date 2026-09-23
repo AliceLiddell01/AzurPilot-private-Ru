@@ -20,11 +20,16 @@ from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
     DOCKER_HUB_READ_ONLY_TOOLS,
     GRAFANA_BLOCKED_TOOLS,
-    GRAFANA_ENABLED_TOOL_CATEGORIES,
     GRAFANA_READ_ONLY_TOOLS,
     GRAFANA_REQUIRED_READ_ONLY_TOOLS,
 )
-from azurpilot.integrations.config import DEFAULTS, REPOSITORY_MCP_ALIASES
+from azurpilot.integrations.config import (
+    DEFAULTS,
+    GRAFANA_STDIO_LAUNCHER_ARGS,
+    GRAFANA_STDIO_LAUNCHER_COMMAND,
+    GRAFANA_STDIO_LAUNCHER_CWD,
+    REPOSITORY_MCP_ALIASES,
+)
 from azurpilot.integrations.contracts import IntegrationName
 
 EXPECTED_FAMILIES = tuple(name.value for name in IntegrationName)
@@ -67,6 +72,43 @@ _MACHINE_PATTERNS = (
     re.compile(r"(?i)\\\\wsl(?:\.localhost|\$)[\\/]"),
     re.compile(r"(?i)\$home[\\/][a-z0-9._-]+"),
 )
+_OPERATOR_LAUNCHER_TOKENS = re.compile(
+    r"(?i)(?:\bazur(?:\.exe)?(?![-\w])|\bpython(?:3(?:\.\d+)?)?(?:\.exe)?\s+-m\s+azurpilot(?![-\w]))"
+)
+_UV_RUN_TOKEN = re.compile(r"(?i)\buv\s+run\b")
+_OPERATOR_LAUNCHER_NEGATION = re.compile(
+    r"(?i)\b(?:запрещ\w*|forbidden|prohibited|disallowed|not\s+allowed)\b"
+)
+_CODERABBIT_RETIRED_MARKERS = (
+    "direct_wsl_agent",
+    "coderabbit-runtime.json",
+    "managed review clone",
+    "wsl.exe --list",
+    "pgrep -x coderabbit",
+)
+
+
+def _contains_prohibited_operator_launcher(text: str) -> bool:
+    """Найти положительное описание запрещённого uv/module launcher."""
+
+    for raw_line in text.splitlines():
+        normalized = re.sub(r"\s+", " ", raw_line.casefold())
+        for match in _UV_RUN_TOKEN.finditer(normalized):
+            suffix = normalized[match.end() :]
+            if not _OPERATOR_LAUNCHER_TOKENS.search(suffix):
+                continue
+            if _OPERATOR_LAUNCHER_NEGATION.search(normalized):
+                continue
+            return True
+    return False
+_OPERATOR_POLICY_MARKER_OWNERS = {
+    "source_reconciled": Path(".codex/context/11-PYTHON-TOOLING.md"),
+    "runtime_ready": Path(".codex/context/11-PYTHON-TOOLING.md"),
+    "TOOLING_STACKED_PARENT_UNPUBLISHED": Path(
+        ".codex/context/11-PYTHON-TOOLING.md"
+    ),
+    "codex/base-*": Path(".codex/context/GIT-WORKFLOW.md"),
+}
 
 
 def _relative(root: Path, path: Path) -> str:
@@ -159,45 +201,28 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
             continue
 
         args = _string_list(entry, "args")
-        canonical_image = DEFAULTS[family].get("image")
-        if (
-            entry.get("command") != DEFAULTS[family].get("command")
-            or args is None
-            or not isinstance(canonical_image, str)
-            or canonical_image not in args
-        ):
-            errors.append(
-                f".codex/config.toml: {registration} расходится с canonical container route"
-            )
-            continue
-
         if family == "grafana":
-            if "-disable-write" not in args:
-                errors.append(
-                    ".codex/config.toml: grafana_direct обязан быть read-only"
-                )
-            if "-disable-api" not in args:
-                errors.append(
-                    ".codex/config.toml: grafana_direct обязан блокировать generic API"
-                )
-            if any(flag in args for flag in ("-disable-query", "--disable-query")):
-                errors.append(
-                    ".codex/config.toml: grafana_direct не должен отключать datasource queries"
-                )
-            if any(flag in args for flag in ("-disable-proxied", "--disable-proxied")):
-                errors.append(
-                    ".codex/config.toml: grafana_direct не должен отключать required Tempo proxied reads"
-                )
-            enabled_categories = [
-                index for index, value in enumerate(args) if value == "-enabled-tools"
-            ]
             if (
-                len(enabled_categories) != 1
-                or enabled_categories[0] + 1 >= len(args)
-                or args[enabled_categories[0] + 1] != GRAFANA_ENABLED_TOOL_CATEGORIES
+                entry.get("command") != GRAFANA_STDIO_LAUNCHER_COMMAND
+                or args != GRAFANA_STDIO_LAUNCHER_ARGS
+                or entry.get("cwd") != GRAFANA_STDIO_LAUNCHER_CWD
             ):
                 errors.append(
-                    ".codex/config.toml: grafana_direct categories расходятся с read-only observability contract"
+                    ".codex/config.toml: grafana_direct обязан указывать "
+                    "repository-owned stdio launcher"
+                )
+            if any(
+                key in entry
+                for key in (
+                    "url",
+                    "image",
+                    "credential_env_var",
+                    "bearer_token_env_var",
+                )
+            ):
+                errors.append(
+                    ".codex/config.toml: grafana_direct не должен задавать route "
+                    "в обход adapter"
                 )
             enabled_tools = _string_list(entry, "enabled_tools")
             if enabled_tools is None or set(enabled_tools) != set(GRAFANA_READ_ONLY_TOOLS):
@@ -214,14 +239,22 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
                     ".codex/config.toml: grafana_direct denylist расходится с adapter contract"
                 )
             env_vars = _string_list(entry, "env_vars")
-            expected_env = {
-                "GRAFANA_URL",
-                str(DEFAULTS[family].get("credential_env")),
-            }
-            if env_vars is None or not expected_env.issubset(env_vars):
+            if env_vars is None or set(env_vars) != {"GRAFANA_SERVICE_ACCOUNT_TOKEN"}:
                 errors.append(
-                    ".codex/config.toml: grafana_direct не наследует canonical env names"
+                    ".codex/config.toml: grafana_direct должен передавать только "
+                    "credential env launcher-у"
                 )
+            continue
+        canonical_image = DEFAULTS[family].get("image")
+        if (
+            entry.get("command") != DEFAULTS[family].get("command")
+            or args is None
+            or not isinstance(canonical_image, str)
+            or canonical_image not in args
+        ):
+            errors.append(
+                f".codex/config.toml: {registration} расходится с canonical container route"
+            )
             continue
 
         if family == "docker-hub":
@@ -278,6 +311,65 @@ def _check_retired_paths(root: Path, errors: list[str]) -> None:
             )
 
 
+def _check_coderabbit_native_boundary(root: Path, errors: list[str]) -> None:
+    """Проверить, что CodeRabbit policy не возвращается к retired topology."""
+
+    if DEFAULTS.get("coderabbit", {}).get("route") != "direct_native_agent":
+        errors.append("coderabbit: canonical route должен быть direct_native_agent")
+    config_source = root / "azurpilot" / "integrations" / "config.py"
+    adapter_source = root / "azurpilot" / "integrations" / "coderabbit.py"
+    for path in (config_source, adapter_source):
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            errors.append(f"{_relative(root, path)}: native boundary source не прочитан")
+            continue
+        content = raw.casefold()
+        for marker in _CODERABBIT_RETIRED_MARKERS:
+            if marker in content:
+                errors.append(f"{_relative(root, path)}: найден retired CodeRabbit marker {marker}")
+        if "coderabbit_native_windows_required" in content:
+            errors.append(
+                f"{_relative(root, path)}: host-native CodeRabbit boundary ошибочно ограничен Windows"
+            )
+        if "azurpilot_coderabbit_wsl_distribution" in content or (
+            "azurpilot_coderabbit_review_clone" in content
+        ):
+            errors.append("coderabbit: retired host environment overrides остаются активными")
+
+
+def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:
+    """Проверить literal azur path, MCP readiness split и topology policy."""
+
+    contents: dict[Path, str] = {}
+    owner_paths = tuple(dict.fromkeys(_OPERATOR_POLICY_MARKER_OWNERS.values()))
+    for relative in owner_paths:
+        path = root / relative
+        try:
+            contents[relative] = path.read_text(encoding="utf-8").casefold()
+        except (OSError, UnicodeError):
+            errors.append(f"{relative.as_posix()}: operator policy source не прочитан")
+    for marker, owner in _OPERATOR_POLICY_MARKER_OWNERS.items():
+        policy = contents.get(owner)
+        if policy is not None and marker.casefold() not in policy:
+            errors.append(f"operator workflow: отсутствует policy marker {marker}")
+    development_skill = (
+        root / "plugins" / "azurpilot" / "skills" / "azurpilot-development" / "SKILL.md"
+    )
+    try:
+        development_text = development_skill.read_text(encoding="utf-8").casefold()
+    except (OSError, UnicodeError):
+        errors.append(
+            "plugins/azurpilot/skills/azurpilot-development/SKILL.md: "
+            "development skill source не прочитан"
+        )
+        return
+    if _contains_prohibited_operator_launcher(development_text):
+        errors.append(
+            "operator workflow: plugin development skill возвращает uv/module launcher"
+        )
+
+
 def _run_check(
     check_id: str,
     checker: Callable[[list[str]], None],
@@ -304,6 +396,14 @@ def check(root: Path) -> dict[str, object]:
         _run_check(
             "retired_paths",
             lambda errors: _check_retired_paths(repository_root, errors),
+        ),
+        _run_check(
+            "coderabbit_native_boundary",
+            lambda errors: _check_coderabbit_native_boundary(repository_root, errors),
+        ),
+        _run_check(
+            "operator_workflow_boundary",
+            lambda errors: _check_operator_workflow_boundary(repository_root, errors),
         ),
     )
     errors = [error for _check_id, check_errors in results for error in check_errors]

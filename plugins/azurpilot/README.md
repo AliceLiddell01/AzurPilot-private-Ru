@@ -15,12 +15,11 @@
 Codex является `.codex/config.toml`; accounts, OAuth scopes, approval policy и
 remote runtime остаются внешними по отношению к package.
 
-Канонические runtime — существующие `module.dev_mcp` и `module.game_mcp`.
-
-- Codex вызывает project-scoped `azurpilot-dev` напрямую через local stdio:
-  `uv run --locked --no-sync python -m module.dev_mcp`.
-- Codex вызывает project-scoped `azurpilot-game` напрямую через local stdio:
-  `uv run --locked --no-sync python -m module.game_mcp`.
+Канонические backend implementations — существующие `module.dev_mcp` и
+`module.game_mcp`, но их lifecycle не запускается напрямую. Для project-owned
+operator actions используй только буквальные команды `azur mcp ...` из PATH:
+`uv run`, `python -m azurpilot`, `.venv/.../azur`, absolute executable path и
+shell wrapper запрещены как fallback.
 - Codex Desktop может использовать first-class authenticated loopback route
   `azurpilot_game` на `http://127.0.0.1:8776/mcp`; protocol identity остаётся
   `azurpilot-game`. Этот route не является аварийным alias и выбирается явно.
@@ -44,8 +43,16 @@ Connected App не подменяет Codex route.
 Единый source of truth и lifecycle reconciliation доступны через
 `azur mcp status`, `azur mcp versions`, `azur mcp reconcile`, `azur mcp start`,
 `azur mcp stop` и `azur mcp restart`. `reconcile --source` обновляет только
-производные plugin metadata после проверки source sets; `reconcile --runtime`
-не изменяет tracked source. После успешного `azur update` reconciliation
+производные plugin metadata после проверки source sets и возвращает только
+`source_reconciled`; `runtime_ready` подтверждается отдельным `azur mcp status`.
+Если live runtime обязателен и status сообщает `runtime_state=stale` или
+`runtime_state=stopped`, выполни `azur mcp reconcile` без `--source`, затем
+повтори status. Для same-repository stale marker этот путь использует только
+typed cleanup записанных exact identities, неизменившийся marker и
+STOPPED/no-conflict postcondition; invalid/foreign marker, unknown liveness,
+port conflict и failure остаются fail-closed. Вызов
+`azur mcp reconcile` без `--source` согласует только runtime и не изменяет
+tracked source. После успешного `azur update` reconciliation
 выполняется автоматически и является обязательным postcondition: ошибка source,
 runtime, ownership, port или readiness делает Update неуспешным. Изменение
 plugin/skill snapshot не маскируется под hot reload: session получает
@@ -64,28 +71,13 @@ Marketplace создаётся Plugin Creator в `.agents/plugins/marketplace.js
 
 Для ChatGPT public HTTPS используй внешний OAuth/OIDC provider и Caddy reverse
 proxy. Канонический Caddyfile хранится в репозитории, а runtime state и
-credentials — вне него. Сначала проверь
-локальный remote entrypoint:
-
-```text
-uv run --locked --no-sync python -m module.dev_mcp.remote doctor
-uv run --locked --no-sync python -m module.game_mcp.remote doctor
-```
-
-Для ручного запуска backend используй отдельный постоянный терминал или службу
-для каждого процесса:
-
-```text
-uv run --locked --no-sync python -m module.dev_mcp.remote serve
-```
-
-```text
-uv run --locked --no-sync python -m module.game_mcp.remote serve
-```
-
-Обе команды блокируют свой терминал. В текущем Windows-развёртывании
-процессами Dev/Game MCP на стороне host уже владеет scheduled supervisor,
-поэтому второй экземпляр запускать не нужно.
+credentials — вне него. Проверку и lifecycle project-owned MCP на host
+выполняй только через прямые команды `azur mcp status`, `azur mcp reconcile`,
+`azur mcp start` и `azur mcp restart`. Backend implementations принадлежат внутреннему
+supervisor/deployment layer и не запускаются агентом через `uv`, `python -m`,
+`module.*` или ручной wrapper. В текущем Windows-развёртывании процессами
+Dev/Game MCP на стороне host уже владеет scheduled supervisor, поэтому второй
+экземпляр запускать не нужно.
 
 После готовности владельца backend-процессов на стороне host выполни
 Compose-проверки в отдельном терминале:

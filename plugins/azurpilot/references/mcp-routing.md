@@ -12,17 +12,24 @@ Trust проекта — обязательное предварительное
 automatic trust. Поэтому структурно корректный source config ещё не доказывает,
 что route зарегистрирован в текущей Codex-сессии.
 
-Read-only порядок проверки такой: trust проекта → effective registration обоих
-routes → negotiated MCP discovery через официальный SDK → `tools/list` →
-соответствующий backend contract и callable catalog. Для legacy-compatible
-server SDK сам выполняет штатный `initialize` fallback; plugin не реализует
-собственный parser и не подменяет discovery универсальным handshake.
+Read-only порядок проверки такой: trust проекта → выбранный direct route →
+negotiated MCP discovery через официальный SDK → `tools/list` → соответствующий
+backend contract и callable catalog. Обязательный fresh client acceptance
+создаётся как новый SDK process/session и дополнительно выполняет обязательные
+read-only capability calls; для legacy-compatible server SDK сам выполняет
+штатный `initialize` fallback. Plugin не реализует собственный parser и не
+подменяет discovery универсальным handshake.
 `dev_tools.mcp_status` намеренно разделяет поля
 `source_config` (доказательство tracked `.codex/config.toml`) и
 `effective_codex_registration` (только authoritative evidence из новой или
 перезагруженной trusted Codex task). Значение `not_observable` или pending для
 effective registration является честным ограничением наблюдаемости, а не
 `ready`; collector не заменяет это состояние синтетическим CLI scrape.
+Effective Codex registration — отдельная optional integration check. Если
+изменение затрагивает Codex/plugin registration, client-visible schema или
+routing, действует [единый контракт cross-thread continuation](../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md),
+а не ручной новый чат или Connected App fallback. Wrong-HEAD или недоступный
+`create_thread` не блокируют уже успешный fresh MCP client gate.
 
 При этой диагностике нельзя молча переключаться между transport routes и
 использовать Connected App, OAuth или remote surface как fallback для direct
@@ -38,12 +45,27 @@ project trust и effective registration должны быть подтвержд
 | Troubleshooting | read-only evidence соответствующего direct route | direct local stdio | соответствующий `module.*_mcp` | none |
 | ChatGPT/public | отдельная remote surface | authenticated HTTPS/remote | соответствующий `module.*_mcp.remote` той же backend family | не является Codex fallback |
 
-Канонические локальные команды:
+Канонический project-owned operator lifecycle:
 
 ```text
-azurpilot-dev  → uv run --locked --no-sync python -m module.dev_mcp
-azurpilot-game → uv run --locked --no-sync python -m module.game_mcp
+azur mcp status
+azur mcp reconcile --source --bump auto
+azur mcp status
+azur mcp reconcile
+azur mcp status
 ```
+
+`reconcile --source` означает только `source_reconciled`; live acceptance
+требует повторного `azur mcp status` с `runtime_ready=true`. Если status
+сообщает `runtime_state=stale` или `runtime_state=stopped`, единственный
+канонический runtime repair path — `azur mcp reconcile` без `--source`; для
+same-repository stale marker он использует recorded exact-identity cleanup,
+unchanged marker и STOPPED/no-conflict postcondition, затем запускает нужные
+services. Invalid/unknown/foreign ownership, port conflict или failure
+stop/start остаются fail-closed. Внутренние
+`module.*_mcp` и supervisor modules являются implementation details и напрямую
+не запускаются. Если `azur` отсутствует в PATH, workflow fail-closed; `uv run`,
+Python module entrypoint и shell wrapper не являются fallback.
 
 Codex Desktop aliases намеренно отличаются от protocol identities:
 `azurpilot_dev` → `http://127.0.0.1:8775/mcp` и

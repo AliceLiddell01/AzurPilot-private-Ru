@@ -21,7 +21,15 @@ from pydantic import ValidationError
 import azurpilot.tooling.coordination as tooling_coordination
 import azurpilot.tooling.path as tooling_path
 import azurpilot.tooling.process_core as tooling_process
-from azurpilot.cli import main
+from azurpilot.cli import CliInvocationError, build_parser, main
+from azurpilot.integrations.contracts import (
+    IntegrationDetails,
+    IntegrationEvidence,
+    IntegrationEvidenceBundle,
+    IntegrationName,
+    IntegrationRecord,
+    IntegrationState,
+)
 from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
 from azurpilot.tooling import doctor as tooling_doctor
@@ -632,6 +640,25 @@ def test_cli_reconcile_rejects_bump_without_source() -> None:
     assert stderr.getvalue() == ""
 
 
+def test_cli_has_one_typed_mcp_runtime_reconcile_route() -> None:
+    parser = build_parser()
+
+    runtime = parser.parse_args(["mcp", "reconcile"])
+    assert runtime.mcp_command == "reconcile"
+    assert runtime.source is False
+    assert runtime.bump is None
+
+    source = parser.parse_args(
+        ["mcp", "reconcile", "--source", "--bump", "auto"]
+    )
+    assert source.mcp_command == "reconcile"
+    assert source.source is True
+    assert source.bump == "auto"
+
+    with pytest.raises(CliInvocationError):
+        parser.parse_args(["mcp", "reconcile", "--runtime"])
+
+
 def test_cli_unexpected_error_exposes_only_bounded_exception_type() -> None:
     class ExplodingDoctor:
         def run(self, _root: object) -> object:
@@ -664,6 +691,9 @@ def test_cli_help_is_available_without_service_side_effects() -> None:
 def test_doctor_reports_console_script_and_path_capabilities() -> None:
     result = DoctorService().run(REPOSITORY_ROOT)
     checks = {item.name: item for item in result.details.checks}
+    assert checks["external_integrations"].status is CapabilityStatus.NOT_CHECKED
+    assert "doctor --full" in checks["external_integrations"].message
+    assert all(len(check.message) <= 240 for check in checks.values())
     assert checks["git"].status is CapabilityStatus.READY
     assert checks["console_script"].status.value == "ready"
     assert "console_path" in checks
@@ -677,6 +707,98 @@ def test_doctor_reports_console_script_and_path_capabilities() -> None:
             "Полный Doctor требует свободного и подтверждённого состояния WebUI."
         )
     assert result.ok
+
+
+def test_doctor_full_uses_closed_external_integration_record_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    evidence = RepositoryRootEvidence(
+        source=RootSource.EXPLICIT,
+        candidate_count=1,
+        validation_checks=("test",),
+        root_identity="2" * 16,
+    )
+    resolver = SimpleNamespace(
+        resolve=lambda _root: ResolvedRepository(root, evidence)
+    )
+
+    class IntegrationStub:
+        def status(self, _root: Path) -> ToolingResult:
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="Проверка внешних интеграций пройдена.",
+                details=IntegrationDetails(
+                    action="status",
+                    integrations=(
+                        IntegrationRecord(
+                            name=IntegrationName.CODERABBIT,
+                            state=IntegrationState.READY,
+                            reason_code="CODERABBIT_NATIVE_READY",
+                            message="Исполняемый файл CodeRabbit и его версия подтверждены.",
+                            evidence=IntegrationEvidence(
+                                route="direct_native_agent",
+                                configured=True,
+                                reachable=True,
+                                read_only=True,
+                            ),
+                        ),
+                    ),
+                ),
+                evidence=IntegrationEvidenceBundle(
+                    generated_at="2026-09-22T00:00:00Z"
+                ),
+            )
+
+    monkeypatch.setattr(
+        tooling_doctor,
+        "load_deploy_settings",
+        lambda _root, **_kwargs: DeploySettings(source_path=None),
+    )
+    monkeypatch.setattr(
+        DoctorService,
+        "_git_check",
+        lambda _self, _root, _settings: (
+            CapabilityStatus.READY,
+            "Git подтверждён.",
+        ),
+    )
+    monkeypatch.setattr(
+        DoctorService,
+        "_runtime_check",
+        lambda _self, _root: (CapabilityStatus.READY, "Среда остановлена."),
+    )
+    monkeypatch.setattr(tooling_doctor, "project_python", lambda *_args: Path(sys.executable))
+    monkeypatch.setattr(tooling_doctor, "project_uv", lambda *_args: Path(sys.executable))
+    monkeypatch.setattr(tooling_doctor, "project_adb", lambda *_args: tmp_path / "missing-adb")
+    monkeypatch.setattr(
+        tooling_doctor,
+        "inspect_console_path",
+        lambda _python: SimpleNamespace(
+            installed=False,
+            status=CapabilityStatus.NOT_CONFIGURED,
+            message="Консольная команда не настроена.",
+        ),
+    )
+    monkeypatch.setattr(tooling_doctor.shutil, "which", lambda _name: None)
+
+    result = DoctorService(
+        resolver=resolver,
+        runner=SimpleNamespace(),
+        integrations=IntegrationStub(),
+    ).run(root, include_external_integrations=True)
+
+    assert result.ok is True
+    assert len(result.details.external_integrations) == 1
+    summary = result.details.external_integrations[0]
+    assert summary.name == "coderabbit"
+    assert summary.status == "READY"
+    assert summary.reason_code == "CODERABBIT_NATIVE_READY"
+    assert summary.route == "direct_native_agent"
 
 
 def test_doctor_fails_closed_for_mismatched_canonical_git_remote(

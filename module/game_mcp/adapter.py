@@ -52,6 +52,7 @@ from module.application.game_models import (
     GameRuntimeRestartResult,
     LifecycleOutcome,
     LifecycleResult,
+    LiveResourceObservation,
     MediaFrame,
     RuntimeLogTail,
     SchedulerEntry,
@@ -494,9 +495,18 @@ def _validate_arguments(
     selection: tuple[str, tuple[int, ...]] | None = None
     if tool in GAME_MCP_NO_ARGUMENT_TOOLS:
         _check_keys(raw, allowed=frozenset())
+    elif tool == "game_get_resources":
+        _check_keys(
+            raw,
+            allowed=frozenset({"profile", "mode"}),
+            required=frozenset({"profile"}),
+        )
+        _profile_arguments({"profile": raw["profile"]})
+        mode = raw.get("mode", "dashboard_snapshot")
+        if mode not in {"dashboard_snapshot", "live_current"}:
+            raise InvalidRequestError("mode ресурсов не поддерживается.")
     elif tool in {
         "game_get_profile_status",
-        "game_get_resources",
         "game_get_current_task",
         "game_get_scheduler_queue",
         "game_get_screenshot",
@@ -603,6 +613,41 @@ def _resource_payload(resources: DashboardResources) -> list[dict[str, object]]:
             }
         )
     return payload
+
+
+def _resource_provenance_payload(
+    *,
+    source: str,
+    freshness: str,
+    observed_at: datetime | None,
+    current_state_authority: bool,
+) -> dict[str, object]:
+    if not isinstance(source, str) or not source:
+        raise ServiceUnavailableError("Источник ресурсов не определён.")
+    if freshness not in {"snapshot_time_only", "current_observation"}:
+        raise ServiceUnavailableError("Источник ресурсов имеет неизвестную свежесть.")
+    if type(current_state_authority) is not bool:
+        raise ServiceUnavailableError("Источник ресурсов имеет неверный authority.")
+    if freshness == "current_observation" and not current_state_authority:
+        raise ServiceUnavailableError(
+            "Текущее наблюдение ресурсов не имеет current-state authority."
+        )
+    if freshness == "snapshot_time_only" and current_state_authority:
+        raise ServiceUnavailableError(
+            "Dashboard snapshot не может иметь current-state authority."
+        )
+    if observed_at is not None and (
+        not isinstance(observed_at, datetime) or observed_at.tzinfo is None
+    ):
+        raise ServiceUnavailableError("Источник ресурсов вернул неверное время.")
+    return {
+        "source": _safe_text(source, maximum=128),
+        "freshness": freshness,
+        "observed_at": (
+            _safe_datetime(observed_at) if observed_at is not None else None
+        ),
+        "current_state_authority": current_state_authority,
+    }
 
 
 def _task_summary_payload(tasks: Sequence[TaskSummary]) -> list[dict[str, object]]:
@@ -1537,12 +1582,38 @@ class GameMcpAdapter:
                 },
             )
         if tool == "game_get_resources":
-            resources = read.get_resources(profile)
+            mode = arguments.get("mode", "dashboard_snapshot")
+            if mode == "live_current":
+                observation = read.get_live_resources(profile)
+                if not isinstance(observation, LiveResourceObservation):
+                    raise ServiceUnavailableError(
+                        "Источник вернул некорректное текущее наблюдение ресурсов."
+                    )
+                resources = observation.resources
+                provenance = _resource_provenance_payload(
+                    source=observation.source,
+                    freshness="current_observation",
+                    observed_at=observation.observed_at,
+                    current_state_authority=observation.current_state_authority,
+                )
+            else:
+                resources = read.get_resources(profile)
+                provenance = _resource_provenance_payload(
+                    source="dashboard_snapshot",
+                    freshness="snapshot_time_only",
+                    observed_at=None,
+                    current_state_authority=False,
+                )
             return _ok(
                 "GAME_RESOURCES_READY",
                 "Ресурсы профиля готовы",
                 "ready",
-                {"profile": profile, "resources": _resource_payload(resources)},
+                {
+                    "profile": profile,
+                    "mode": mode,
+                    "resources": _resource_payload(resources),
+                    "resource_provenance": provenance,
+                },
             )
         if tool == "game_get_current_task":
             result = read.get_current_running_task(profile)

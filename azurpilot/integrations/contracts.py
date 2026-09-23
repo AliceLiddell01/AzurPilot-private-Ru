@@ -12,11 +12,16 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from azurpilot.tooling.contracts import AnalysisScope, ClosedModel
+from azurpilot.tooling.contracts import (
+    AnalysisScope,
+    ClosedModel,
+    CodeRabbitDeferredBacklog,
+)
 
 MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE = 3
 MAX_RETAINED_REVIEW_CYCLES = 8
 CYCLE_ID_PATTERN = r"^(?:coderabbit-cycle|legacy-coderabbit)-[0-9a-f]{16,64}$|^not-started$"
+TASK_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
 
 
 class IntegrationName(StrEnum):
@@ -102,13 +107,20 @@ class IntegrationFinding(ClosedModel):
     line_end: int | None = Field(default=None, ge=1, le=10_000_000)
     title: str | None = Field(default=None, max_length=160)
     severity: str = Field(min_length=1, max_length=40)
-    message: str = Field(min_length=1, max_length=400)
+    message: str = Field(min_length=1, max_length=1200)
     fingerprint: str | None = Field(default=None, max_length=128)
     reviewed_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     base_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     disposition: str | None = Field(default=None, max_length=40)
-    resolution: str | None = Field(default=None, max_length=400)
+    resolution: str | None = Field(default=None, max_length=4000)
+    codegen_instructions: str | None = Field(default=None, max_length=4000)
+    suggestions: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
+    decision_reason: str | None = Field(default=None, max_length=2000)
+    change_summary: str | None = Field(default=None, max_length=2000)
+    conflict_kind: str | None = Field(default=None, max_length=80)
+    deferral_reason: str | None = Field(default=None, max_length=80)
+    authoritative_source: str | None = Field(default=None, max_length=1200)
 
     @model_validator(mode="after")
     def validate_line_range(self) -> IntegrationFinding:
@@ -121,6 +133,7 @@ class CodeRabbitCycleSummary(ClosedModel):
     """Безопасная сводка текущего CodeRabbit review cycle."""
 
     cycle_id: str = Field(pattern=CYCLE_ID_PATTERN)
+    task_id: str | None = Field(default=None, pattern=TASK_ID_PATTERN)
     cycle_status: str = Field(min_length=1, max_length=80)
     substantive_iterations: int = Field(
         ge=0, le=MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE
@@ -137,6 +150,9 @@ class CodeRabbitCycleSummary(ClosedModel):
     last_reviewed_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     previous_cycles_retained: int = Field(ge=0, le=MAX_RETAINED_REVIEW_CYCLES)
     findings_count: int = Field(ge=0, le=128)
+    triaged_findings_count: int = Field(default=0, ge=0, le=128)
+    triage_required: bool = False
+    historical_non_authoritative_count: int = Field(default=0, ge=0, le=128)
     terminal: bool
     active: bool
 
@@ -150,6 +166,7 @@ class IntegrationDetails(ClosedModel):
     scope: AnalysisScope | None = None
     findings: tuple[IntegrationFinding, ...] = Field(default_factory=tuple, max_length=128)
     coderabbit_cycle: CodeRabbitCycleSummary | None = None
+    coderabbit_backlog: CodeRabbitDeferredBacklog | None = None
 
 
 class IntegrationEvidenceBundle(ClosedModel):
@@ -164,7 +181,9 @@ __all__ = [
     "CYCLE_ID_PATTERN",
     "MAX_RETAINED_REVIEW_CYCLES",
     "MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE",
+    "TASK_ID_PATTERN",
     "CodeRabbitCycleSummary",
+    "CodeRabbitDeferredBacklog",
     "CredentialRef",
     "CredentialSource",
     "IntegrationDetails",
