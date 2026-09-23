@@ -75,16 +75,20 @@ Smoke по умолчанию выполняй только этим поток�
 3. Проверь source snapshot: нужный commit/head должен быть точным, а рабочее
    дерево — чистым. Для изменения продукта сначала зафиксируй исходный
    источник.
-4. Для bounded non-visual scenario вызови `dev_run_smoke` один раз; операция
-   сама проверяет spec и preconditions до mutation, затем возвращает terminal
-   result после execution и cleanup. Остановись при любой ошибке. Long/interactive/
-   visual сценарий использует отдельный async run path с `dev_get_smoke`.
+4. Для bounded non-visual scenario с `timeout_seconds <= 300` вызови
+   `dev_run_smoke` один раз; операция сама проверяет spec и preconditions до
+   mutation, затем возвращает terminal result после execution и cleanup.
+   Long/interactive сценарии и `visual_assertions` отклоняются как
+   `DEV_SMOKE_SPEC_UNSUPPORTED`; отдельной public async surface в normal catalog
+   нет. Остановись при любой ошибке.
 5. `dev_validate_smoke` оставлен для необязательной read-only проверки spec и
    не является prerequisite normal run.
-6. Если результат требует внешней визуальной проверки, получи ровно
-   замороженные rubric/screenshot через `dev_get_smoke_evaluation`. Передавай
-   вердикт через `dev_submit_smoke_evaluation` только после фактической
-   оценки; не сочиняй визуальные доказательства.
+6. Для уже существующего SmokeRun в состоянии
+   `AWAITING_EXTERNAL_EVALUATION` получи замороженные rubric/screenshot через
+   `dev_get_smoke_evaluation`. Передавай вердикт через
+   `dev_submit_smoke_evaluation` только после фактической оценки; не сочиняй
+   визуальные доказательства. `dev_run_smoke` не создаёт такие runs:
+   `visual_assertions` отклоняются.
 7. Для game-backed SmokeSpec объяви bounded `game_observations`: supervisor
    автоматически фиксирует `before`, `final` и triggered intermediate
    checkpoints. После terminal result проверь

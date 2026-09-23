@@ -45,6 +45,7 @@ from .filesystem import (
     sha256_file,
 )
 from .git import GitClient, is_ad_hoc_remote_ref, repository_identity_from_remote
+from .mcp import McpSourceReconciler
 from .process import ProcessResult, ProcessSpec, StructuredProcessRunner
 from .repository import RepositoryResolver, ResolvedRepository
 
@@ -411,6 +412,18 @@ class DeliveryService:
                     "Явный scope содержит пути без изменений в Git candidate.",
                 )
             selected_paths = requested_paths
+        selected_paths = tuple(
+            sorted(
+                set(selected_paths)
+                | set(
+                    McpSourceReconciler().delivery_scope_dependencies(
+                        root,
+                        selected_paths=selected_paths,
+                        candidate_paths=dirty_paths,
+                    )
+                )
+            )
+        )
         if not selected_paths:
             raise _error(
                 ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,

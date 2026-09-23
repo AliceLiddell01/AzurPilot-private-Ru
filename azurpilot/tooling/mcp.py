@@ -1289,6 +1289,45 @@ class McpSourceReconciler:
             )
         return build
 
+    def delivery_scope_dependencies(
+        self,
+        root: Path | str,
+        *,
+        selected_paths: Iterable[str | Path],
+        candidate_paths: Iterable[str | Path],
+    ) -> tuple[str, ...]:
+        """Закрыть MCP delivery scope всеми зависимыми source/artifact paths.
+
+        Generated metadata описывают весь MCP candidate. Если explicit scope
+        затрагивает MCP source set или generated artifact, сначала проверяем,
+        что bundle соответствует полному working-tree candidate, затем включаем
+        его изменённые MCP sources и производные artifacts в тот же commit.
+        Обычный non-MCP scope не расширяется.
+        """
+
+        def normalize(paths: Iterable[str | Path]) -> set[str]:
+            return {
+                Path(path).as_posix().removeprefix("./")
+                for path in paths
+                if str(path).strip()
+            }
+
+        selected = normalize(selected_paths)
+        candidates = normalize(candidate_paths)
+        generated = {path.as_posix() for path in MCP_GENERATED_ARTIFACTS}
+        selected_source = classify_source_changes(selected).changed_components
+        if not selected_source and not selected.intersection(generated):
+            return ()
+
+        candidate_sources = {
+            path
+            for path in candidates
+            if classify_source_changes((path,)).changed_components
+        }
+        candidate_generated = candidates.intersection(generated)
+        self.check(root)
+        return tuple(sorted((candidate_sources | candidate_generated) - selected))
+
     @staticmethod
     def _baseline(root: Path, base_commit: str) -> _McpBaseline:
         if _REVISION_RE.fullmatch(base_commit) is None:

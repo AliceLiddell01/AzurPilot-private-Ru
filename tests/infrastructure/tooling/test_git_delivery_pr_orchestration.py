@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -48,6 +49,7 @@ from azurpilot.tooling.git import (
     is_ad_hoc_remote_ref,
     repository_identity_from_remote,
 )
+import azurpilot.tooling.mcp as mcp_tooling
 from azurpilot.tooling.pull_request import (
     GitHubProvider,
     PullRequestBodyRenderer,
@@ -70,7 +72,11 @@ def _git(root: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
-def _fixture_repository(tmp_path: Path) -> tuple[Path, Path, str, str, RepositoryIdentity]:
+def _fixture_repository(
+    tmp_path: Path,
+    *,
+    include_mcp_bundle: bool = False,
+) -> tuple[Path, Path, str, str, RepositoryIdentity]:
     root = tmp_path / "repository"
     bare = tmp_path / "remote.git"
     root.mkdir()
@@ -82,10 +88,20 @@ def _fixture_repository(tmp_path: Path) -> tuple[Path, Path, str, str, Repositor
     (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     (root / "README.md").write_text("base\n", encoding="utf-8")
     (root / "deploy" / "remove-me.txt").write_text("remove\n", encoding="utf-8")
+    tracked_paths = ["module", "deploy", "pyproject.toml", "uv.lock", "README.md"]
+    if include_mcp_bundle:
+        source = root / "module" / "dev_runtime" / "control.py"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("base source\n", encoding="utf-8")
+        for relative in mcp_tooling.MCP_GENERATED_ARTIFACTS:
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPOSITORY_ROOT / relative, target)
+        tracked_paths.extend(("config", "plugins"))
     _git(root, "init", "-b", "personal/stable")
     _git(root, "config", "user.name", "AzurPilot Test")
     _git(root, "config", "user.email", "azurpilot-test@example.invalid")
-    _git(root, "add", "--", "module", "deploy", "pyproject.toml", "uv.lock", "README.md")
+    _git(root, "add", "--", *tracked_paths)
     _git(root, "commit", "-m", "base")
     base_sha = _git(root, "rev-parse", "HEAD")
     _git(root, "init", "--bare", str(bare))
@@ -266,18 +282,6 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
     root, _bare, base_sha, remote_url, identity = _fixture_repository(tmp_path)
     after = b"published\n"
     (root / "README.md").write_bytes(after)
-    (root / "config").mkdir()
-    (root / "config" / "mcp-versions.toml").write_text(
-        "generated mcp versions\n", encoding="utf-8"
-    )
-    plugin_dir = root / "plugins" / "azurpilot"
-    (plugin_dir / ".codex-plugin").mkdir(parents=True)
-    (plugin_dir / ".codex-plugin" / "plugin.json").write_text(
-        '{"version":"generated"}\n', encoding="utf-8"
-    )
-    (plugin_dir / "compatibility.json").write_text(
-        '{"bundle_revision":"generated"}\n', encoding="utf-8"
-    )
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
 
     service = DeliveryService(
@@ -292,12 +296,7 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
     assert result.details.phase is DeliveryPhase.DELIVERED
     assert result.details.commit_sha
     assert result.details.remote_sha == result.details.commit_sha
-    assert set(result.details.target_paths) == {
-        "README.md",
-        "config/mcp-versions.toml",
-        "plugins/azurpilot/.codex-plugin/plugin.json",
-        "plugins/azurpilot/compatibility.json",
-    }
+    assert result.details.target_paths == ("README.md",)
     assert not (tmp_path / "delivery.json").exists()
     assert _git(root, "status", "--porcelain") == ""
     assert (
@@ -316,6 +315,207 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
         StateLayout.for_repository(root).transactions_directory / result.operation_id
     )
     assert not transaction_directory.exists()
+
+
+def test_explicit_mcp_delivery_closes_scope_over_current_generated_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _bare, base_sha, _remote_url, _identity = _fixture_repository(
+        tmp_path,
+        include_mcp_bundle=True,
+    )
+    base_bundle = mcp_tooling.load_mcp_bundle(REPOSITORY_ROOT)
+    candidate_digests = dict(base_bundle.source_digests)
+    monkeypatch.setattr(
+        mcp_tooling,
+        "source_set_digests",
+        lambda _root: dict(candidate_digests),
+    )
+    source = root / "module" / "dev_runtime" / "control.py"
+    source.write_text("updated source\n", encoding="utf-8")
+    candidate_digests["DEV_MCP_SOURCE_SET"] = "d" * 64
+    reconciler = mcp_tooling.McpSourceReconciler()
+    reconciler.reconcile(root, base_commit=base_sha)
+
+    staged_at_commit: list[tuple[str, ...]] = []
+    original_commit = GitClient.commit
+
+    def record_staged_scope(client: GitClient, message: str) -> str:
+        staged_at_commit.append(client.staged_paths())
+        return original_commit(client, message)
+
+    monkeypatch.setattr(GitClient, "commit", record_staged_scope)
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    result = DeliveryService(
+        scanner_factory=_NoopScanner,
+        allow_non_hosted_remote=True,
+    ).publish(
+        "fix(delivery): включить generated MCP bundle",
+        root,
+        paths=("module/dev_runtime/control.py",),
+    )
+
+    assert result.ok is True
+    assert result.details is not None
+    generated = {path.as_posix() for path in mcp_tooling.MCP_GENERATED_ARTIFACTS}
+    expected = generated | {"module/dev_runtime/control.py"}
+    assert set(result.details.target_paths) == expected
+    assert staged_at_commit == [tuple(sorted(expected))]
+    assert set(GitClient(root).commit_paths(result.details.commit_sha or "")) == expected
+    assert _git(root, "status", "--porcelain") == ""
+
+
+def test_explicit_mcp_delivery_rejects_stale_generated_bundle_before_staging(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _bare, base_sha, _remote_url, _identity = _fixture_repository(
+        tmp_path,
+        include_mcp_bundle=True,
+    )
+    base_bundle = mcp_tooling.load_mcp_bundle(REPOSITORY_ROOT)
+    candidate_digests = dict(base_bundle.source_digests)
+    monkeypatch.setattr(
+        mcp_tooling,
+        "source_set_digests",
+        lambda _root: dict(candidate_digests),
+    )
+    (root / "module" / "dev_runtime" / "control.py").write_text(
+        "updated source\n",
+        encoding="utf-8",
+    )
+    candidate_digests["DEV_MCP_SOURCE_SET"] = "e" * 64
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).publish(
+            "fix(delivery): отклонить stale MCP bundle",
+            root,
+            paths=("module/dev_runtime/control.py",),
+        )
+
+    assert error.value.code in {
+        ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
+        ResultCode.MCP_VERSION_BUMP_REQUIRED,
+    }
+    assert _git(root, "rev-parse", "HEAD") == base_sha
+    assert _git(root, "diff", "--cached", "--name-only") == ""
+
+
+def test_explicit_non_mcp_delivery_does_not_expand_to_mcp_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _bare, base_sha, _remote_url, _identity = _fixture_repository(
+        tmp_path,
+        include_mcp_bundle=True,
+    )
+    base_bundle = mcp_tooling.load_mcp_bundle(REPOSITORY_ROOT)
+    candidate_digests = dict(base_bundle.source_digests)
+    monkeypatch.setattr(
+        mcp_tooling,
+        "source_set_digests",
+        lambda _root: dict(candidate_digests),
+    )
+    (root / "module" / "dev_runtime" / "control.py").write_text(
+        "updated source\n",
+        encoding="utf-8",
+    )
+    candidate_digests["DEV_MCP_SOURCE_SET"] = "f" * 64
+    mcp_tooling.McpSourceReconciler().reconcile(root, base_commit=base_sha)
+    (root / "README.md").write_text("explicit ordinary scope\n", encoding="utf-8")
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    result = DeliveryService(
+        scanner_factory=_NoopScanner,
+        allow_non_hosted_remote=True,
+    ).publish(
+        "fix(delivery): сохранить explicit обычный scope",
+        root,
+        paths=("README.md",),
+    )
+
+    assert result.ok is True
+    assert result.details is not None
+    assert result.details.target_paths == ("README.md",)
+    assert GitClient(root).commit_paths(result.details.commit_sha or "") == (
+        "README.md",
+    )
+    assert "module/dev_runtime/control.py" in _git(root, "status", "--short")
+
+
+def test_delivery_publishes_git_mv_as_exact_delete_and_add_endpoints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _bare, base_sha, remote_url, _identity = _fixture_repository(tmp_path)
+    _git(root, "mv", "README.md", "renamed.md")
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    result = DeliveryService(
+        scanner_factory=_NoopScanner,
+        allow_non_hosted_remote=True,
+    ).publish("fix(delivery): проверить Git rename", root)
+
+    assert result.ok is True
+    assert result.details is not None
+    assert result.details.target_paths == ("README.md", "renamed.md")
+    assert {(item.path, item.change) for item in result.details.changes} == {
+        ("README.md", "D"),
+        ("renamed.md", "A"),
+    }
+    assert GitClient(root).commit_paths(result.details.commit_sha or "") == (
+        "README.md",
+        "renamed.md",
+    )
+    assert _git(root, "cat-file", "-e", f"{result.details.commit_sha}:renamed.md") == ""
+    assert _git(
+        root,
+        "show",
+        "--summary",
+        "--format=",
+        result.details.commit_sha or "",
+    ).startswith("rename README.md => renamed.md")
+    remote_sha = _git(
+        root,
+        "ls-remote",
+        "--refs",
+        remote_url,
+        "refs/heads/cli/fixture-delivery",
+    ).split()[0]
+    assert remote_sha == result.details.commit_sha
+    assert _git(root, "rev-parse", "HEAD") != base_sha
+
+
+def test_delivery_rejects_foreign_staged_path_alongside_explicit_rename(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _bare, base_sha, _remote_url, _identity = _fixture_repository(tmp_path)
+    _git(root, "mv", "README.md", "renamed.md")
+    (root / "foreign.txt").write_text("outside allowlist\n", encoding="utf-8")
+    _git(root, "add", "--", "foreign.txt")
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).publish(
+            "fix(delivery): отклонить чужой staged path",
+            root,
+            paths=("README.md", "renamed.md"),
+        )
+
+    assert error.value.code is ResultCode.TOOLING_DELIVERY_SCOPE_INVALID
+    assert _git(root, "rev-parse", "HEAD") == base_sha
+    assert set(
+        _git(root, "diff", "--cached", "--name-only", "--no-renames").splitlines()
+    ) == {"README.md", "renamed.md", "foreign.txt"}
 
 
 def test_delivery_keeps_recovery_journal_after_interrupted_push_and_cleans_after_recovery(

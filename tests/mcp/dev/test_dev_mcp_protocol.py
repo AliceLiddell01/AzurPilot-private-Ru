@@ -189,6 +189,16 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
     assert game_schema["properties"]["parameters"]["additionalProperties"] is False
     assert game_schema["properties"]["parameters"]["patternProperties"]
     assert "dev_capture_smoke_game_checkpoint" not in names
+    smoke_checkpoint = tools[names.index("dev_run_smoke")]
+    checkpoint_schema = smoke_checkpoint.input_schema["$defs"]["SmokeGameCheckpoint"]
+    assert "capture_condition" in checkpoint_schema["required"]
+    assert "terminal" in smoke_checkpoint.description
+    assert "300 секунд" in smoke_checkpoint.description
+    assert "visual_assertions не поддерживаются" in smoke_checkpoint.description
+    assert smoke_checkpoint.input_schema["allOf"] == [
+        {"properties": {"timeout_seconds": {"maximum": 300.0}}},
+        {"properties": {"visual_assertions": {"maxItems": 0}}},
+    ]
 
 
 def test_server_bootstrap_does_not_construct_runtime_manager() -> None:

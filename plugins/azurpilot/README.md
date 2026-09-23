@@ -128,10 +128,11 @@ base-to-head compatibility.
 `dev_list_smoke_capabilities` → строгий `SmokeSpec` → exact source snapshot →
 один `dev_run_smoke` с terminal result после cleanup. Он сам проверяет spec и
 preconditions до mutation; `dev_validate_smoke` остаётся необязательной
-read-only проверкой. Triggered game
-checkpoints фиксируются автоматически; после run при необходимости вызывай
-`dev_get_smoke_game_observations` и выполняй замороженную внешнюю visual
-evaluation. Длинный и интерактивный сценарий использует отдельный async path. Для Codex доступны target-bound
+read-only проверкой. `dev_run_smoke` принимает `timeout_seconds` не более 300
+секунд и не принимает `visual_assertions`; неподходящий spec завершается
+`DEV_SMOKE_SPEC_UNSUPPORTED` без запуска SmokeRun. Triggered game checkpoints
+фиксируются автоматически; после run при необходимости вызывай
+`dev_get_smoke_game_observations`. Для Codex доступны target-bound
 `dev_list_game_observation_capabilities` или `dev_get_game_observation`, а также
 fixed-catalog `dev_get_database_status` или `dev_run_database_check`; они не
 принимают profile, instance, SQL или произвольный путь.

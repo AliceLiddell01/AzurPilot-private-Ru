@@ -664,6 +664,10 @@ def test_smoke_game_observations_have_named_intermediates_and_reserved_boundarie
                 "checkpoints": [
                     {
                         "checkpoint_id": "midpoint",
+                        "capture_condition": {
+                            "kind": "task_finished",
+                            "task": "RootTask",
+                        },
                         "observations": [{"capability_id": "morale", "parameters": {"fleet_indices": [1]}}],
                     }
                 ],

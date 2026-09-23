@@ -183,7 +183,12 @@ class GitClient:
     def staged_paths(self) -> tuple[str, ...]:
         """Получить только пути index, не расширяя scope до working tree."""
 
-        command = self.run("diff", "--cached", "--name-only", "-z", "--")
+        # Delivery представляет rename одной delete старого пути и одной add
+        # нового. Отключаем Git rename detection, чтобы index и commit использовали
+        # ту же модель, что и manifest endpoints.
+        command = self.run(
+            "diff", "--cached", "--name-only", "--no-renames", "-z", "--"
+        )
         _require_complete(command, "Список staged paths")
         output = command.result.stdout
         return tuple(sorted(path for path in output.split("\x00") if path))
@@ -194,7 +199,11 @@ class GitClient:
         # Нельзя использовать text(): strip() уничтожает первый пробел в
         # porcelain XY-коде и превращает unstaged ` M` в ложный staged `M`.
         command = self.run(
-            "status", "--porcelain=v1", "-z", "--untracked-files=all"
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--no-renames",
         )
         _require_complete(command, "Git status")
         return command.result.stdout
@@ -324,6 +333,7 @@ class GitClient:
             "diff-tree",
             "--no-commit-id",
             "--name-only",
+            "--no-renames",
             "-r",
             "-z",
             commit,
@@ -344,6 +354,7 @@ class GitClient:
         command = self.run(
             "diff",
             "--name-only",
+            "--no-renames",
             "-z",
             f"{start}..{end}",
             "--",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import json
 import logging
 import sys
@@ -28,7 +29,7 @@ from module.dev_mcp.contract import (
     DEV_MCP_SERVER_NAME,
     DEV_MCP_SERVER_VERSION,
 )
-from module.dev_runtime.smoke import SmokeSpec
+from module.dev_runtime.smoke import SMOKE_SYNC_MAX_SECONDS, SmokeSpec
 
 SERVER_NAME = DEV_MCP_SERVER_NAME
 SERVER_VERSION = DEV_MCP_SERVER_VERSION
@@ -94,6 +95,11 @@ _TIMELINE_INPUT = {
     "additionalProperties": False,
 }
 _SMOKE_INPUT = SmokeSpec.model_json_schema()
+_BOUNDED_SMOKE_INPUT = copy.deepcopy(_SMOKE_INPUT)
+_BOUNDED_SMOKE_INPUT["allOf"] = [
+    {"properties": {"timeout_seconds": {"maximum": SMOKE_SYNC_MAX_SECONDS}}},
+    {"properties": {"visual_assertions": {"maxItems": 0}}},
+]
 _SMOKE_ID_INPUT = {
     "type": "object",
     "properties": {
@@ -291,7 +297,11 @@ def tool_definitions() -> list[Tool]:
         "dev_get_screenshot": "Получить текущий кадр активной DevSession как вложение изображения MCP.",
         "dev_list_smoke_capabilities": "Получить реестр поддерживаемых возможностей SmokeSpec только для чтения.",
         "dev_validate_smoke": "Проверить строгий SmokeSpec и предварительные условия без создания SmokeRun.",
-        "dev_run_smoke": "Выполнить ограниченный Smoke и вернуть terminal typed result после очистки; долгий или интерактивный сценарий использует отдельный async run.",
+        "dev_run_smoke": (
+            "Выполнить ограниченный Smoke и вернуть terminal typed result после очистки. "
+            f"timeout_seconds не может превышать {SMOKE_SYNC_MAX_SECONDS:g} секунд; "
+            "visual_assertions не поддерживаются."
+        ),
         "dev_get_smoke": "Получить ограниченные состояние, ход выполнения, утверждения и сводку целостности SmokeRun.",
         "dev_cancel_smoke": "Сохранить проверенный запрос отмены для конкретного SmokeRun и его supervisor.",
         "dev_get_smoke_evaluation": "Получить замороженную визуальную рубрику и точный сохранённый снимок экрана для внешней оценки.",
@@ -322,7 +332,7 @@ def tool_definitions() -> list[Tool]:
         "dev_get_evidence": _SESSION_INPUT,
         "dev_get_timeline": _TIMELINE_INPUT,
         "dev_validate_smoke": _SMOKE_INPUT,
-        "dev_run_smoke": _SMOKE_INPUT,
+        "dev_run_smoke": _BOUNDED_SMOKE_INPUT,
         "dev_get_smoke": _SMOKE_ID_INPUT,
         "dev_cancel_smoke": _SMOKE_ID_INPUT,
         "dev_get_smoke_evaluation": _SMOKE_ID_INPUT,
