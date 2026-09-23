@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from module.application import adb_target as adb_target_module
 from module.dev_runtime import (
     ConfiguredRuntimeBackend,
     ControlAction,
@@ -615,21 +616,23 @@ def test_read_only_aliases_use_bounded_ttl_cache(
 ) -> None:
     calls: list[str] = []
     clock = [100.0]
-    cache = control_module._passive_emulator_aliases_cache
+    cache = adb_target_module._read_only_emulator_aliases_cache
     cache.clear()
 
     def aliases_provider(serial: str) -> tuple[str, ...]:
         calls.append(serial)
         return (serial, "emulator-5556")
 
+    cached_aliases = adb_target_module.cached_read_only_emulator_serial_aliases
     monkeypatch.setattr(
-        "module.application.adb_target.read_only_emulator_serial_aliases",
-        aliases_provider,
+        adb_target_module,
+        "cached_read_only_emulator_serial_aliases",
+        lambda serial: cached_aliases(serial, provider=aliases_provider),
     )
     monkeypatch.setattr(
-        control_module,
-        "time",
-        SimpleNamespace(monotonic=lambda: clock[0]),
+        adb_target_module,
+        "monotonic",
+        lambda: clock[0],
     )
 
     try:
@@ -643,7 +646,7 @@ def test_read_only_aliases_use_bounded_ttl_cache(
         )
         assert calls == ["configured"]
 
-        clock[0] += control_module._PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
+        clock[0] += adb_target_module.READ_ONLY_EMULATOR_ALIASES_CACHE_TTL_SECONDS
         assert control_module._read_only_target_serial_aliases("configured") == (
             "configured",
             "emulator-5556",

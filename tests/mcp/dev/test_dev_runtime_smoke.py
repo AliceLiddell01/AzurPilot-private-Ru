@@ -1082,6 +1082,7 @@ def test_task_started_does_not_close_running_window_with_pending_checkpoint(
         captured = manager.capture_game_checkpoint(smoke_id, "commission_recovery")
         assert captured.ok is True, captured.as_dict()
     finally:
+        supervisor.join(timeout=10)
         if supervisor.is_alive():
             manager.cancel_smoke(smoke_id)
         supervisor.join(timeout=2)
@@ -1117,6 +1118,7 @@ def test_captured_intermediate_checkpoint_unblocks_normal_completion(
         )
         assert manager.capture_game_checkpoint(smoke_id, "commission_recovery").ok is True
     finally:
+        supervisor.join(timeout=10)
         if supervisor.is_alive():
             manager.cancel_smoke(smoke_id)
         supervisor.join(timeout=2)
@@ -1166,6 +1168,7 @@ def test_captured_unknown_intermediate_checkpoint_stops_wait_but_fails_evidence(
         assert captured.ok is False
         assert captured.code == "DEV_GAME_OBSERVATION_UNKNOWN"
     finally:
+        supervisor.join(timeout=10)
         if supervisor.is_alive():
             manager.cancel_smoke(smoke_id)
         supervisor.join(timeout=2)
