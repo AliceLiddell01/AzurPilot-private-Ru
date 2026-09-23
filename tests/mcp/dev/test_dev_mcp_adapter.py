@@ -275,6 +275,30 @@ def test_adapter_serializes_mixed_game_and_smoke_capabilities_by_item_schema() -
     }
 
 
+def test_adapter_preserves_omitted_game_snapshot_fields_in_provenance() -> None:
+    result = serialize_dev_result(
+        DevResult(
+            ok=True,
+            code="DEV_GAME_OBSERVATION_READY",
+            message="Наблюдение готово",
+            state="known",
+            details={
+                "observation": {
+                    "status": "known",
+                    "provenance": {
+                        "owner": "tests",
+                        "omitted_snapshot_fields": ["ActionPoint"],
+                    },
+                }
+            },
+        )
+    )
+
+    assert result["details"]["observation"]["provenance"]["omitted_snapshot_fields"] == [
+        "ActionPoint"
+    ]
+
+
 def test_adapter_rebinds_manager_when_registry_target_changes(tmp_path: Path) -> None:
     root = tmp_path.resolve()
     config = root / "config"

@@ -514,6 +514,16 @@ def build_parser() -> argparse.ArgumentParser:
                 "recover", help="восстановить доказанно прерванную попытку"
             )
             _add_common_options(cycle_recover, suppress_defaults=True)
+            cycle_abandon = cycle_subparsers.add_parser(
+                "abandon", help="закрыть неизвестную reservation по подтверждению оператора"
+            )
+            _add_common_options(cycle_abandon, suppress_defaults=True)
+            cycle_abandon.add_argument(
+                "--confirm",
+                action="store_true",
+                dest="confirm_abandon",
+                help="подтвердить очистку ownership без provider identity",
+            )
             cycle_start = cycle_subparsers.add_parser(
                 "start", help="создать новый cycle без запуска provider review"
             )
@@ -1226,6 +1236,15 @@ def _dispatch(
             and args.coderabbit_cycle_action == "recover"
         ):
             return services.integrations.recover_coderabbit_review(repository_root=root)
+        if (
+            target == IntegrationName.CODERABBIT.value
+            and action == "cycle"
+            and args.coderabbit_cycle_action == "abandon"
+        ):
+            return services.integrations.abandon_coderabbit_review(
+                confirmed=args.confirm_abandon,
+                repository_root=root,
+            )
         if (
             target == IntegrationName.CODERABBIT.value
             and action == "cycle"

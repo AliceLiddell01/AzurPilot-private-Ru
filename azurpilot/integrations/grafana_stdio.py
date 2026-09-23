@@ -18,7 +18,7 @@ class GrafanaLauncherError(RuntimeError):
 
 
 def _cleanup_child(process: subprocess.Popen[bytes]) -> None:
-    """Bounded cleanup child process after launcher interruption."""
+    """Ограниченная очистка дочернего процесса после прерывания launcher."""
 
     if process.poll() is not None:
         return

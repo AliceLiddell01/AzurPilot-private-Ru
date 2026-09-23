@@ -3769,7 +3769,7 @@ class SmokeRunManager:
             )
         except SmokeStoreError:
             raise
-        except Exception as exc:  # noqa: BLE001 - provider boundary is fail-closed.
+        except Exception as exc:  # noqa: BLE001 — граница provider завершается fail-closed.
             return (
                 False,
                 {

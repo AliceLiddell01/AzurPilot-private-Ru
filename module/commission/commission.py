@@ -937,7 +937,7 @@ class RewardCommission(UI, InfoHandler):
         def read_canonical():
             try:
                 state = store.read(profile)
-            except Exception as error:  # noqa: BLE001 - cache boundary is fail-closed
+            except Exception as error:  # noqa: BLE001 — кэш-граница завершается fail-closed
                 logger.warning(
                     '[Комиссия — нефть] Каноническое состояние AP недоступно (%s)',
                     type(error).__name__,
@@ -958,7 +958,7 @@ class RewardCommission(UI, InfoHandler):
             if ap_opened and ap_handler is not None:
                 try:
                     ap_handler.action_point_quit(timeout=10)
-                except Exception as error:  # noqa: BLE001 - cleanup is fail-closed
+                except Exception as error:  # noqa: BLE001 — очистка завершается fail-closed
                     cleanup_ok = False
                     logger.warning(
                         '[Комиссия — нефть] Не удалось закрыть окно AP (%s)',
@@ -968,7 +968,7 @@ class RewardCommission(UI, InfoHandler):
             if os_opened:
                 try:
                     self.ui_ensure(page_reward)
-                except Exception as error:  # noqa: BLE001 - cleanup is fail-closed
+                except Exception as error:  # noqa: BLE001 — очистка завершается fail-closed
                     cleanup_ok = False
                     logger.warning(
                         '[Комиссия — нефть] Возврат к наградам после восстановления AP не подтверждён (%s)',
@@ -983,7 +983,7 @@ class RewardCommission(UI, InfoHandler):
                     profile,
                     last_result='ambiguous_ap_purchase',
                 )
-            except Exception as error:  # noqa: BLE001 - no retry without invalidation
+            except Exception as error:  # noqa: BLE001 — повтор запрещён без инвалидации
                 logger.warning(
                     '[Комиссия — нефть] Не удалось инвалидировать состояние после AP mutation (%s)',
                     type(error).__name__,
@@ -1054,7 +1054,7 @@ class RewardCommission(UI, InfoHandler):
                     getattr(stored, 'status', 'unknown'),
                 )
                 self.ui_ensure(page_reward)
-            except Exception as error:  # noqa: BLE001 - no hidden retry after mutation
+            except Exception as error:  # noqa: BLE001 — после mutation нет скрытого повтора
                 logger.warning(
                     '[Комиссия — нефть] Резерв общежития не подтверждён (%s)',
                     type(error).__name__,
@@ -1068,7 +1068,7 @@ class RewardCommission(UI, InfoHandler):
 
             try:
                 state = store.read(profile)
-            except Exception as error:  # noqa: BLE001 - cache outage cannot choose a mutation
+            except Exception as error:  # noqa: BLE001 — сбой кэша не может выбрать mutation
                 logger.warning(
                     '[Комиссия — нефть] Каноническое состояние AP недоступно (%s)',
                     type(error).__name__,
@@ -1160,7 +1160,7 @@ class RewardCommission(UI, InfoHandler):
             if getattr(purchase, 'click_count', 0) > 0:
                 return invalidate_after_mutation()
             return blocked()
-        except Exception as error:  # noqa: BLE001 - recovery is bounded and fail-closed
+        except Exception as error:  # noqa: BLE001 — восстановление ограничено и завершается fail-closed
             logger.warning(
                 '[Комиссия — нефть] Восстановление AP завершилось исключением (%s)',
                 type(error).__name__,

@@ -778,11 +778,14 @@ class PullRequestBody(ClosedModel):
             return self
         actionable = any(
             finding.triage is None
-            or finding.disposition
-            in {
-                FindingDisposition.CONFIRMED,
-                FindingDisposition.PARTIALLY_CONFIRMED,
-            }
+            or (
+                finding.disposition
+                in {
+                    FindingDisposition.CONFIRMED,
+                    FindingDisposition.PARTIALLY_CONFIRMED,
+                }
+                and finding.fix_head is None
+            )
             for finding in review.findings
         )
         if actionable and (

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from threading import Lock
+from time import monotonic
 from typing import Literal
 
 AdbTargetResolutionReason = Literal["not_found", "ambiguous", "unavailable"]
@@ -59,6 +61,51 @@ def read_only_emulator_serial_aliases(target_serial: str) -> tuple[str, ...]:
     if len(matches) != 1:
         return ()
     return matches[0]
+
+
+READ_ONLY_EMULATOR_ALIASES_CACHE_TTL_SECONDS = 1.0
+READ_ONLY_EMULATOR_ALIASES_CACHE_MAX_ENTRIES = 32
+_read_only_emulator_aliases_cache: dict[
+    tuple[int, str], tuple[float, tuple[object, ...]]
+] = {}
+_read_only_emulator_aliases_cache_lock = Lock()
+
+
+def cached_read_only_emulator_serial_aliases(
+    target_serial: str,
+    *,
+    provider: Callable[[str], object] = read_only_emulator_serial_aliases,
+) -> object:
+    """Вернуть bounded TTL-кэш read-only aliases для заданного provider."""
+
+    cache_key = (id(provider), target_serial)
+    now = monotonic()
+    with _read_only_emulator_aliases_cache_lock:
+        cached = _read_only_emulator_aliases_cache.get(cache_key)
+        if (
+            cached is not None
+            and now - cached[0] < READ_ONLY_EMULATOR_ALIASES_CACHE_TTL_SECONDS
+        ):
+            return cached[1]
+
+    aliases = provider(target_serial)
+    if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+        return aliases
+
+    snapshot = tuple(aliases)
+    with _read_only_emulator_aliases_cache_lock:
+        if (
+            cache_key not in _read_only_emulator_aliases_cache
+            and len(_read_only_emulator_aliases_cache)
+            >= READ_ONLY_EMULATOR_ALIASES_CACHE_MAX_ENTRIES
+        ):
+            oldest_key = min(
+                _read_only_emulator_aliases_cache,
+                key=lambda item: _read_only_emulator_aliases_cache[item][0],
+            )
+            del _read_only_emulator_aliases_cache[oldest_key]
+        _read_only_emulator_aliases_cache[cache_key] = (monotonic(), snapshot)
+    return snapshot
 
 
 def resolve_adb_target_serial(
@@ -144,8 +191,11 @@ def resolve_adb_target_serial(
 
 
 __all__ = [
+    "READ_ONLY_EMULATOR_ALIASES_CACHE_MAX_ENTRIES",
+    "READ_ONLY_EMULATOR_ALIASES_CACHE_TTL_SECONDS",
     "AdbTargetResolutionError",
     "AdbTargetResolutionReason",
+    "cached_read_only_emulator_serial_aliases",
     "read_only_emulator_serial_aliases",
     "resolve_adb_target_serial",
     "safe_serial",

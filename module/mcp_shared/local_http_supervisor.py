@@ -579,9 +579,15 @@ class LocalHttpSupervisor:
 
         if payload.get("schema_version") != 1:
             return LocalHttpSupervisorStopOutcome.INVALID_MARKER
-        if payload.get("repository_root") != str(self.repository_root):
+        repository_root = payload.get("repository_root")
+        if not isinstance(repository_root, str):
+            return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        if not _same_path(repository_root, self.repository_root):
             return LocalHttpSupervisorStopOutcome.OWNERSHIP_MISMATCH
-        if payload.get("python_executable") != str(self.python_executable):
+        python_executable = payload.get("python_executable")
+        if not isinstance(python_executable, str):
+            return LocalHttpSupervisorStopOutcome.INVALID_MARKER
+        if not _same_path(python_executable, self.python_executable):
             return LocalHttpSupervisorStopOutcome.INVALID_MARKER
         supervisor_value = payload.get("supervisor")
         supervisor = _identity_from_marker(supervisor_value)

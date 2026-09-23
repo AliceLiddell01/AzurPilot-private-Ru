@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -409,10 +410,13 @@ def _checkpoint_spec() -> smoke.SmokeSpec:
     )
 
 
-def _wait_until(predicate, *, attempts: int = 200) -> None:
-    for _ in range(attempts):
+def _wait_until(predicate, *, timeout_seconds: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
         if predicate():
             return
+        if time.monotonic() >= deadline:
+            break
         threading.Event().wait(0.005)
     raise AssertionError("условие не выполнено в ограниченное время")
 

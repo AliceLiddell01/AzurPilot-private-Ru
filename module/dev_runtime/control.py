@@ -23,7 +23,6 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from threading import Lock
 from typing import Protocol
 
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
@@ -48,10 +47,6 @@ CONTROL_LOCK_TIMEOUT = 10.0
 CONTROL_LOCK_RETRY_SECONDS = 0.05
 CONTROL_LAUNCH_GRACE_SECONDS = 10.0
 CONTROL_BINDING_RECHECK_SECONDS = 2.0
-_PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS = 1.0
-_PASSIVE_EMULATOR_ALIASES_CACHE_MAX_ENTRIES = 32
-_passive_emulator_aliases_cache: dict[str, tuple[float, tuple[str, ...]]] = {}
-_passive_emulator_aliases_cache_lock = Lock()
 
 
 class ControlAction(StrEnum):
@@ -121,29 +116,14 @@ class _RuntimeConfigSnapshot:
 def _read_only_target_serial_aliases(target_serial: str) -> tuple[str, ...]:
     """Получить repository-owned aliases без запуска lifecycle recovery."""
 
-    now = time.monotonic()
-    with _passive_emulator_aliases_cache_lock:
-        cached = _passive_emulator_aliases_cache.get(target_serial)
-        if (
-            cached is not None
-            and now - cached[0] < _PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
-        ):
-            return cached[1]
+    from module.application.adb_target import (
+        cached_read_only_emulator_serial_aliases,
+    )
 
-    from module.application.adb_target import read_only_emulator_serial_aliases
-
-    aliases = tuple(read_only_emulator_serial_aliases(target_serial))
-    with _passive_emulator_aliases_cache_lock:
-        if target_serial not in _passive_emulator_aliases_cache and len(
-            _passive_emulator_aliases_cache
-        ) >= _PASSIVE_EMULATOR_ALIASES_CACHE_MAX_ENTRIES:
-            oldest_target = min(
-                _passive_emulator_aliases_cache,
-                key=lambda item: _passive_emulator_aliases_cache[item][0],
-            )
-            del _passive_emulator_aliases_cache[oldest_target]
-        _passive_emulator_aliases_cache[target_serial] = (time.monotonic(), aliases)
-    return aliases
+    aliases = cached_read_only_emulator_serial_aliases(target_serial)
+    if isinstance(aliases, Sequence) and not isinstance(aliases, (str, bytes)):
+        return tuple(aliases)
+    return ()
 
 
 def _runtime_profile_payload(environment: DevEnvironment) -> Mapping[str, object]:
@@ -768,7 +748,7 @@ class ConfiguredRuntimeBackend:
             ),
             None,
         )
-        if target is None:  # pragma: no cover - resolver validates inventory.
+        if target is None:  # pragma: no cover — resolver проверяет inventory.
             raise RuntimeControlError(
                 "DEV_RUNTIME_DEVICE_NOT_FOUND",
                 "Назначенный development target не найден в ADB",

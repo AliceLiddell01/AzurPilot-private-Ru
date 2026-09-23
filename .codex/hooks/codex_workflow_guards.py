@@ -286,6 +286,18 @@ def _module_is_azurpilot(tokens: tuple[str, ...], start: int = 0) -> bool:
     return False
 
 
+def _uv_launcher_index(tokens: tuple[str, ...], start: int) -> int | None:
+    """Найти AzurPilot launcher после неизвестной uv option и её value."""
+
+    for index in range(start, len(tokens)):
+        token = tokens[index]
+        if _is_literal_azur(token) or _is_azur_executable(token):
+            return index
+        if _is_python(token) and _module_is_azurpilot(tokens, index + 1):
+            return index
+    return None
+
+
 def _uv_payload(tokens: tuple[str, ...]) -> tuple[str, ...]:
     try:
         run_index = next(
@@ -314,11 +326,11 @@ def _uv_payload(tokens: tuple[str, ...]) -> tuple[str, ...]:
         if lowered in {"-m", "--module"}:
             return ("python", *tokens[index:])
         if lowered.startswith("--"):
-            index += 1
-            continue
+            launcher_index = _uv_launcher_index(tokens, index + 1)
+            return tokens[launcher_index:] if launcher_index is not None else ()
         if lowered.startswith("-"):
-            index += 1
-            continue
+            launcher_index = _uv_launcher_index(tokens, index + 1)
+            return tokens[launcher_index:] if launcher_index is not None else ()
         return tokens[index:]
     return ()
 

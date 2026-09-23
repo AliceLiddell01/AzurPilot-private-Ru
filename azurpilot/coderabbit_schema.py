@@ -1,4 +1,4 @@
-"""Dependency-free public CodeRabbit state schema contract."""
+"""Публичный контракт схемы состояния CodeRabbit без зависимостей."""
 
 from __future__ import annotations
 

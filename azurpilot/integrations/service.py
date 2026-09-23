@@ -486,6 +486,28 @@ class IntegrationService:
         outcome = adapter.recover_interrupted_review(root, config)
         return self._result("recover", (outcome.record,), target=IntegrationName.CODERABBIT, findings=outcome.findings, coderabbit_cycle=outcome.coderabbit_cycle)
 
+    def abandon_coderabbit_review(
+        self,
+        *,
+        confirmed: bool = False,
+        repository_root: str | Path | None = None,
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        """Закрыть неизвестную CodeRabbit reservation по явному подтверждению."""
+
+        root, config, adapter = self._coderabbit_context(repository_root)
+        outcome = adapter.abandon_uncertain_start(
+            root,
+            config,
+            confirmed=confirmed,
+        )
+        return self._result(
+            "abandon",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            findings=outcome.findings,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+        )
+
     def start_coderabbit_cycle(
         self,
         *,

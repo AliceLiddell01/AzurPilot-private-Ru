@@ -105,7 +105,7 @@ def get_runtime_cache() -> RuntimeCache:
         cache = provider()
     except RuntimeCacheError:
         raise
-    except Exception as exc:  # noqa: BLE001 - provider boundary is fail-closed
+    except Exception as exc:  # граница provider завершается fail-closed
         raise RuntimeCacheError(RuntimeCacheStatus.UNKNOWN) from exc
     if cache is None:
         raise RuntimeCacheError(RuntimeCacheStatus.UNKNOWN)

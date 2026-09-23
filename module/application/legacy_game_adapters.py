@@ -15,12 +15,12 @@ from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from math import isfinite
 from pathlib import Path
-from threading import Lock
 from time import monotonic, sleep
 from typing import NamedTuple, NoReturn
 
 from module.application.adb_target import (
     AdbTargetResolutionError,
+    cached_read_only_emulator_serial_aliases,
     read_only_emulator_serial_aliases,
     resolve_adb_target_serial,
 )
@@ -80,7 +80,6 @@ _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
 _PASSIVE_SCREENSHOT_TIMEOUT_SECONDS = 10
 _PASSIVE_SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024
-_PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS = 1.0
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _ADB_PATH_CANDIDATES = (
     Path(".venv/Scripts/adb.exe"),
@@ -679,10 +678,6 @@ class LegacyScreenshotAdapter:
         self._target_serial_aliases_provider = (
             target_serial_aliases_provider or read_only_emulator_serial_aliases
         )
-        self._target_serial_aliases_cache: dict[
-            str, tuple[float, tuple[object, ...]]
-        ] = {}
-        self._target_serial_aliases_cache_lock = Lock()
 
     def read_frame(self, instance: str) -> MediaFrame:
         instance = _safe_instance_name(instance)
@@ -763,26 +758,10 @@ class LegacyScreenshotAdapter:
             raise OSError("Настроенный ADB target не подтверждён.") from None
 
     def _read_target_serial_aliases(self, target_serial: str) -> object:
-        now = monotonic()
-        with self._target_serial_aliases_cache_lock:
-            cached = self._target_serial_aliases_cache.get(target_serial)
-            if (
-                cached is not None
-                and now - cached[0] < _PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
-            ):
-                return cached[1]
-
-        aliases = self._target_serial_aliases_provider(target_serial)
-        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
-            return aliases
-
-        snapshot = tuple(aliases)
-        with self._target_serial_aliases_cache_lock:
-            self._target_serial_aliases_cache[target_serial] = (
-                monotonic(),
-                snapshot,
-            )
-        return snapshot
+        return cached_read_only_emulator_serial_aliases(
+            target_serial,
+            provider=self._target_serial_aliases_provider,
+        )
 
     @staticmethod
     def _run(argv: Sequence[str]) -> object:

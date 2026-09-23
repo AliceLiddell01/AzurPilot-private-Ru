@@ -628,7 +628,14 @@ _SAFE_GAME_CAPABILITY_KEYS = frozenset(
     {"capability_id", "kind", "description", "source", "parameters"}
 )
 _SAFE_GAME_PROVENANCE_KEYS = frozenset(
-    {"capability_id", "owner", "freshness", "reason_code", "reason_type"}
+    {
+        "capability_id",
+        "owner",
+        "freshness",
+        "reason_code",
+        "reason_type",
+        "omitted_snapshot_fields",
+    }
 )
 _SAFE_GAME_RESOURCE_KEYS = frozenset(
     {"key", "label", "value", "limit", "total", "last_update"}
@@ -1428,6 +1435,7 @@ _GAME_PROVENANCE_CHILD_SCHEMAS: dict[str, str | None] = {
     "freshness": "string",
     "reason_code": "string",
     "reason_type": "string",
+    "omitted_snapshot_fields": "string_list",
 }
 _GAME_RESOURCE_CHILD_SCHEMAS: dict[str, str | None] = {
     "key": "string",

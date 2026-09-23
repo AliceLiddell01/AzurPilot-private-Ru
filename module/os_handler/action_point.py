@@ -550,18 +550,19 @@ class ActionPointHandler(UI, MapEventHandler):
                 and oil_after == oil
             ):
                 continue
-            return EmergencyActionPointPurchase(
-                status=EmergencyActionPointPurchaseStatus.FAILED,
-                remaining_before=remaining,
-                remaining_after=after,
-                oil_cost=cost,
-                oil_before=oil,
-                oil_after=oil_after,
-                ap_before=ap_before,
-                ap_after=ap_after,
-                ap_gain=ap_gain,
-                click_count=1,
-            )
+            if ap_gain > ACTION_POINT_BUY_GAIN or oil_after > oil:
+                return EmergencyActionPointPurchase(
+                    status=EmergencyActionPointPurchaseStatus.FAILED,
+                    remaining_before=remaining,
+                    remaining_after=after,
+                    oil_cost=cost,
+                    oil_before=oil,
+                    oil_after=oil_after,
+                    ap_before=ap_before,
+                    ap_after=ap_after,
+                    ap_gain=ap_gain,
+                    click_count=1,
+                )
 
         return EmergencyActionPointPurchase(
             status=EmergencyActionPointPurchaseStatus.UNKNOWN,

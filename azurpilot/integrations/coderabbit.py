@@ -2621,6 +2621,127 @@ class CodeRabbitAdapter(IntegrationAdapter):
         finally:
             lock.release()
 
+    def abandon_uncertain_start(
+        self,
+        root: Path,
+        config: IntegrationConfig,
+        *,
+        confirmed: bool = False,
+    ) -> AdapterOutcome:
+        """Явно закрыть только неизвестную reservation после подтверждения оператора."""
+
+        settings = config.provider("coderabbit")
+        coordinator = RepositoryCoordinator.for_root(root)
+        lock = coordinator.lock("coderabbit-review")
+        if not self._acquire_lifecycle_lock(lock):
+            record = self._record_from_error(
+                settings,
+                "CODERABBIT_REVIEW_IN_PROGRESS",
+                state=IntegrationState.DEGRADED,
+                message="CodeRabbit lifecycle lock занят другой операцией.",
+            )
+            return AdapterOutcome(record, (), self.cycle_summary(root))
+        try:
+            state = self._load_review_state(root)
+            reservation = state.get("reservation_state")
+            if (
+                state.get("active") is not True
+                or state.get("provider_identity") is not None
+                or reservation not in {"pre_spawn", "unknown"}
+            ):
+                record = self._record_from_error(
+                    settings,
+                    "CODERABBIT_PROVIDER_ABANDON_NOT_ALLOWED",
+                    state=IntegrationState.INCOMPATIBLE,
+                    message=(
+                        "Явное закрытие разрешено только для active reservation без "
+                        "provider identity в состоянии pre_spawn или unknown."
+                    ),
+                    configured=True,
+                    authenticated=True,
+                )
+                return AdapterOutcome(
+                    record,
+                    self._stored_findings(
+                        state, state.get("base_sha"), state.get("reviewed_head")
+                    ),
+                    self._cycle_summary(state),
+                )
+            if not confirmed:
+                record = self._record_from_error(
+                    settings,
+                    "CODERABBIT_PROVIDER_ABANDON_CONFIRMATION_REQUIRED",
+                    state=IntegrationState.UNKNOWN,
+                    message=(
+                        "Для очистки неизвестной CodeRabbit reservation требуется "
+                        "явное подтверждение оператора."
+                    ),
+                    configured=True,
+                    authenticated=True,
+                )
+                return AdapterOutcome(
+                    record,
+                    self._stored_findings(
+                        state, state.get("base_sha"), state.get("reviewed_head")
+                    ),
+                    self._cycle_summary(state),
+                )
+
+            now = datetime.now(UTC).isoformat(timespec="seconds")
+            previous = list(state.get("previous_cycles") or [])
+            previous.append(
+                _state_summary(
+                    state,
+                    finished_at=now,
+                    terminal_reason="operator_abandoned_provider_ownership",
+                )
+            )
+            state.update(
+                {
+                    "active": False,
+                    "reservation_state": "idle",
+                    "provider_identity": None,
+                    "candidate_fingerprint": None,
+                    "provider_state": "abandoned_uncertain_start",
+                    "cycle_status": "provider_error",
+                    "phase": "failed",
+                    "recovery": {
+                        "reason": "operator_abandon",
+                        "status": "completed",
+                        "next_action": "retry_review",
+                        "verified_at": now,
+                    },
+                    "last_event_type": "operator_abandoned_uncertain_start",
+                    "previous_cycles": previous[-MAX_RETAINED_REVIEW_CYCLES:],
+                }
+            )
+            self._save_review_state(root, state)
+            record = self._record_from_error(
+                settings,
+                "CODERABBIT_PROVIDER_START_ABANDONED",
+                state=IntegrationState.READY,
+                diagnostics=(
+                    f"reservation_state={reservation}",
+                    "provider_identity=absent",
+                    "substantive_budget_preserved=true",
+                ),
+                message=(
+                    "Неизвестная CodeRabbit reservation закрыта явным подтверждением "
+                    "оператора; budget текущего cycle сохранён."
+                ),
+                configured=True,
+                authenticated=True,
+            )
+            return AdapterOutcome(
+                record,
+                self._stored_findings(
+                    state, state.get("base_sha"), state.get("reviewed_head")
+                ),
+                self._cycle_summary(state),
+            )
+        finally:
+            lock.release()
+
     def cycle_summary(self, root: Path) -> CodeRabbitCycleSummary:
         return self._cycle_summary(self._load_review_state(root))
 
@@ -3095,7 +3216,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             _emit_progress(progress_callback, phase="preflight", cycle_id=cycle_id, attempt=attempt, substantive_iterations=iterations, provider_state="starting", message="Точный кандидат подтверждён; запускается host-native provider.")
             try:
                 running = provider.start_review(base_sha)
-            except (OSError, ValueError, ToolingError) as error:
+            except Exception as error:  # noqa: BLE001 — сбой запуска классифицируется явно.
                 spawn_state, identity, cleanup_state = self._start_failure_evidence(error)
                 retryable = spawn_state in {"not_spawned", "absent_after_cleanup"}
                 state.update(

@@ -313,9 +313,9 @@ class PullRequestBodyRenderer:
                 "CodeRabbit evidence в PR body не относится к exact base/head spec "
                 "и не содержит явного rate-limit или contract deferral объяснения.",
             )
-        # ReadinessState itself enforces the cross-field invariant; keep this
-        # explicit at the renderer boundary so a future model replacement does
-        # not reintroduce "live missing but ready" PR bodies.
+        # ReadinessState сам проверяет cross-field invariant; сохраняем это
+        # явно на renderer boundary, чтобы будущая замена модели не вернула
+        # PR body с отсутствующим live gate и READY status.
         readiness = body.readiness
         blocking = any(
             gate.required

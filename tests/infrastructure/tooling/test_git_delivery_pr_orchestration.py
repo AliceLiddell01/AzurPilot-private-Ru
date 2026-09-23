@@ -1474,6 +1474,60 @@ def test_pr_body_rejects_actionable_coderabbit_findings_when_ready() -> None:
         )
 
 
+def test_pr_body_allows_fixed_confirmed_coderabbit_finding_when_ready() -> None:
+    finding = CodeRabbitFinding(
+        severity=FindingSeverity.MINOR,
+        path="azurpilot/tooling/contracts.py",
+        impact="Provider finding исправлен на exact head.",
+        resolution="Добавлена remediation.",
+        disposition=FindingDisposition.CONFIRMED,
+        fix_head="c" * 40,
+        triage=CodeRabbitFindingTriage(
+            disposition=FindingDisposition.CONFIRMED,
+            reviewed_head="b" * 40,
+            affected_code="Проверена модель readiness.",
+            call_sites="Проверены renderer и contract tests.",
+            nearest_tests="Запущен targeted readiness test.",
+            relevant_contracts="Сверен exact-head workflow.",
+            claimed_impact="Fixed finding не блокирует readiness.",
+            decision_reason="Finding подтверждён и исправлен.",
+            change_summary="Remediation зафиксирована в fix_head.",
+        ),
+    )
+
+    body = PullRequestBody(
+        goal="Цель",
+        scope="Scope",
+        implementation="Реализация",
+        checks="Проверки",
+        ci="CI",
+        security_secret_scan="Security",
+        coderabbit_review=CodeRabbitReview(
+            reviewed_head="b" * 40,
+            base_sha="a" * 40,
+            findings=(finding,),
+        ),
+        readiness=ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            mandatory_gates=(
+                MandatoryGate(
+                    name="product_gate",
+                    state=MandatoryGateState.PASS,
+                    evidence="Product gate пройден.",
+                ),
+            ),
+            external_reviewer_status="SUBSTANTIVE",
+            overall_outcome="READY",
+            ready_for_chatgpt_review=True,
+        ),
+        migration_rollback="Rollback",
+        limitations="Ограничения",
+    )
+
+    assert body.coderabbit_review is not None
+
+
 def test_required_mcp_impact_requires_fresh_mcp_client_gate() -> None:
     fresh_gate = MandatoryGate(
         name=FRESH_MCP_ACCEPTANCE_GATE_NAME,

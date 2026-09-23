@@ -1078,7 +1078,9 @@ def test_passive_screenshot_bounds_alias_discovery_cache(monkeypatch):
     alias_calls: list[str] = []
     clock = [100.0]
 
-    monkeypatch.setattr(legacy_game_adapters, "monotonic", lambda: clock[0])
+    from module.application import adb_target
+
+    monkeypatch.setattr(adb_target, "monotonic", lambda: clock[0])
 
     def runner(argv: tuple[str, ...]) -> _CommandResult:
         calls.append(argv)
@@ -1105,7 +1107,7 @@ def test_passive_screenshot_bounds_alias_discovery_cache(monkeypatch):
     assert alias_calls == ["127.0.0.1:16416"]
     assert calls.count(("adb", "devices")) == 2
 
-    clock[0] += legacy_game_adapters._PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
+    clock[0] += adb_target.READ_ONLY_EMULATOR_ALIASES_CACHE_TTL_SECONDS
     screenshot.read_frame("ap")
     assert alias_calls == ["127.0.0.1:16416", "127.0.0.1:16416"]
     assert calls.count(("adb", "devices")) == 3

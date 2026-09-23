@@ -991,6 +991,120 @@ def test_startup_uncertainty_has_typed_recovery_path(monkeypatch, tmp_path: Path
     )
 
 
+def test_unexpected_provider_start_failure_never_leaves_pre_spawn_reservation(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    runner = _DiscoveryRunner(root).with_repository_config()
+    adapter = coderabbit.CodeRabbitAdapter(runner=runner)  # type: ignore[arg-type]
+    provider = _ready_provider(root, runner)
+    fingerprint = coderabbit.CandidateFingerprint(
+        "a" * 24,
+        "hosted:github.com/example/project",
+        "a" * 40,
+        "b" * 40,
+        "c" * 64,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_discover_provider",
+        lambda *_args: coderabbit.ProviderCheck(
+            IntegrationState.READY,
+            "CODERABBIT_NATIVE_READY",
+            "ready",
+            provider=provider,
+            configured=True,
+            authenticated=True,
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_preflight",
+        lambda *_args, **_kwargs: (fingerprint, None, None),
+    )
+
+    def fail_start(_self, _base):
+        raise RuntimeError("unexpected provider launcher failure")
+
+    monkeypatch.setattr(coderabbit.NativeCodeRabbit, "start_review", fail_start)
+
+    outcome = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        task_id="task-unexpected-start",
+    )
+    state = adapter._load_review_state(root)
+
+    assert outcome.record.reason_code == "CODERABBIT_PROVIDER_START_UNKNOWN"
+    assert outcome.record.state is IntegrationState.UNKNOWN
+    assert state["active"] is True
+    assert state["reservation_state"] == "unknown"
+    assert state["provider_identity"] is None
+    assert state["cycle_status"] == "recovery_required"
+    assert state["phase"] == "recovery"
+
+
+def test_operator_confirmed_abandon_clears_only_unknown_start_and_preserves_budget(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    root.mkdir()
+    adapter = coderabbit.CodeRabbitAdapter()
+    state = coderabbit._default_review_state()
+    state.update(
+        {
+            "current_cycle_id": "coderabbit-cycle-0123456789abcdef",
+            "logical_task_id": "task-abandon",
+            "base_sha": "a" * 40,
+            "substantive_iterations": 2,
+            "iterations": 2,
+            "active": True,
+            "reservation_state": "unknown",
+            "provider_identity": None,
+            "phase": "recovery",
+            "cycle_status": "recovery_required",
+        }
+    )
+    adapter._save_review_state(root, state)
+
+    requested = adapter.abandon_uncertain_start(
+        root,
+        IntegrationConfig(),
+        confirmed=False,
+    )
+    unchanged = adapter._load_review_state(root)
+    assert requested.record.reason_code == (
+        "CODERABBIT_PROVIDER_ABANDON_CONFIRMATION_REQUIRED"
+    )
+    assert unchanged["active"] is True
+    assert unchanged["reservation_state"] == "unknown"
+    assert unchanged["substantive_iterations"] == 2
+    assert unchanged["previous_cycles"] == []
+
+    abandoned = adapter.abandon_uncertain_start(
+        root,
+        IntegrationConfig(),
+        confirmed=True,
+    )
+    cleared = adapter._load_review_state(root)
+    assert abandoned.record.reason_code == "CODERABBIT_PROVIDER_START_ABANDONED"
+    assert cleared["active"] is False
+    assert cleared["reservation_state"] == "idle"
+    assert cleared["provider_identity"] is None
+    assert cleared["cycle_status"] == "provider_error"
+    assert cleared["recovery"]["next_action"] == "retry_review"
+    assert cleared["substantive_iterations"] == 2
+    assert len(cleared["previous_cycles"]) == 1
+    assert cleared["previous_cycles"][0]["terminal_reason"] == (
+        "operator_abandoned_provider_ownership"
+    )
+
+
 @pytest.mark.parametrize(
     ("termination_state", "expected_state", "expected_reason", "active"),
     [
@@ -1493,3 +1607,23 @@ def test_coderabbit_cli_exposes_typed_triage_manifest_action():
     assert parsed.integration_target == "coderabbit"
     assert parsed.integration_action == "triage"
     assert parsed.manifest == "C:/temp/coderabbit-triage.json"
+
+
+def test_coderabbit_cli_exposes_confirmed_cycle_abandon_action():
+    from azurpilot.cli import build_parser
+
+    parsed = build_parser().parse_args(
+        [
+            "integrations",
+            "coderabbit",
+            "cycle",
+            "abandon",
+            "--confirm",
+            "--json",
+        ]
+    )
+
+    assert parsed.integration_target == "coderabbit"
+    assert parsed.integration_action == "cycle"
+    assert parsed.coderabbit_cycle_action == "abandon"
+    assert parsed.confirm_abandon is True

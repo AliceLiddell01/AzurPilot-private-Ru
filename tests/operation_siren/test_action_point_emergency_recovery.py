@@ -124,7 +124,7 @@ def test_emergency_purchase_waits_through_unchanged_post_click_frame(monkeypatch
     assert len(clicks) == 1
 
 
-def test_emergency_purchase_rejects_weekly_decrement_without_ap_delta(monkeypatch):
+def test_emergency_purchase_waits_through_partial_weekly_decrement(monkeypatch):
     handler, clicks, _events = _handler(
         monkeypatch,
         [5, 4],
@@ -133,7 +133,7 @@ def test_emergency_purchase_rejects_weekly_decrement_without_ap_delta(monkeypatc
 
     result = handler.action_point_buy_emergency_once(remaining=5)
 
-    assert result.status is action_point.EmergencyActionPointPurchaseStatus.FAILED
+    assert result.status is action_point.EmergencyActionPointPurchaseStatus.UNKNOWN
     assert result.click_count == 1
     assert result.ap_before == 200
     assert result.ap_after == 200
@@ -158,16 +158,31 @@ def test_emergency_purchase_rejects_unknown_ap_after_click(monkeypatch):
     assert len(clicks) == 1
 
 
-def test_emergency_purchase_rejects_ap_delta_without_weekly_decrement(monkeypatch):
+def test_emergency_purchase_waits_through_partial_ap_delta(monkeypatch):
     handler, clicks, _events = _handler(monkeypatch, [5, 5])
 
     result = handler.action_point_buy_emergency_once(remaining=5)
 
-    assert result.status is action_point.EmergencyActionPointPurchaseStatus.FAILED
+    assert result.status is action_point.EmergencyActionPointPurchaseStatus.UNKNOWN
     assert result.click_count == 1
     assert result.ap_before == 200
     assert result.ap_after == 300
     assert result.ap_gain == 100
+    assert len(clicks) == 1
+
+
+def test_emergency_purchase_fails_on_contradictory_ap_increase(monkeypatch):
+    handler, clicks, _events = _handler(
+        monkeypatch,
+        [5, 5],
+        ap_observations=(200, 301),
+    )
+
+    result = handler.action_point_buy_emergency_once(remaining=5)
+
+    assert result.status is action_point.EmergencyActionPointPurchaseStatus.FAILED
+    assert result.ap_gain == 101
+    assert result.click_count == 1
     assert len(clicks) == 1
 
 

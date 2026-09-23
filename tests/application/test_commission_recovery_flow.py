@@ -366,13 +366,11 @@ def test_purchase_without_ap_postcondition_invalidates_after_one_click(monkeypat
 
 @pytest.mark.parametrize(
     "status",
-    [
-        EmergencyActionPointPurchaseStatus.FAILED,
-        EmergencyActionPointPurchaseStatus.UNSAFE,
-        EmergencyActionPointPurchaseStatus.INSUFFICIENT_OIL,
-    ],
+    [EmergencyActionPointPurchaseStatus.UNSAFE, EmergencyActionPointPurchaseStatus.INSUFFICIENT_OIL],
 )
-def test_failed_ap_outcomes_fail_closed_without_dorm_or_blind_retry(monkeypatch, status):
+def test_pre_mutation_ap_outcomes_fail_closed_without_dorm_or_blind_retry(
+    monkeypatch, status
+):
     store = _Store(status="confirmed", remaining=4)
     ap = _ActionPoint(_purchase(status, before=4, clicks=0))
     dorm_calls: list[int] = []
@@ -387,6 +385,32 @@ def test_failed_ap_outcomes_fail_closed_without_dorm_or_blind_retry(monkeypatch,
     assert dorm_calls == []
     assert store.state.status == "confirmed"
     assert store.state.remaining == 4
+
+
+def test_failed_ap_outcome_after_click_invalidates_without_dorm_or_retry(monkeypatch):
+    store = _Store(status="confirmed", remaining=4)
+    ap = _ActionPoint(
+        _purchase(
+            EmergencyActionPointPurchaseStatus.FAILED,
+            before=4,
+            clicks=1,
+            ap_before=200,
+            ap_after=200,
+            ap_gain=0,
+            oil_before=25000,
+            oil_after=25000,
+        )
+    )
+    dorm_calls: list[int] = []
+    handler = _commission(monkeypatch, store, ap, dorm_calls.append)
+
+    outcome = handler._recover_commission_oil_overflow()
+
+    assert outcome is commission.CommissionRecoveryOutcome.AMBIGUOUS_MUTATION
+    assert ap.purchase_calls == 1
+    assert dorm_calls == []
+    assert store.invalidations == [("ap", "ambiguous_ap_purchase")]
+    assert store.state.status == "unknown"
 
 
 def test_repeated_overflow_after_successful_purchase_has_no_second_purchase_or_dorm(monkeypatch):

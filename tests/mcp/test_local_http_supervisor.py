@@ -762,6 +762,30 @@ def test_supervisor_recovers_valid_same_repository_stale_marker(
     assert psutil.Process(os.getpid()).is_running()
 
 
+def test_supervisor_normalizes_owned_marker_paths_and_rejects_non_string_identity(
+    tmp_path: Path,
+) -> None:
+    supervisor = _stale_supervisor(tmp_path)
+    payload = _write_valid_stale_marker(supervisor)
+    payload["repository_root"] = str(supervisor.repository_root) + os.sep + "."
+    payload["python_executable"] = (
+        str(supervisor.python_executable.parent)
+        + os.sep
+        + "."
+        + os.sep
+        + supervisor.python_executable.name
+    )
+
+    validated = supervisor._validated_marker_identities(payload)
+    assert not isinstance(validated, LocalHttpSupervisorStopOutcome)
+
+    payload["repository_root"] = None
+    assert (
+        supervisor._validated_marker_identities(payload)
+        is LocalHttpSupervisorStopOutcome.INVALID_MARKER
+    )
+
+
 def test_supervisor_absent_marker_does_not_claim_removal(tmp_path: Path) -> None:
     supervisor = _stale_supervisor(tmp_path)
 
