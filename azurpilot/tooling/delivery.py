@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from shutil import which
-from typing import Any
+from typing import Any, Iterable
 
 from .contracts import (
     AnalysisScope,
@@ -24,6 +24,7 @@ from .contracts import (
     DeliveryManifest,
     DeliveryPhase,
     DeliveryTarget,
+    FileState,
     GitRange,
     GitSnapshot,
     OperationState,
@@ -151,6 +152,43 @@ class DeliveryJournalStore:
             raise _error(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "Состояние delivery-транзакции повреждено или недоступно.",
+            ) from exc
+
+    def delete(self, operation_id: str, *, commit_sha: str) -> None:
+        """Удалить только подтверждённую завершённую транзакцию этого checkout."""
+
+        directory = self._directory(operation_id)
+        journal = self.load(operation_id)
+        if (
+            journal.repository_root_identity != path_identity(self.layout.repository_root)
+            or journal.phase is not DeliveryPhase.PUSH_IN_FLIGHT
+            or journal.commit_sha != commit_sha
+        ):
+            raise _error(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Удаление delivery journal не подтверждено exact checkout и commit.",
+            )
+        state_path = directory / _DELIVERY_STATE_NAME
+        if path_has_link(directory) or path_has_link(state_path) or not state_path.is_file():
+            raise _error(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Delivery journal имеет небезопасный тип или отсутствует.",
+            )
+        try:
+            entries = tuple(directory.iterdir())
+            if entries != (state_path,):
+                raise _error(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Каталог delivery journal содержит неизвестные объекты.",
+                )
+            state_path.unlink()
+            directory.rmdir()
+        except ToolingError:
+            raise
+        except OSError as exc:
+            raise _error(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Не удалось удалить завершённый delivery journal.",
             ) from exc
 
 
@@ -288,10 +326,181 @@ class DeliveryService:
 
     def publish(
         self,
-        manifest_path: str | os.PathLike[str],
+        commit_message: str,
+        repository_root: str | os.PathLike[str] | None = None,
+        *,
+        paths: Iterable[str] | None = None,
+        base_branch: str = "personal/stable",
+        base_remote_name: str = "origin",
+        remote_name: str = "origin",
+    ) -> ToolingResult[DeliveryDetails, DeliveryEvidence]:
+        """Build an exact in-memory delivery request from developer intent."""
+
+        resolved = self.resolver.resolve(repository_root)
+        manifest = self._intent_manifest(
+            commit_message,
+            resolved.path,
+            paths=paths,
+            base_branch=base_branch,
+            base_remote_name=base_remote_name,
+            remote_name=remote_name,
+        )
+        return self.publish_manifest(manifest, resolved.path)
+
+    def _intent_manifest(
+        self,
+        commit_message: str,
+        root: Path,
+        *,
+        paths: Iterable[str] | None,
+        base_branch: str,
+        base_remote_name: str,
+        remote_name: str,
+    ) -> DeliveryManifest:
+        if (
+            not commit_message.strip()
+            or len(commit_message) > 240
+            or "\x00" in commit_message
+        ):
+            raise _error(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "Commit message должен содержать от 1 до 240 символов без NUL.",
+            )
+        git = self.git_factory(root, self.runner)
+        branch = git.branch()
+        head = git.head()
+        dirty_paths, _staged_paths = _parse_status(git.status_z())
+        if paths is None:
+            selected_paths = dirty_paths
+        else:
+            if isinstance(paths, (str, bytes)):
+                raise _error(
+                    ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                    "Явный scope публикации должен быть набором путей.",
+                )
+            raw_paths: list[str] = []
+            for path in paths:
+                if not isinstance(path, str):
+                    raise _error(
+                        ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                        "Явный scope публикации содержит нестроковый путь.",
+                    )
+                if len(raw_paths) >= 128:
+                    raise _error(
+                        ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                        "Явный scope публикации превышает 128 путей.",
+                    )
+                raw_paths.append(path)
+            requested_paths = tuple(
+                sorted(
+                    {
+                        _normalize_relative_path(path)
+                        for path in raw_paths
+                    }
+                )
+            )
+            if not requested_paths:
+                raise _error(
+                    ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                    "Явный scope публикации не может быть пустым.",
+                )
+            unknown_paths = set(requested_paths) - set(dirty_paths)
+            if unknown_paths:
+                raise _error(
+                    ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                    "Явный scope содержит пути без изменений в Git candidate.",
+                )
+            selected_paths = requested_paths
+        if not selected_paths:
+            raise _error(
+                ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                "В Git candidate нет изменений для публикации.",
+            )
+        if len(selected_paths) > 128:
+            raise _error(
+                ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                "Git candidate содержит больше 128 путей для одной публикации.",
+            )
+
+        scoped = ScopedPath(root)
+        targets: list[DeliveryTarget] = []
+        for path in selected_paths:
+            normalized = _normalize_relative_path(path)
+            scoped.resolve(normalized, allow_missing=True)
+            preimage_ref = f"{head}:{normalized}"
+            if git.object_exists(preimage_ref):
+                preimage_bytes = git.object_bytes(preimage_ref)
+                if len(preimage_bytes) > 16 * 1024 * 1024:
+                    raise _error(
+                        ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                        f"Preimage target {normalized!r} превышает допустимый размер файла.",
+                    )
+                preimage = FileState(
+                    exists=True,
+                    sha256=hashlib.sha256(preimage_bytes).hexdigest(),
+                    size=len(preimage_bytes),
+                )
+            else:
+                preimage = FileState(exists=False)
+
+            post_path = scoped.resolve(normalized, allow_missing=True)
+            if post_path.exists():
+                if path_has_link(post_path) or not post_path.is_file():
+                    raise _error(
+                        ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                        f"Target {normalized!r} должен быть обычным файлом без symlink.",
+                    )
+                size = post_path.stat().st_size
+                if size > 16 * 1024 * 1024:
+                    raise _error(
+                        ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                        f"Target {normalized!r} превышает допустимый размер файла.",
+                    )
+                postimage = FileState(
+                    exists=True,
+                    sha256=sha256_file(post_path),
+                    size=size,
+                )
+            else:
+                postimage = FileState(exists=False)
+            if preimage == postimage:
+                raise _error(
+                    ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+                    f"Изменение target {normalized!r} не представлено содержимым файла.",
+                )
+            targets.append(
+                DeliveryTarget(path=normalized, preimage=preimage, postimage=postimage)
+            )
+
+        expected_base_sha = git.remote_ref(base_remote_name, base_branch)
+        if expected_base_sha is None:
+            raise _error(
+                ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+                "Точная опубликованная base branch не найдена на remote.",
+            )
+        repository = repository_identity_from_remote(git.remote_url(remote_name))
+        return DeliveryManifest(
+            repository=repository,
+            expected_branch=branch,
+            expected_local_head=head,
+            expected_base_sha=expected_base_sha,
+            base_remote_name=base_remote_name,
+            base_branch=base_branch,
+            remote_name=remote_name,
+            remote_branch=branch,
+            expected_remote_sha=git.remote_ref(remote_name, branch),
+            targets=tuple(targets),
+            commit_message=commit_message,
+            publication_intent=PublicationIntent.COMMIT_AND_PUSH,
+        )
+
+    def publish_manifest(
+        self,
+        manifest: DeliveryManifest,
         repository_root: str | os.PathLike[str] | None = None,
     ) -> ToolingResult[DeliveryDetails, DeliveryEvidence]:
-        manifest = load_delivery_manifest(manifest_path)
+        """Run the canonical publication transaction for a typed request."""
+
         if manifest.publication_intent is not PublicationIntent.COMMIT_AND_PUSH:
             raise _error(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
@@ -437,13 +646,7 @@ class DeliveryService:
                     "После push exact remote SHA не подтверждён; blind retry запрещён.",
                     state=OperationState.IN_FLIGHT,
                 )
-            journal = journal.model_copy(
-                update={
-                    "phase": DeliveryPhase.DELIVERED,
-                    "updated_at": _now(),
-                }
-            )
-            store.save(journal)
+            store.delete(operation_id, commit_sha=commit_sha)
             return self._result(
                 context,
                 phase=DeliveryPhase.DELIVERED,
@@ -549,10 +752,7 @@ class DeliveryService:
         git = self.git_factory(root.path, self.runner)
         remote_sha = git.remote_ref(journal.remote_name, journal.remote_branch)
         if remote_sha == journal.commit_sha:
-            journal = journal.model_copy(
-                update={"phase": DeliveryPhase.DELIVERED, "updated_at": _now()}
-            )
-            store.save(journal)
+            store.delete(journal.operation_id, commit_sha=journal.commit_sha)
             return ToolingResult(
                 ok=True,
                 code=ResultCode.OK,
@@ -560,7 +760,7 @@ class DeliveryService:
                 message="Read-only recovery подтвердил доставленный commit.",
                 operation_id=operation_id,
                 details=DeliveryDetails(
-                    phase=journal.phase,
+                    phase=DeliveryPhase.DELIVERED,
                     target_paths=journal.target_paths,
                     target_count=len(journal.target_paths),
                     changes=journal.changes,
@@ -904,10 +1104,7 @@ class DeliveryService:
                 state=OperationState.IN_FLIGHT,
             ) from read_error
         if remote_sha == commit.sha:
-            delivered = journal.model_copy(
-                update={"phase": DeliveryPhase.DELIVERED, "updated_at": _now()}
-            )
-            store.save(delivered)
+            store.delete(journal.operation_id, commit_sha=commit.sha)
             return self._result(
                 context,
                 phase=DeliveryPhase.DELIVERED,

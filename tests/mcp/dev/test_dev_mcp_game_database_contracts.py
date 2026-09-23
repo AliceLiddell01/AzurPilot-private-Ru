@@ -180,10 +180,6 @@ def test_game_database_tools_delegate_and_serializer_keeps_only_known_fields() -
         "dev_get_game_observation",
         {"capability_id": "resources", "parameters": {}, "session_id": "session-1"},
     )
-    captured = adapter.call(
-        "dev_capture_smoke_game_checkpoint",
-        {"smoke_id": "smoke-1", "checkpoint_id": "midpoint"},
-    )
     stored = adapter.call(
         "dev_get_smoke_game_observations",
         {"smoke_id": "smoke-1", "checkpoint_id": "midpoint"},
@@ -207,7 +203,6 @@ def test_game_database_tools_delegate_and_serializer_keeps_only_known_fields() -
     assert stored["details"]["summary"]["evidence_refs"][0]["source"] == "game_observation"
     assert stored["details"]["summary"]["selected_count"] == 0
     assert "secret" not in stored["details"]["summary"]["evidence_refs"][0]
-    assert captured["ok"] is True
     assert stored["ok"] is True
     assert checks["ok"] is True
     assert check["ok"] is True
@@ -216,7 +211,6 @@ def test_game_database_tools_delegate_and_serializer_keeps_only_known_fields() -
     assert manager.calls == [
         ("list_game_observation_capabilities", None),
         ("get_game_observation", ("resources", {}, "session-1")),
-        ("capture_smoke_game_checkpoint", ("smoke-1", "midpoint")),
         ("get_smoke_game_observations", ("smoke-1", "midpoint")),
         ("get_database_status", "session-1"),
         ("list_database_checks", None),
@@ -242,8 +236,6 @@ def test_game_database_argument_schemas_reject_profile_sql_and_unknown_fields_be
         ("dev_get_game_observation", {"capability_id": "resources", "parameters": {f"p{index}": 1 for index in range(17)}}),
         ("dev_get_game_observation", {"capability_id": "resources", "parameters": {"../escape": 1}}),
         ("dev_get_database_status", {"session_id": "session-1", "query": "SELECT 1"}),
-        ("dev_capture_smoke_game_checkpoint", {"smoke_id": "smoke-1", "checkpoint_id": "before"}),
-        ("dev_capture_smoke_game_checkpoint", {"smoke_id": "smoke-1", "checkpoint_id": "final"}),
         ("dev_get_smoke_game_observations", {"smoke_id": "smoke-1", "path": "C:\\private"}),
         ("dev_run_database_check", {"check_id": "connectivity", "query": "SELECT 1"}),
         ("dev_preview_database_repair", {"repair_id": "none", "sql": "UPDATE"}),
@@ -252,4 +244,9 @@ def test_game_database_argument_schemas_reject_profile_sql_and_unknown_fields_be
         result = adapter.call(tool_name, arguments)
         assert result["ok"] is False
         assert result["code"] == "DEV_MCP_INPUT_INVALID"
+    removed = adapter.call(
+        "dev_capture_smoke_game_checkpoint",
+        {"smoke_id": "smoke-1", "checkpoint_id": "midpoint"},
+    )
+    assert removed["code"] == "DEV_MCP_UNKNOWN_TOOL"
     assert created == 0

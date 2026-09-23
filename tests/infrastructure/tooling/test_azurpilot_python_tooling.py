@@ -645,7 +645,7 @@ def test_cli_reconcile_rejects_bump_without_source() -> None:
     assert stderr.getvalue() == ""
 
 
-def test_cli_has_one_typed_mcp_runtime_reconcile_route() -> None:
+def test_cli_exposes_mcp_sync_and_retains_diagnostic_reconcile_routes() -> None:
     parser = build_parser()
 
     runtime = parser.parse_args(["mcp", "reconcile"])
@@ -663,6 +663,11 @@ def test_cli_has_one_typed_mcp_runtime_reconcile_route() -> None:
     accept = parser.parse_args(["mcp", "accept"])
     assert accept.mcp_command == "accept"
 
+    sync = parser.parse_args(["mcp", "sync", "--base", "a" * 40, "--json"])
+    assert sync.mcp_command == "sync"
+    assert sync.base == "a" * 40
+    assert sync.json is True
+
     state = parser.parse_args(
         ["app", "state", "commission/recovery", "--profile", "ap"]
     )
@@ -672,6 +677,44 @@ def test_cli_has_one_typed_mcp_runtime_reconcile_route() -> None:
 
     with pytest.raises(CliInvocationError):
         parser.parse_args(["mcp", "reconcile", "--runtime"])
+
+
+def test_cli_routes_mcp_sync_to_canonical_service() -> None:
+    class McpStub:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def sync(self, root: str, *, base_commit: str) -> ToolingResult:
+            self.calls.append((root, base_commit))
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="MCP sync завершён.",
+            )
+
+    mcp = McpStub()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = main(
+        [
+            "--repository-root",
+            str(REPOSITORY_ROOT),
+            "--json",
+            "mcp",
+            "sync",
+            "--base",
+            "a" * 40,
+        ],
+        services=SimpleNamespace(mcp=mcp),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert mcp.calls == [(str(REPOSITORY_ROOT), "a" * 40)]
+    assert json.loads(stdout.getvalue())["code"] == ResultCode.OK.value
+    assert stderr.getvalue() == ""
 
 
 def test_cli_routes_mcp_accept_to_canonical_service() -> None:

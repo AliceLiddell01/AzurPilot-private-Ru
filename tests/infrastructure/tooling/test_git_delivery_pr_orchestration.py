@@ -35,9 +35,13 @@ from azurpilot.tooling.contracts import (
     ResultCode,
     ToolingResult,
 )
-from azurpilot.tooling.delivery import DeliveryService, GitleaksScanner
+from azurpilot.tooling.delivery import (
+    DeliveryService,
+    GitleaksScanner,
+    load_delivery_manifest,
+)
 from azurpilot.tooling.errors import ToolingError
-from azurpilot.tooling.filesystem import path_identity
+from azurpilot.tooling.filesystem import StateLayout, path_identity
 from azurpilot.tooling.git import (
     GitClient,
     canonical_remote_identity,
@@ -52,6 +56,7 @@ from azurpilot.tooling.pull_request import (
     _ValidatedPr,
 )
 from azurpilot.tooling.repository import ResolvedRepository
+from tests.support.paths import REPOSITORY_ROOT
 
 
 def _git(root: Path, *args: str) -> str:
@@ -259,47 +264,27 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, _bare, base_sha, remote_url, identity = _fixture_repository(tmp_path)
-    before = b"base\n"
     after = b"published\n"
     (root / "README.md").write_bytes(after)
-    manifest = {
-        "schema_version": 1,
-        "repository": identity.model_dump(mode="json"),
-        "expected_branch": "cli/fixture-delivery",
-        "expected_local_head": base_sha,
-        "expected_base_sha": base_sha,
-        "base_remote_name": "origin",
-        "base_branch": "personal/stable",
-        "remote_name": "origin",
-        "remote_branch": "cli/fixture-delivery",
-        "expected_remote_sha": None,
-        "targets": [
-            {
-                "path": "README.md",
-                "preimage": {
-                    "exists": True,
-                    "sha256": hashlib.sha256(before).hexdigest(),
-                    "size": len(before),
-                },
-                "postimage": {
-                    "exists": True,
-                    "sha256": hashlib.sha256(after).hexdigest(),
-                    "size": len(after),
-                },
-            }
-        ],
-        "commit_message": "feat(test): проверить delivery bare remote",
-        "publication_intent": "commit_and_push",
-    }
-    manifest_path = tmp_path / "delivery.json"
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    (root / "config").mkdir()
+    (root / "config" / "mcp-versions.toml").write_text(
+        "generated mcp versions\n", encoding="utf-8"
+    )
+    plugin_dir = root / "plugins" / "azurpilot"
+    (plugin_dir / ".codex-plugin").mkdir(parents=True)
+    (plugin_dir / ".codex-plugin" / "plugin.json").write_text(
+        '{"version":"generated"}\n', encoding="utf-8"
+    )
+    (plugin_dir / "compatibility.json").write_text(
+        '{"bundle_revision":"generated"}\n', encoding="utf-8"
+    )
     monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
 
     service = DeliveryService(
         scanner_factory=_NoopScanner,
         allow_non_hosted_remote=True,
     )
-    result = service.publish(manifest_path, root)
+    result = service.publish("feat(test): проверить публикацию по intent", root)
 
     assert result.ok is True
     assert result.state is OperationState.READY
@@ -307,6 +292,13 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
     assert result.details.phase is DeliveryPhase.DELIVERED
     assert result.details.commit_sha
     assert result.details.remote_sha == result.details.commit_sha
+    assert set(result.details.target_paths) == {
+        "README.md",
+        "config/mcp-versions.toml",
+        "plugins/azurpilot/.codex-plugin/plugin.json",
+        "plugins/azurpilot/compatibility.json",
+    }
+    assert not (tmp_path / "delivery.json").exists()
     assert _git(root, "status", "--porcelain") == ""
     assert (
         _git(
@@ -319,10 +311,87 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
         == result.details.commit_sha
     )
 
-    status = service.status(result.operation_id or "", root)
-    assert status.ok is True
-    assert status.details is not None
-    assert status.details.phase is DeliveryPhase.DELIVERED
+    assert result.operation_id
+    transaction_directory = (
+        StateLayout.for_repository(root).transactions_directory / result.operation_id
+    )
+    assert not transaction_directory.exists()
+
+
+def test_delivery_keeps_recovery_journal_after_interrupted_push_and_cleans_after_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    (root / "README.md").write_bytes(b"published\n")
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"base\n").hexdigest(),
+                    "size": len(b"base\n"),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"published\n").hexdigest(),
+                    "size": len(b"published\n"),
+                },
+            }
+        ],
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    original_push = GitClient.push
+    original_remote_ref = GitClient.remote_ref
+    push_completed = False
+
+    def push_then_timeout(client: GitClient, *args, **kwargs) -> None:
+        nonlocal push_completed
+        original_push(client, *args, **kwargs)
+        push_completed = True
+        raise ToolingError(ResultCode.TOOLING_TIMEOUT, "Push response was interrupted.")
+
+    def lose_remote_readback(
+        client: GitClient, remote_name: str, branch: str
+    ) -> str | None:
+        if push_completed and branch == "cli/fixture-delivery":
+            raise ToolingError(ResultCode.TOOLING_TIMEOUT, "Remote readback unavailable.")
+        return original_remote_ref(client, remote_name, branch)
+
+    monkeypatch.setattr(GitClient, "push", push_then_timeout)
+    monkeypatch.setattr(GitClient, "remote_ref", lose_remote_readback)
+    service = DeliveryService(
+        scanner_factory=_NoopScanner,
+        allow_non_hosted_remote=True,
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service.publish_manifest(load_delivery_manifest(manifest_path), root)
+
+    assert error.value.code is ResultCode.TOOLING_PUSH_UNKNOWN
+    layout = StateLayout.for_repository(root)
+    transactions = tuple(layout.transactions_directory.glob("delivery-*"))
+    assert len(transactions) == 1
+    operation_id = transactions[0].name
+    journal = json.loads((transactions[0] / "state.json").read_text(encoding="utf-8"))
+    assert journal["phase"] == DeliveryPhase.PUSH_IN_FLIGHT.value
+    status = service.status(operation_id, root)
+    assert not status.ok
+    assert status.code is ResultCode.TOOLING_TRANSACTION_RECOVERY_REQUIRED
+    assert status.details is not None and status.details.recovery_required
+
+    monkeypatch.setattr(GitClient, "remote_ref", original_remote_ref)
+    recovered = service.recover(operation_id, root)
+
+    assert recovered.ok
+    assert recovered.details is not None
+    assert recovered.details.phase is DeliveryPhase.DELIVERED
+    assert recovered.details.remote_sha == recovered.details.commit_sha
+    assert not transactions[0].exists()
 
 
 def test_delivery_preserves_create_modify_delete_semantics_in_commit(
@@ -378,7 +447,7 @@ def test_delivery_preserves_create_modify_delete_semantics_in_commit(
     result = DeliveryService(
         scanner_factory=_NoopScanner,
         allow_non_hosted_remote=True,
-    ).publish(manifest_path, root)
+    ).publish_manifest(load_delivery_manifest(manifest_path), root)
 
     assert result.ok
     assert result.details is not None
@@ -442,7 +511,7 @@ def test_delivery_rejects_target_toctou_before_commit(
         DeliveryService(
             scanner_factory=_NoopScanner,
             allow_non_hosted_remote=True,
-        ).publish(manifest_path, root)
+        ).publish_manifest(load_delivery_manifest(manifest_path), root)
 
     assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
     assert _git(root, "rev-parse", "HEAD") == base_sha
@@ -475,7 +544,7 @@ def test_delivery_deletion_staged_absence_is_verified(
     result = DeliveryService(
         scanner_factory=_NoopScanner,
         allow_non_hosted_remote=True,
-    ).publish(manifest_path, root)
+    ).publish_manifest(load_delivery_manifest(manifest_path), root)
 
     assert result.ok
     assert result.details is not None
@@ -513,7 +582,7 @@ def test_delivery_deletion_rejects_path_still_present_in_index(
         DeliveryService(
             scanner_factory=_NoopScanner,
             allow_non_hosted_remote=True,
-        ).publish(manifest_path, root)
+        ).publish_manifest(load_delivery_manifest(manifest_path), root)
 
     assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
     assert _git(root, "diff", "--cached", "--name-only") == "deploy/remove-me.txt"
@@ -553,7 +622,7 @@ def test_delivery_deletion_fails_if_target_reappears_before_staged_verification(
         DeliveryService(
             scanner_factory=_NoopScanner,
             allow_non_hosted_remote=True,
-        ).publish(manifest_path, root)
+        ).publish_manifest(load_delivery_manifest(manifest_path), root)
 
     assert error.value.code is ResultCode.TOOLING_PRECONDITION_FAILED
     assert _git(root, "rev-parse", "HEAD") == base_sha
@@ -600,7 +669,7 @@ def test_delivery_deletion_existence_error_fails_closed(
         DeliveryService(
             scanner_factory=_NoopScanner,
             allow_non_hosted_remote=True,
-        ).publish(manifest_path, root)
+        ).publish_manifest(load_delivery_manifest(manifest_path), root)
 
     assert error.value.code is failure_code
     assert _git(root, "rev-parse", "HEAD") == base_sha
@@ -1687,14 +1756,83 @@ def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> No
 def test_nested_cli_parser_exposes_delivery_and_pr_actions() -> None:
     parser = build_parser()
     delivery = parser.parse_args(["delivery", "status", "delivery-test", "--json"])
+    publication = parser.parse_args(
+        [
+            "delivery",
+            "publish",
+            "--message",
+            "feat(test): intent publication",
+            "--path",
+            "README.md",
+            "--json",
+        ]
+    )
     pr = parser.parse_args(["pr", "verify", "42", "--spec", "spec.json", "--json"])
     assert delivery.command == "delivery"
     assert delivery.delivery_command == "status"
     assert delivery.json is True
+    assert publication.delivery_command == "publish"
+    assert publication.message == "feat(test): intent publication"
+    assert publication.paths == ["README.md"]
+    assert not hasattr(publication, "manifest")
     assert pr.command == "pr"
     assert pr.pr_command == "verify"
     assert pr.number == 42
     assert pr.spec == "spec.json"
+
+
+def test_cli_routes_intent_delivery_to_canonical_service() -> None:
+    class DeliveryStub:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, tuple[str, ...], str]] = []
+
+        def publish(
+            self,
+            message: str,
+            root: str,
+            *,
+            paths: list[str] | None,
+            base_branch: str,
+        ) -> ToolingResult:
+            self.calls.append((message, root, tuple(paths or ()), base_branch))
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="Delivery опубликована.",
+            )
+
+    delivery = DeliveryStub()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = main(
+        [
+            "--repository-root",
+            str(REPOSITORY_ROOT),
+            "--json",
+            "delivery",
+            "publish",
+            "--message",
+            "feat(test): intent publication",
+            "--path",
+            "README.md",
+        ],
+        services=SimpleNamespace(delivery=delivery),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert delivery.calls == [
+        (
+            "feat(test): intent publication",
+            str(REPOSITORY_ROOT),
+            ("README.md",),
+            "personal/stable",
+        )
+    ]
+    assert json.loads(stdout.getvalue())["code"] == ResultCode.OK.value
+    assert stderr.getvalue() == ""
 
 
 def test_cli_machine_mode_keeps_exactly_one_json_document_for_stubbed_delivery() -> None:

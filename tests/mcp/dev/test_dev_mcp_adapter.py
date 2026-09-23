@@ -489,7 +489,7 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
     }
     assert adapter.call("dev_list_smoke_capabilities", {})["ok"] is True
     assert adapter.call("dev_validate_smoke", smoke_spec)["ok"] is True
-    assert adapter.call("dev_start_smoke", smoke_spec)["ok"] is True
+    assert adapter.call("dev_run_smoke", smoke_spec)["ok"] is True
     assert adapter.call("dev_get_smoke", {"smoke_id": "smoke-1"})["ok"] is True
     assert adapter.call("dev_cancel_smoke", {"smoke_id": "smoke-1"})["ok"] is True
     evaluation = adapter.call("dev_get_smoke_evaluation", {"smoke_id": "smoke-1"})

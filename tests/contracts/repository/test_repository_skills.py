@@ -264,7 +264,9 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
     reference_flat = " ".join(reference.lower().split())
 
     assert "references/cross-thread-task-delegation.md" in development
-    assert "отдельный процесс с новым клиентом mcp" in development.lower()
+    assert "optional codex registration check" in " ".join(
+        development.lower().split()
+    )
     for required in (
         "source_reconciled",
         "runtime_ready=true",
@@ -396,118 +398,81 @@ def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -
     assert "каноническая codex-команда: uv run" not in development_skill
 
 
-def test_mcp_lifecycle_contract_uses_typed_runtime_reconcile() -> None:
-    document_contracts = {
-        _REPOSITORY_ROOT
-        / ".agents"
-        / "skills"
-        / "azurpilot-repository-development"
-        / "SKILL.md": (
-            "azur mcp reconcile --source --bump auto",
-            "runtime_ready=true",
-            "ранее записанные точные идентификаторы",
-            "неизменившаяся метка",
-            "STOPPED/no-conflict",
-            "session_state=not_observable",
+def test_developer_workflow_uses_terminal_mcp_sync_smoke_run_and_intent_delivery() -> None:
+    paths = {
+        "repository skill": (
+            _REPOSITORY_ROOT
+            / ".agents/skills/azurpilot-repository-development/SKILL.md"
         ),
-        _REPOSITORY_ROOT
-        / ".agents"
-        / "skills"
-        / "azurpilot-repository-development"
-        / "references"
-        / "cross-thread-task-delegation.md": (
-            "azur mcp reconcile --source --bump auto",
-            "runtime_ready=true",
-            "recorded exact-identity cleanup",
-            "STOPPED/no-conflict",
-            "session_state=not_observable",
+        "verification owner": _REPOSITORY_ROOT / ".codex/context/08-VERIFICATION.md",
+        "tooling owner": _REPOSITORY_ROOT / ".codex/context/11-PYTHON-TOOLING.md",
+        "git owner": _REPOSITORY_ROOT / ".codex/context/GIT-WORKFLOW.md",
+        "plugin development skill": (
+            _REPOSITORY_ROOT
+            / "plugins/azurpilot/skills/azurpilot-development/SKILL.md"
         ),
-        _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md": (
-            "azur mcp reconcile",
-            "runtime_ready=true",
-            "recorded-identity cleanup",
-            "STOPPED/no-conflict",
-            "session_state=not_observable",
-        ),
-        _REPOSITORY_ROOT / ".codex" / "context" / "11-PYTHON-TOOLING.md": (
-            "azur mcp reconcile --source --bump auto",
-            "runtime_ready=true",
-            "сохранённые точные идентификаторы",
-            "неизменившаяся метка",
-            "STOPPED/no-conflict",
-            "session_state=not_observable",
-        ),
-        _REPOSITORY_ROOT / "docs" / "game-mcp.md": (
-            "azur mcp reconcile",
-            "runtime_ready=true",
-            "recorded exact-identity cleanup",
-            "STOPPED/no-conflict",
-            "foreign/invalid marker",
-            "session_state=not_observable",
-        ),
-        _REPOSITORY_ROOT / "plugins" / "azurpilot" / "README.md": (
-            "runtime_state=stopped",
-            "azur mcp reconcile",
-            "STOPPED/no-conflict",
-            "invalid/foreign marker",
-        ),
-        _REPOSITORY_ROOT
-        / "plugins"
-        / "azurpilot"
-        / "references"
-        / "mcp-routing.md": (
-            "azur mcp reconcile --source --bump auto",
-            "runtime_ready=true",
-            "recorded exact-identity cleanup",
-            "STOPPED/no-conflict",
-            "invalid/unknown/foreign ownership",
-        ),
-        _REPOSITORY_ROOT
-        / "plugins"
-        / "azurpilot"
-        / "skills"
-        / "azurpilot-development"
-        / "SKILL.md": (
-            "azur mcp reconcile",
-            "runtime_ready=true",
-            "recorded-identity cleanup",
-            "STOPPED/no-conflict",
-            "invalid/foreign marker",
-        ),
-        _REPOSITORY_ROOT
-        / "plugins"
-        / "azurpilot"
-        / "skills"
-        / "azurpilot-game-control"
-        / "SKILL.md": (
-            "azur mcp reconcile --source --bump auto",
-            "runtime_ready=true",
-            "exact-identity cleanup",
-            "STOPPED/no-conflict",
-        ),
-        _REPOSITORY_ROOT
-        / "plugins"
-        / "azurpilot"
-        / "skills"
-        / "azurpilot-troubleshooting"
-        / "SKILL.md": (
-            "azur mcp reconcile --source --bump auto",
-            "runtime_ready=true",
-            "azur mcp reconcile",
-            "STOPPED/no-conflict",
-            "invalid marker/liveness",
+        "plugin routing reference": (
+            _REPOSITORY_ROOT / "plugins/azurpilot/references/mcp-routing.md"
         ),
     }
-    for path, phrases in document_contracts.items():
-        content = path.read_text(encoding="utf-8").casefold()
-        for phrase in phrases:
-            assert phrase.casefold() in content, (path, phrase)
-    all_content = "\n".join(
-        path.read_text(encoding="utf-8").casefold()
-        for path in document_contracts
+    contracts = {
+        "repository skill": (
+            "azur mcp sync --base",
+            "NO_CHANGES",
+            "fresh-client acceptance",
+            "dev_run_smoke",
+            "delivery publish --message",
+        ),
+        "verification owner": (
+            "azur mcp sync --base",
+            "NO_CHANGES",
+            "замороженном candidate",
+            "delivery publish --message",
+        ),
+        "tooling owner": (
+            "azur mcp sync --base",
+            "exact base",
+            "delivery publish --message",
+            "in-memory",
+        ),
+        "git owner": (
+            "azur mcp sync --base",
+            "SYNCED",
+            "delivery publish",
+            "preimage/postimage",
+        ),
+        "plugin development skill": (
+            "azur mcp sync --base",
+            "NO_CHANGES",
+            "fresh-client acceptance",
+            "dev_run_smoke",
+            "terminal result",
+        ),
+        "plugin routing reference": ("azur mcp sync --base", "NO_CHANGES", "fresh-client acceptance"),
+    }
+    for owner, path in paths.items():
+        content = " ".join(path.read_text(encoding="utf-8").casefold().split())
+        for phrase in contracts[owner]:
+            assert phrase.casefold() in content, (owner, path, phrase)
+
+    normal_contract = " | ".join(
+        paths[owner].read_text(encoding="utf-8").casefold()
+        for owner in (
+            "repository skill",
+            "verification owner",
+            "tooling owner",
+            "git owner",
+            "plugin development skill",
+        )
     )
-    assert "azur mcp reconcile` без `--source" in all_content
-    assert "azur mcp reconcile --runtime" not in all_content
+    assert "dev_start_smoke" not in normal_contract
+    assert "dev_capture_smoke_game_checkpoint" not in normal_contract
+    assert "validate manifest перед публикацией" not in normal_contract
+    plugin_skill = paths["plugin development skill"].read_text(encoding="utf-8")
+    assert "dev_validate_smoke` оставлен для необязательной read-only проверки" in " ".join(
+        plugin_skill.split()
+    )
+    assert "dev_validate_smoke` → `dev_run_smoke" not in plugin_skill
 
 
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:

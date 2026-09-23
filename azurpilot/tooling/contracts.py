@@ -1174,6 +1174,20 @@ class McpReconcileDetails(ClosedModel):
     reload_required: bool = False
 
 
+class McpSyncDetails(ClosedModel):
+    """Terminal result of one base-aware MCP source/runtime/client sync."""
+
+    action: Literal["sync"] = "sync"
+    terminal: Literal["NO_CHANGES", "SYNCED", "FAILED"]
+    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    impact: McpImpactDetails
+    changed_components: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+    affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    generated_artifacts: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
+    runtime: McpReconcileDetails | None = None
+    acceptance: McpAcceptanceDetails | None = None
+
+
 class UpdateEvidence(ClosedModel):
     repository: RepositoryRootEvidence
     pre_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
@@ -1285,6 +1299,7 @@ __all__ = [
     "McpReconcileDetails",
     "McpServerStatus",
     "McpStatusDetails",
+    "McpSyncDetails",
     "McpVersionDetails",
     "OperationState",
     "PostgreSqlBackupEvidence",

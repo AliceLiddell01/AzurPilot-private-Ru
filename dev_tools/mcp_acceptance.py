@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 from azurpilot.integrations.contracts import IntegrationState
@@ -76,17 +77,19 @@ def _result_payload(result: FreshMcpClientResult) -> dict[str, object]:
     }
 
 
-async def accept(repository_root: Path) -> FreshMcpClientResult:
+async def accept(
+    repository_root: Path, *, allow_dirty: bool = False
+) -> FreshMcpClientResult:
     """Провести одну bounded fresh session без Codex task/session state."""
 
     source_revision, working_tree = git_source_snapshot(repository_root)
-    if working_tree == "modified":
+    if working_tree == "modified" and not allow_dirty:
         return FreshMcpClientResult(
             state=IntegrationState.INCOMPATIBLE,
             reason_code="MCP_FRESH_CLIENT_SOURCE_NOT_CLEAN",
             diagnostics=("working_tree_modified",),
         )
-    if working_tree != "clean":
+    if working_tree not in {"clean", "modified"}:
         return FreshMcpClientResult(
             state=IntegrationState.INCOMPATIBLE,
             reason_code="MCP_FRESH_CLIENT_SOURCE_UNKNOWN",
@@ -98,7 +101,7 @@ async def accept(repository_root: Path) -> FreshMcpClientResult:
             state=IntegrationState.UNAVAILABLE,
             reason_code="MCP_FRESH_CLIENT_COMMAND_UNAVAILABLE",
         )
-    return await accept_fresh_stdio(
+    result = await accept_fresh_stdio(
         command=executable,
         args=tuple(DEV_MCP_ARGS),
         cwd=str(repository_root),
@@ -106,6 +109,12 @@ async def accept(repository_root: Path) -> FreshMcpClientResult:
         plan=build_plan(source_revision),
         timeout_seconds=FRESH_ACCEPTANCE_TIMEOUT_SECONDS,
     )
+    if working_tree == "modified" and "working_tree_modified" not in result.diagnostics:
+        return replace(
+            result,
+            diagnostics=(*result.diagnostics, "working_tree_modified")[:16],
+        )
+    return result
 
 
 def main() -> int:

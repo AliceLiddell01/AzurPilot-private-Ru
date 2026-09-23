@@ -395,7 +395,7 @@ def test_required_development_skill_has_fail_closed_workflow() -> None:
         "PLUGIN_RUNTIME_INCOMPATIBLE",
         "dev_list_smoke_capabilities",
         "dev_validate_smoke",
-        "dev_start_smoke",
+        "dev_run_smoke",
         "dev_get_smoke",
         "dev_get_smoke_evaluation",
         "dev_submit_smoke_evaluation",
@@ -418,6 +418,10 @@ def test_required_development_skill_has_fail_closed_workflow() -> None:
         "CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION",
     ):
         assert required in skill
+    assert "azur mcp sync --base" in skill
+    assert "NO_CHANGES" in skill
+    assert "fresh-client acceptance" in skill
+    assert "dev_capture_smoke_game_checkpoint" not in skill
     assert "capability `Game`" in skill
     assert "azurpilot-game-control" in skill
     assert "azurpilot-troubleshooting" in skill

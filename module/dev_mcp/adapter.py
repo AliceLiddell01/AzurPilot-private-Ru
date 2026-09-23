@@ -79,14 +79,13 @@ DEV_MCP_TOOL_NAMES = (
     "dev_get_screenshot",
     "dev_list_smoke_capabilities",
     "dev_validate_smoke",
-    "dev_start_smoke",
+    "dev_run_smoke",
     "dev_get_smoke",
     "dev_cancel_smoke",
     "dev_get_smoke_evaluation",
     "dev_submit_smoke_evaluation",
     "dev_list_game_observation_capabilities",
     "dev_get_game_observation",
-    "dev_capture_smoke_game_checkpoint",
     "dev_get_smoke_game_observations",
     "dev_get_database_status",
     "dev_list_database_checks",
@@ -1733,12 +1732,6 @@ class DevRuntimeManager(Protocol):
         session_id: str | None = None,
     ) -> object: ...
 
-    def capture_smoke_game_checkpoint(
-        self,
-        smoke_id: str,
-        checkpoint_id: str,
-    ) -> object: ...
-
     def get_smoke_game_observations(
         self,
         smoke_id: str,
@@ -1875,17 +1868,6 @@ class _GameObservationArguments(_SessionArguments):
         return value
 
 
-class _SmokeCheckpointArguments(_SmokeIdArguments):
-    checkpoint_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
-
-    @field_validator("checkpoint_id")
-    @classmethod
-    def validate_named_checkpoint(cls, value: str) -> str:
-        if value in {"before", "final"}:
-            raise ValueError("before/final checkpoints принадлежат Smoke Harness")
-        return value
-
-
 class _SmokeObservationsArguments(_SmokeIdArguments):
     checkpoint_id: str | None = Field(
         default=None,
@@ -1911,13 +1893,12 @@ class _ControlIdArguments(BaseModel):
 
 _ARGUMENT_MODELS: dict[str, type[BaseModel]] = {
     "dev_validate_smoke": SmokeSpec,
-    "dev_start_smoke": SmokeSpec,
+    "dev_run_smoke": SmokeSpec,
     "dev_get_smoke": _SmokeIdArguments,
     "dev_cancel_smoke": _SmokeIdArguments,
     "dev_get_smoke_evaluation": _SmokeIdArguments,
     "dev_submit_smoke_evaluation": _SmokeEvaluationArguments,
     "dev_get_game_observation": _GameObservationArguments,
-    "dev_capture_smoke_game_checkpoint": _SmokeCheckpointArguments,
     "dev_get_smoke_game_observations": _SmokeObservationsArguments,
     "dev_get_control_operation": _ControlIdArguments,
     "dev_plan_session": _TaskArguments,
@@ -2283,7 +2264,6 @@ class DevMcpAdapter:
         | _SmokeIdArguments
         | _SmokeEvaluationArguments
         | _GameObservationArguments
-        | _SmokeCheckpointArguments
         | _SmokeObservationsArguments
         | _DatabaseCheckArguments
         | _DatabaseRepairArguments
@@ -2375,7 +2355,7 @@ class DevMcpAdapter:
             elif tool_name == "dev_validate_smoke":
                 assert isinstance(parsed, SmokeSpec)
                 result = manager.validate_smoke(parsed)
-            elif tool_name == "dev_start_smoke":
+            elif tool_name == "dev_run_smoke":
                 assert isinstance(parsed, SmokeSpec)
                 result = manager.run_smoke(parsed)
             elif tool_name == "dev_get_smoke":
@@ -2411,12 +2391,6 @@ class DevMcpAdapter:
                     parsed.capability_id,
                     parsed.parameters,
                     session_id=parsed.session_id,
-                )
-            elif tool_name == "dev_capture_smoke_game_checkpoint":
-                assert isinstance(parsed, _SmokeCheckpointArguments)
-                result = manager.capture_smoke_game_checkpoint(
-                    parsed.smoke_id,
-                    parsed.checkpoint_id,
                 )
             elif tool_name == "dev_get_smoke_game_observations":
                 assert isinstance(parsed, _SmokeObservationsArguments)

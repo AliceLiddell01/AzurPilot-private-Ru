@@ -185,9 +185,12 @@ First-party Dev/Game service layer публикует одну transport-neutral
 model для direct stdio и authenticated loopback HTTP. Единственный canonical
 bundle находится в `config/mcp-versions.toml` и содержит идентификаторы сервера,
 API и контракта, отпечатки инструментов и возможностей, контрольные суммы наборов исходников,
-версию плагина и редакцию набора навыков. `azur mcp` выполняет команды `status` и `versions`,
-согласует исходники и среду выполнения, управляет жизненным циклом процессов и предоставляет
-ограниченную проверку `accept` только для чтения. Команда `azur app state <state-id> --profile <profile>`
+версию плагина и редакцию набора навыков. `azur mcp sync --base <exact-base-sha>`
+согласует frozen candidate, generated bundle, owned runtime и fresh-client acceptance
+одним вызовом; `NO_CHANGES` — terminal no-op. `status`, `versions`, `impact`,
+`reconcile`, `start`, `stop`, `restart` и `accept` остаются диагностическими или
+admin-capabilities. Состояние внешней Codex session не является postcondition
+sync, hot reload не предполагается. Команда `azur app state <state-id> --profile <profile>`
 читает зарегистрированное состояние приложения без запуска WebUI. Согласование
 среды выполнения не редактирует отслеживаемые исходники, а устаревшее состояние плагина или сессии
 классифицируется как `RELOAD_REQUIRED`. Наборы исходников задаются явной
@@ -204,10 +207,11 @@ developer-only. Каждый snapshot имеет неизменяемую target
 provenance, ограниченный payload и checksum. Smoke Harness сохраняет `before`,
 `final` и объявленные промежуточные checkpoints в изолированном sidecar, а
 unknown/unavailable/missing required snapshot не может дать `PASS`.
-Для обычного ограниченного Smoke операция `dev_start_smoke` синхронно владеет
-запуском, ожиданием, автоматическими промежуточными снимками, очисткой и
-конечным типизированным результатом; длительный или визуальный сценарий использует
-отдельный асинхронный путь. Приложение может публиковать ограниченные
+Для обычного ограниченного Smoke операция `dev_run_smoke` синхронно владеет
+запуском, ожиданием, automatic triggered checkpoints, очисткой и конечным
+типизированным результатом. Ручной checkpoint tool не входит в основной Dev MCP
+catalog; длительный или визуальный сценарий использует отдельный асинхронный путь.
+Приложение может публиковать ограниченные
 структурированные подтверждения, связанные с `session` и `Smoke`; конечный
 результат отдельно хранит исход выполнения приложения, полноту подтверждений,
 состояние Smoke и вмешательство оператора.

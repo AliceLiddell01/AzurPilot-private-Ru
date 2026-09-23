@@ -8,7 +8,13 @@ from types import SimpleNamespace
 import pytest
 
 import azurpilot.tooling.mcp as mcp_tooling
-from azurpilot.tooling.contracts import ResultCode
+from azurpilot.tooling.contracts import (
+    McpAcceptanceDetails,
+    McpImpactDetails,
+    McpReconcileDetails,
+    OperationState,
+    ResultCode,
+)
 from azurpilot.tooling.errors import ToolingError
 from dev_tools import mcp_status
 from dev_tools.mcp_status import first_party_source_registration
@@ -56,6 +62,273 @@ def test_canonical_bundle_is_strict_and_reconciled() -> None:
         encoding="utf-8"
     )
     assert "\\u" not in plugin_manifest
+
+
+def test_base_aware_reconcile_is_idempotent_for_the_same_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    for relative in (
+        Path("config/mcp-versions.toml"),
+        mcp_tooling.PLUGIN_MANIFEST_PATH,
+        mcp_tooling.PLUGIN_COMPATIBILITY_PATH,
+    ):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPOSITORY_ROOT / relative, target)
+
+    candidate_digests = dict(base_bundle.source_digests)
+    candidate_digests["DEV_MCP_SOURCE_SET"] = "d" * 64
+    candidate_digests["PLUGIN_BUNDLE_SOURCE_SET"] = "e" * 64
+    candidate_digests["SKILL_BUNDLE_SOURCE_SET"] = "f" * 64
+    monkeypatch.setattr(
+        mcp_tooling,
+        "source_set_digests",
+        lambda _root: dict(candidate_digests),
+    )
+    monkeypatch.setattr(
+        mcp_tooling.McpSourceReconciler,
+        "_baseline",
+        staticmethod(
+            lambda _root, _base_commit: mcp_tooling._McpBaseline(
+                versions={
+                    name: server.version
+                    for name, server in base_bundle.servers.items()
+                },
+                bundle=base_bundle,
+                plugin_version=base_bundle.plugin_version,
+                bundle_revision=base_bundle.bundle_revision,
+                skill_bundle_revision=base_bundle.skill_bundle_revision,
+            )
+        ),
+    )
+
+    reconciler = mcp_tooling.McpSourceReconciler()
+    first = reconciler.reconcile(tmp_path, base_commit="a" * 40)
+    first_versions = {
+        name: server.version for name, server in first.bundle.servers.items()
+    }
+    candidate_digests["DEV_MCP_SOURCE_SET"] = "9" * 64
+    second = reconciler.reconcile(tmp_path, base_commit="a" * 40)
+    second_artifacts = tuple(
+        (tmp_path / path).read_bytes() for path in mcp_tooling.MCP_GENERATED_ARTIFACTS
+    )
+    third = reconciler.reconcile(tmp_path, base_commit="a" * 40)
+    third_artifacts = tuple(
+        (tmp_path / path).read_bytes() for path in mcp_tooling.MCP_GENERATED_ARTIFACTS
+    )
+
+    assert first_versions == {
+        name: server.version for name, server in second.bundle.servers.items()
+    }
+    assert first_versions == {
+        name: server.version for name, server in third.bundle.servers.items()
+    }
+    assert second.bundle.bundle_revision == third.bundle.bundle_revision
+    assert second_artifacts == third_artifacts
+    assert first.bundle.bundle_revision != second.bundle.bundle_revision
+    assert reconciler.check(tmp_path, build=third).bundle == third.bundle
+
+
+def test_mcp_sync_returns_terminal_no_changes_without_runtime_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_commit = "a" * 40
+    impact = McpImpactDetails(
+        base_sha=base_commit,
+        head_sha="b" * 40,
+        status="NOT_REQUIRED",
+        reconciliation_required=False,
+    )
+    service = mcp_tooling.McpService()
+    source_checks: list[Path] = []
+    monkeypatch.setattr(service, "_root", lambda _root: tmp_path)
+    monkeypatch.setattr(mcp_tooling, "_candidate_mcp_impact", lambda *_a, **_kw: impact)
+    monkeypatch.setattr(
+        service.source,
+        "check",
+        lambda root: source_checks.append(root),
+    )
+
+    def unexpected(*_args, **_kwargs):
+        raise AssertionError("NO_CHANGES не должен менять generated source или runtime")
+
+    monkeypatch.setattr(service.source, "reconcile", unexpected)
+    monkeypatch.setattr(service, "reconcile", unexpected)
+    monkeypatch.setattr(service, "accept", unexpected)
+
+    result = service.sync(tmp_path, base_commit=base_commit)
+
+    assert result.ok
+    assert result.details is not None
+    assert result.details.terminal == "NO_CHANGES"
+    assert result.details.base_sha == base_commit
+    assert source_checks == [tmp_path]
+
+
+def test_mcp_sync_runs_source_runtime_and_acceptance_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_commit = "a" * 40
+    impact = McpImpactDetails(
+        base_sha=base_commit,
+        head_sha="b" * 40,
+        status="REQUIRED",
+        candidate_path_count=1,
+        candidate_paths=("module/dev_mcp/server.py",),
+        changed_components=("DEV_MCP_SOURCE_SET",),
+        affected_servers=("azurpilot-dev",),
+        generated_artifacts=tuple(
+            path.as_posix() for path in mcp_tooling.MCP_GENERATED_ARTIFACTS
+        ),
+        reconciliation_required=True,
+    )
+    source_digests = {name: "a" * 64 for name in mcp_tooling.SOURCE_SET_NAMES}
+    build = SimpleNamespace(
+        bundle=SimpleNamespace(source_digests=source_digests),
+        changed_components=("DEV_MCP_SOURCE_SET",),
+        affected_servers=("azurpilot-dev",),
+    )
+    runtime_details = McpReconcileDetails(
+        mode="runtime",
+        source_state="ready",
+        runtime_state="ready",
+        source_reconciled=True,
+        runtime_ready=True,
+        mutation_performed=False,
+        changed_components=("DEV_MCP_SOURCE_SET",),
+        affected_servers=("azurpilot-dev",),
+        session_state="not_observable",
+    )
+    acceptance_details = McpAcceptanceDetails(
+        acceptance_state="READY",
+        reason_code="FRESH_CLIENT_READY",
+        initialized=True,
+    )
+    service = mcp_tooling.McpService()
+    calls: list[tuple[str, object]] = []
+    monkeypatch.setattr(service, "_root", lambda _root: tmp_path)
+    monkeypatch.setattr(mcp_tooling, "source_set_digests", lambda _root: source_digests)
+    monkeypatch.setattr(mcp_tooling, "_candidate_mcp_impact", lambda *_a, **_kw: impact)
+
+    def reconcile_source(_root, *, requested_bump, base_commit):
+        calls.append(("source", (requested_bump, base_commit)))
+        return build
+
+    def check_source(_root, *, build):
+        calls.append(("check", build))
+        return build
+
+    def check_base(_root, *, base_commit, build):
+        calls.append(("base", (base_commit, build)))
+        return None
+
+    def reconcile_runtime(_root):
+        calls.append(("runtime", None))
+        return SimpleNamespace(
+            ok=True,
+            code=ResultCode.OK,
+            state=OperationState.READY,
+            message="runtime ready",
+            details=runtime_details,
+        )
+
+    def accept(_root, *, allow_dirty):
+        calls.append(("accept", allow_dirty))
+        return SimpleNamespace(
+            ok=True,
+            code=ResultCode.OK,
+            state=OperationState.READY,
+            message="fresh client ready",
+            details=acceptance_details,
+        )
+
+    monkeypatch.setattr(service.source, "reconcile", reconcile_source)
+    monkeypatch.setattr(service.source, "check", check_source)
+    monkeypatch.setattr(service.source, "check_base_to_head", check_base)
+    monkeypatch.setattr(service, "reconcile", reconcile_runtime)
+    monkeypatch.setattr(service, "accept", accept)
+
+    result = service.sync(tmp_path, base_commit=base_commit)
+
+    assert result.ok
+    assert result.details is not None
+    assert result.details.terminal == "SYNCED"
+    assert result.details.runtime == runtime_details
+    assert result.details.acceptance == acceptance_details
+    assert tuple(name for name, _value in calls) == (
+        "source",
+        "check",
+        "base",
+        "runtime",
+        "accept",
+        "check",
+    )
+    assert calls[0] == ("source", ("auto", base_commit))
+    assert calls[4] == ("accept", True)
+
+
+def test_mcp_sync_fails_terminally_when_owned_runtime_is_not_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base_commit = "a" * 40
+    impact = McpImpactDetails(
+        base_sha=base_commit,
+        head_sha="b" * 40,
+        status="REQUIRED",
+        changed_components=("DEV_MCP_SOURCE_SET",),
+        affected_servers=("azurpilot-dev",),
+        reconciliation_required=True,
+    )
+    source_digests = {name: "a" * 64 for name in mcp_tooling.SOURCE_SET_NAMES}
+    build = SimpleNamespace(
+        bundle=SimpleNamespace(source_digests=source_digests),
+        changed_components=("DEV_MCP_SOURCE_SET",),
+        affected_servers=("azurpilot-dev",),
+    )
+    runtime_details = McpReconcileDetails(
+        mode="runtime",
+        source_state="ready",
+        runtime_state="unknown",
+        source_reconciled=True,
+        runtime_ready=False,
+        mutation_performed=False,
+        changed_components=("DEV_MCP_SOURCE_SET",),
+        affected_servers=("azurpilot-dev",),
+        session_state="unknown",
+    )
+    service = mcp_tooling.McpService()
+    monkeypatch.setattr(service, "_root", lambda _root: tmp_path)
+    monkeypatch.setattr(mcp_tooling, "source_set_digests", lambda _root: source_digests)
+    monkeypatch.setattr(mcp_tooling, "_candidate_mcp_impact", lambda *_a, **_kw: impact)
+    monkeypatch.setattr(service.source, "reconcile", lambda *_a, **_kw: build)
+    monkeypatch.setattr(service.source, "check", lambda *_a, **_kw: build)
+    monkeypatch.setattr(service.source, "check_base_to_head", lambda *_a, **_kw: None)
+    monkeypatch.setattr(
+        service,
+        "reconcile",
+        lambda _root: SimpleNamespace(
+            ok=False,
+            code=ResultCode.MCP_RUNTIME_UNAVAILABLE,
+            state=OperationState.FAILED,
+            message="owned runtime is not ready",
+            details=runtime_details,
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "accept",
+        lambda *_a, **_kw: pytest.fail("acceptance must not run before runtime is ready"),
+    )
+
+    result = service.sync(tmp_path, base_commit=base_commit)
+
+    assert not result.ok
+    assert result.code is ResultCode.MCP_RUNTIME_UNAVAILABLE
+    assert result.details is not None
+    assert result.details.terminal == "FAILED"
+    assert result.details.runtime == runtime_details
+    assert result.details.acceptance is None
 
 
 def test_legacy_bundle_schema_is_rejected(tmp_path: Path) -> None:
