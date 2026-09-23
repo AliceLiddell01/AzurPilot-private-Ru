@@ -13,7 +13,7 @@ from enum import StrEnum
 from numbers import Integral
 
 import module.config.server as server
-from module.application.commission_recovery import (
+from module.os.action_point_policy import (
     ACTION_POINT_GAIN_PER_PURCHASE,
     ACTION_POINTS_BUY,
 )

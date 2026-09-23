@@ -720,11 +720,11 @@ def _validate_product_payload(value: object, *, depth: int = 0) -> object:
 
 
 def validate_product_evidence_payload(value: object) -> dict[str, object]:
-    """Проверить JSON payload до его использования в SmokeSpec."""
+    """Проверить содержимое JSON до использования в SmokeSpec."""
 
     normalized = _validate_product_payload(value)
     if not isinstance(normalized, dict):
-        raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Payload продукта должен быть объектом")
+        raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Полезная нагрузка продукта должна быть объектом")
     return normalized
 
 
@@ -757,14 +757,14 @@ def _validate_event(value: object) -> TimelineEvent:
         try:
             fields["session_id"] = validate_session_id(fields["session_id"])
         except ValueError as exc:
-            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Событие продукта имеет некорректную session identity") from exc
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Событие продукта содержит некорректный идентификатор сессии") from exc
         smoke_id = fields.get("smoke_id")
         if smoke_id is not None and (
             not isinstance(smoke_id, str)
             or _PRODUCT_CORRELATION_ID.fullmatch(smoke_id) is None
             or ".." in smoke_id
         ):
-            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Событие продукта имеет некорректную Smoke identity")
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Событие продукта содержит некорректный идентификатор Smoke")
     return TimelineEvent(sequence, timestamp, event_type, fields)
 
 
@@ -2645,7 +2645,7 @@ def record_product_evidence(
     *,
     task: object = None,
 ) -> bool:
-    """Добавить bounded typed domain evidence в активную DevSession."""
+    """Добавить ограниченные типизированные данные предметной области в активную DevSession."""
 
     store = _active_store_for_config(config_name)
     if (
@@ -2655,6 +2655,7 @@ def record_product_evidence(
         or not isinstance(payload, Mapping)
     ):
         return False
+    smoke_id = os.environ.get("AZURPILOT_DEV_SMOKE_ID")
     try:
         safe_payload = validate_product_evidence_payload(payload)
         policy = TaskPolicyStore(store.environment).read()
@@ -2664,6 +2665,7 @@ def record_product_evidence(
             or policy.state != TASK_POLICY_ACTIVE
             or policy.session_id != store.session_id
             or (task_name is not None and task_name not in policy.allowed_tasks)
+            or (smoke_id is not None and task_name is None)
         ):
             return False
         fields: dict[str, object] = {
@@ -2671,10 +2673,9 @@ def record_product_evidence(
             "payload": safe_payload,
             "session_id": validate_session_id(store.session_id),
         }
-        smoke_id = os.environ.get("AZURPILOT_DEV_SMOKE_ID")
         if smoke_id is not None:
             if _PRODUCT_CORRELATION_ID.fullmatch(smoke_id) is None or ".." in smoke_id:
-                raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Smoke identity имеет неверный формат")
+                raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Идентификатор Smoke имеет неверный формат")
             fields["smoke_id"] = smoke_id
         if task_name is not None:
             fields["task"] = task_name

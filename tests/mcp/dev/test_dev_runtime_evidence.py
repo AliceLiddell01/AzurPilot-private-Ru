@@ -82,6 +82,12 @@ def test_product_evidence_event_has_session_smoke_and_task_correlation(
         "task": "Commission",
     }
 
+    assert evidence_module.record_product_evidence(
+        "ap",
+        "commission_ap_purchase",
+        {"click_count": 1, "remaining_after": 4},
+    ) is False
+
 
 def _environment(tmp_path: Path) -> DevEnvironment:
     root = (tmp_path / "checkout").resolve()

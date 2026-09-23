@@ -64,8 +64,8 @@
 - проверить аналогичную реализацию;
 - запустить точечные tests;
 - проверить сквозное поведение в разумной границе;
-- выполнить Codex self-review итогового diff;
-- внешний review запускать только по явному запросу или обязательному policy.
+- выполнить самостоятельную проверку итогового diff;
+- внешнюю проверку запускать только по явному запросу или обязательному правилу проекта.
 
 ### Расширенный
 
@@ -79,15 +79,15 @@
 - production/data migration;
 - нескольких подсистем.
 
-Требует архитектурного анализа, релевантного набора проверок, Codex self-review и явного описания рисков. Внешние review checkpoints нужны только по явному запросу или обязательному policy.
+Требует архитектурного анализа, подходящего набора проверок, самостоятельной проверки изменений и явного описания рисков. Внешние проверки нужны только по явному запросу или обязательному правилу проекта.
 
-## Review
+## Внешняя проверка
 
-Codex выполняет self-review каждого изменения. Внешний reviewer, включая
-CodeRabbit, запускается только по явной команде пользователя или обязательному
-project policy. Незапрошенный CodeRabbit остаётся `NOT_RUN` и не требует попытки
-или пометки limitation. Если review запрошен, provider skill определяет запуск,
-exact-head evidence и triage; actionable findings обрабатываются до readiness.
+Codex самостоятельно проверяет каждое изменение. Внешнего проверяющего, включая
+CodeRabbit, запускай только по явной команде пользователя или обязательному
+правилу проекта. Незапрошенный CodeRabbit остаётся в состоянии `NOT_RUN` и не требует попытки
+или отметки об ограничении. Если проверка запрошена, соответствующий навык описывает запуск,
+подтверждение точного коммита и разбор результатов; значимые замечания нужно устранить до готовности.
 
 Для MCP-изменений первым repository gate является effective candidate
 classification: `azur mcp impact --base <exact-base-sha>`. Команда должна
@@ -107,13 +107,13 @@ status. Только доказанный failure/ambiguous ownership, foreign p
 STOPPED/no-conflict postcondition; foreign/invalid/unknown ownership остаётся
 fail-closed. При `runtime_ready=true` и
 `session_state=not_observable` runtime gate не считается failed. При
-`MCP impact=REQUIRED` используй `azur mcp accept`; команда сама создаёт fresh
-client session и выбирает canonical read-only probes.
+При `MCP impact=REQUIRED` используй `azur mcp accept`; команда сама запускает
+новую клиентскую сессию и выбирает штатные запросы только для чтения.
 
-`azur mcp accept` выполняет `initialize()`, negotiated catalog,
-contract/revision checks и read-only calls. `azur mcp status`, source snapshot
-или unit tests этот gate не закрывают. Не собирай `FreshMcpClientPlan` во внешнем
-Python snippet, если доступна canonical команда.
+`azur mcp accept` выполняет `initialize()`, согласование каталога,
+проверки контракта и версии, а также вызовы только для чтения. `azur mcp status`, снимок исходников
+или модульные тесты не закрывают эту проверку. Не создавай `FreshMcpClientPlan` во внешнем
+фрагменте кода на Python, если доступна штатная команда.
 
 Codex effective registration — отдельная необязательная integration check. Если
 изменение затрагивает Codex/plugin registration, client-visible tool schema или
@@ -126,21 +126,21 @@ gate в `FAIL`/`BLOCKED_PRECONDITION`.
 
 Pre-merge Definition of Done заканчивается после commit/push draft PR, проверки
 required `Python`, `Windows`, `Security` на exact head, secret scan, self-review
-и обработки явно запрошенного/обязательного review. Итоговый статус —
+и обработки явно запрошенных или обязательных замечаний. Итоговый статус —
 `READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь, а merge не
 выполняется без отдельной текущей команды пользователя.
 
-Typed readiness разделяет implementation, mandatory gates, запрошенное external
-review, `READY_FOR_CHATGPT_REVIEW` и merge-ready. `NOT_RUN` без явного запроса —
-нормальное состояние, а не limitation. Mandatory gate имеет
+Типизированная оценка готовности отдельно учитывает реализацию, обязательные проверки и запрошенную внешнюю
+проверку, `READY_FOR_CHATGPT_REVIEW` и готовность к слиянию. `NOT_RUN` без явного запроса —
+нормальное состояние, а не ограничение. Обязательная проверка имеет
 terminal state `PASS`, `FAIL`, `BLOCKED_PRECONDITION` или `NOT_REQUIRED`; при
 `MCP impact=REQUIRED` `fresh_mcp_client_acceptance` обязателен и `NOT_REQUIRED`
 для него недопустим; `PASS` требует evidence независимой свежей MCP client
 session;
-`FAIL`/`BLOCKED_PRECONDITION` сохраняет полезный Draft, но требует blocked
-overall outcome и запрещает readiness/merge. Результат запрошенного CodeRabbit
-фиксируется отдельно и сам по себе не заменяет product gates. Codex registration
-check хранится отдельно и сама по себе product readiness не блокирует.
+`FAIL`/`BLOCKED_PRECONDITION` сохраняет полезный Draft, но задаёт общий итог `BLOCKED`
+и не допускает готовность к слиянию. Результат запрошенного CodeRabbit
+фиксируется отдельно и сам по себе не заменяет обязательные продуктовые проверки. Проверка регистрации Codex
+хранится отдельно и сама по себе не блокирует готовность продукта.
 
 Post-merge verification и cleanup являются отдельным этапом и выполняются только
 после подтверждённого merge. Перед ним нужно повторно проверить exact head,
@@ -316,8 +316,8 @@ tooling или семантику публикации, приёмка вклю�
 - полный suite не повторялся без существенного изменения или диагностической причины;
 - secret scan выполнен на финальном relevant diff;
 - Codex adversarial self-review завершён;
-- явно запрошенные или обязательные внешние review обработаны;
-- незапрошенный CodeRabbit остаётся `NOT_RUN`, а не limitation;
+- явно запрошенные или обязательные внешние проверки обработаны;
+- незапрошенный CodeRabbit остаётся в состоянии `NOT_RUN`, а не считается ограничением;
 - security review завершён в требуемом объёме;
 - открытые blocking review threads отсутствуют;
 - документация обновлена;

@@ -1,5 +1,5 @@
 {
-  "description": "Guard для восстановления после ambiguous Git delivery push.",
+  "description": "Защита при восстановлении после неоднозначного прерывания отправки изменений в Git.",
   "hooks": {
     "Stop": [
       {

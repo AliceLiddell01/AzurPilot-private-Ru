@@ -183,15 +183,16 @@ application-level persistent entities.
 
 First-party Dev/Game service layer публикует одну transport-neutral compatibility
 model для direct stdio и authenticated loopback HTTP. Единственный canonical
-bundle находится в `config/mcp-versions.toml` и содержит server/API/contract
-identity, tool/capability fingerprints, source-set digests, plugin version и
-skill bundle revision. `azur mcp` выполняет status, versions, source/runtime
-reconciliation, owned lifecycle и bounded read-only `accept`. Команда
-`azur app state <state-id> --profile <profile>` читает зарегистрированное
-application state без запуска WebUI. Runtime reconciliation не редактирует
-tracked source, а stale plugin/session классифицируется как `RELOAD_REQUIRED`. Source
-sets — bounded explicit mapping фактических application/persistence call graph;
-management-only MCP/Git/repository tooling из backend identity исключено.
+bundle находится в `config/mcp-versions.toml` и содержит идентификаторы сервера,
+API и контракта, отпечатки инструментов и возможностей, контрольные суммы наборов исходников,
+версию плагина и редакцию набора навыков. `azur mcp` выполняет команды `status` и `versions`,
+согласует исходники и среду выполнения, управляет жизненным циклом процессов и предоставляет
+ограниченную проверку `accept` только для чтения. Команда `azur app state <state-id> --profile <profile>`
+читает зарегистрированное состояние приложения без запуска WebUI. Согласование
+среды выполнения не редактирует отслеживаемые исходники, а устаревшее состояние плагина или сессии
+классифицируется как `RELOAD_REQUIRED`. Наборы исходников задаются явной
+ограниченной картой фактических вызовов приложения и хранилищ данных; средства
+управления MCP/Git/репозиторием не включаются в идентификатор серверной части.
 Постоянный compatibility gate отдельно проверяет целостность текущего дерева и
 base-to-head policy по переданному exact base SHA.
 
@@ -203,11 +204,13 @@ developer-only. Каждый snapshot имеет неизменяемую target
 provenance, ограниченный payload и checksum. Smoke Harness сохраняет `before`,
 `final` и объявленные промежуточные checkpoints в изолированном sidecar, а
 unknown/unavailable/missing required snapshot не может дать `PASS`.
-Для обычного bounded Smoke `dev_start_smoke` владеет запуском, ожиданием,
-автоматическими intermediate checkpoints, cleanup и terminal result; долгий
-или визуальный сценарий использует отдельный interactive path. Product может
-публиковать ограниченное structured evidence с session/Smoke correlation, а
-результат отдельно сохраняет product, evidence, harness и operator outcomes.
+Для обычного ограниченного Smoke операция `dev_start_smoke` синхронно владеет
+запуском, ожиданием, автоматическими промежуточными снимками, очисткой и
+конечным типизированным результатом; длительный или визуальный сценарий использует
+отдельный асинхронный путь. Приложение может публиковать ограниченные
+структурированные подтверждения, связанные с `session` и `Smoke`; конечный
+результат отдельно хранит исход выполнения приложения, полноту подтверждений,
+состояние Smoke и вмешательство оператора.
 
 Standalone Game MCP находится в `module.game_mcp` и использует тот же
 нейтральный application/domain слой через собственную lazy composition root.

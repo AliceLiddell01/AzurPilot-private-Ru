@@ -21,19 +21,15 @@ from module.application.runtime_cache import (
 )
 from module.config.profile import profile_identity_from_name
 from module.config.time_source import now as current_time
+from module.os.action_point_policy import (
+    ACTION_POINT_GAIN_PER_PURCHASE,
+    ACTION_POINTS_BUY,
+)
 
 EN_SERVER_TIMEZONE = timedelta(hours=-7)
 COMMISSION_RECOVERY_SCHEMA_VERSION = 2
 COMMISSION_RECOVERY_PREFIX = "commission/recovery/"
 MAX_WEEKLY_ACTION_POINT_PURCHASES = 5
-ACTION_POINT_GAIN_PER_PURCHASE = 100
-ACTION_POINTS_BUY = {
-    1: 4000,
-    2: 2000,
-    3: 2000,
-    4: 1000,
-    5: 1000,
-}
 
 _SOURCE_VALUES = frozenset(
     {

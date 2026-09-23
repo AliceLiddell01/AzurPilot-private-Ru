@@ -391,7 +391,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     app = subparsers.add_parser(
-        "app", help="запросить typed application state без WebUI"
+        "app", help="запросить типизированное состояние приложения без запуска WebUI"
     )
     app_subparsers = app.add_subparsers(
         dest="app_command", required=True, metavar="ACTION"

@@ -1,4 +1,4 @@
-"""Read-only queries for typed application-owned state stores."""
+"""Запросы только для чтения к типизированным хранилищам состояния приложения."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from azurpilot.tooling.errors import ToolingError
 
 
 class ApplicationStateService:
-    """Project-owned query boundary; it never starts WebUI as a transport."""
+    """Граница запросов приложения; WebUI не запускается как транспортный слой."""
 
     def read(
         self,
@@ -34,7 +34,7 @@ class ApplicationStateService:
         except ValueError as exc:
             raise ToolingError(
                 ResultCode.TOOLING_INVALID_INVOCATION,
-                "Профиль не соответствует canonical application state contract.",
+                "Профиль не соответствует штатному контракту состояния приложения.",
             ) from exc
         finally:
             store.close()
@@ -59,9 +59,9 @@ class ApplicationStateService:
             code=ResultCode.OK,
             state=OperationState.READY,
             message=(
-                "Application state прочитан."
+                "Состояние приложения прочитано."
                 if state.status == "confirmed"
-                else "Application state прочитан; значение не подтверждено."
+                else "Состояние приложения прочитано; значение не подтверждено."
             ),
             details=details,
         )

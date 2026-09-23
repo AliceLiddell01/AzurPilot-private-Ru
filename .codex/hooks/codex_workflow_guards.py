@@ -1,4 +1,4 @@
-"""Fail-closed guard for an interrupted, ambiguous delivery push."""
+"""Не допускать завершения работы, если отправка изменений в Git прервалась неоднозначно."""
 
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ def _unfinished_delivery(state_directory: Path, root_identity: str) -> bool:
 
 
 def process_event(event: object) -> dict[str, str] | None:
-    """Заблокировать завершение только при ambiguous delivery push state."""
+    """Блокировать завершение только при неоднозначном состоянии отправки изменений в Git."""
 
     if not isinstance(event, dict) or event.get("hook_event_name") != "Stop":
         return None

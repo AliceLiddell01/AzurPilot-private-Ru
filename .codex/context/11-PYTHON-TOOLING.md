@@ -237,25 +237,25 @@ MCP diagnostics должны различать:
 Нельзя объявлять effective registration «готовой» только потому, что
 `.codex/config.toml` корректен.
 
-Для MCP-изменений используй короткий owner workflow:
+Для изменений MCP следуй короткому порядку штатных команд:
 
-1. `azur mcp impact --base <exact-base-sha>` классифицирует effective diff.
+1. `azur mcp impact --base <exact-base-sha>` определяет влияние фактического diff.
 2. Только при `REQUIRED` выполни `azur mcp reconcile --source --bump auto`.
-3. Если нужен fresh client acceptance, вызови `azur mcp accept`; команда сама
-   создаёт session и выполняет contract/catalog/read-only probes.
-4. Читай `azur mcp status` только когда нужен отдельный runtime postcondition
-   или команда вернула typed runtime failure.
+3. Если нужна проверка через новый клиент, вызови `azur mcp accept`; команда сама
+   создаёт сессию и проверяет контракт, каталог и доступность запросов только для чтения.
+4. Читай `azur mcp status` только для отдельной проверки состояния среды выполнения
+   или после типизированной ошибки среды выполнения.
 
 `source_reconciled` и `runtime_ready=true` — разные факты. Если отдельный
-runtime postcondition обязателен и status возвращает `stale`/`stopped`, выполни
-одну typed runtime repair через `azur mcp reconcile` без `--source`; same-repo
-stale recovery требует recorded-identity cleanup с recorded exact identities, unchanged marker и
-`STOPPED/no-conflict`, а `session_state=not_observable` само по себе не является
-runtime failure. Не запускай внутренние MCP modules, supervisor scripts или
-`FreshMcpClientPlan` snippets. Effective Codex/plugin registration — отдельная
-необязательная проверка только при изменении этой границы.
+проверка состояния среды выполнения обязательна и `status` возвращает `stale`/`stopped`, выполни
+одну типизированную попытку восстановления командой `azur mcp reconcile` без `--source`; для восстановления
+устаревшего состояния в том же репозитории нужны сохранённые точные идентификаторы, неизменившаяся метка и
+состояние `STOPPED/no-conflict`. Само по себе `session_state=not_observable` не означает
+ошибку среды выполнения. Не запускай внутренние модули MCP, управляющие сценарии или
+фрагменты с `FreshMcpClientPlan`. Проверка фактической регистрации Codex/plugin выполняется отдельно
+и нужна только при изменении этой границы.
 
-Для optional Codex registration используй [единый контракт cross-thread continuation](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md); эта независимая check не заменяет fresh MCP acceptance.
+Для необязательной проверки регистрации Codex используй [единый контракт продолжения между задачами](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md); она не заменяет обязательную проверку нового клиента MCP.
 
 ## 8. Базовый кроссплатформенный контракт
 

@@ -71,7 +71,7 @@ def record_product_evidence(
     *,
     task: object = None,
 ) -> bool:
-    """Опубликовать typed product result только в активной DevSession."""
+    """Опубликовать типизированный результат продукта только в активной DevSession."""
 
     if not _enabled():
         return False

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from module.application import commission_recovery
+from module.os import action_point_policy
 from module.os_handler import action_point
 
 
@@ -55,6 +57,12 @@ def _handler(
         lambda **_kwargs: next(iterator),
     )
     return handler, clicks, events
+
+
+def test_action_point_purchase_policy_has_one_neutral_domain_owner() -> None:
+    assert action_point.ACTION_POINTS_BUY is action_point_policy.ACTION_POINTS_BUY
+    assert commission_recovery.ACTION_POINTS_BUY is action_point_policy.ACTION_POINTS_BUY
+    assert action_point.ACTION_POINT_BUY_GAIN == action_point_policy.ACTION_POINT_GAIN_PER_PURCHASE
 
 
 def test_emergency_purchase_200_to_300_is_purchased_with_one_click(monkeypatch):

@@ -1,4 +1,4 @@
-"""Bounded persistence for Smoke specifications and terminal results."""
+"""Ограниченное хранилище спецификаций Smoke и конечных результатов."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ from module.dev_runtime.task_sandbox import (
 
 
 class SmokeStateStore:
-    """Атомарное состояние в пределах репозитория с отдельными файлами spec/result/control."""
+    """Атомарное хранилище состояния с отдельными файлами `spec.json`, `result.json` и `control.json`."""
 
     def __init__(self, environment: DevEnvironment, *, now: Callable[[], datetime] | None = None) -> None:
         self.environment = environment
@@ -57,12 +57,12 @@ class SmokeStateStore:
         self.root = _ensure_scoped_path(
             environment.repository_root / "config" / "state" / "dev-runtime-smoke",
             environment.repository_root,
-            label="корень SmokeRun state",
+            label="корень состояния SmokeRun",
         )
         self.lock_path = _ensure_scoped_path(
             environment.repository_root / "config" / "state" / "dev-runtime-smoke.lock",
             environment.repository_root,
-            label="блокировка SmokeRun state",
+            label="блокировка состояния SmokeRun",
         )
         self._thread_lock = threading.RLock()
 
@@ -75,13 +75,13 @@ class SmokeStateStore:
         directory = self._run_dir(smoke_id)
         if name not in {"spec.json", "state.json", "result.json", "control.json"}:
             raise SmokeStoreError("DEV_SMOKE_STATE_INVALID", "неизвестный файл состояния")
-        return _ensure_scoped_path(directory / name, self.environment.repository_root, label="файл SmokeRun state")
+        return _ensure_scoped_path(directory / name, self.environment.repository_root, label="файл состояния SmokeRun")
 
     @contextmanager
     def _locked(self):
         self.root.parent.mkdir(parents=True, exist_ok=True)
         if _is_reparse_point(self.root) or _is_reparse_point(self.lock_path):
-            raise SmokeStoreError("DEV_SMOKE_STATE_UNSAFE_PATH", "состояние SmokeRun не должно быть ссылкой или junction")
+            raise SmokeStoreError("DEV_SMOKE_STATE_UNSAFE_PATH", "состояние SmokeRun не должно быть ссылкой или точкой соединения")
         with self._thread_lock:
             try:
                 with _exclusive_policy_lock(self.lock_path):
@@ -228,7 +228,7 @@ class SmokeStateStore:
             current_version=SMOKE_STATE_SCHEMA_VERSION,
             corrupt_code="DEV_SMOKE_STATE_CORRUPT",
             unsupported_code="DEV_SMOKE_STATE_UNSUPPORTED",
-            label="SmokeRun state",
+            label="состояние SmokeRun",
         )
         normalized = _drop_legacy_file_log_assertions(payload) if legacy else payload
         try:
@@ -313,7 +313,7 @@ class SmokeStateStore:
         if not isinstance(updated, SmokeRunRecord):
             raise SmokeStoreError("DEV_SMOKE_STATE_INVALID", "обновление SmokeRun имеет неверный тип")
         if not self._next_state_allowed(current.state, updated.state):
-            raise SmokeStoreError("DEV_SMOKE_STATE_TRANSITION_INVALID", "переход SmokeRun state запрещён")
+            raise SmokeStoreError("DEV_SMOKE_STATE_TRANSITION_INVALID", "переход состояния SmokeRun запрещён")
         immutable = (
             "smoke_id",
             "spec_hash",
@@ -337,6 +337,10 @@ class SmokeStateStore:
             and result.target_profile == record.target_profile
             and result.target_identity == record.target_identity
             and result.outcome == record.outcome
+            and result.product_execution_outcome == record.product_execution_outcome
+            and result.evidence_completeness == record.evidence_completeness
+            and result.harness_runtime_outcome == record.harness_runtime_outcome
+            and result.operator_intervention_outcome == record.operator_intervention_outcome
             and result.finished_at == record.finished_at
             and result.assertions == record.assertions
             and result.cleanup == record.cleanup
@@ -363,7 +367,7 @@ class SmokeStateStore:
                 if existing != result_payload:
                     raise SmokeStoreError("DEV_SMOKE_RESULT_IMMUTABLE", "SmokeResult уже существует и неизменяем")
             else:
-                # Result записывается первым: при сбое записи state запуск остаётся незавершённым
+                # Результат записывается первым: при сбое записи состояния запуск остаётся незавершённым
                 # и может быть безопасно восстановлен, но не выдаётся за PASS.
                 self._write_json(result_path, result_payload)
             self._write_json(self._file(smoke_id, "state.json"), _safe_model_json(updated))
@@ -400,7 +404,7 @@ class SmokeStateStore:
                 try:
                     control = _validate_json_model(SmokeControl, raw)
                 except ValidationError as exc:
-                    raise SmokeStoreError("DEV_SMOKE_CONTROL_CORRUPT", "SmokeRun cancel control повреждён") from exc
+                    raise SmokeStoreError("DEV_SMOKE_CONTROL_CORRUPT", "данные отмены SmokeRun повреждены") from exc
             else:
                 control = SmokeControl()
             if not control.cancel_requested:
@@ -417,7 +421,7 @@ class SmokeStateStore:
             try:
                 return _validate_json_model(SmokeControl, raw).cancel_requested
             except ValidationError as exc:
-                raise SmokeStoreError("DEV_SMOKE_CONTROL_CORRUPT", "SmokeRun cancel control повреждён") from exc
+                raise SmokeStoreError("DEV_SMOKE_CONTROL_CORRUPT", "данные отмены SmokeRun повреждены") from exc
 
     def list_records(self) -> list[SmokeRunRecord]:
         with self._locked():

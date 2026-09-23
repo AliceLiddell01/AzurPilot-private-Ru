@@ -431,6 +431,82 @@ def test_stale_marker_with_dead_process_recovers_without_kill(tmp_path: Path) ->
     assert backend.request_stop_count == 0
 
 
+@pytest.mark.parametrize(
+    "session_state",
+    [DevSessionState.STALE, DevSessionState.FAILED, DevSessionState.STARTING],
+    ids=["устаревшая", "ошибка запуска", "незавершённый запуск"],
+)
+def test_start_recovers_owned_marker_before_creating_new_session(
+    tmp_path: Path,
+    session_state: DevSessionState,
+) -> None:
+    manager, backend = _manager(tmp_path, session_ids=["new-session"])
+    identity = ProcessIdentity(
+        pid=101,
+        created_at=1.0,
+        executable=str(manager.environment.python_executable),
+        command_line=("python", "gui.py", "--dev-session-id", "stale-session"),
+        cwd=str(manager.environment.repository_root),
+    )
+    backend.identity = identity
+    backend.alive = False
+    manager._write_session(
+        _session(
+            manager.environment,
+            state=session_state,
+            process=identity,
+            session_id="stale-session",
+        )
+    )
+
+    result = manager.start()
+
+    persisted = manager._read_session()
+    assert result.ok is True
+    assert result.session_id == "new-session"
+    assert persisted is not None
+    assert persisted.session_id == "new-session"
+    assert persisted.state is DevSessionState.RUNNING
+    assert backend.launch_count == 1
+
+
+def test_start_refuses_to_recover_marker_with_reused_process_id(tmp_path: Path) -> None:
+    manager, backend = _manager(tmp_path, session_ids=["replacement-session"])
+    identity = ProcessIdentity(
+        pid=102,
+        created_at=1.0,
+        executable=str(manager.environment.python_executable),
+        command_line=("python", "gui.py", "--dev-session-id", "stale-session"),
+        cwd=str(manager.environment.repository_root),
+    )
+    backend.identity = identity
+    backend.alive = True
+    backend.mismatch = True
+    manager._write_session(
+        _session(
+            manager.environment,
+            state=DevSessionState.STARTING,
+            process=identity,
+            session_id="stale-session",
+        )
+    )
+
+    result = manager.start()
+
+    persisted = manager._read_session()
+    assert result.ok is False
+    assert result.code == "DEV_START_PREFLIGHT_FAILED"
+    preflight = result.details["preflight"]
+    assert isinstance(preflight, dict)
+    preflight_details = preflight["details"]
+    assert isinstance(preflight_details, dict)
+    assert "DEV_SESSION_CONFLICT" in preflight_details["blockers"]
+    assert persisted is not None and persisted.session_id == "stale-session"
+    assert backend.request_stop_count == 0
+    assert backend.force_stop_count == 0
+    assert backend.launch_count == 0
+
+
 def test_cleanup_uses_recorded_session_target_for_process_lookup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

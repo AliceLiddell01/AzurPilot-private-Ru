@@ -1788,7 +1788,7 @@ class McpService:
         )
 
     def accept(self, repository_root: str | Path | None = None) -> ToolingResult[McpAcceptanceDetails, McpLifecycleDetails]:
-        """Запустить канонический fresh stdio client acceptance и вернуть typed outcome."""
+        """Проверить MCP через новый клиент stdio и вернуть типизированный результат."""
 
         root = self._root(repository_root)
         from dev_tools.mcp_acceptance import accept as accept_fresh_mcp_client
@@ -1815,18 +1815,18 @@ class McpService:
                 ok=True,
                 code=ResultCode.OK,
                 state=OperationState.READY,
-                message="Новая MCP client session подтвердила catalog, contract и read-only probes.",
+                message="Новая клиентская сессия MCP подтвердила каталог инструментов, контракт и запросы только для чтения.",
                 details=details,
             )
         if state == "INCOMPATIBLE":
             code = ResultCode.MCP_PLUGIN_RUNTIME_INCOMPATIBLE
-            message = "Новая MCP client session обнаружила несовместимость contract или tool catalog."
+            message = "Новая клиентская сессия MCP обнаружила несовместимость контракта или каталога инструментов."
         elif state == "UNAVAILABLE":
             code = ResultCode.MCP_RUNTIME_UNAVAILABLE
-            message = "Новая MCP client session недоступна; acceptance не подтверждён."
+            message = "Новая клиентская сессия MCP недоступна; проверка не подтверждена."
         else:
             code = ResultCode.TOOLING_VERIFICATION_UNKNOWN
-            message = "Результат новой MCP client session не удалось классифицировать."
+            message = "Не удалось определить результат новой клиентской сессии MCP."
         return ToolingResult(
             ok=False,
             code=code,

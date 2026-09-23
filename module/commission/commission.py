@@ -27,7 +27,6 @@ from enum import StrEnum
 from scipy import signal
 
 from module.application.commission_recovery import (
-    ACTION_POINT_GAIN_PER_PURCHASE,
     MAX_WEEKLY_ACTION_POINT_PURCHASES,
     CommissionRecoveryStore,
 )
@@ -40,6 +39,7 @@ from module.commission.preset import DICT_FILTER_PRESET, SHORTEST_FILTER
 from module.commission.project import COMMISSION_FILTER, Commission
 from module.config.config_generated import GeneratedConfig
 from module.config.time_source import now as current_time
+from module.os.action_point_policy import ACTION_POINT_GAIN_PER_PURCHASE
 from module.config.utils import (
     get_server_last_update,
     get_server_next_update,

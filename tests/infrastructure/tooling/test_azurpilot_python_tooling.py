@@ -685,7 +685,7 @@ def test_cli_routes_mcp_accept_to_canonical_service() -> None:
                 ok=True,
                 code=ResultCode.OK,
                 state=OperationState.READY,
-                message="Fresh MCP acceptance подтверждён.",
+        message="Проверка нового клиента MCP подтверждена.",
                 details=McpAcceptanceDetails(
                     acceptance_state="READY",
                     reason_code="MCP_FRESH_CLIENT_READY",

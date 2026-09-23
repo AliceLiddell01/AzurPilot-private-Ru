@@ -1097,7 +1097,7 @@ class McpLifecycleDetails(ClosedModel):
 
 
 class McpAcceptanceDetails(ClosedModel):
-    """Bounded result одной новой read-only MCP client session."""
+    """Результат одной новой клиентской сессии MCP в заданных пределах, только для чтения."""
 
     action: Literal["accept"] = "accept"
     acceptance_state: Literal["READY", "INCOMPATIBLE", "UNAVAILABLE", "UNKNOWN"]
@@ -1121,19 +1121,19 @@ class McpAcceptanceDetails(ClosedModel):
             re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,127}", item) is None
             for item in value
         ):
-            raise ValueError("called_tools содержит повтор или некорректное имя")
+            raise ValueError("called_tools содержит повтор или недопустимое имя")
         return value
 
     @field_validator("diagnostics")
     @classmethod
     def validate_diagnostics(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if any(len(item) > 240 or any(ord(char) < 32 for char in item) for item in value):
-            raise ValueError("diagnostics содержит неограниченный текст")
+            raise ValueError("diagnostics содержит слишком длинный или управляющий текст")
         return value
 
 
 class CommissionRecoveryProjection(ClosedModel):
-    """Только чтение canonical application state, без WebUI-проекции."""
+    """Штатное состояние приложения только для чтения, без представления из WebUI."""
 
     state_id: Literal["commission/recovery"] = "commission/recovery"
     profile: str = Field(min_length=1, max_length=128)
@@ -1151,7 +1151,7 @@ class CommissionRecoveryProjection(ClosedModel):
 
 
 class ApplicationStateDetails(ClosedModel):
-    """Результат общего read-only запроса к зарегистрированному app state."""
+    """Результат общего запроса только для чтения к зарегистрированному состоянию приложения."""
 
     state_id: Literal["commission/recovery"] = "commission/recovery"
     value: CommissionRecoveryProjection
