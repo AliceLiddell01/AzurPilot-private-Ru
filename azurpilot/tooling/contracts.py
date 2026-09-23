@@ -8,10 +8,11 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .mcp_contracts import ProcessEvidence
 from .result import ExitCode, OperationState, ResultCode, exit_code_for
@@ -683,14 +684,6 @@ class ReadinessState(ClosedModel):
                 raise ValueError(
                     "NOT_RUN не может маскироваться под limitation внешнего reviewer"
                 )
-            if (
-                self.overall_outcome == "READY"
-                or self.ready_for_chatgpt_review
-                or self.merge_ready
-            ):
-                raise ValueError(
-                    "доступный, но не запущенный external reviewer запрещает readiness"
-                )
         elif self.external_reviewer_status == "SUBSTANTIVE" and self.reviewer_limitation:
             raise ValueError(
                 "SUBSTANTIVE external reviewer не может одновременно иметь limitation"
@@ -1103,6 +1096,67 @@ class McpLifecycleDetails(ClosedModel):
     readiness_confirmed: bool
 
 
+class McpAcceptanceDetails(ClosedModel):
+    """Результат одной новой клиентской сессии MCP в заданных пределах, только для чтения."""
+
+    action: Literal["accept"] = "accept"
+    acceptance_state: Literal["READY", "INCOMPATIBLE", "UNAVAILABLE", "UNKNOWN"]
+    reason_code: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
+    initialized: bool = False
+    protocol_version: str | None = Field(default=None, max_length=80)
+    server_name: str | None = Field(default=None, max_length=128)
+    server_version: str | None = Field(default=None, max_length=128)
+    source_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{7,64}$")
+    tool_count: int | None = Field(default=None, ge=0, le=256)
+    tool_catalog_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    capability_catalog_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    contract_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    called_tools: tuple[str, ...] = Field(default_factory=tuple, max_length=256)
+    diagnostics: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
+
+    @field_validator("called_tools")
+    @classmethod
+    def validate_called_tools(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) != len(set(value)) or any(
+            re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,127}", item) is None
+            for item in value
+        ):
+            raise ValueError("called_tools содержит повтор или недопустимое имя")
+        return value
+
+    @field_validator("diagnostics")
+    @classmethod
+    def validate_diagnostics(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(len(item) > 240 or any(ord(char) < 32 for char in item) for item in value):
+            raise ValueError("diagnostics содержит слишком длинный или управляющий текст")
+        return value
+
+
+class CommissionRecoveryProjection(ClosedModel):
+    """Штатное состояние приложения только для чтения, без представления из WebUI."""
+
+    state_id: Literal["commission/recovery"] = "commission/recovery"
+    profile: str = Field(min_length=1, max_length=128)
+    status: Literal["confirmed", "unknown", "unavailable"]
+    remaining: int | None = Field(default=None, ge=0, le=5)
+    used: int | None = Field(default=None, ge=0, le=5)
+    next_oil_cost: int | None = Field(default=None, ge=0, le=100_000)
+    next_ap_gain: int | None = Field(default=None, ge=0, le=10_000)
+    confirmed_at: datetime | None = None
+    reset_at: datetime
+    source: Literal["game_ocr", "emergency_ap_purchase", "dorm_fallback"] | None = None
+    last_result: str | None = Field(default=None, max_length=128)
+    cache_status: str = Field(min_length=1, max_length=64)
+    error: str | None = Field(default=None, max_length=128)
+
+
+class ApplicationStateDetails(ClosedModel):
+    """Результат общего запроса только для чтения к зарегистрированному состоянию приложения."""
+
+    state_id: Literal["commission/recovery"] = "commission/recovery"
+    value: CommissionRecoveryProjection
+
+
 class McpReconcileDetails(ClosedModel):
     """Раздельный результат source reconciliation и live runtime readiness."""
 
@@ -1180,6 +1234,7 @@ __all__ = [
     "CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME",
     "FRESH_MCP_ACCEPTANCE_GATE_NAME",
     "AnalysisScope",
+    "ApplicationStateDetails",
     "BranchIdentity",
     "BuildDetails",
     "BuildEvidence",
@@ -1196,6 +1251,7 @@ __all__ = [
     "CodeRabbitReview",
     "CodeRabbitTriageEntry",
     "CodeRabbitTriageManifest",
+    "CommissionRecoveryProjection",
     "CommitIdentity",
     "DeliveryChange",
     "DeliveryDetails",
@@ -1221,6 +1277,7 @@ __all__ = [
     "LifecycleRecord",
     "MandatoryGate",
     "MandatoryGateState",
+    "McpAcceptanceDetails",
     "McpDigest",
     "McpImpactDetails",
     "McpImpactPath",

@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import subprocess
@@ -106,6 +107,7 @@ EVIDENCE_EVENT_TYPES = frozenset(
         "session_ready",
         "task_started",
         "task_finished",
+        "product_evidence",
         "dependency_registered",
         "runtime_warning",
         "runtime_error",
@@ -124,11 +126,13 @@ _EVENT_FIELD_NAMES = frozenset(
         "current_task",
         "dependency_sequence",
         "exception_type",
+        "event_type",
         "mode",
         "operation_id",
         "outcome",
         "phase",
         "policy_state",
+        "payload",
         "preserved",
         "profile",
         "reason",
@@ -136,6 +140,8 @@ _EVENT_FIELD_NAMES = frozenset(
         "required_by",
         "root",
         "runtime_mode",
+        "session_id",
+        "smoke_id",
         "attempted",
         "source",
         "state",
@@ -650,7 +656,9 @@ def _validate_event_fields(value: object) -> dict[str, object]:
     for key, item in value.items():
         if not isinstance(key, str) or key not in _EVENT_FIELD_NAMES:
             raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Событие хронологии содержит неизвестное поле")
-        if isinstance(item, str):
+        if key == "payload":
+            safe[key] = _validate_product_payload(item)
+        elif isinstance(item, str):
             if len(item) > _MAX_EVENT_TEXT:
                 raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Текст события хронологии слишком длинный")
             safe[key] = redact_text(item, max_length=_MAX_EVENT_TEXT)
@@ -665,6 +673,59 @@ def _validate_event_fields(value: object) -> dict[str, object]:
         else:
             raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Поле события хронологии имеет небезопасный тип")
     return safe
+
+
+_PRODUCT_EVENT_TYPE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+_PRODUCT_CORRELATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_PRODUCT_PAYLOAD_DENIED_KEYS = frozenset(
+    {"api_key", "authorization", "cookie", "credential", "password", "path", "serial", "secret", "token", "url"}
+)
+
+
+def _validate_product_payload(value: object, *, depth: int = 0) -> object:
+    if depth > 4:
+        raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Структурированное событие слишком глубоко вложено")
+    if value is None or isinstance(value, (bool, int)):
+        if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 10**12:
+            raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Число структурированного события вне диапазона")
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value) or abs(value) > 10**12:
+            raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Число структурированного события вне диапазона")
+        return value
+    if isinstance(value, str):
+        if len(value) > _MAX_EVENT_TEXT or any(ord(char) < 32 and char not in "\t\n\r" for char in value):
+            raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Текст структурированного события имеет неверный формат")
+        return redact_text(value, max_length=_MAX_EVENT_TEXT)
+    if isinstance(value, Mapping):
+        if len(value) > 32:
+            raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Структурированное событие содержит слишком много полей")
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            if (
+                not isinstance(key, str)
+                or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", key)
+                or any(token in key for token in _PRODUCT_PAYLOAD_DENIED_KEYS)
+            ):
+                raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Структурированное событие содержит запрещённое имя поля")
+            normalized[key] = _validate_product_payload(item, depth=depth + 1)
+        if len(json.dumps(normalized, ensure_ascii=True, separators=(",", ":")).encode("utf-8")) > 8 * 1024:
+            raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Структурированное событие превышает ограниченный размер")
+        return normalized
+    if isinstance(value, (list, tuple)):
+        if len(value) > 32:
+            raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Структурированное событие содержит слишком длинный список")
+        return [_validate_product_payload(item, depth=depth + 1) for item in value]
+    raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Структурированное событие содержит неподдерживаемый тип")
+
+
+def validate_product_evidence_payload(value: object) -> dict[str, object]:
+    """Проверить содержимое JSON до использования в SmokeSpec."""
+
+    normalized = _validate_product_payload(value)
+    if not isinstance(normalized, dict):
+        raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Полезная нагрузка продукта должна быть объектом")
+    return normalized
 
 
 def _validate_event(value: object) -> TimelineEvent:
@@ -684,7 +745,27 @@ def _validate_event(value: object) -> TimelineEvent:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Хронология содержит неизвестный тип события")
     timestamp = _utc_timestamp(value.get("timestamp"))
     assert isinstance(timestamp, str)
-    return TimelineEvent(sequence, timestamp, event_type, _validate_event_fields(value.get("fields")))
+    fields = _validate_event_fields(value.get("fields"))
+    if event_type == "product_evidence" and (
+        not isinstance(fields.get("event_type"), str)
+        or _PRODUCT_EVENT_TYPE.fullmatch(fields["event_type"]) is None
+        or not isinstance(fields.get("payload"), Mapping)
+        or not isinstance(fields.get("session_id"), str)
+    ):
+        raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Структурированное событие продукта имеет неполную схему")
+    if event_type == "product_evidence":
+        try:
+            fields["session_id"] = validate_session_id(fields["session_id"])
+        except ValueError as exc:
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Событие продукта содержит некорректный идентификатор сессии") from exc
+        smoke_id = fields.get("smoke_id")
+        if smoke_id is not None and (
+            not isinstance(smoke_id, str)
+            or _PRODUCT_CORRELATION_ID.fullmatch(smoke_id) is None
+            or ".." in smoke_id
+        ):
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Событие продукта содержит некорректный идентификатор Smoke")
+    return TimelineEvent(sequence, timestamp, event_type, fields)
 
 
 def _validate_timeline(value: object) -> list[TimelineEvent]:
@@ -2557,6 +2638,54 @@ def record_task_finished(config_name: object, task: object, outcome: object) -> 
         store.mark_degraded("timeline_write_failed")
 
 
+def record_product_evidence(
+    config_name: object,
+    event_type: object,
+    payload: object,
+    *,
+    task: object = None,
+) -> bool:
+    """Добавить ограниченные типизированные данные предметной области в активную DevSession."""
+
+    store = _active_store_for_config(config_name)
+    if (
+        store is None
+        or not isinstance(event_type, str)
+        or _PRODUCT_EVENT_TYPE.fullmatch(event_type) is None
+        or not isinstance(payload, Mapping)
+    ):
+        return False
+    smoke_id = os.environ.get("AZURPILOT_DEV_SMOKE_ID")
+    try:
+        safe_payload = validate_product_evidence_payload(payload)
+        policy = TaskPolicyStore(store.environment).read()
+        task_name = _safe_selector(task) if isinstance(task, str) else None
+        if (
+            policy is None
+            or policy.state != TASK_POLICY_ACTIVE
+            or policy.session_id != store.session_id
+            or (task_name is not None and task_name not in policy.allowed_tasks)
+            or (smoke_id is not None and task_name is None)
+        ):
+            return False
+        fields: dict[str, object] = {
+            "event_type": event_type,
+            "payload": safe_payload,
+            "session_id": validate_session_id(store.session_id),
+        }
+        if smoke_id is not None:
+            if _PRODUCT_CORRELATION_ID.fullmatch(smoke_id) is None or ".." in smoke_id:
+                raise EvidenceCorrupt("DEV_EVIDENCE_EVENT_INVALID", "Идентификатор Smoke имеет неверный формат")
+            fields["smoke_id"] = smoke_id
+        if task_name is not None:
+            fields["task"] = task_name
+        store.append_event("product_evidence", fields)
+        return True
+    except Exception:  # noqa: BLE001 - Evidence hooks must degrade rather than interrupt the product task.
+        store.mark_degraded("product_evidence_write_failed")
+        return False
+
+
 def record_dependency_registered(
     config_name: object,
     *,
@@ -2629,9 +2758,11 @@ __all__ = [
     "TimelineEvent",
     "capture_git_snapshot",
     "record_dependency_registered",
+    "record_product_evidence",
     "record_runtime_error",
     "record_task_finished",
     "record_task_started",
     "serve_pending_screenshot",
+    "validate_product_evidence_payload",
     "validate_session_id",
 ]

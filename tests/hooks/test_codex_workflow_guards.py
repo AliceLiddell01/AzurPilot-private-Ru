@@ -3,8 +3,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import shutil
 import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -21,339 +21,140 @@ def guards() -> ModuleType:
     return module
 
 
-def _pre_tool_event(command: str, *, tool_name: str = "Bash") -> dict[str, object]:
+def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    root = tmp_path / "repo"
+    (root / ".codex").mkdir(parents=True)
+    (root / ".codex" / "hooks.json").write_text("{}", encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state_home))
+    return root, state_home
+
+
+def _state_directory(guards: ModuleType, root: Path, state_home: Path) -> Path:
+    return state_home / guards._repository_identity(root)[:24]
+
+
+def _stop_event(root: Path, *, stop_hook_active: object = False) -> dict[str, object]:
     return {
-        "hook_event_name": "PreToolUse",
-        "tool_name": tool_name,
-        "tool_input": {"command": command},
+        "hook_event_name": "Stop",
+        "cwd": str(root),
+        "stop_hook_active": stop_hook_active,
     }
 
 
-@pytest.mark.parametrize(
-    "command",
-    [
-        "azur integrations coderabbit status",
-        "NO_COLOR=1 azur integrations coderabbit status",
-        "env NO_COLOR=1 azur integrations coderabbit status",
-        "uv lock --check",
-        "uv run --locked --no-sync python -m pytest -q tests",
-        "echo 'azur integrations coderabbit status'",
-        "rg -n azur .",
-        "Get-Command azur",
-        "wsl.exe -- bash -lc 'printf unrelated'",
-        "wsl.exe -- echo coderabbit",
-        "wsl bash -lc 'echo coderabbit'",
-        "git status --short",
-        "git diff -- codex/base-example",
-        "git show codex/base-example",
-        "git branch --list codex/base-example",
-        "powershell -Command \"Write-Output 'azur status'\"",
-    ],
-)
-def test_allowed_commands_have_no_decision(guards: ModuleType, command: str) -> None:
-    assert guards.process_event(_pre_tool_event(command)) is None
+def _write_delivery_state(
+    guards: ModuleType,
+    root: Path,
+    state_home: Path,
+    *,
+    phase: str,
+    operation_id: str = "delivery-operation",
+    root_identity: str | None = None,
+) -> Path:
+    transaction = (
+        _state_directory(guards, root, state_home)
+        / "transactions"
+        / operation_id
+    )
+    transaction.mkdir(parents=True)
+    (transaction / "state.json").write_text(
+        json.dumps(
+            {
+                "operation_id": operation_id,
+                "repository_root_identity": root_identity
+                or guards._repository_identity(root),
+                "phase": phase,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return transaction
 
 
-@pytest.mark.parametrize(
-    "command",
-    [
-        "uv run --locked azur integrations coderabbit status",
-        "uv run -p python.exe azur integrations coderabbit status",
-        "uv run --python=python.exe azur integrations coderabbit status",
-        "uv run --unknown value azur integrations coderabbit status",
-        "uv run -m azurpilot integrations coderabbit status",
-        "uv run --locked --no-sync python -m azurpilot integrations coderabbit status",
-        "uv run --unknown value python -m azurpilot integrations coderabbit status",
-        "python -m azurpilot integrations coderabbit status",
-        "py -m azurpilot integrations coderabbit status",
-        r".venv\Scripts\azur.exe integrations coderabbit status",
-        r"C:\tools\azur.exe integrations coderabbit status",
-        'powershell -NoProfile -Command "azur integrations coderabbit status"',
-        'cmd /c "azur integrations coderabbit status"',
-        "wsl.exe -d Arch -- coderabbit review --agent",
-        "wsl bash -lc 'coderabbit review --agent'",
-        "coderabbit review --agent",
-        "coderabbit.exe review --agent",
-        "NO_COLOR=1 coderabbit review --agent",
-        "env NO_COLOR=1 coderabbit review --agent",
-        'bash -lc "NO_COLOR=1 coderabbit review --agent"',
-        'cmd /c "NO_COLOR=1 coderabbit.exe review --agent"',
-        'powershell -NoProfile -Command "coderabbit review --agent"',
-        'bash -lc "coderabbit review --agent"',
-        'cmd /c "coderabbit.exe review --agent"',
-        "NO_COLOR=1 python -m azurpilot integrations coderabbit status",
-        "env NO_COLOR=1 uv run --locked azur integrations coderabbit status",
-        r"NO_COLOR=1 C:\tools\azur.exe integrations coderabbit status",
-        "git branch codex/base-helper",
-        "git switch -c codex/base-helper",
-        "git checkout -b codex/base-helper",
-        "git push origin codex/base-helper",
-        "git push origin HEAD:codex/base-helper",
-        "git update-ref refs/heads/codex/base-helper HEAD",
-        "git branch codex/temporary-helper",
-        "git switch -c codex/scratch-helper",
-        "git checkout -b codex/transport-helper",
-        "git push origin feature/temporary/review",
-        "git push origin feature/scratch/review",
-        "git branch codex/aux",
-    ],
-)
-def test_known_workflow_bypasses_are_denied(guards: ModuleType, command: str) -> None:
-    result = guards.process_event(_pre_tool_event(command))
+def test_stop_without_ambiguous_delivery_does_not_block(
+    guards: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _state_home = _project(tmp_path, monkeypatch)
+
+    assert guards.process_event(_stop_event(root)) == {}
+    assert guards.process_event({"hook_event_name": "PreToolUse"}) is None
+
+
+@pytest.mark.parametrize("phase", ["push_in_flight", "unknown"])
+def test_stop_blocks_matching_ambiguous_delivery(
+    guards: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+) -> None:
+    root, state_home = _project(tmp_path, monkeypatch)
+    _write_delivery_state(guards, root, state_home, phase=phase)
+
+    result = guards.process_event(_stop_event(root))
+
     assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "deny"
-    assert isinstance(output["permissionDecisionReason"], str)
+    assert result["decision"] == "block"
+    assert "azur delivery status/recover" in result["reason"]
 
 
-@pytest.mark.skipif(
-    os.name != "nt" or shutil.which("py") is None,
-    reason="Windows Python launcher is required for the native hook entrypoint",
+@pytest.mark.parametrize(
+    ("phase", "operation_id", "root_identity"),
+    [
+        ("completed", "delivery-operation", None),
+        ("unknown", "another-operation", None),
+        ("unknown", "delivery-operation", "different-repository"),
+    ],
 )
-def test_windows_system_python_hook_entrypoint_has_no_project_dependencies() -> None:
+def test_stop_ignores_terminal_or_foreign_delivery_state(
+    guards: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+    operation_id: str,
+    root_identity: str | None,
+) -> None:
+    root, state_home = _project(tmp_path, monkeypatch)
+    _write_delivery_state(
+        guards,
+        root,
+        state_home,
+        phase=phase,
+        operation_id=operation_id,
+        root_identity=root_identity,
+    )
+
+    assert guards.process_event(_stop_event(root)) == {}
+
+
+def test_stop_hook_active_prevents_a_second_block(
+    guards: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, state_home = _project(tmp_path, monkeypatch)
+    _write_delivery_state(guards, root, state_home, phase="unknown")
+
+    assert guards.process_event(_stop_event(root, stop_hook_active=True)) == {}
+
+
+def test_main_works_without_project_imports(tmp_path: Path) -> None:
     hook_path = Path(__file__).parents[2] / ".codex" / "hooks" / "codex_workflow_guards.py"
-    event = _pre_tool_event("coderabbit review --agent")
+    event = {"hook_event_name": "Stop", "cwd": str(tmp_path)}
+    environment = os.environ.copy()
+    environment["AZURPILOT_STATE_HOME"] = str(tmp_path / "state")
     completed = subprocess.run(
-        ["py", "-3", str(hook_path)],
+        [sys.executable, str(hook_path)],
         input=json.dumps(event),
         text=True,
         capture_output=True,
-        cwd=hook_path.parents[2],
+        cwd=tmp_path,
+        env=environment,
         check=False,
         timeout=10,
     )
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stderr == ""
-    result = json.loads(completed.stdout)
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "deny"
-
-
-def test_non_bash_pre_tool_use_is_ignored(guards: ModuleType) -> None:
-    assert (
-        guards.process_event(
-            _pre_tool_event("python -m azurpilot", tool_name="apply_patch")
-        )
-        is None
-    )
-
-
-def test_malformed_and_oversized_inputs_are_silent(guards: ModuleType) -> None:
-    assert (
-        guards.process_event({"hook_event_name": "PreToolUse", "tool_name": "Bash"})
-        is None
-    )
-    assert (
-        guards.process_event(
-            {
-                "hook_event_name": "PreToolUse",
-                "tool_name": "Bash",
-                "tool_input": {"command": 1},
-            }
-        )
-        is None
-    )
-    assert guards.classify_command("x" * (guards._MAX_COMMAND_CHARS + 1)) is None
-
-
-def _state_root(guards: ModuleType, root: Path, state_home: Path) -> Path:
-    return state_home / guards._repository_identity(root)[:24]
-
-
-def _write_project(root: Path) -> None:
-    (root / ".codex").mkdir()
-    (root / ".codex" / "hooks.json").write_text("{}", encoding="utf-8")
-
-
-def _stop_event(root: Path, *, stop_hook_active: object = False) -> dict[str, object]:
-    return {
-        "hook_event_name": "Stop",
-        "cwd": str(root / "nested"),
-        "stop_hook_active": stop_hook_active,
-        "transcript_path": str(root / "secret-transcript.jsonl"),
-    }
-
-
-def test_stop_without_unfinished_state_does_not_block(
-    guards: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "repo"
-    root.mkdir()
-    _write_project(root)
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
-    event = _stop_event(root)
-    assert guards.process_event(event) == {}
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"schema_version": 5, "cycle_status": "triage_required", "findings_count": 2},
-        {"schema_version": 4, "active": True, "phase": "provider"},
-        {"schema_version": 4, "provider_state": "running", "phase": "provider"},
-        {"schema_version": 4, "cycle_status": "recovery_required"},
-        {
-            "schema_version": 4,
-            "provider_state": "start_unknown",
-        },
-        {"schema_version": 4, "triage_complete": False, "findings_count": 1},
-    ],
-)
-def test_stop_blocks_strong_coderabbit_lifecycle_state(
-    guards: ModuleType,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    payload: dict[str, object],
-) -> None:
-    root = tmp_path / "repo"
-    root.mkdir()
-    _write_project(root)
-    state_home = tmp_path / "state"
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state_home))
-    state_directory = _state_root(guards, root, state_home)
-    state_directory.mkdir(parents=True)
-    (state_directory / "coderabbit-review.json").write_text(
-        json.dumps(payload), encoding="utf-8"
-    )
-    result = guards.process_event(_stop_event(root))
-    assert result is not None
-    assert result["decision"] == "block"
-
-
-@pytest.mark.parametrize(
-    "provider_state",
-    ["start_unknown", "timeout_unknown", "timeout_alive", "legacy_state_migrated"],
-)
-def test_stop_blocks_recovery_provider_states(
-    guards: ModuleType,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    provider_state: str,
-) -> None:
-    root = tmp_path / "repo"
-    root.mkdir()
-    _write_project(root)
-    state_home = tmp_path / "state"
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state_home))
-    state_directory = _state_root(guards, root, state_home)
-    state_directory.mkdir(parents=True)
-    (state_directory / "coderabbit-review.json").write_text(
-        json.dumps(
-            {
-                "schema_version": guards.REVIEW_STATE_SCHEMA_VERSION,
-                "provider_state": provider_state,
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    result = guards.process_event(_stop_event(root))
-
-    assert result is not None
-    assert result["decision"] == "block"
-
-
-def test_review_guard_schema_versions_follow_adapter_constant(guards: ModuleType) -> None:
-    assert guards._REVIEW_SCHEMA_VERSIONS == frozenset(
-        range(1, guards.REVIEW_STATE_SCHEMA_VERSION + 1)
-    )
-
-
-def test_stop_hook_active_prevents_second_block(
-    guards: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "repo"
-    root.mkdir()
-    _write_project(root)
-    state_home = tmp_path / "state"
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state_home))
-    state_directory = _state_root(guards, root, state_home)
-    state_directory.mkdir(parents=True)
-    (state_directory / "coderabbit-review.json").write_text(
-        json.dumps({"schema_version": 4, "cycle_status": "triage_required"}),
-        encoding="utf-8",
-    )
-    assert guards.process_event(_stop_event(root, stop_hook_active=True)) == {}
-
-
-def test_stop_allows_completed_recovery_state(
-    guards: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "repo"
-    root.mkdir()
-    _write_project(root)
-    state_home = tmp_path / "state"
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state_home))
-    state_directory = _state_root(guards, root, state_home)
-    state_directory.mkdir(parents=True)
-    (state_directory / "coderabbit-review.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 4,
-                "active": False,
-                "cycle_status": "recovered",
-                "phase": "idle",
-                "provider_state": "interrupted_recovered",
-                "recovery": {"status": "completed"},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    assert guards.process_event(_stop_event(root)) == {}
-
-
-@pytest.mark.parametrize("phase", ["push_in_flight", "unknown"])
-def test_stop_blocks_unfinished_delivery_transaction(
-    guards: ModuleType,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    phase: str,
-) -> None:
-    root = tmp_path / "repo"
-    root.mkdir()
-    _write_project(root)
-    state_home = tmp_path / "state"
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state_home))
-    state_directory = _state_root(guards, root, state_home)
-    transaction = state_directory / "transactions" / "delivery-test-operation"
-    transaction.mkdir(parents=True)
-    (transaction / "state.json").write_text(
-        json.dumps(
-            {
-                "operation_id": transaction.name,
-                "repository_root_identity": guards._repository_identity(root),
-                "phase": phase,
-            }
-        ),
-        encoding="utf-8",
-    )
-    result = guards.process_event(_stop_event(root))
-    assert result is not None
-    assert result["decision"] == "block"
-
-
-def test_terminal_delivery_state_does_not_block(
-    guards: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root = tmp_path / "repo"
-    root.mkdir()
-    _write_project(root)
-    state_home = tmp_path / "state"
-    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(state_home))
-    state_directory = _state_root(guards, root, state_home)
-    transaction = state_directory / "transactions" / "delivery-terminal"
-    transaction.mkdir(parents=True)
-    (transaction / "state.json").write_text(
-        json.dumps(
-            {
-                "operation_id": transaction.name,
-                "repository_root_identity": guards._repository_identity(root),
-                "phase": "push_not_delivered",
-            }
-        ),
-        encoding="utf-8",
-    )
-    event = _stop_event(root)
-    assert guards.process_event(event) == {}
+    assert json.loads(completed.stdout) == {}

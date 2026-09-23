@@ -64,7 +64,8 @@
 - проверить аналогичную реализацию;
 - запустить точечные tests;
 - проверить сквозное поведение в разумной границе;
-- выполнить Codex self-review итогового diff до внешнего review checkpoint.
+- выполнить самостоятельную проверку итогового diff;
+- внешнюю проверку запускать только по явному запросу или обязательному правилу проекта.
 
 ### Расширенный
 
@@ -78,32 +79,15 @@
 - production/data migration;
 - нескольких подсистем.
 
-Требует архитектурного анализа, полного релевантного набора проверок, Codex self-review, промежуточных external-review checkpoints на завершённых рискованных слоях и явных рисков.
+Требует архитектурного анализа, подходящего набора проверок, самостоятельной проверки изменений и явного описания рисков. Внешние проверки нужны только по явному запросу или обязательному правилу проекта.
 
-## Review checkpoints
+## Внешняя проверка
 
-Внешнее ревью не откладывается обязательно до самого конца и не запускается после каждого мелкого исправления.
-
-Для стандартной/расширенной задачи:
-
-1. Codex завершает логически цельный слой реализации.
-2. Запускает релевантные targeted checks.
-3. Перечитывает base→head diff как незнакомое изменение и выполняет adversarial self-review.
-4. Если завершён существенный или рискованный слой — запускает внешний review checkpoint.
-5. Исправления после внешнего finding проходят self-review и targeted checks.
-6. Новый внешний review нужен, если после прошлого checkpoint появился существенный новый code diff, изменился контракт/архитектура/безопасность или предыдущий reviewer явно требует повторной проверки.
-7. Незначительные правки документации, тестовых ожиданий или механические fixes сами по себе не запускают полный внешний review заново.
-
-Если внешний reviewer недоступен, зафиксируй это как ограничение проверки.
-Специфичные для провайдера правила triage/retry/rate limit принадлежат
-соответствующему review skill; влияние результата CodeRabbit на Git lifecycle определяется только
-`GIT-WORKFLOW.md`. Остальные обязательные gates продолжают выполняться.
-Если native reviewer доступен, но checkpoint не запускался, состояние остаётся
-`NOT_RUN` и не может быть переименовано в provider limitation; сначала требуется
-одна bounded authoritative попытка на текущем exact head. Только фактически
-подтверждённые adapter-ом `disabled`, `unavailable`, `rate-limited` или иные
-внешние failure являются limitation. Actionable findings после authoritative
-review блокируют readiness до individual triage и fix.
+Codex самостоятельно проверяет каждое изменение. Внешнего проверяющего, включая
+CodeRabbit, запускай только по явной команде пользователя или обязательному
+правилу проекта. Незапрошенный CodeRabbit остаётся в состоянии `NOT_RUN` и не требует попытки
+или отметки об ограничении. Если проверка запрошена, соответствующий навык описывает запуск,
+подтверждение точного коммита и разбор результатов; значимые замечания нужно устранить до готовности.
 
 Для MCP-изменений первым repository gate является effective candidate
 classification: `azur mcp impact --base <exact-base-sha>`. Команда должна
@@ -123,15 +107,13 @@ status. Только доказанный failure/ambiguous ownership, foreign p
 STOPPED/no-conflict postcondition; foreign/invalid/unknown ownership остаётся
 fail-closed. При `runtime_ready=true` и
 `session_state=not_observable` runtime gate не считается failed. При
-`MCP impact=REQUIRED` workflow всё равно обязан выполнить отдельный fresh MCP
-client acceptance; effective Codex registration проверяется только отдельной
-optional integration check при затронутом Codex/plugin scope.
+При `MCP impact=REQUIRED` используй `azur mcp accept`; команда сама запускает
+новую клиентскую сессию и выбирает штатные запросы только для чтения.
 
-При `MCP impact=REQUIRED` обязательный gate называется
-`fresh_mcp_client_acceptance`. Он доказывается независимым project-owned MCP
-client/process: новая SDK session должна выполнить `initialize()`, negotiated
-catalog, contract/revision checks и обязательные read-only capability calls.
-Один `azur mcp status`, source snapshot или unit tests этот gate не закрывают.
+`azur mcp accept` выполняет `initialize()`, согласование каталога,
+проверки контракта и версии, а также вызовы только для чтения. `azur mcp status`, снимок исходников
+или модульные тесты не закрывают эту проверку. Не создавай `FreshMcpClientPlan` во внешнем
+фрагменте кода на Python, если доступна штатная команда.
 
 Codex effective registration — отдельная необязательная integration check. Если
 изменение затрагивает Codex/plugin registration, client-visible tool schema или
@@ -144,21 +126,21 @@ gate в `FAIL`/`BLOCKED_PRECONDITION`.
 
 Pre-merge Definition of Done заканчивается после commit/push draft PR, проверки
 required `Python`, `Windows`, `Security` на exact head, secret scan, self-review
-и разрешения blocking review threads. Итоговый статус —
+и обработки явно запрошенных или обязательных замечаний. Итоговый статус —
 `READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь, а merge не
 выполняется без отдельной текущей команды пользователя.
 
-Typed readiness разделяет implementation, mandatory gates, external reviewer
-limitation, `READY_FOR_CHATGPT_REVIEW` и merge-ready. Mandatory gate имеет
+Типизированная оценка готовности отдельно учитывает реализацию, обязательные проверки и запрошенную внешнюю
+проверку, `READY_FOR_CHATGPT_REVIEW` и готовность к слиянию. `NOT_RUN` без явного запроса —
+нормальное состояние, а не ограничение. Обязательная проверка имеет
 terminal state `PASS`, `FAIL`, `BLOCKED_PRECONDITION` или `NOT_REQUIRED`; при
 `MCP impact=REQUIRED` `fresh_mcp_client_acceptance` обязателен и `NOT_REQUIRED`
 для него недопустим; `PASS` требует evidence независимой свежей MCP client
 session;
-`FAIL`/`BLOCKED_PRECONDITION` сохраняет полезный Draft, но требует blocked
-overall outcome и запрещает readiness/merge. CodeRabbit rate limit фиксируется
-отдельно и сам по себе не блокирует readiness при остальных фактически
-пройденных обязательных gates. Codex registration check хранится отдельно и
-сама по себе product readiness не блокирует.
+`FAIL`/`BLOCKED_PRECONDITION` сохраняет полезный Draft, но задаёт общий итог `BLOCKED`
+и не допускает готовность к слиянию. Результат запрошенного CodeRabbit
+фиксируется отдельно и сам по себе не заменяет обязательные продуктовые проверки. Проверка регистрации Codex
+хранится отдельно и сама по себе не блокирует готовность продукта.
 
 Post-merge verification и cleanup являются отдельным этапом и выполняются только
 после подтверждённого merge. Перед ним нужно повторно проверить exact head,
@@ -334,7 +316,8 @@ tooling или семантику публикации, приёмка вклю�
 - полный suite не повторялся без существенного изменения или диагностической причины;
 - secret scan выполнен на финальном relevant diff;
 - Codex adversarial self-review завершён;
-- необходимые доступные внешние milestone/final checkpoints обработаны; ограничения CodeRabbit явно зафиксированы;
+- явно запрошенные или обязательные внешние проверки обработаны;
+- незапрошенный CodeRabbit остаётся в состоянии `NOT_RUN`, а не считается ограничением;
 - security review завершён в требуемом объёме;
 - открытые blocking review threads отсутствуют;
 - документация обновлена;

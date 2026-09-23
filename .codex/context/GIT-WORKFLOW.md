@@ -32,8 +32,8 @@ lifecycle. Он описывает текущее правило, а не change
 → реализация логическими слоями
 → targeted checks
 → Codex adversarial self-review
-→ внешний review checkpoint на существенном/рискованном milestone
 → финальные релевантные gates
+→ внешняя проверка только по явному запросу или обязательному правилу проекта
 → commit / draft PR
 → required CI exact head
 → `READY_FOR_CHATGPT_REVIEW`
@@ -132,8 +132,9 @@ AzurPilot Private RU наследует upstream, но содержит отде
 - завершить прогон как `blocked`.
 
 Специфичные для провайдера правила retry/rate limit внешнего review принадлежат
-соответствующему review skill. Последствие для Git lifecycle у CodeRabbit
-определён в разделе «Внешнее ревью».
+соответствующему навыку проверки. CodeRabbit запускается только по явному запросу
+пользователя или обязательному правилу проекта; отсутствие запроса фиксируется как
+`NOT_RUN`, а не как ограничение сервиса.
 
 Не создавать инфраструктурный issue автоматически из-за одной transient-ошибки; делать это только при устойчивой проблеме или если task contract требует tracking.
 
@@ -179,7 +180,7 @@ exact-head revalidation и короткий relevant post-merge smoke.
 - targeted checks;
 - сквозная проверка в разумной границе;
 - adversarial self-review;
-- внешний review checkpoint согласно разделу 20.
+- внешняя проверка только по явному запросу или обязательному правилу проекта.
 
 ### Расширенный
 
@@ -364,7 +365,7 @@ dependency/bootstrap/test/build задач, где он является вла�
 2. lint/static analysis;
 3. targeted tests;
 4. adversarial self-review base→head;
-5. внешний review checkpoint на существенном/рискованном milestone;
+5. внешняя проверка только по явному запросу или обязательному правилу;
 6. полный релевантный test set перед PR/final checkpoint;
 7. dependency/build/security/secret gates;
 8. controlled smoke;
@@ -489,41 +490,26 @@ range. Push — обычный explicit refspec без force/force-with-lease с
 в read-only recovery без blind retry.
 
 GitHub PR проверяется с явными `--repo`, `--base`, `--head`, draft mode и
-read-back exact identity. CodeRabbit остаётся внешним checkpoint: native review
-выполняется в canonical checkout, findings и disposition сохраняются в PR body,
-а provider process подтверждается exact PID/start/executable/argv/cwd.
-Один logical development task использует один task-scoped CodeRabbit cycle;
-`3/3` не переносится между tasks. Canonical caller передаёт opaque `--task-id`;
-новый head той же task продолжает cycle. Candidate должен быть committed и
-clean до provider call; изменение candidate во время review делает результат
-non-authoritative и не расходует substantive budget.
+повторное чтение точных идентификаторов. В описании PR сохраняется раздел CodeRabbit для типизированных подтверждений;
+если проверка не запрошена, в нём указывается `NOT_RUN` и «не запрошено». Только
+явная команда пользователя запускает CodeRabbit; правила запуска и разбора его результатов
+описаны в [отдельном навыке](../../.agents/skills/azurpilot-coderabbit-review/SKILL.md).
 
 ### Внешнее ревью
 
-Внешний reviewer — **milestone gate**.
+Внешняя проверка не является обязательным этапом для каждой задачи. Запускай её
+только по явной команде пользователя или обязательному правилу проекта. Для
+CodeRabbit незапрошенная проверка остаётся в состоянии `NOT_RUN` и не считается ограничением;
+если пользователь запросил проверку, следуй соответствующему навыку, фиксируй результат для точного коммита
+и разбирай значимые замечания по его правилам. Результат проверки не
+заменяет тесты, CI, проверки безопасности или явное разрешение на слияние.
 
-Схема:
-
-1. завершить логически цельный слой;
-2. targeted checks;
-3. Codex adversarial self-review;
-4. внешний review, если слой существенный/рискованный;
-5. исправить findings, повторить targeted checks + self-review;
-6. следующий внешний checkpoint — только после существенного нового code diff, изменения architecture/security/data contract или если reviewer требует re-check;
-7. required CI на exact PR head.
-
-Большая задача может иметь несколько review checkpoints, чтобы не накапливать десятки findings до конца. Небольшой standard diff обычно требует одного checkpoint.
-
-Не запускать полный внешний review заново из-за typo/format/docs или узкой test-only правки без изменения production contract.
-
-Если CodeRabbit skill вернул `RATE_LIMITED` до финального пользовательского
-ревью, Git lifecycle может достичь `READY_FOR_CHATGPT_REVIEW`, когда остальные
-обязательные gates выполнены; limitation и последний фактически reviewed head
-фиксируются в PR evidence. Такой результат провайдера не отменяет required CI,
-security/secret scan, mandatory product/live acceptance или blocking review
-threads. После `merge-authorized` или `merged` он сам по себе не откатывает
-lifecycle. Правила ожидания, retry и triage провайдера принадлежат CodeRabbit
-skill/reference.
+Если навык CodeRabbit вернул `rate_limited`, жизненный цикл Git может достичь
+`READY_FOR_CHATGPT_REVIEW`, когда внешняя проверка не требуется по правилу проекта
+и нет значимых замечаний или блокирующих обсуждений. Это не
+отменяет обязательные CI, проверку безопасности и секретов, обязательную приёмку продукта
+или блокирующие обсуждения. Правила ожидания, повторного запуска и разбора результатов
+сервиса описаны в соответствующем навыке и справочнике.
 
 Readiness фиксируется typed state: обязательный gate имеет `PASS`, `FAIL`,
 `BLOCKED_PRECONDITION` или `NOT_REQUIRED`; если MCP impact равен `REQUIRED`,
@@ -600,7 +586,9 @@ git gc --prune=now
 5. повторить relevant checks;
 6. выполнить self-review изменённой области.
 
-Внешний reviewer после fix повторяется, если finding пришёл от него и нужен re-check, появился существенный production diff, изменился architecture/security/data contract или reviewer явно требует повтор.
+Запрошенную внешнюю проверку после исправления повторяй только если нужно перепроверить
+её замечание или проверяющий явно требует повтор. Без запроса пользователя или обязательного
+правила новые изменения сами по себе не запускают CodeRabbit.
 
 Бюджет:
 
@@ -614,8 +602,9 @@ git gc --prune=now
 блокируется, полезное состояние сохраняется, временные ресурсы безопасно
 очищаются.
 
-CodeRabbit-specific lifecycle consequence определён один раз в разделе
-«Внешнее ревью»; правила retry/triage провайдера здесь не дублируются.
+Для незапрошенного CodeRabbit состояние `NOT_RUN` не является ограничением и не блокирует
+PR в статусе Draft или готовность к пользовательской проверке. Правила повторного запуска и разбора,
+специфичные для сервиса, применяются только после явного запроса и описаны в соседнем навыке.
 
 ## 23. Post-merge и rollback
 
@@ -671,7 +660,8 @@ Capability branches, включая explicit domain-prefixed branches, долж�
 - tests обновлены там, где менялось поведение;
 - полный suite выполнен в установленном checkpoint и не повторялся без причины;
 - Codex adversarial self-review завершён;
-- необходимые доступные внешние review checkpoints обработаны; ограничения CodeRabbit явно зафиксированы;
+- явно запрошенные или обязательные внешние проверки выполнены;
+- незапрошенный CodeRabbit остаётся в состоянии `NOT_RUN`, а не считается ограничением;
 - security/secret gates выполнены в требуемом объёме;
 - required CI зелёный на exact head;
 - blocking review threads отсутствуют;
@@ -735,4 +725,4 @@ Post-merge: relevant smoke/verification или `не применимо до mer
 + короткий отчёт
 ```
 
-После отдельной текущей команды пользователя к этому результату добавляются разрешённый merge, post-merge verification и cleanup. Если обязательный product gate недоступен или не пройден, корректный результат — сохранённое полезное состояние и `blocked`, а не непроверенный merge и не просьба пользователю вручную закончить технический цикл. Исключение — CodeRabbit rate limit: он не блокирует draft PR и фиксируется как ограничение review.
+После отдельной актуальной команды пользователя к этому результату добавляются разрешённое слияние, проверка после слияния и очистка. Если обязательная проверка продукта недоступна или не пройдена, корректный результат — сохранённое полезное состояние и статус `blocked`, а не непроверенное слияние. Ограничение частоты запросов отмечается как ограничение проверки только тогда, когда пользователь явно запросил CodeRabbit.

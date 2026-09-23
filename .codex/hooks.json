@@ -1,20 +1,6 @@
 {
-  "description": "Точечные project-local guards для canonical AzurPilot workflow.",
+  "description": "Защита при восстановлении после неоднозначного прерывания отправки изменений в Git.",
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "^Bash$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; [ -n \"$root\" ] || exit 0; if command -v python3 >/dev/null 2>&1; then exec python3 \"$root/.codex/hooks/codex_workflow_guards.py\"; elif command -v python >/dev/null 2>&1; then exec python \"$root/.codex/hooks/codex_workflow_guards.py\"; else echo \"AzurPilot hook: Python interpreter недоступен\" >&2; exit 2; fi",
-            "commandWindows": "setlocal EnableDelayedExpansion & set \"AZUR_PY=\" & where py >nul 2>&1 & if not errorlevel 1 (py -3 -c \"import sys\" >nul 2>&1 & if not errorlevel 1 set \"AZUR_PY=py -3\") & if not defined AZUR_PY (where python >nul 2>&1 & if not errorlevel 1 set \"AZUR_PY=python\") & if not defined AZUR_PY (where python3 >nul 2>&1 & if not errorlevel 1 set \"AZUR_PY=python3\") & if not defined AZUR_PY (echo AzurPilot hook: Python interpreter недоступен 1>&2 & exit /b 2) & !AZUR_PY! -c \"import pathlib,runpy; p=pathlib.Path.cwd(); root=next((x for x in (p,*p.parents) if (x/'.codex'/'hooks.json').is_file()), None); runpy.run_path(str(root/'.codex'/'hooks'/'codex_workflow_guards.py'), run_name='__main__') if root is not None else None\"",
-            "timeout": 10,
-            "statusMessage": "Проверка shell workflow"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

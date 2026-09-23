@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -38,6 +39,7 @@ from module.mcp_shared.versioning import (
 
 from .config import project_python
 from .contracts import (
+    McpAcceptanceDetails,
     McpDigest,
     McpImpactDetails,
     McpImpactPath,
@@ -1781,6 +1783,54 @@ class McpService:
             state=(
                 OperationState.READY if code is ResultCode.OK else OperationState.FAILED
             ),
+            message=message,
+            details=details,
+        )
+
+    def accept(self, repository_root: str | Path | None = None) -> ToolingResult[McpAcceptanceDetails, McpLifecycleDetails]:
+        """Проверить MCP через новый клиент stdio и вернуть типизированный результат."""
+
+        root = self._root(repository_root)
+        from dev_tools.mcp_acceptance import accept as accept_fresh_mcp_client
+
+        result = asyncio.run(accept_fresh_mcp_client(root))
+        state = str(result.state.value)
+        details = McpAcceptanceDetails(
+            acceptance_state=state,
+            reason_code=result.reason_code,
+            initialized=result.initialized,
+            protocol_version=result.protocol_version,
+            server_name=result.server_name,
+            server_version=result.server_version,
+            source_revision=result.source_revision,
+            tool_count=result.tool_count,
+            tool_catalog_sha256=result.tool_catalog_sha256,
+            capability_catalog_sha256=result.capability_catalog_sha256,
+            contract_revision=result.contract_revision,
+            called_tools=result.called_tools,
+            diagnostics=result.diagnostics,
+        )
+        if state == "READY":
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="Новая клиентская сессия MCP подтвердила каталог инструментов, контракт и запросы только для чтения.",
+                details=details,
+            )
+        if state == "INCOMPATIBLE":
+            code = ResultCode.MCP_PLUGIN_RUNTIME_INCOMPATIBLE
+            message = "Новая клиентская сессия MCP обнаружила несовместимость контракта или каталога инструментов."
+        elif state == "UNAVAILABLE":
+            code = ResultCode.MCP_RUNTIME_UNAVAILABLE
+            message = "Новая клиентская сессия MCP недоступна; проверка не подтверждена."
+        else:
+            code = ResultCode.TOOLING_VERIFICATION_UNKNOWN
+            message = "Не удалось определить результат новой клиентской сессии MCP."
+        return ToolingResult(
+            ok=False,
+            code=code,
+            state=OperationState.FAILED,
             message=message,
             details=details,
         )

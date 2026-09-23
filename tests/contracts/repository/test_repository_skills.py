@@ -114,11 +114,11 @@ def test_development_description_has_positive_and_negative_routing() -> None:
         "ci/тест",
         "upstream",
         "pr",
-        "merge",
-        "cleanup",
+        "слияни",
+        "очистк",
     ):
         assert trigger in description
-    for boundary in ("read-only", "объяснен", "без изменения"):
+    for boundary in ("объяснен", "без изменения", "файлов"):
         assert boundary in description
 
 
@@ -148,10 +148,10 @@ def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
     ):
         assert required in review_content
     for required in (
-        "coderabbit review checkpoint",
-        "явно делегируй",
-        "sibling skill `azurpilot-coderabbit-review`",
-        "provider rate limit",
+        "проверку coderabbit запускай только по явному запросу пользователя",
+        "явно передай её соседнему навыку",
+        "`azurpilot-coderabbit-review`",
+        "ограничения частоты, повторов и разбора результатов",
     ):
         assert required in development_content
 
@@ -264,7 +264,7 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
     reference_flat = " ".join(reference.lower().split())
 
     assert "references/cross-thread-task-delegation.md" in development
-    assert "fresh mcp client/process" in development.lower()
+    assert "отдельный процесс с новым клиентом mcp" in development.lower()
     for required in (
         "source_reconciled",
         "runtime_ready=true",
@@ -360,15 +360,19 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
         assert targets
         for target in targets:
             assert (document_path.parent / target).is_file()
-        assert "cross-thread continuation" in content
+        assert (
+            "cross-thread continuation" in content
+            or "продолжения между задачами" in content
+        )
         assert (
             "fresh independent" in content
             or "independent codex" in content
             or "independent task/thread" in content
-            or "независимая codex" in content
-            or ("независим" in content and "task/thread" in content)
-            or "единый контракт cross-thread" in content
-        )
+                or "независимая codex" in content
+                or ("независим" in content and "task/thread" in content)
+                or "единый контракт cross-thread" in content
+                or "продолжения между задачами" in content
+            )
 
 
 def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -> None:
@@ -401,7 +405,8 @@ def test_mcp_lifecycle_contract_uses_typed_runtime_reconcile() -> None:
         / "SKILL.md": (
             "azur mcp reconcile --source --bump auto",
             "runtime_ready=true",
-            "recorded exact",
+            "ранее записанные точные идентификаторы",
+            "неизменившаяся метка",
             "STOPPED/no-conflict",
             "session_state=not_observable",
         ),
@@ -427,7 +432,8 @@ def test_mcp_lifecycle_contract_uses_typed_runtime_reconcile() -> None:
         _REPOSITORY_ROOT / ".codex" / "context" / "11-PYTHON-TOOLING.md": (
             "azur mcp reconcile --source --bump auto",
             "runtime_ready=true",
-            "recorded-identity cleanup",
+            "сохранённые точные идентификаторы",
+            "неизменившаяся метка",
             "STOPPED/no-conflict",
             "session_state=not_observable",
         ),
@@ -587,10 +593,10 @@ def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
     workflow_flat = " ".join(workflow.split())
     for required in (
         "после исчерпания бюджета retry для обязательного product/security gate merge блокируется",
-        "если coderabbit skill вернул `rate_limited`",
-        "git lifecycle может достичь `ready_for_chatgpt_review`",
-        "не отменяет required ci, security/secret scan, mandatory product/live acceptance или blocking review threads",
-        "правила ожидания, retry и triage провайдера принадлежат coderabbit skill/reference",
+        "если навык coderabbit вернул `rate_limited`",
+        "жизненный цикл git может достичь `ready_for_chatgpt_review`",
+        "это не отменяет обязательные ci, проверку безопасности и секретов, обязательную приёмку продукта или блокирующие обсуждения",
+        "правила ожидания, повторного запуска и разбора результатов сервиса описаны в соответствующем навыке и справочнике",
     ):
         assert required in workflow_flat
 

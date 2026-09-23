@@ -115,6 +115,11 @@ class _FakeManager:
         self.calls.append(("start_smoke", spec.name))
         return _result("DEV_SMOKE_STARTED")
 
+    def run_smoke(self, spec: object) -> DevResult:
+        assert isinstance(spec, SmokeSpec)
+        self.calls.append(("run_smoke", spec.name))
+        return _result("DEV_SMOKE_PASS")
+
     def get_smoke(self, smoke_id: str) -> DevResult:
         self.calls.append(("get_smoke", smoke_id))
         return _result("DEV_SMOKE_RESULT_READY")
@@ -529,7 +534,7 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
         ("get_screenshot", None),
         ("list_smoke_capabilities", None),
         ("validate_smoke", "adapter-smoke"),
-        ("start_smoke", "adapter-smoke"),
+        ("run_smoke", "adapter-smoke"),
         ("get_smoke", "smoke-1"),
         ("cancel_smoke", "smoke-1"),
         ("get_smoke_evaluation", "smoke-1"),
@@ -694,36 +699,6 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
     assert "unexpected" not in result
 
 
-def test_serializer_preserves_commission_recovery_precondition_projection() -> None:
-    result = serialize_dev_result(
-        {
-            "ok": False,
-            "code": "DEV_SMOKE_PRECONDITION_FAILED",
-            "message": "SmokeRun заблокирован",
-            "state": "finished",
-            "details": {
-                "preconditions": {
-                    "commission_recovery": {
-                        "profile": "ap",
-                        "status": "unknown",
-                        "cache_status": "READY",
-                        "remaining": None,
-                        "error": None,
-                    }
-                }
-            },
-        }
-    )
-
-    assert result["details"]["preconditions"]["commission_recovery"] == {
-        "profile": "ap",
-        "status": "unknown",
-        "cache_status": "READY",
-        "remaining": None,
-        "error": None,
-    }
-
-
 def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
     result = serialize_dev_result(
         {
@@ -737,6 +712,10 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
                     "schema_version": 2,
                     "smoke_id": "smoke-1",
                     "outcome": "PASS",
+                    "product_execution_outcome": "RETURNED",
+                    "evidence_completeness": "COMPLETE",
+                    "harness_runtime_outcome": "PASS",
+                    "operator_intervention_outcome": "NONE",
                 },
             },
         }
@@ -747,6 +726,10 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
         "schema_version": 2,
         "smoke_id": "smoke-1",
         "outcome": "PASS",
+        "product_execution_outcome": "RETURNED",
+        "evidence_completeness": "COMPLETE",
+        "harness_runtime_outcome": "PASS",
+        "operator_intervention_outcome": "NONE",
     }
 
 

@@ -27,7 +27,6 @@ from enum import StrEnum
 from scipy import signal
 
 from module.application.commission_recovery import (
-    ACTION_POINT_GAIN_PER_PURCHASE,
     MAX_WEEKLY_ACTION_POINT_PURCHASES,
     CommissionRecoveryStore,
 )
@@ -40,6 +39,7 @@ from module.commission.preset import DICT_FILTER_PRESET, SHORTEST_FILTER
 from module.commission.project import COMMISSION_FILTER, Commission
 from module.config.config_generated import GeneratedConfig
 from module.config.time_source import now as current_time
+from module.os.action_point_policy import ACTION_POINT_GAIN_PER_PURCHASE
 from module.config.utils import (
     get_server_last_update,
     get_server_next_update,
@@ -934,24 +934,6 @@ class RewardCommission(UI, InfoHandler):
         def valid_ap(value: object) -> bool:
             return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
-        def read_canonical():
-            try:
-                state = store.read(profile)
-            except Exception as error:  # noqa: BLE001 — кэш-граница завершается fail-closed
-                logger.warning(
-                    '[Комиссия — нефть] Каноническое состояние AP недоступно (%s)',
-                    type(error).__name__,
-                )
-                return None
-            if not valid_state(state):
-                logger.warning(
-                    '[Комиссия — нефть] Read-back состояния AP не подтверждён: статус=%s, остаток=%s',
-                    getattr(state, 'status', 'unknown'),
-                    getattr(state, 'remaining', None),
-                )
-                return None
-            return state
-
         def close_navigation() -> bool:
             nonlocal ap_opened, os_opened
             cleanup_ok = True
@@ -995,50 +977,6 @@ class RewardCommission(UI, InfoHandler):
                     getattr(invalidated, 'status', 'unknown'),
                 )
             return blocked(CommissionRecoveryOutcome.AMBIGUOUS_MUTATION)
-
-        def reconcile_state(state: object):
-            nonlocal ap_handler, ap_opened, os_opened
-            ap_handler = ActionPointHandler(self.config, self.device)
-            self.ui_ensure(page_os)
-            os_opened = True
-            if not ap_handler.action_point_enter(timeout=15):
-                logger.warning('[Комиссия — нефть] Не удалось безопасно открыть окно AP')
-                return None
-            ap_opened = True
-            if not ap_handler.action_point_set_button(0):
-                logger.warning('[Комиссия — нефть] Не удалось подтвердить выбор Oil в окне AP')
-                return None
-            observed = ap_handler.action_point_get_buy_remain_optional(timeout=1)
-            if (
-                not isinstance(observed, int)
-                or isinstance(observed, bool)
-                or not 0 <= observed <= MAX_WEEKLY_ACTION_POINT_PURCHASES
-            ):
-                logger.warning('[Комиссия — нефть] Свежий OCR остатка AP неизвестен')
-                return None
-            logger.info(
-                '[Комиссия — нефть] Свежий OCR подтвердил недельный остаток AP: %s/%s',
-                observed,
-                MAX_WEEKLY_ACTION_POINT_PURCHASES,
-            )
-            if getattr(state, 'status', None) != 'unknown' and observed == getattr(state, 'remaining', None):
-                return state
-            stored = store.record_observation(
-                profile,
-                observed,
-                source='game_ocr',
-                last_result='ap_unavailable' if observed == 0 else None,
-            )
-            if not valid_state(stored) or stored.remaining != observed:
-                logger.warning(
-                    '[Комиссия — нефть] OCR-наблюдение AP не стало каноническим state: статус=%s',
-                    getattr(stored, 'status', 'unknown'),
-                )
-                return None
-            canonical = read_canonical()
-            if canonical is None or canonical.remaining != observed:
-                return None
-            return canonical
 
         def run_dorm(state: object) -> CommissionRecoveryOutcome:
             if not valid_state(state) or state.remaining != 0:
@@ -1097,24 +1035,31 @@ class RewardCommission(UI, InfoHandler):
             elif state_status != 'unknown':
                 return blocked()
 
-            state = reconcile_state(state)
-            if state is None or not valid_state(state):
-                return blocked()
-            if state.remaining == 0:
-                return run_dorm(state)
             if getattr(self, '_commission_emergency_purchase_attempted', False):
                 return blocked()
+
+            expected_remaining = state.remaining if valid_state(state) else None
+            ap_handler = ActionPointHandler(self.config, self.device)
+            self.ui_ensure(page_os)
+            os_opened = True
+            if not ap_handler.action_point_enter(timeout=15):
+                logger.warning('[Комиссия — нефть] Не удалось безопасно открыть окно AP')
+                return blocked()
+            ap_opened = True
 
             self._commission_emergency_purchase_attempted = True
             purchase_started = True
             purchase = ap_handler.action_point_buy_emergency_once(
-                remaining=state.remaining,
+                expected_remaining=expected_remaining,
             )
             if (
                 purchase.status is EmergencyActionPointPurchaseStatus.PURCHASED
                 and purchase.click_count == 1
-                and purchase.remaining_before == state.remaining
-                and purchase.remaining_after == state.remaining - 1
+                and isinstance(purchase.remaining_before, int)
+                and not isinstance(purchase.remaining_before, bool)
+                and 1 <= purchase.remaining_before <= MAX_WEEKLY_ACTION_POINT_PURCHASES
+                and (expected_remaining is None or purchase.remaining_before == expected_remaining)
+                and purchase.remaining_after == purchase.remaining_before - 1
                 and valid_ap(purchase.ap_before)
                 and valid_ap(purchase.ap_after)
                 and valid_ap(purchase.ap_gain)
@@ -1125,24 +1070,41 @@ class RewardCommission(UI, InfoHandler):
                 and valid_ap(purchase.oil_after)
                 and purchase.oil_after == purchase.oil_before - purchase.oil_cost
             ):
+                from module.dev_runtime.hooks import record_product_evidence
+
+                record_product_evidence(
+                    self.config.config_name,
+                    "commission_ap_purchase",
+                    {
+                        "status": purchase.status.value,
+                        "click_count": purchase.click_count,
+                        "remaining_before": purchase.remaining_before,
+                        "remaining_after": purchase.remaining_after,
+                        "ap_before": purchase.ap_before,
+                        "ap_after": purchase.ap_after,
+                        "ap_gain": purchase.ap_gain,
+                        "oil_before": purchase.oil_before,
+                        "oil_after": purchase.oil_after,
+                        "oil_cost": purchase.oil_cost,
+                    },
+                    task="Commission",
+                )
                 stored = store.record_observation(
                     profile,
                     purchase.remaining_after,
                     source='emergency_ap_purchase',
                     last_result='ap_purchase',
                 )
-                canonical = read_canonical()
                 if (
                     valid_state(stored)
-                    and canonical is not None
-                    and canonical.remaining == purchase.remaining_after
-                    and canonical.source == 'emergency_ap_purchase'
-                    and canonical.last_result == 'ap_purchase'
+                    and stored.remaining == purchase.remaining_after
+                    and stored.source == 'emergency_ap_purchase'
+                    and stored.last_result == 'ap_purchase'
                 ):
                     logger.info(
-                        '[Комиссия — нефть] Покупка AP подтверждена canonical read-back: weekly %s -> %s, AP %s -> %s (+%s), Oil %s -> %s',
-                        state.remaining,
-                        canonical.remaining,
+                        '[Комиссия — нефть] Покупка AP подтверждена typed result: weekly %s -> %s, AP %s -> %s (+%s), Oil %s -> %s',
+                        purchase.remaining_before,
+                        stored.remaining,
                         purchase.ap_before,
                         purchase.ap_after,
                         purchase.ap_gain,
@@ -1157,8 +1119,28 @@ class RewardCommission(UI, InfoHandler):
                 getattr(purchase.status, 'value', purchase.status),
                 getattr(purchase, 'click_count', 0),
             )
-            if getattr(purchase, 'click_count', 0) > 0:
+            if (
+                getattr(purchase, 'click_count', 0) > 0
+                or purchase.status is EmergencyActionPointPurchaseStatus.PURCHASED
+            ):
                 return invalidate_after_mutation()
+
+            observed_remaining = purchase.remaining_before
+            if (
+                isinstance(observed_remaining, int)
+                and not isinstance(observed_remaining, bool)
+                and 0 <= observed_remaining <= MAX_WEEKLY_ACTION_POINT_PURCHASES
+            ):
+                observed = store.record_observation(
+                    profile,
+                    observed_remaining,
+                    source='game_ocr',
+                    last_result='ap_unavailable' if observed_remaining == 0 else None,
+                )
+                if not valid_state(observed) or observed.remaining != observed_remaining:
+                    return blocked()
+                if observed_remaining == 0:
+                    return run_dorm(observed)
             return blocked()
         except Exception as error:  # noqa: BLE001 — восстановление ограничено и завершается fail-closed
             logger.warning(

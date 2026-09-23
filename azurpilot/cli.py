@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from .integrations import IntegrationService
 from .integrations.coderabbit import CodeRabbitProgress
 from .integrations.contracts import IntegrationName
+from .tooling.application_state import ApplicationStateService
 from .tooling.bootstrap import BuildService
 from .tooling.contracts import (
     AnalysisScope,
@@ -65,6 +66,7 @@ class ServiceContainer:
     docker: DockerDeploymentService
     pull_request: PullRequestService
     mcp: McpService
+    application_state: ApplicationStateService
     integrations: IntegrationService
 
     @classmethod
@@ -81,6 +83,7 @@ class ServiceContainer:
             docker=DockerDeploymentService(),
             pull_request=PullRequestService(),
             mcp=mcp,
+            application_state=ApplicationStateService(),
             integrations=integrations,
         )
 
@@ -353,12 +356,13 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_subparsers = mcp.add_subparsers(
         dest="mcp_command", required=True, metavar="ACTION"
     )
-    for action in ("status", "versions", "start", "stop", "restart"):
+    for action in ("status", "versions", "accept", "start", "stop", "restart"):
         command = mcp_subparsers.add_parser(
             action,
             help={
                 "status": "прочитать source, runtime, plugin и session state",
                 "versions": "прочитать canonical MCP bundle versions и hashes",
+                "accept": "проверить MCP новой независимой read-only client session",
                 "start": "запустить owned loopback MCP supervisor",
                 "stop": "остановить owned loopback MCP supervisor",
                 "restart": "перезапустить owned loopback MCP supervisor",
@@ -385,6 +389,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="явная политика server SemVer для доказанного contract change",
     )
+
+    app = subparsers.add_parser(
+        "app", help="запросить типизированное состояние приложения без запуска WebUI"
+    )
+    app_subparsers = app.add_subparsers(
+        dest="app_command", required=True, metavar="ACTION"
+    )
+    app_state = app_subparsers.add_parser(
+        "state", help="прочитать зарегистрированное состояние приложения"
+    )
+    _add_common_options(app_state, suppress_defaults=True)
+    app_state.add_argument("state_id", metavar="STATE_ID")
+    app_state.add_argument("--profile", required=True, metavar="PROFILE")
 
     integrations = subparsers.add_parser(
         "integrations", help="проверить прямые внешние интеграции"
@@ -1128,6 +1145,8 @@ def _dispatch(
             return services.mcp.status(root)
         if args.mcp_command == "versions":
             return services.mcp.versions(root)
+        if args.mcp_command == "accept":
+            return services.mcp.accept(root)
         if args.mcp_command == "reconcile":
             source = bool(getattr(args, "source", False))
             bump = getattr(args, "bump", None)
@@ -1146,6 +1165,8 @@ def _dispatch(
             return services.mcp.stop(root)
         if args.mcp_command == "restart":
             return services.mcp.restart(root)
+    if command == "app" and args.app_command == "state":
+        return services.application_state.read(args.state_id, args.profile)
     if command == "integrations":
         target = args.integration_target
         if target == "status":

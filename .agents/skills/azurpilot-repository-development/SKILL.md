@@ -1,100 +1,71 @@
 ---
 name: azurpilot-repository-development
-description: "Разработка, исправление ошибок, рефакторинг, инфраструктура, CI/тесты, документация, адаптация upstream, подготовка или продолжение PR и явно разрешённый merge/cleanup в AzurPilot. Используй для изменения репозитория; не применяй для read-only объяснений и других задач без изменения файлов."
+description: "Разработка, исправление ошибок и рефакторинг AzurPilot: инфраструктура, CI/тесты, адаптация upstream, подготовка PR, слияние и очистка. Не используй для объяснений без изменения файлов."
 ---
 
 # Разработка AzurPilot
 
-Этот skill — маршрутизатор инженерной задачи. Он не является вторым владельцем
-Git lifecycle или общей матрицы проверок.
+Этот навык направляет к владельцам правил; он не дублирует жизненный цикл Git и
+матрицу проверок.
 
-## Что читать
+## Контекст
 
-1. Всегда: `AGENTS.md` и `.codex/context/INDEX.md`.
-2. Только относящиеся к фактическому diff доменные документы из INDEX.
-3. При Git/ветке/PR/публикации/merge/rollback/cleanup:
+1. Прочитай корневой `AGENTS.md` и `.codex/context/INDEX.md`.
+2. Открой документы, владельцы которых соответствуют фактическому diff.
+3. Для веток, публикации, PR и слияния используй только
    `.codex/context/GIT-WORKFLOW.md`.
-4. Перед выбором и итоговой оценкой проверок:
-   `.codex/context/08-VERIFICATION.md`.
-5. Для GUI/WebUI/device/game acceptance при необходимости открой
+4. Проверки выбирай только по `.codex/context/08-VERIFICATION.md`.
+5. Для графического интерфейса, устройств и проверок в работающей среде открывай только при необходимости
    [browser-and-live-testing.md](references/browser-and-live-testing.md).
-
-Не загружай Git workflow, verification или live-testing reference, если
-фактическая задача их не затрагивает.
 
 ## Рабочий цикл
 
-1. Восстанови фактическую область задачи и текущее состояние затронутых файлов.
-   Если задача продолжает существующий PR/ветку, сначала сравни live-state с
-   предыдущей подтверждённой точкой и не повторяй уже выполненную работу.
-2. Проследи владельца поведения, call sites, ближайшие тесты, конфигурацию и
-   generated/source границы. Не вводи данные конкретной задачи в production,
-   CI или постоянные tests.
-3. Для effective candidate diff относительно exact base выполни read-only
-   `azur mcp impact --base <exact-base-sha>`. Если результат `REQUIRED`,
-   выполни штатный `azur mcp reconcile --source --bump auto`, затем повтори
-   current-tree integrity и base-to-head compatibility checks. Это доказывает
-   только `source_reconciled`; оно не доказывает `runtime_ready`. Если текущая
-   verification/acceptance требует live MCP, после source reconciliation
-   буквально вызови через PATH текущей shell `azur mcp status`. При
-   `runtime_state=stale` или `runtime_state=stopped` выполни единственный
-   канонический runtime repair path — `azur mcp reconcile` без `--source`,
-   затем снова вызови `azur mcp status` и требуй `runtime_ready=true`. До этой
-   typed попытки stale/stopped является recoverable precondition, а не
-   конечным blocker-ом. `McpService.reconcile` использует typed supervisor
-   result: валидный same-repository stale marker может быть bounded recovered
-   только через recorded exact identities, unchanged marker и STOPPED/no-conflict
-   postcondition, затем запускает canonical owned services. При unknown/foreign
-   ownership, invalid marker/liveness, port conflict, failure stop/start или
-   mismatch postcondition обязательный live gate остаётся typed blocked/failed;
-   его нельзя выдать за завершённый. Не
-   запускай `module.*_mcp`, внутренние supervisor scripts или Python module
-   entrypoints напрямую. Любое новое изменение затронутого source set после
-   reconciliation делает прежний результат stale и требует повторной
-   reconciliation. `runtime_ready=true` вместе с
-   `session_state=not_observable` не является runtime failure: это trigger для
-   отдельного fresh MCP client/process через
-   `azurpilot.integrations.mcp_client` и отдельной проверки фактически
-   вызываемой MCP surface. `effective_codex_registration` проверяется только
-   если изменение затрагивает Codex/plugin registration, client-visible schema
-   или routing; по умолчанию она не является обязательной частью MCP impact.
-   `azur mcp status` сам по себе acceptance не закрывает.
-   Для затронутой Codex/plugin registration следуй [каноническому контракту
-   cross-thread continuation](references/cross-thread-task-delegation.md) как
-   отдельной integration check. Wrong-HEAD, недоступный `create_thread` или
-   другой Codex platform failure не превращают успешный MCP client gate в
-   blocker, если Codex surface не затронута.
-4. Перед CodeRabbit review создай или привяжи opaque logical task identity и
-   передай её в canonical review flow через `--task-id`; новый head той же
-   task продолжает её cycle, а другая task получает новый cycle.
-5. Реализуй минимальный связный diff. Обнови относящиеся к изменению тесты и
-   документацию. Во всех затронутых файлах с текстом для человека проверь русский язык.
-   Project-owned operator action с доступным в PATH `azur` запускай только как
-   буквальную команду `azur ...`. Запрещены `uv run ... azur`, `python -m
-   azurpilot`, `.venv/.../azur`, абсолютный путь к `azur.exe` и shell wrapper;
-   `uv` разрешён для dependency/bootstrap/test/build задач, но не как launcher
-   operator command. Если `azur` отсутствует, не используй fallback.
-6. Для репозиторных evidence при необходимости используй существующие прямые
-   адаптеры `azurpilot.integrations`. Не меняй user config, OAuth/grants,
-   dashboards/alerts или game/runtime state только ради получения evidence.
-7. Проверки выбирай **только** по `08-VERIFICATION.md`. Этот skill не
-   поддерживает собственную копию списка обязательных gates.
-8. Если canonical workflow требует CodeRabbit review checkpoint, явно делегируй
-   sibling skill `azurpilot-coderabbit-review`. Такая внутренняя делегация не
-   требует повторного пользовательского CodeRabbit-запроса. Специфичные для
-   провайдера правила triage, provider rate limit и retry принадлежат этому
-   sibling skill.
-9. Все правила commit/push/draft PR, состояния перед финальным пользовательским
-   ревью, merge authorization, rollback и cleanup бери **только** из
-   `GIT-WORKFLOW.md`. Этот skill не переопределяет их.
-   Не создавай temporary/scratch/transport/helper remote ref, `codex/base-*`
-   branch или вспомогательную remote publication. Typed delivery/PR workflow
-   использует только реальную parent/feature branch; если local parent HEAD
-   отличается от parent remote HEAD, результат — typed precondition blocker,
-   пока parent не опубликован штатным lifecycle. Workaround ref запрещён.
+1. Подтверди репозиторий, текущую ветку, базовый SHA и пользовательские изменения.
+2. Найди владельца поведения, места вызова, контракт и ближайшие проверки.
+3. Внеси минимальное связное изменение и обнови только связанные тесты и документацию.
+4. Выполни точечные проверки, затем только интеграционные проверки, необходимые для фактического diff.
+5. Проверь итоговый diff и сообщи фактические результаты.
 
-## Завершение
+Используй штатный типизированный сервис или CLI вместо ручного повторения его работы.
+Если обычная операция владеет жизненным циклом, она сама выполняет запуск, ожидание,
+сбор подтверждений и очистку; дополнительная диагностика нужна после конкретной
+типизированной ошибки.
 
-Сообщай фактический статус и evidence из документа-владельца. Не объявляй тест,
-CI, secret scan, live acceptance или внешнее ревью выполненными без реального
-результата.
+## Штатные команды разработчика
+
+- Для оценки влияния изменений на MCP вызови `azur mcp impact --base <exact-base-sha>`. Только при
+  `REQUIRED` выполни `azur mcp reconcile --source --bump auto` (либо явно
+  указанный минимальный типизированный номер версии); когда нужна проверка через новый клиент, вызови
+  `azur mcp accept`.
+- Не создавай `FreshMcpClientPlan` и не запускай внутренние фрагменты кода на Python,
+  если доступна штатная команда `azur mcp accept`.
+- `source_reconciled` не означает готовность среды выполнения. Если она сообщает
+  `stale` или `stopped`, один запуск типизированной команды `azur mcp reconcile` без `--source` должен
+  подтвердить `runtime_ready=true`. Для восстановления устаревшего состояния в том же репозитории нужны
+  ранее записанные точные идентификаторы, неизменившаяся метка и состояние `STOPPED/no-conflict`; при неизвестном
+  или чужом владении операция должна завершиться отказом. `session_state=not_observable` само
+  по себе не означает ошибку среды выполнения.
+- Обязательная проверка `fresh_mcp_client_acceptance` запускает через `azur mcp accept` отдельный процесс с новым клиентом MCP. Фактическая регистрация Codex —
+  отдельная необязательная проверка, нужная только при изменении регистрации, схемы или маршрутизации;
+  в этом случае следуй [cross-thread-task-delegation.md](references/cross-thread-task-delegation.md).
+- Для обычного Smoke используй `dev_start_smoke`: ограниченный сценарий
+  синхронно выполняет запуск, фиксирует объявленные контрольные точки, очищает
+  ресурсы и возвращает конечный типизированный результат. Долгий или
+  интерактивный сценарий сразу переходит в отдельный асинхронный режим и
+  возвращает идентификатор запуска; `dev_get_smoke` и ручной снимок оставлены
+  для диагностики.
+- Не запрашивай заранее состояние среды выполнения, игры, WebUI или хранилища,
+  если им владеет сама операция. У каждого факта один достоверный источник.
+
+Команды управления проектом запускай только буквальной командой `azur ...` через
+PATH текущей оболочки. `uv` используй для установки зависимостей, тестов и сборки.
+
+## Проверка и публикация
+
+Проверку CodeRabbit запускай только по явному запросу пользователя или обязательному правилу проекта;
+без запроса состояние остаётся `NOT_RUN`. Если проверка требуется, явно передай её соседнему навыку
+`azurpilot-coderabbit-review`. Правила запуска, ограничения частоты, повторов и разбора результатов
+принадлежат этому навыку. Состояние `NOT_RUN` без запроса не является ограничением.
+Для PR, статуса Draft, проверок точного коммита, разрешения на слияние и очистки следуй
+`GIT-WORKFLOW.md`; не переводи PR в Ready и не выполняй слияние без отдельного
+актуального разрешения пользователя.

@@ -852,6 +852,9 @@ class DevSessionManager(DevDiagnosticsMixin):
     def start_smoke(self, spec: object) -> DevResult:
         return self._get_smoke_manager().start_smoke(spec)
 
+    def run_smoke(self, spec: object) -> DevResult:
+        return self._get_smoke_manager().run_smoke(spec)
+
     def get_smoke(self, smoke_id: str) -> DevResult:
         return self._get_smoke_manager().get_smoke(smoke_id)
 
