@@ -14,6 +14,7 @@ from azurpilot.integrations.contracts import IntegrationState
 from azurpilot.tooling.contracts import (
     CodeRabbitConflictKind,
     CodeRabbitDeferralReason,
+    CodeRabbitDeferredBacklog,
     CodeRabbitFinding,
     CodeRabbitFindingTriage,
     CodeRabbitTriageEntry,
@@ -254,6 +255,61 @@ def test_deferred_backlog_upsert_deduplicates_and_separates_claims(
     assert third.findings[0].fingerprint != third.findings[1].fingerprint
     assert "super-secret" not in third.model_dump_json()
     assert "another-secret" not in third.model_dump_json()
+
+
+def test_deferred_backlog_prunes_oldest_resolved_entries_before_conflict(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    root = tmp_path / "checkout"
+    root.mkdir()
+    initial_findings = tuple(_finding(index) for index in range(1, 129))
+    adapter = _save_state(monkeypatch, tmp_path, root, initial_findings)
+    state = adapter._load_review_state(root)
+    backlog = adapter._upsert_deferred_backlog(
+        root,
+        state,
+        tuple(
+            finding.model_copy(
+                update={
+                    "disposition": FindingDisposition.DEFERRED,
+                    "triage": _triage(FindingDisposition.DEFERRED, index=finding.line or 1),
+                }
+            )
+            for finding in initial_findings
+        ),
+    )
+    resolved = backlog.findings[0].model_copy(
+        update={
+            "status": "resolved",
+            "resolved_at": "2026-09-23T00:00:00+00:00",
+            "fix_head": HEAD_SHA,
+            "resolution_summary": "Решение проверено на clean exact HEAD.",
+        }
+    )
+    resolved_id = resolved.backlog_id
+    adapter._save_deferred_backlog(
+        root,
+        CodeRabbitDeferredBacklog(
+            repository_identity=backlog.repository_identity,
+            updated_at=backlog.updated_at,
+            findings=tuple(
+                resolved if item.backlog_id == resolved_id else item
+                for item in backlog.findings
+            ),
+        ),
+    )
+
+    new_finding = _finding(129).model_copy(
+        update={
+            "disposition": FindingDisposition.DEFERRED,
+            "triage": _triage(FindingDisposition.DEFERRED, index=129),
+        }
+    )
+    updated = adapter._upsert_deferred_backlog(root, state, (new_finding,))
+
+    assert len(updated.findings) == 128
+    assert resolved_id not in {item.backlog_id for item in updated.findings}
+    assert any(item.line == 129 for item in updated.findings)
 
 
 def test_deferred_plus_confirmed_keeps_fix_gate_and_backlog(

@@ -314,8 +314,14 @@ class _ControlBackend:
 
 
 class _SmokeGameBridge:
-    def __init__(self, execution_order: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        execution_order: list[str] | None = None,
+        *,
+        intermediate_status: GameObservationStatus = GameObservationStatus.KNOWN,
+    ) -> None:
         self.execution_order = execution_order
+        self.intermediate_status = intermediate_status
 
     def validate_request(self, capability_id: object, parameters: object = None) -> dict[str, object]:
         if capability_id != "synthetic" or parameters not in (None, {}):
@@ -337,9 +343,14 @@ class _SmokeGameBridge:
             raise ValueError("unexpected game observation request")
         if self.execution_order is not None:
             self.execution_order.append(f"capture_{checkpoint_id}")
+        status = (
+            self.intermediate_status
+            if checkpoint_id == "commission_recovery"
+            else GameObservationStatus.KNOWN
+        )
         return GameObservationSnapshot.create(
             GameObservationCapture(
-                status=GameObservationStatus.KNOWN,
+                status=status,
                 source="tests.synthetic",
                 provenance={"capability_id": capability_id, "owner": "tests"},
                 payload={"checkpoint": checkpoint_id},
@@ -1059,13 +1070,17 @@ def test_task_started_does_not_close_running_window_with_pending_checkpoint(
             )
         )
 
-    _wait_until(assertion_passed)
-    assert runtime.stop_calls == 0
-    assert manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
+    try:
+        _wait_until(assertion_passed)
+        assert runtime.stop_calls == 0
+        assert manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
 
-    captured = manager.capture_game_checkpoint(smoke_id, "commission_recovery")
-    assert captured.ok is True, captured.as_dict()
-    supervisor.join(timeout=2)
+        captured = manager.capture_game_checkpoint(smoke_id, "commission_recovery")
+        assert captured.ok is True, captured.as_dict()
+    finally:
+        if supervisor.is_alive():
+            manager.cancel_smoke(smoke_id)
+        supervisor.join(timeout=2)
     assert not supervisor.is_alive()
 
 
@@ -1087,16 +1102,20 @@ def test_captured_intermediate_checkpoint_unblocks_normal_completion(
     supervisor = threading.Thread(target=manager._run_supervisor, args=(smoke_id,))
     supervisor.start()
 
-    _wait_until(
-        lambda: manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
-        and any(
-            item.assertion_id == "started"
-            and item.status is smoke.SmokeAssertionStatus.PASS
-            for item in manager.store.load(smoke_id).assertions
+    try:
+        _wait_until(
+            lambda: manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
+            and any(
+                item.assertion_id == "started"
+                and item.status is smoke.SmokeAssertionStatus.PASS
+                for item in manager.store.load(smoke_id).assertions
+            )
         )
-    )
-    assert manager.capture_game_checkpoint(smoke_id, "commission_recovery").ok is True
-    supervisor.join(timeout=2)
+        assert manager.capture_game_checkpoint(smoke_id, "commission_recovery").ok is True
+    finally:
+        if supervisor.is_alive():
+            manager.cancel_smoke(smoke_id)
+        supervisor.join(timeout=2)
     assert not supervisor.is_alive()
 
     result = manager.store.load_result(smoke_id)
@@ -1106,6 +1125,53 @@ def test_captured_intermediate_checkpoint_unblocks_normal_completion(
     assert order.index("task_started") < order.index("capture_commission_recovery")
     assert order.index("capture_commission_recovery") < order.index("capture_final")
     assert order.index("capture_final") < order.index("stop")
+    assert runtime.stop_calls == 1
+
+
+def test_captured_unknown_intermediate_checkpoint_stops_wait_but_fails_evidence(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    runtime = _Runtime()
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(
+            runtime.execution_order,
+            intermediate_status=GameObservationStatus.UNKNOWN,
+        ),
+        now=lambda: _NOW,
+        poll_seconds=0.01,
+    )
+    started = manager.start_smoke(_checkpoint_spec())
+    smoke_id = started.details["smoke_id"]
+    supervisor = threading.Thread(target=manager._run_supervisor, args=(smoke_id,))
+    supervisor.start()
+
+    try:
+        _wait_until(
+            lambda: manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
+            and any(
+                item.assertion_id == "started"
+                and item.status is smoke.SmokeAssertionStatus.PASS
+                for item in manager.store.load(smoke_id).assertions
+            )
+        )
+        captured = manager.capture_game_checkpoint(smoke_id, "commission_recovery")
+        assert captured.ok is False
+        assert captured.code == "DEV_GAME_OBSERVATION_UNKNOWN"
+    finally:
+        if supervisor.is_alive():
+            manager.cancel_smoke(smoke_id)
+        supervisor.join(timeout=2)
+    assert not supervisor.is_alive()
+
+    result = manager.store.load_result(smoke_id)
+    assert result is not None
+    assert result.outcome is smoke.SmokeOutcome.EVIDENCE_INCOMPLETE
+    assert result.primary_failure is not None
+    assert result.primary_failure.code == "DEV_SMOKE_GAME_EVIDENCE_INCOMPLETE"
     assert runtime.stop_calls == 1
 
 
@@ -1164,17 +1230,21 @@ def test_cancel_remains_available_while_intermediate_checkpoint_is_pending(
     supervisor = threading.Thread(target=manager._run_supervisor, args=(smoke_id,))
     supervisor.start()
 
-    _wait_until(
-        lambda: manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
-        and any(
-            item.assertion_id == "started"
-            and item.status is smoke.SmokeAssertionStatus.PASS
-            for item in manager.store.load(smoke_id).assertions
+    try:
+        _wait_until(
+            lambda: manager.store.load(smoke_id).state is smoke.SmokeState.RUNNING
+            and any(
+                item.assertion_id == "started"
+                and item.status is smoke.SmokeAssertionStatus.PASS
+                for item in manager.store.load(smoke_id).assertions
+            )
         )
-    )
-    cancel = manager.cancel_smoke(smoke_id)
-    assert cancel.ok is True
-    supervisor.join(timeout=2)
+        cancel = manager.cancel_smoke(smoke_id)
+        assert cancel.ok is True
+    finally:
+        if supervisor.is_alive():
+            manager.cancel_smoke(smoke_id)
+        supervisor.join(timeout=2)
     assert not supervisor.is_alive()
 
     result = manager.store.load_result(smoke_id)

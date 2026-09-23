@@ -24,6 +24,7 @@ def test_legacy_adapter_uses_one_fresh_frame_and_explicit_authority(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[object, object, dict[str, object]]] = []
+    appear_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
     class CampaignStatus:
         def __init__(self, config: object, device: object) -> None:
@@ -33,6 +34,10 @@ def test_legacy_adapter_uses_one_fresh_frame_and_explicit_authority(
         def get_oil_snapshot(self, **kwargs: object) -> dict[str, int]:
             calls.append((self.config, self.device, kwargs))
             return {"Value": 25000, "Limit": 17050}
+
+        def appear(self, *_args: object, **_kwargs: object) -> bool:
+            appear_calls.append((_args, _kwargs))
+            return True
 
     monkeypatch.setattr(
         "module.campaign.campaign_status.CampaignStatus",
@@ -65,6 +70,8 @@ def test_legacy_adapter_uses_one_fresh_frame_and_explicit_authority(
     assert device.screenshot_calls == 1
     assert device.release_calls == 1
     assert len(calls) == 1
+    assert len(appear_calls) == 1
+    assert appear_calls[0][1] == {"offset": (10, 2)}
     assert calls[0][0] is config
     assert calls[0][1] is device
     assert calls[0][2] == {

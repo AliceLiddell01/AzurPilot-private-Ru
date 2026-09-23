@@ -73,7 +73,7 @@ _MACHINE_PATTERNS = (
     re.compile(r"(?i)\$home[\\/][a-z0-9._-]+"),
 )
 _OPERATOR_LAUNCHER_TOKENS = re.compile(
-    r"(?i)\b(?:azurpilot|python\s+-m)\b"
+    r"(?i)(?:\bazur(?:\.exe)?(?![-\w])|\bpython(?:3(?:\.\d+)?)?(?:\.exe)?\s+-m\s+azurpilot(?![-\w]))"
 )
 _UV_RUN_TOKEN = re.compile(r"(?i)\buv\s+run\b")
 _OPERATOR_LAUNCHER_NEGATION = re.compile(
@@ -91,14 +91,15 @@ _CODERABBIT_RETIRED_MARKERS = (
 def _contains_prohibited_operator_launcher(text: str) -> bool:
     """Найти положительное описание запрещённого uv/module launcher."""
 
-    normalized = re.sub(r"\s+", " ", text.casefold())
-    for match in _UV_RUN_TOKEN.finditer(normalized):
-        window = normalized[max(0, match.start() - 120) : match.end() + 240]
-        if not _OPERATOR_LAUNCHER_TOKENS.search(window):
-            continue
-        if _OPERATOR_LAUNCHER_NEGATION.search(window):
-            continue
-        return True
+    for raw_line in text.splitlines():
+        normalized = re.sub(r"\s+", " ", raw_line.casefold())
+        for match in _UV_RUN_TOKEN.finditer(normalized):
+            suffix = normalized[match.end() :]
+            if not _OPERATOR_LAUNCHER_TOKENS.search(suffix):
+                continue
+            if _OPERATOR_LAUNCHER_NEGATION.search(normalized):
+                continue
+            return True
     return False
 _OPERATOR_POLICY_MARKER_OWNERS = {
     "source_reconciled": Path(".codex/context/11-PYTHON-TOOLING.md"),

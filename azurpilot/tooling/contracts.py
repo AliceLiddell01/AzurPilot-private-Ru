@@ -1012,6 +1012,7 @@ class McpImpactDetails(ClosedModel):
     base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     head_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     status: Literal["NOT_REQUIRED", "REQUIRED"]
+    candidate_path_count: int = Field(default=0, ge=0)
     candidate_paths: tuple[str, ...] = Field(default_factory=tuple, max_length=512)
     committed_paths: tuple[str, ...] = Field(default_factory=tuple, max_length=512)
     working_tree_paths: tuple[str, ...] = Field(default_factory=tuple, max_length=512)

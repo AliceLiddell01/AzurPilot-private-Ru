@@ -196,9 +196,11 @@ def _identity_from_marker(value: object) -> ProcessIdentity | None:
             or not isinstance(created_at, (int, float))
             or isinstance(created_at, bool)
             or not isinstance(executable, str)
+            or not executable.strip()
             or not isinstance(command, list)
             or any(not isinstance(item, str) for item in command)
             or not isinstance(cwd, str)
+            or not cwd.strip()
             or (
                 process_group is not None
                 and (isinstance(process_group, bool) or not isinstance(process_group, int))
@@ -223,9 +225,9 @@ def _valid_recorded_identity(identity: ProcessIdentity) -> bool:
     return bool(
         identity.pid > 0
         and math.isfinite(identity.start_time)
-        and str(identity.executable)
+        and str(identity.executable).strip() not in {"", "."}
         and identity.argv
-        and str(identity.cwd)
+        and str(identity.cwd).strip() not in {"", "."}
     )
 
 

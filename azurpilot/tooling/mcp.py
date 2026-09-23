@@ -78,6 +78,7 @@ MCP_GENERATED_ARTIFACTS = (
     PLUGIN_MANIFEST_PATH,
     PLUGIN_COMPATIBILITY_PATH,
 )
+_MCP_IMPACT_SAMPLE_LIMIT = 256
 
 SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
     # Эти пути отражают реальные import/lazy-import границы backend-ов. Здесь
@@ -472,23 +473,28 @@ def _candidate_mcp_impact(
     candidate_paths = tuple(sorted(set(committed_paths) | set(working_tree_paths)))
     classification = classify_source_changes(candidate_paths)
     path_impacts = tuple(
-        McpImpactPath(
-            path=path,
-            source_sets=path_classification.changed_components,
-            affected_servers=path_classification.affected_servers,
-        )
+        impact
         for path in candidate_paths
         for path_classification in (classify_source_changes((path,)),)
+        if path_classification.changed_components
+        for impact in (
+            McpImpactPath(
+                path=path,
+                source_sets=path_classification.changed_components,
+                affected_servers=path_classification.affected_servers,
+            ),
+        )
     )
     required = bool(classification.changed_components)
     return McpImpactDetails(
         base_sha=base_commit,
         head_sha=head,
         status="REQUIRED" if required else "NOT_REQUIRED",
-        candidate_paths=candidate_paths,
-        committed_paths=committed_paths,
-        working_tree_paths=working_tree_paths,
-        path_impacts=path_impacts,
+        candidate_path_count=len(candidate_paths),
+        candidate_paths=candidate_paths[:_MCP_IMPACT_SAMPLE_LIMIT],
+        committed_paths=committed_paths[:_MCP_IMPACT_SAMPLE_LIMIT],
+        working_tree_paths=working_tree_paths[:_MCP_IMPACT_SAMPLE_LIMIT],
+        path_impacts=path_impacts[:_MCP_IMPACT_SAMPLE_LIMIT],
         changed_components=classification.changed_components,
         affected_servers=classification.affected_servers,
         generated_artifacts=(

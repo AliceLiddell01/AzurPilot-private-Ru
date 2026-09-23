@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
+from azurpilot.coderabbit_schema import REVIEW_STATE_SCHEMA_VERSION
 from azurpilot.tooling.config import load_deploy_settings
 from azurpilot.tooling.contracts import (
     CodeRabbitDeferredBacklog,
@@ -51,7 +52,6 @@ from azurpilot.tooling.process import (
     RunningProcess,
     StructuredProcessRunner,
 )
-from azurpilot.coderabbit_schema import REVIEW_STATE_SCHEMA_VERSION
 
 from .adapters import (
     AdapterOutcome,
@@ -2151,6 +2151,21 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 occurrence_history=tuple(history),
             )
         if len(entries) > 128:
+            overflow = len(entries) - 128
+            resolved = sorted(
+                (
+                    entry
+                    for entry in entries.values()
+                    if entry.status == "resolved"
+                ),
+                key=lambda entry: (
+                    entry.resolved_at or entry.last_seen_at,
+                    entry.backlog_id,
+                ),
+            )
+            for entry in resolved[:overflow]:
+                entries.pop(entry.fingerprint, None)
+        if len(entries) > 128:
             raise ToolingError(
                 ResultCode.TOOLING_OPERATION_CONFLICT,
                 "Число CodeRabbit deferred findings превышает bounded предел.",
@@ -2409,7 +2424,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
         iterations = state.get("substantive_iterations", 0)
         iterations = iterations if isinstance(iterations, int) else 0
-        budget_exhausted = iterations >= MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE
+        budget_exhausted = (
+            requires_fix and iterations >= MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE
+        )
         if budget_exhausted:
             next_cycle_status = "budget_exhausted"
             terminal = True

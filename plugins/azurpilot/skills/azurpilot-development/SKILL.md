@@ -13,10 +13,10 @@ authenticated loopback route `azurpilot_dev`; protocol identity остаётся
 через односторонний Dev → neutral application bridge, привязанный к target.
 
 Канонический project-owned operator path для MCP lifecycle — буквальная команда
-`azur mcp ...` из PATH текущей shell. `uv run`, `python -m azurpilot`,
-`.venv/.../azur`, absolute executable path и запуск `module.dev_mcp` напрямую
-запрещены как обход operator path; `uv` остаётся допустимым для test/build
-задач. Валидация `dev_get_contract` и текущего callable catalog обязательна;
+`azur mcp ...` из PATH текущей shell; запрещены как обход operator path `uv run`,
+`python -m azurpilot`, `.venv/.../azur`, absolute executable path и запуск
+`module.dev_mcp` напрямую. `uv` остаётся допустимым для test/build задач.
+Валидация `dev_get_contract` и текущего callable catalog обязательна;
 при mismatch действует `PLUGIN_RUNTIME_INCOMPATIBLE` и fail-closed правило
 ниже.
 

@@ -479,7 +479,7 @@ def build_parser() -> argparse.ArgumentParser:
             )
             _add_common_options(triage, suppress_defaults=True)
             triage.add_argument(
-                "--manifest", required=True, metavar="MANIFEST", help="absolute JSON triage manifest"
+                "--manifest", required=True, metavar="MANIFEST", help="абсолютный JSON triage manifest"
             )
             backlog = provider_subparsers.add_parser(
                 "backlog", help="прочитать repository-local deferred CodeRabbit backlog"
@@ -493,10 +493,10 @@ def build_parser() -> argparse.ArgumentParser:
             )
             _add_common_options(backlog_resolve, suppress_defaults=True)
             backlog_resolve.add_argument(
-                "--id", required=True, dest="backlog_id", help="stable deferred backlog id"
+                "--id", required=True, dest="backlog_id", help="стабильный идентификатор deferred backlog"
             )
             backlog_resolve.add_argument(
-                "--fix-head", required=True, help="exact committed fix HEAD"
+                "--fix-head", required=True, help="точный commit HEAD исправления"
             )
             backlog_resolve.add_argument(
                 "--resolution",
@@ -901,11 +901,11 @@ def _render_human(
                 )
                 backlog_table.add_column("ID", no_wrap=True)
                 backlog_table.add_column("Статус", no_wrap=True)
-                backlog_table.add_column("First seen", no_wrap=True)
-                backlog_table.add_column("Branch / HEAD", overflow="fold")
-                backlog_table.add_column("Severity", no_wrap=True)
-                backlog_table.add_column("Path", overflow="fold")
-                backlog_table.add_column("Title", overflow="fold")
+                backlog_table.add_column("Впервые замечено", no_wrap=True)
+                backlog_table.add_column("Ветка / HEAD", overflow="fold")
+                backlog_table.add_column("Серьёзность", no_wrap=True)
+                backlog_table.add_column("Путь", overflow="fold")
+                backlog_table.add_column("Заголовок", overflow="fold")
                 for entry in getattr(backlog, "findings", ()):
                     backlog_table.add_row(
                         str(entry.backlog_id),
@@ -958,7 +958,7 @@ def _render_human(
                     f"MCP impact: {details.status} "
                     f"(base={details.base_sha}, head={details.head_sha})"
                 )
-                table = Table(title="Candidate paths → MCP source sets", expand=True)
+                table = Table(title="Кандидатные пути → наборы исходников MCP", expand=True)
                 table.add_column("Path", overflow="fold")
                 table.add_column("Source sets", overflow="fold")
                 table.add_column("Affected servers", overflow="fold")
@@ -971,7 +971,7 @@ def _render_human(
                 console.print(table)
                 if details.generated_artifacts:
                     console.print(
-                        "Generated artifacts: "
+                        "Сгенерированные артефакты: "
                         + ", ".join(details.generated_artifacts)
                     )
                 console.print(f"{'✓' if result.ok else '✗'} {result.message}")

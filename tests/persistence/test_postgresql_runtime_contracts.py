@@ -352,17 +352,18 @@ def test_runtime_bootstrap_binds_redis_provider_to_one_canonical_environment(
         monkeypatch.setenv("AZURPILOT_LOCAL_ENV_PATH", str(custom_path))
 
     persistence_runtime.bootstrap_runtime_storage(require_ready=False)
-    cache = get_runtime_cache()
+    try:
+        cache = get_runtime_cache()
 
-    assert reads == [expected_path]
-    assert isinstance(cache, RedisRuntimeCache)
-    assert cache.settings.host == "127.0.0.1"
-    assert cache.settings.username == "azurpilot_app"
-    assert cache.settings.password
-    assert cache._client is None
-    assert "AZURPILOT_REDIS_PASSWORD" not in os.environ
-
-    persistence_runtime.dispose_runtime_storage()
+        assert reads == [expected_path]
+        assert isinstance(cache, RedisRuntimeCache)
+        assert cache.settings.host == "127.0.0.1"
+        assert cache.settings.username == "azurpilot_app"
+        assert cache.settings.password
+        assert cache._client is None
+        assert "AZURPILOT_REDIS_PASSWORD" not in os.environ
+    finally:
+        persistence_runtime.dispose_runtime_storage()
 
 
 def test_runtime_bootstrap_composes_empty_commission_recovery_as_ready_unknown(
@@ -423,18 +424,53 @@ def test_runtime_bootstrap_composes_empty_commission_recovery_as_ready_unknown(
     ):
         monkeypatch.delenv(name, raising=False)
 
-    persistence_runtime.bootstrap_runtime_storage(require_ready=False)
-    store = CommissionRecoveryStore.from_environment()
     try:
-        state = store.read("ap")
+        persistence_runtime.bootstrap_runtime_storage(require_ready=False)
+        store = CommissionRecoveryStore.from_environment()
+        try:
+            state = store.read("ap")
+        finally:
+            store.close()
     finally:
-        store.close()
+        persistence_runtime.dispose_runtime_storage()
 
     assert state.status == "unknown"
     assert state.cache_status == "READY"
     assert state.remaining is None
     assert client.keys == ["azurpilot:commission/recovery/ap"]
-    persistence_runtime.dispose_runtime_storage()
+
+
+def test_runtime_bootstrap_rejects_docker_redis_without_local_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository_root = tmp_path / "repository"
+    marker = repository_root / DEFAULT_BACKEND_MARKER_PATH
+    marker.parent.mkdir(parents=True)
+    marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+
+    monkeypatch.setattr(persistence_runtime, "_REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(
+        persistence_runtime,
+        "read_local_postgres_environment",
+        lambda _path: None,
+    )
+    monkeypatch.setattr(persistence_runtime, "_docker_postgres_transport", lambda: None)
+    monkeypatch.setattr(
+        persistence_runtime,
+        "_docker_redis_transport",
+        lambda: object(),
+    )
+    monkeypatch.setattr(persistence_runtime, "_service", None)
+    monkeypatch.setattr(persistence_runtime, "_engine", None)
+    monkeypatch.setattr(persistence_runtime, "_engine_settings", None)
+    monkeypatch.setattr(persistence_runtime, "_runtime_timezone", None)
+
+    try:
+        with pytest.raises(StorageConfigurationError, match="Docker Redis"):
+            persistence_runtime.bootstrap_runtime_storage(require_ready=False)
+    finally:
+        persistence_runtime.dispose_runtime_storage()
 
 
 def test_docker_transport_override_is_ephemeral_and_exact(

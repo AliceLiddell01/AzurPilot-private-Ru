@@ -845,9 +845,15 @@ class LegacyGameApplicationAdapter:
                         "Device owner не предоставил свежий screenshot."
                     )
                 screenshot()
+                from module.campaign.assets import OCR_OIL_CHECK
                 from module.campaign.campaign_status import CampaignStatus
 
-                oil_snapshot = CampaignStatus(config, device).get_oil_snapshot(
+                campaign_status = CampaignStatus(config, device)
+                if not campaign_status.appear(OCR_OIL_CHECK, offset=(10, 2)):
+                    raise OperationFailedError(
+                        "CampaignStatus не подтвердил значок нефти на свежем экране."
+                    )
+                oil_snapshot = campaign_status.get_oil_snapshot(
                     skip_first_screenshot=True,
                     update=False,
                     record=False,
@@ -864,7 +870,7 @@ class LegacyGameApplicationAdapter:
                     or value < 0
                     or not isinstance(limit, int)
                     or isinstance(limit, bool)
-                    or limit < 0
+                    or limit <= 0
                 ):
                     raise OperationFailedError(
                         "CampaignStatus не подтвердил числовой snapshot нефти."

@@ -235,12 +235,12 @@ class PullRequestBodyRenderer:
             )
         readiness_lines.extend(
             f"- gate `{gate.name}`: `{gate.state.value}`; "
-            f"required=`{str(gate.required).lower()}`; evidence: {gate.evidence}"
+            f"required=`{str(gate.required).lower()}`; evidence: {_table_cell(gate.evidence)}"
             for gate in body.readiness.mandatory_gates
         )
         readiness_lines.extend(
             f"- integration check `{check.name}`: `{check.state.value}`; "
-            f"evidence kind=`{check.evidence_kind}`; evidence: {check.evidence}"
+            f"evidence kind=`{check.evidence_kind}`; evidence: {_table_cell(check.evidence)}"
             for check in body.readiness.integration_checks
         )
         sections = (

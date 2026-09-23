@@ -58,6 +58,9 @@ def test_allowed_commands_have_no_decision(guards: ModuleType, command: str) -> 
     "command",
     [
         "uv run --locked azur integrations coderabbit status",
+        "uv run -p python.exe azur integrations coderabbit status",
+        "uv run --python=python.exe azur integrations coderabbit status",
+        "uv run -m azurpilot integrations coderabbit status",
         "uv run --locked --no-sync python -m azurpilot integrations coderabbit status",
         "python -m azurpilot integrations coderabbit status",
         "py -m azurpilot integrations coderabbit status",
@@ -329,7 +332,7 @@ def test_stop_blocks_unfinished_delivery_transaction(
     assert result["decision"] == "block"
 
 
-def test_terminal_delivery_and_unknown_mcp_state_do_not_block(
+def test_terminal_delivery_state_does_not_block(
     guards: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = tmp_path / "repo"

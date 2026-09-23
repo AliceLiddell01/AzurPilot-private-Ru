@@ -692,7 +692,7 @@ def test_supervisor_port_collision_fails_closed_without_orphan(
 def test_supervisor_invalid_marker_and_pid_reuse_are_not_owned(
     tmp_path: Path,
 ) -> None:
-    supervisor = _supervisor(tmp_path)
+    supervisor = _stale_supervisor(tmp_path)
     supervisor.marker_path.write_text(
         json.dumps(
             {
@@ -712,25 +712,22 @@ def test_supervisor_invalid_marker_and_pid_reuse_are_not_owned(
     )
     assert supervisor.status()["code"] == "LOCAL_MCP_SUPERVISOR_MARKER_INVALID"
 
-    current = _process_identity(os.getpid())
-    assert current is not None
-    mismatched = dict(current)
-    mismatched["created_at"] = float(current["created_at"]) + 1.0
-    supervisor.marker_path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "repository_root": str(tmp_path.absolute()),
-                "supervisor": mismatched,
-                "services": [],
-            }
-        ),
-        encoding="utf-8",
-    )
+    payload = _write_valid_stale_marker(supervisor)
+    for field in ("executable", "cwd"):
+        invalid_payload = json.loads(json.dumps(payload))
+        invalid_payload["supervisor"][field] = " "
+        supervisor.marker_path.write_text(
+            json.dumps(invalid_payload),
+            encoding="utf-8",
+        )
+        assert supervisor.status()["code"] == "LOCAL_MCP_SUPERVISOR_MARKER_INVALID"
+        assert supervisor.stop_result().outcome is LocalHttpSupervisorStopOutcome.INVALID_MARKER
+
+    supervisor.marker_path.write_text(json.dumps(payload), encoding="utf-8")
     result = supervisor.stop_result()
-    assert result.outcome is LocalHttpSupervisorStopOutcome.INVALID_MARKER
-    assert supervisor.stop() is False
-    assert supervisor.marker_path.exists()
+    assert result.outcome is LocalHttpSupervisorStopOutcome.STALE_RECORDED_OWNER_RECOVERED
+    assert supervisor.stop() is True
+    assert not supervisor.marker_path.exists()
     assert psutil.Process(os.getpid()).is_running()
 
 
@@ -766,7 +763,7 @@ def test_supervisor_recovers_valid_same_repository_stale_marker(
 
 
 def test_supervisor_absent_marker_does_not_claim_removal(tmp_path: Path) -> None:
-    supervisor = _supervisor(tmp_path)
+    supervisor = _stale_supervisor(tmp_path)
 
     result = supervisor.stop_result()
 

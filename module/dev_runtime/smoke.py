@@ -2274,6 +2274,7 @@ class _GameEvidenceContract:
 
     expected: frozenset[tuple[str, str]]
     intermediate: frozenset[tuple[str, str]]
+    captured: frozenset[tuple[str, str]]
     known: frozenset[tuple[str, str]]
     pending: frozenset[tuple[str, str]]
     intermediate_pending: frozenset[tuple[str, str]]
@@ -3600,6 +3601,7 @@ class SmokeRunManager:
             return _GameEvidenceContract(
                 expected=frozenset(),
                 intermediate=frozenset(),
+                captured=frozenset(),
                 known=frozenset(),
                 pending=frozenset(),
                 intermediate_pending=frozenset(),
@@ -3607,11 +3609,20 @@ class SmokeRunManager:
         try:
             items = GameObservationStore(self.environment, record.smoke_id).read()
         except GameObservationError:
+            captured = frozenset()
             known = frozenset()
         else:
             if record.target_profile is None or record.target_identity is None:
+                captured = frozenset()
                 known = frozenset()
             else:
+                captured = frozenset(
+                    (item.checkpoint_id, item.capability_id)
+                    for item in items
+                    if item.profile_name == record.target_profile
+                    and item.target_identity == record.target_identity
+                    and item.session_id == record.session_id
+                )
                 known = frozenset(
                     (item.checkpoint_id, item.capability_id)
                     for item in items
@@ -3623,9 +3634,10 @@ class SmokeRunManager:
         return _GameEvidenceContract(
             expected=expected,
             intermediate=intermediate,
+            captured=captured,
             known=known,
             pending=expected - known,
-            intermediate_pending=intermediate - known,
+            intermediate_pending=intermediate - captured,
         )
 
     def _capture_game_checkpoint(
@@ -3757,7 +3769,7 @@ class SmokeRunManager:
             )
         except SmokeStoreError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - provider boundary is fail-closed.
             return (
                 False,
                 {

@@ -228,7 +228,8 @@ def test_mcp_impact_reports_not_required_for_non_source_candidate(
         "docs/notes.md",
         "docs/working-notes.md",
     )
-    assert details.path_impacts[0].source_sets == ()
+    assert details.candidate_path_count == 2
+    assert details.path_impacts == ()
     assert details.generated_artifacts == ()
 
 
@@ -271,6 +272,41 @@ def test_mcp_impact_includes_uncommitted_persistence_and_both_servers(
         "plugins/azurpilot/.codex-plugin/plugin.json",
         "plugins/azurpilot/compatibility.json",
     )
+
+
+def test_mcp_impact_classifies_full_candidate_set_and_returns_bounded_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path = "module/persistence/runtime.py"
+    committed_paths = tuple(f"docs/candidate-{index:03d}.md" for index in range(300)) + (
+        source_path,
+    )
+
+    class FakeGit:
+        def __init__(self, _root: Path) -> None:
+            pass
+
+        def head(self) -> str:
+            return "b" * 40
+
+        def is_ancestor(self, _base: str, _head: str) -> bool:
+            return True
+
+        def changed_paths(self, _base: str, _head: str) -> tuple[str, ...]:
+            return committed_paths
+
+        def status_z(self) -> str:
+            return ""
+
+    monkeypatch.setattr(mcp_tooling, "GitClient", FakeGit)
+
+    details = mcp_tooling._candidate_mcp_impact(tmp_path, base_commit="a" * 40)
+
+    assert details.candidate_path_count == 301
+    assert len(details.candidate_paths) == mcp_tooling._MCP_IMPACT_SAMPLE_LIMIT
+    assert len(details.committed_paths) == mcp_tooling._MCP_IMPACT_SAMPLE_LIMIT
+    assert all(item.source_sets for item in details.path_impacts)
+    assert tuple(item.path for item in details.path_impacts) == (source_path,)
 
 
 @pytest.mark.parametrize(

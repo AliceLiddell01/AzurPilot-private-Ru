@@ -363,6 +363,10 @@ def bootstrap_runtime_storage(
                 raise StorageConfigurationError(
                     "Docker PostgreSQL transport требует валидный локальный env."
                 )
+            elif redis_transport is not None:
+                raise StorageConfigurationError(
+                    "Docker Redis transport требует валидный локальный env."
+                )
             if _engine is None:
                 _engine = LazyEngine(settings)
                 _engine_settings = settings

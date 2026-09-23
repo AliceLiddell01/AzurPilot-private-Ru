@@ -72,8 +72,16 @@ _WRAPPER_COMMAND_FLAGS = frozenset(
 )
 _UV_OPTIONS_WITH_VALUE = frozenset(
     {
+        "-C",
+        "-f",
+        "-i",
+        "-p",
+        "-P",
+        "-w",
         "--directory",
         "--from",
+        "--find-links",
+        "--index-url",
         "--package",
         "--project",
         "--python",
@@ -296,7 +304,19 @@ def _uv_payload(tokens: tuple[str, ...]) -> tuple[str, ...]:
         if lowered in _UV_OPTIONS_WITH_VALUE:
             index += 2
             continue
+        if any(
+            lowered.startswith(f"{option}=")
+            for option in _UV_OPTIONS_WITH_VALUE
+            if option.startswith("--")
+        ):
+            index += 1
+            continue
+        if lowered in {"-m", "--module"}:
+            return ("python", *tokens[index:])
         if lowered.startswith("--"):
+            index += 1
+            continue
+        if lowered.startswith("-"):
             index += 1
             continue
         return tokens[index:]
