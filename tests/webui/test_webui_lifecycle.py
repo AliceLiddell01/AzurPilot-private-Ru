@@ -56,7 +56,7 @@ class TestWebUILifecycle(unittest.TestCase):
 
         clear_state.assert_not_called()
 
-    def test_startup_keeps_agent_api_without_starting_notification_dispatcher(self):
+    def test_startup_initializes_webui_without_bot_runtime(self):
         telemetry = object()
         notification_runtime = object()
         desktop_agent_runtime = object()
@@ -89,14 +89,9 @@ class TestWebUILifecycle(unittest.TestCase):
                 return_value=desktop_agent_runtime,
             ),
             patch.object(app_lifecycle.lang, "reload"),
-            patch.dict(
-                app_lifecycle.os.environ,
-                {app_lifecycle._AUTOSTART_CONFIGURED_PROFILES_ENV: "1"},
-            ),
-            patch.object(
-                app_lifecycle.BotRuntimeClient,
-                "start_configured_profiles",
-                side_effect=lambda: startup_order.append("bot_runtime"),
+            patch(
+                "module.application.bot_runtime_client.BotRuntimeClient.start_configured_profiles",
+                side_effect=RuntimeError("Bot Runtime недоступен"),
             ) as start_configured_profiles,
             patch.object(
                 app_lifecycle.task_handler,
@@ -115,81 +110,8 @@ class TestWebUILifecycle(unittest.TestCase):
             notification_runtime=notification_runtime,
             desktop_agent_runtime=desktop_agent_runtime,
         )
-        start_configured_profiles.assert_called_once_with()
-        self.assertEqual(["bot_runtime", "task_handler"], startup_order)
-
-    def test_startup_can_skip_configured_profile_autostart_for_isolated_smoke(self):
-        state = SimpleNamespace(
-            init=Mock(),
-            deploy_config=SimpleNamespace(
-                DiscordRichPresence=False,
-                StartOcrServer=False,
-                EnableRemoteAccess=False,
-            ),
-        )
-        with (
-            patch.object(app_lifecycle, "State", state),
-            patch(
-                "deploy.language_migration.migrate_deploy_language",
-                return_value=SimpleNamespace(changed=False),
-            ),
-            patch("module.persistence.runtime.bootstrap_runtime_storage"),
-            patch(
-                "module.persistence.runtime.build_runtime_notification_telemetry",
-                return_value=object(),
-            ),
-            patch(
-                "module.persistence.runtime.build_runtime_notification_composition",
-                return_value=object(),
-            ),
-            patch(
-                "module.persistence.runtime.build_runtime_desktop_agent_composition",
-                return_value=object(),
-            ),
-            patch.object(app_lifecycle.lang, "reload"),
-            patch.dict(
-                app_lifecycle.os.environ,
-                {app_lifecycle._AUTOSTART_CONFIGURED_PROFILES_ENV: "0"},
-            ),
-            patch.object(
-                app_lifecycle.BotRuntimeClient,
-                "start_configured_profiles",
-            ) as start_configured_profiles,
-            patch.object(app_lifecycle.task_handler, "start") as start_tasks,
-        ):
-            app_lifecycle.startup()
-
         start_configured_profiles.assert_not_called()
-        start_tasks.assert_called_once_with()
-
-    def test_startup_rejects_invalid_autostart_before_runtime_initialization(self):
-        state = SimpleNamespace(init=Mock())
-        with (
-            patch.object(app_lifecycle, "State", state),
-            patch(
-                "module.persistence.runtime.bootstrap_runtime_storage"
-            ) as bootstrap,
-            patch(
-                "deploy.language_migration.migrate_deploy_language"
-            ) as migrate_language,
-            patch.object(
-                app_lifecycle.BotRuntimeClient,
-                "start_configured_profiles",
-            ) as start_configured_profiles,
-            patch.object(app_lifecycle.task_handler, "start") as start_tasks,
-            patch.dict(
-                app_lifecycle.os.environ,
-                {app_lifecycle._AUTOSTART_CONFIGURED_PROFILES_ENV: "true"},
-            ),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "должен иметь значение"):
-                app_lifecycle.startup()
-
-        bootstrap.assert_not_called()
-        migrate_language.assert_not_called()
-        state.init.assert_not_called()
-        start_configured_profiles.assert_not_called()
-        start_tasks.assert_not_called()
+        self.assertEqual(["task_handler"], startup_order)
 
 
 class TestWebUIState(unittest.TestCase):

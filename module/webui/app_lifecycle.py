@@ -3,7 +3,6 @@
 from module.webui.app_dependencies import (
     RemoteAccess,
     State,
-    BotRuntimeClient,
     close_discord_rpc,
     init_discord_rpc,
     lang,
@@ -13,21 +12,9 @@ from module.webui.app_dependencies import (
     stop_ocr_server_process,
     task_handler,
 )
-
 from module.webui.app_helpers import (
     is_demo_mode,
 )
-
-_AUTOSTART_CONFIGURED_PROFILES_ENV = "AZURPILOT_WEBUI_AUTOSTART_CONFIGURED_PROFILES"
-
-
-def _autostart_configured_profiles_enabled() -> bool:
-    value = os.environ.get(_AUTOSTART_CONFIGURED_PROFILES_ENV, "1")
-    if value not in {"0", "1"}:
-        raise RuntimeError(
-            f"{_AUTOSTART_CONFIGURED_PROFILES_ENV} должен иметь значение '0' или '1'"
-        )
-    return value == "1"
 
 
 def build_fleet_page_runtime_context(*, clock=None, require_ready: bool = True):
@@ -57,7 +44,6 @@ def _clearup_step(name, handler) -> bool:
 
 def startup() -> None:
     """Инициализировать WebUI после явной миграции UI locale."""
-    autostart_configured_profiles = _autostart_configured_profiles_enabled()
     from deploy.language_migration import migrate_deploy_language
     from module.persistence.runtime import (
         bootstrap_runtime_storage,
@@ -82,8 +68,6 @@ def startup() -> None:
         ),
     )
     lang.reload()
-    if autostart_configured_profiles:
-        BotRuntimeClient.start_configured_profiles()
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:
         init_discord_rpc()

@@ -75,6 +75,8 @@ azur bot start|stop|status
 azur webui start|stop|status
   → azurpilot.tooling.lifecycle
   → gui.py / ASGI и PyWebIO
+
+явная команда Start профиля внутри WebUI
   → BotRuntimeClient → Bot Runtime
 ```
 
@@ -83,9 +85,11 @@ WebUI lifecycle; новый операторский текст использу
 Остановка WebUI освобождает только его UI-ресурсы. Она не останавливает Bot
 Runtime и workers. Game MCP, Dev MCP, Smoke и CLI могут bootstrap-ить Bot Runtime
 и работать без WebUI; их проверки не требуют свободного WebUI-порта.
-Запуск WebUI по умолчанию отправляет Bot Runtime команду запуска настроенных
-профилей. Изолированный UI-only запуск может отключить это поведение значением
-`AZURPILOT_WEBUI_AUTOSTART_CONFIGURED_PROFILES=0`.
+`azur webui start` запускает только WebUI: он не bootstrap'ит Bot Runtime и не
+запускает настроенные профили. `azur bot start` запускает headless Bot Runtime
+и выполняет backend-запуск настроенных профилей. Явная команда Start профиля
+внутри WebUI обращается к `BotRuntimeClient` и при необходимости bootstrap'ит
+Bot Runtime.
 
 При изменении lifecycle проверять:
 
