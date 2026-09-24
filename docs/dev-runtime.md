@@ -226,10 +226,15 @@ server identity. Совместимость плагина задаётся boun
 `plugins/azurpilot/compatibility.json`; перед mutating calls несовместимый runtime
 отбрасывается fail-closed.
 
-Проверка source и runtime выполняется командами `azur mcp status`,
-`azur mcp versions`, `azur mcp reconcile`, `azur mcp start`, `azur mcp stop` и
-`azur mcp restart`. Source reconciliation обновляет только производные
-metadata; runtime reconciliation не редактирует tracked source. Успешный
+Для frozen candidate используй один `azur mcp sync --base
+<exact-base-sha>`: `NO_CHANGES` завершает no-op, а `SYNCED` включает
+base-aware source/version reconciliation, generated metadata, owned runtime
+readiness и fresh-client acceptance. `impact`, `status`, `versions`, `reconcile`,
+`start`, `stop`, `restart` и `accept` остаются диагностическими или
+admin-командами. Source
+reconciliation обновляет только производные metadata; runtime reconciliation не
+редактирует tracked source. Состояние текущей Codex session не является
+postcondition sync, hot reload не предполагается. Успешный
 `azur update` автоматически выполняет обязательную reconciliation и завершает
 Update неуспешно при неизвестном или нарушенном MCP postcondition. Status и
 reconcile разделяют `source_state`, `runtime_state`, `plugin_source_state` и
@@ -585,9 +590,14 @@ verdict с provenance.
 
 Smoke Harness расширяет локальный stdio Dev MCP ровно следующими инструментами:
 `dev_list_smoke_capabilities`, `dev_validate_smoke`, `dev_start_smoke`,
+`dev_run_smoke`,
 `dev_get_smoke`, `dev_cancel_smoke`, `dev_get_smoke_evaluation` и
-`dev_submit_smoke_evaluation`. `dev_start_smoke` быстро возвращает `smoke_id`,
-не удерживая MCP request; результат читается через polling `dev_get_smoke`.
+`dev_submit_smoke_evaluation`. Bounded `dev_run_smoke` возвращает terminal result
+после execution и cleanup. Явный `dev_start_smoke` запускает отдельный supervisor
+и возвращает `DEV_SMOKE_STARTED`; состояние читается через `dev_get_smoke`, а
+визуальная оценка завершается через evaluation tools.
+Объявленные triggered game checkpoints фиксируются автоматически; ручного
+checkpoint tool в public catalog нет.
 Сервер остаётся без побочных действий при startup и сохраняет stdout только для
 MCP protocol. Remote entrypoint использует зафиксированный в проекте `mcp==2.2.0`
 и его `StreamableHTTPSessionManager` в stateless-режиме без event store; каждый
@@ -775,13 +785,16 @@ ChatGPT/public использует соответствующее подклю�
 Git. Remote surface не является Codex fallback.
 
 Основной workflow skill: `dev_get_contract` →
-`dev_list_smoke_capabilities` → строгий `SmokeSpec` → `dev_validate_smoke` →
-exact source snapshot → `dev_start_smoke` → polling `dev_get_smoke` → при
+`dev_list_smoke_capabilities` → строгий `SmokeSpec` → exact source snapshot →
+один bounded `dev_run_smoke` до terminal result → при
 необходимости замороженная внешняя visual evaluation. PASS допустим только при
 PASS-result, exact source, подтверждённой очистке и полной evidence. Результаты
 `PRODUCT_FAILED`, `HARNESS_FAILED`, `EVIDENCE_INCOMPLETE`, `TIMEOUT`,
 `INVALIDATED`, `CANCELLED` и `PRECONDITION_FAILED` не превращаются в auto-retry
 или успех.
+`dev_run_smoke` сам выполняет проверку spec и preconditions до mutation;
+`dev_validate_smoke` остаётся необязательной read-only проверкой и не требуется
+перед нормальным bounded run.
 
 `azurpilot-game-control` предназначен для обычных Game MCP read/control
 операций через canonical `azurpilot-game` local stdio или Desktop alias

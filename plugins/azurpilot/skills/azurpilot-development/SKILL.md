@@ -44,29 +44,22 @@ flags или catalog fingerprints в skill: их source of truth — bundle.
 подбирай переименованные инструменты и не угадывай схему. Допустимы только
 безопасные read-only диагностика и сообщение о несовместимости.
 
-Для проверки и lifecycle canonical bundle используй `azur mcp status`,
-`azur mcp versions`, `azur mcp reconcile`, `azur mcp start`, `azur mcp stop` и
-`azur mcp restart`. Изменение plugin/skill snapshot или открытой session не
-считай hot reload: зафиксируй `RELOAD_REQUIRED` и подтверди новую session или
-штатный owned restart отдельно. Разделяй `source_state`, `runtime_state`,
-`plugin_source_state` и `session_state`: остановленный runtime не доказывает
-актуальность plugin session, а `MCP_RELOAD_REQUIRED` является non-OK
-результатом reconciliation, пока reload не подтверждён. `azur mcp
-reconcile --source --bump auto` даёт `source_reconciled`, но не
-`runtime_ready`; если live runtime обязателен, после него вызови `azur mcp
-status`. При `runtime_state=stale` или `runtime_state=stopped` выполни
-`azur mcp reconcile` без `--source`, затем повторный status с
-`runtime_ready=true`. Same-repository stale marker допускает только typed
-recorded-identity cleanup с unchanged marker и STOPPED/no-conflict postcondition;
-invalid/foreign marker, unknown liveness, port conflict и failure остаются
-fail-closed. Не запускай внутренние MCP modules/scripts напрямую.
+После заморозки candidate canonical MCP workflow — один вызов
+`azur mcp sync --base <exact-base-sha>`. `NO_CHANGES` — terminal no-op; `SYNCED`
+включает version calculation от exact base, source/generated checks, readiness
+owned runtime и fresh-client acceptance. После изменения MCP source-set повтори
+sync, чтобы он пересчитал версию от base и текущего candidate. Unknown/foreign
+ownership, port conflict и failure readiness остаются fail-closed. Текущая
+внешняя session не является postcondition; hot reload не предполагается.
+`impact`, `status`, `versions`, `reconcile`, `start`, `stop` и `restart`
+остаются diagnostic/admin capabilities. Не запускай внутренние MCP
+modules/scripts напрямую.
 
-При `MCP impact=REQUIRED` обязательный gate называется
-`fresh_mcp_client_acceptance`. Закрывай его отдельным новым SDK client/process
-через `azurpilot.integrations.mcp_client`: новая session должна выполнить
-`initialize()`, negotiated catalog, contract/revision checks и обязательные
-read-only calls. `azur mcp status`, source snapshot и текущая Codex session этот
-gate не заменяют. Effective Codex registration — отдельная optional
+При MCP impact `SYNCED` содержит evidence обязательного
+`fresh_mcp_client_acceptance`: новый SDK client/process выполняет `initialize()`,
+negotiated catalog, contract/revision checks и обязательные read-only calls.
+`status`, source snapshot и текущая Codex session эту проверку не заменяют.
+Effective Codex registration — отдельная optional
 `codex_registration_check`; при затронутом Codex/plugin scope используй
 [единый cross-thread contract](../../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md).
 Wrong-HEAD или недоступный `create_thread` фиксируй только в этой optional check
@@ -79,24 +72,30 @@ Smoke по умолчанию выполняй только этим поток�
 1. Вызови `dev_list_smoke_capabilities`.
 2. Собери строгий `SmokeSpec` только из поддержанных capability и допустимых
    полей; не добавляй произвольные команды, пути или окружение.
-3. Вызови `dev_validate_smoke` и остановись при любой ошибке валидации или
-   precondition.
-4. Проверь source snapshot: нужный commit/head должен быть точным, а рабочее
+3. Проверь source snapshot: нужный commit/head должен быть точным, а рабочее
    дерево — чистым. Для изменения продукта сначала зафиксируй исходный
    источник.
-5. Вызови `dev_start_smoke`, затем опрашивай только `dev_get_smoke` до
-   immutable результата или явно сохранённого terminal outcome.
-6. Если результат требует внешней визуальной проверки, получи ровно
-   замороженные rubric/screenshot через `dev_get_smoke_evaluation`. Передавай
-   вердикт через `dev_submit_smoke_evaluation` только после фактической
-   оценки; не сочиняй визуальные доказательства.
+4. Для bounded non-visual scenario с `timeout_seconds <= 300` вызови
+   `dev_run_smoke` один раз; операция сама проверяет spec и preconditions до
+   mutation, затем возвращает terminal result после execution и cleanup.
+   Long/interactive сценарии и `visual_assertions` отклоняются как
+   `DEV_SMOKE_SPEC_UNSUPPORTED` этим bounded вызовом. Для них используй отдельный
+   `dev_start_smoke`, получай ход выполнения через `dev_get_smoke`; для
+   `visual_assertions` используй `dev_get_smoke_evaluation` и
+   `dev_submit_smoke_evaluation`. Остановись при любой ошибке.
+5. `dev_validate_smoke` оставлен для необязательной read-only проверки spec и
+   не является prerequisite normal run.
+6. Для уже существующего SmokeRun в состоянии
+   `AWAITING_EXTERNAL_EVALUATION` получи замороженные rubric/screenshot через
+   `dev_get_smoke_evaluation`. Передавай вердикт через
+   `dev_submit_smoke_evaluation` только после фактической оценки; не сочиняй
+   визуальные доказательства. `dev_run_smoke` не создаёт такие runs:
+   `visual_assertions` отклоняются.
 7. Для game-backed SmokeSpec объяви bounded `game_observations`: supervisor
-   автоматически фиксирует `before` и `final`, а intermediate checkpoints
-   должны быть явно перечислены и каждый объявленный intermediate checkpoint
-   должен быть зафиксирован до завершения SmokeRun. Используй
-   `dev_capture_smoke_game_checkpoint` для каждого такого checkpoint, затем
-   проверь `dev_get_smoke_game_observations`. `unknown`, `unavailable` и
-   missing required checkpoint исключают PASS.
+   автоматически фиксирует `before`, `final` и triggered intermediate
+   checkpoints. После terminal result проверь
+   `dev_get_smoke_game_observations`. `unknown`, `unavailable` и missing required
+   checkpoint исключают PASS. Ручного checkpoint tool в catalog нет.
 
 Не используй как стандартный smoke-путь `dev_start_session`, ручные
 `sleep`/клики, произвольное чтение логов, `dev_stop_session` или shell-команды.
@@ -177,9 +176,9 @@ Runtime control не принимает профиль, serial, package, ком�
 только проверенный alias `azurpilot_dev` через loopback local HTTP и требуй
 `transport=local_http`, `authenticated=true`, `local_authority=true`. Это тот
 же существующий Dev MCP с явно настроенным development target; public HTTPS
-для Codex не нужен. Lifecycle и readiness проверяй отдельно через прямые
-`azur mcp status` и, если required transition допустим, `azur mcp start` или
-`azur mcp restart`; внутренний stdio module не запускай напрямую.
+для Codex не нужен. Diagnostic/admin lifecycle проверяй через прямые
+`azur mcp status`, `start` или `restart` только при конкретной необходимости;
+внутренний stdio module не запускай напрямую.
 
 В ChatGPT используй подключённое приложение, соответствующее этому
 compatibility package, через authenticated public HTTPS endpoint

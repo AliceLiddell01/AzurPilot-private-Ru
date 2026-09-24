@@ -326,24 +326,16 @@ parent remote HEAD, canonical delivery/PR workflow возвращает typed
 
 ### Реализация
 
-До публикации candidate или запуска review effective diff относительно exact
-base проходит `azur mcp impact --base <exact-base-sha>`. При `REQUIRED`
-штатный `azur mcp reconcile --source --bump auto` и последующие integrity и
-base-to-head compatibility checks обязательны; изменение source set после
-reconciliation делает предыдущий результат stale. Generated MCP artifacts
-являются производным scope той же задачи. Source reconciliation имеет только
-`source_reconciled=true`; если live MCP входит в обязательный gate, напрямую
-вызови через PATH `azur mcp status`. При `runtime_state=stale` или
-`runtime_state=stopped` выполни единственный typed runtime repair path
-`azur mcp reconcile` без `--source`, затем повторный status с
-`runtime_ready=true`. Исходный stale/stopped status до этой попытки не
-является финальным blocker-ом; same-repository stale marker допустимо
-восстанавливать только typed recorded-identity cleanup с unchanged marker и
-STOPPED/no-conflict postcondition. Unknown/foreign ownership, port conflict,
-failure stop/start или mismatch postcondition остаются fail-closed. Source-only result и
-`MCP_RUNTIME_UNAVAILABLE` не закрывают live acceptance. Внутренние
-`module.*_mcp`, supervisor scripts и Python module launchers напрямую не
-используются.
+После заморозки MCP-relevant candidate выполни один `azur mcp sync --base
+<exact-base-sha>`. Результат `NO_CHANGES` или `SYNCED` является terminal;
+второй вариант включает source/version finalization относительно base,
+generated artifact check, безопасное восстановление только owned runtime и
+fresh-client acceptance. При изменении source-set повтори sync: версия будет
+пересчитана от exact base и текущего candidate. Foreign/unknown ownership,
+port conflict, failure stop/start или mismatch postcondition остаются
+fail-closed. Текущее состояние внешней Codex session не является postcondition;
+hot reload не предполагается. Generated MCP artifacts входят в общую delivery
+той же задачи.
 
 Для любой project-owned operator capability, уже представленной через `azur`,
 каноничен только literal invocation `azur ...` из PATH текущей shell. `uv run`,
@@ -482,12 +474,16 @@ scope, реализации, проверках, CI, security, rollback и ог�
 слов, которые нельзя безопасно переводить. Renderer обязан отклонять
 полупустой body до provider call.
 
-Для delivery допустим только manifest с закрытой схемой, exact repository,
-branch/base/head, preimage/postimage и allowlist paths. В index добавляются
-только declared paths; Gitleaks запускается по staged scope и exact committed
-range. Push — обычный explicit refspec без force/force-with-lease с
-последующей проверкой exact remote SHA. Неизвестный результат push переводится
-в read-only recovery без blind retry.
+Normal delivery выполняется одной командой `azur delivery publish
+--message <commit-message>`; `--path` задаёт необязательный явный scope,
+иначе tooling фиксирует все изменённые candidate paths. Tooling формирует
+закрытый manifest в памяти с exact repository, branch/base/head, remote,
+preimage/postimage и allowlist. Codex не создаёт JSON manifest и не вызывает
+`validate MANIFEST` перед публикацией. В index добавляются только snapshot
+allowlist paths; Gitleaks запускается по staged scope и exact committed range.
+Push — обычный explicit refspec без force/force-with-lease с последующей
+проверкой exact remote SHA. Неизвестный результат push переводится в read-only
+recovery без blind retry.
 
 GitHub PR проверяется с явными `--repo`, `--base`, `--head`, draft mode и
 повторное чтение точных идентификаторов. В описании PR сохраняется раздел CodeRabbit для типизированных подтверждений;
@@ -654,8 +650,9 @@ Capability branches, включая explicit domain-prefixed branches, долж�
 - base branch/SHA и scope зафиксированы;
 - работа выполнена в основном checkout либо в явно обоснованной дополнительной среде;
 - diff минимален и без scope creep;
-- effective candidate diff прошёл MCP impact classification; при затронутом
-  source set canonical bundle и derived artifacts согласованы повторно;
+- canonical `azur mcp sync --base <exact-base-sha>` вернул terminal `NO_CHANGES`
+  или `SYNCED`; при impact generated artifacts и fresh-client acceptance входят
+  в результат `SYNCED`;
 - релевантные local gates выполнены;
 - tests обновлены там, где менялось поведение;
 - полный suite выполнен в установленном checkpoint и не повторялся без причины;

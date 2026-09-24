@@ -413,7 +413,9 @@ def _spec(**kwargs: object) -> smoke.SmokeSpec:
     return smoke.SmokeSpec(**values)
 
 
-def _checkpoint_spec() -> smoke.SmokeSpec:
+def _checkpoint_spec(
+    capture_condition: dict[str, str] | None = None,
+) -> smoke.SmokeSpec:
     return _spec(
         assertions=[
             smoke.TaskStartedAssertion(
@@ -427,10 +429,8 @@ def _checkpoint_spec() -> smoke.SmokeSpec:
             "checkpoints": [
                 {
                     "checkpoint_id": "commission_recovery",
-                    "capture_condition": {
-                        "kind": "task_finished",
-                        "task": "Reward",
-                    },
+                    "capture_condition": capture_condition
+                    or {"kind": "task_finished", "task": "Reward"},
                     "observations": [{"capability_id": "synthetic"}],
                 }
             ],
@@ -821,7 +821,7 @@ def test_smoke_store_reads_v1_legacy_spec_state_result_without_file_log_payload(
 
     assert loaded.schema_version == smoke.SMOKE_STATE_SCHEMA_VERSION == 2
     assert loaded._legacy_schema_version == 1
-    assert specification.schema_version == smoke.SMOKE_SCHEMA_VERSION == 3
+    assert specification.schema_version == smoke.SMOKE_SCHEMA_VERSION == 4
     assert specification._legacy_schema_version == 1
     assert result is not None
     assert result.schema_version == smoke.SMOKE_STATE_SCHEMA_VERSION
@@ -838,6 +838,49 @@ def test_smoke_store_reads_v1_legacy_spec_state_result_without_file_log_payload(
         "source_schema_version": 1,
         "migration": "bounded_legacy_read_adapter",
     }
+
+
+def test_smoke_store_migrates_v3_checkpoints_without_capture_conditions(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    store = smoke.SmokeStateStore(environment, now=lambda: _NOW)
+    spec = _checkpoint_spec()
+    record = store.create(
+        spec,
+        smoke._source_snapshot(_source()),
+        created_at=_STARTED_AT,
+        deadline_at="2026-08-30T09:01:00+00:00",
+        smoke_id="legacy-v3-checkpoint",
+    )
+    payload = spec.canonical_dict()
+    payload["schema_version"] = 3
+    game_observations = payload["game_observations"]
+    assert isinstance(game_observations, dict)
+    checkpoints = game_observations["checkpoints"]
+    assert isinstance(checkpoints, list)
+    triggered = dict(checkpoints[0])
+    triggered["checkpoint_id"] = "triggered"
+    untriggered = dict(checkpoints[0])
+    untriggered["checkpoint_id"] = "untriggered"
+    untriggered.pop("capture_condition")
+    game_observations["checkpoints"] = [untriggered, triggered]
+    store._file(record.smoke_id, "spec.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+    state_path = store._file(record.smoke_id, "state.json")
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    state_payload["spec_hash"] = smoke._canonical_payload_hash(payload)
+    state_path.write_text(json.dumps(state_payload), encoding="utf-8")
+
+    migrated = store.load_spec(record.smoke_id)
+
+    assert migrated.schema_version == smoke.SMOKE_SCHEMA_VERSION == 4
+    assert migrated._legacy_schema_version == 3
+    assert migrated.game_observations is not None
+    assert [item.checkpoint_id for item in migrated.game_observations.checkpoints] == [
+        "triggered"
+    ]
 
 
 def test_smoke_store_legacy_active_run_does_not_block_new_run(tmp_path: Path) -> None:
@@ -1147,6 +1190,58 @@ def test_run_smoke_executes_bounded_run_inline_and_returns_terminal_result(
     assert manager.has_active_run() is False
 
 
+@pytest.mark.parametrize(
+    ("spec_kwargs", "reason"),
+    [
+        (
+            {"timeout_seconds": smoke.SMOKE_SYNC_MAX_SECONDS + 1},
+            "timeout_seconds",
+        ),
+        (
+            {
+                "visual_assertions": [
+                    smoke.SmokeVisualAssertion(
+                        assertion_id="visual",
+                        capability_id="external_visual",
+                        rubric="Проверить целевой экран",
+                        capture_condition=smoke.VisualCaptureCondition(
+                            kind="event",
+                            event_type="session_ready",
+                        ),
+                    )
+                ]
+            },
+            "visual_assertions",
+        ),
+    ],
+    ids=["долгий-timeout", "visual-assertion"],
+)
+def test_run_smoke_rejects_specs_outside_terminal_bounded_contract(
+    tmp_path: Path,
+    clean_source: None,
+    spec_kwargs: dict[str, object],
+    reason: str,
+) -> None:
+    runtime = _Runtime()
+    manager = _manager(tmp_path, runtime)
+    manager.start_smoke = lambda *_args, **_kwargs: pytest.fail(
+        "dev_run_smoke must not turn an unsupported spec into an async start"
+    )
+    manager._start_smoke = lambda *_args, **_kwargs: pytest.fail(
+        "unsupported dev_run_smoke specs must be rejected before creating a run"
+    )
+
+    result = manager.run_smoke(_spec(**spec_kwargs))
+
+    assert result.ok is False
+    assert result.code == "DEV_SMOKE_SPEC_UNSUPPORTED"
+    assert result.state == smoke.SmokeState.FINISHED.value
+    assert reason in result.message
+    assert manager.has_active_run() is False
+    assert runtime.stop_calls == 0
+    assert runtime.execution_order == []
+
+
 def test_run_smoke_timeout_finishes_cleanup_before_return(
     tmp_path: Path,
     clean_source: None,
@@ -1273,9 +1368,19 @@ def test_normal_smoke_leaves_recoverable_session_to_runtime_owner(
     assert runtime.execution_order.index("runtime_owner_recovery") < runtime.execution_order.index("runtime_new_session_start")
 
 
-def test_fast_completed_task_automatically_captures_intermediate_checkpoint(
+@pytest.mark.parametrize(
+    "capture_condition",
+    [
+        {"kind": "event", "event_type": "session_ready"},
+        {"kind": "task_started", "task": "Reward"},
+        {"kind": "task_finished", "task": "Reward"},
+    ],
+    ids=["event", "task-started", "task-finished"],
+)
+def test_triggered_intermediate_checkpoint_is_automatically_captured(
     tmp_path: Path,
     clean_source: None,
+    capture_condition: dict[str, str],
 ) -> None:
     runtime = _Runtime()
     runtime.transient_state_disappears_after_timeline = True
@@ -1291,7 +1396,7 @@ def test_fast_completed_task_automatically_captures_intermediate_checkpoint(
         "normal Smoke flow must not call the operator checkpoint API"
     )
 
-    result = manager.run_smoke(_checkpoint_spec())
+    result = manager.run_smoke(_checkpoint_spec(capture_condition))
     smoke_id = result.details["smoke_id"]
 
     result = manager.store.load_result(smoke_id)
@@ -1343,7 +1448,7 @@ def test_missing_intermediate_checkpoint_waits_until_deadline_and_cleans_up(
     clean_source: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    runtime = _Runtime(task_finished=False)
+    runtime = _Runtime(task_finished=True)
     clock = [_NOW]
 
     def bounded_sleep(seconds: float) -> None:
@@ -1358,21 +1463,37 @@ def test_missing_intermediate_checkpoint_waits_until_deadline_and_cleans_up(
         now=lambda: clock[0],
         poll_seconds=0.01,
     )
-    started = manager.start_smoke(
-        _checkpoint_spec().model_copy(update={"timeout_seconds": 1.0})
+    result = manager.run_smoke(
+        _checkpoint_spec({"kind": "event", "event_type": "runtime_error"}).model_copy(
+            update={"timeout_seconds": 1.0}
+        )
     )
 
-    manager._run_supervisor(started.details["smoke_id"])
-
-    result = manager.store.load_result(started.details["smoke_id"])
-    assert result is not None
-    assert result.outcome is smoke.SmokeOutcome.TIMEOUT
-    assert result.primary_failure is not None
-    assert result.primary_failure.code == "DEV_SMOKE_TIMEOUT"
-    assert result.cleanup.confirmed is True
-    assert result.cleanup.no_owned_orphan is True
+    assert result.ok is False
+    assert result.state == smoke.SmokeState.FINISHED.value
+    assert result.details["result"]["outcome"] == smoke.SmokeOutcome.TIMEOUT.value
+    assert result.details["result"]["outcome"] != smoke.SmokeOutcome.PASS.value
+    assert result.details["cleanup"]["confirmed"] is True
+    assert result.details["cleanup"]["no_owned_orphan"] is True
     assert runtime.stop_calls == 1
     assert runtime.active is False
+
+
+def test_intermediate_checkpoint_without_trigger_fails_schema_validation(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    manager = _manager(tmp_path, _Runtime())
+    spec = _checkpoint_spec().model_dump(mode="python")
+    checkpoint = spec["game_observations"]["checkpoints"][0]
+    checkpoint.pop("capture_condition")
+
+    result = manager.validate_smoke(spec)
+
+    assert result.ok is False
+    assert result.code == "DEV_SMOKE_VALIDATION_FAILED"
+    assert result.details["valid"] is False
+    assert result.details["issues"][0]["code"] == "DEV_SMOKE_SPEC_INVALID"
 
 
 def test_cancel_remains_available_while_intermediate_checkpoint_is_pending(

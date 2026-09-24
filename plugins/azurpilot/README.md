@@ -40,24 +40,16 @@ Codex пропускает `.codex/config.toml`, plugin не выполняет 
 catalog или несовместимый contract обрабатывается fail-closed; remote
 Connected App не подменяет Codex route.
 
-Единый source of truth и lifecycle reconciliation доступны через
-`azur mcp status`, `azur mcp versions`, `azur mcp reconcile`, `azur mcp start`,
-`azur mcp stop` и `azur mcp restart`. `reconcile --source` обновляет только
-производные plugin metadata после проверки source sets и возвращает только
-`source_reconciled`; `runtime_ready` подтверждается отдельным `azur mcp status`.
-Если live runtime обязателен и status сообщает `runtime_state=stale` или
-`runtime_state=stopped`, выполни `azur mcp reconcile` без `--source`, затем
-повтори status. Для same-repository stale marker этот путь использует только
-typed cleanup записанных exact identities, неизменившийся marker и
-STOPPED/no-conflict postcondition; invalid/foreign marker, unknown liveness,
-port conflict и failure остаются fail-closed. Вызов
-`azur mcp reconcile` без `--source` согласует только runtime и не изменяет
-tracked source. После успешного `azur update` reconciliation
-выполняется автоматически и является обязательным postcondition: ошибка source,
-runtime, ownership, port или readiness делает Update неуспешным. Изменение
-plugin/skill snapshot не маскируется под hot reload: session получает
-`MCP_RELOAD_REQUIRED`, а runtime restart должен быть подтверждён новым readiness
-и catalog evidence отдельно.
+Для замороженного developer candidate canonical MCP path — один вызов
+`azur mcp sync --base <exact-base-sha>`. Terminal `NO_CHANGES` означает, что
+MCP source set не затронут; `SYNCED` подтверждает source/version finalization от
+exact base, generated metadata, owned runtime readiness и fresh-client
+acceptance. Foreign/unknown ownership, port conflict и непроверенная readiness
+завершаются fail-closed. Состояние текущей внешней Codex session не является
+postcondition, hot reload не предполагается. `impact`, `status`, `versions`,
+`reconcile`, `start`, `stop` и `restart` остаются diagnostic/admin operations.
+После успешного `azur update` MCP reconciliation выполняется автоматически и
+остаётся обязательным postcondition Update.
 
 Публикуемые данные должны оставаться workflow-only. Не добавляй в checkout
 ChatGPT app state, tunnel profiles, control-plane keys, screenshots, archives,
@@ -132,11 +124,18 @@ base-to-head compatibility.
 `dev_get_contract`; любое несовпадение даёт `PLUGIN_RUNTIME_INCOMPATIBLE` и
 запрещает mutating calls.
 
-Основной workflow — `dev_get_contract` → `dev_list_smoke_capabilities` → строгий
-`SmokeSpec` →
-`dev_validate_smoke` → exact source snapshot → `dev_start_smoke` → polling
-`dev_get_smoke` → при необходимости `dev_get_smoke_game_observations` и
-замороженная внешняя visual evaluation. Для Codex доступны target-bound
+Основной bounded workflow — `dev_get_contract` →
+`dev_list_smoke_capabilities` → строгий `SmokeSpec` → exact source snapshot →
+один `dev_run_smoke` с terminal result после cleanup. Он сам проверяет spec и
+preconditions до mutation; `dev_validate_smoke` остаётся необязательной
+read-only проверкой. `dev_run_smoke` принимает `timeout_seconds` не более 300
+секунд и не принимает `visual_assertions`; неподходящий spec завершается
+`DEV_SMOKE_SPEC_UNSUPPORTED` без запуска SmokeRun. Для long/interactive и visual
+сценариев используй отдельный `dev_start_smoke`, который возвращает
+`DEV_SMOKE_STARTED`; состояние читается через `dev_get_smoke`, а visual evaluation
+выполняется отдельными evaluation tools. Triggered game checkpoints
+фиксируются автоматически; после run при необходимости вызывай
+`dev_get_smoke_game_observations`. Для Codex доступны target-bound
 `dev_list_game_observation_capabilities` или `dev_get_game_observation`, а также
 fixed-catalog `dev_get_database_status` или `dev_run_database_check`; они не
 принимают profile, instance, SQL или произвольный путь.

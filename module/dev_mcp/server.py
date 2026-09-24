@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import json
 import logging
 import sys
@@ -28,7 +29,7 @@ from module.dev_mcp.contract import (
     DEV_MCP_SERVER_NAME,
     DEV_MCP_SERVER_VERSION,
 )
-from module.dev_runtime.smoke import SmokeSpec
+from module.dev_runtime.smoke import SMOKE_SYNC_MAX_SECONDS, SmokeSpec
 
 SERVER_NAME = DEV_MCP_SERVER_NAME
 SERVER_VERSION = DEV_MCP_SERVER_VERSION
@@ -94,6 +95,11 @@ _TIMELINE_INPUT = {
     "additionalProperties": False,
 }
 _SMOKE_INPUT = SmokeSpec.model_json_schema()
+_BOUNDED_SMOKE_INPUT = copy.deepcopy(_SMOKE_INPUT)
+_BOUNDED_SMOKE_INPUT["allOf"] = [
+    {"properties": {"timeout_seconds": {"maximum": SMOKE_SYNC_MAX_SECONDS}}},
+    {"properties": {"visual_assertions": {"maxItems": 0}}},
+]
 _SMOKE_ID_INPUT = {
     "type": "object",
     "properties": {
@@ -145,21 +151,6 @@ _GAME_OBSERVATION_INPUT = {
         },
     },
     "required": ["capability_id"],
-    "additionalProperties": False,
-}
-_SMOKE_CHECKPOINT_INPUT = {
-    "type": "object",
-    "properties": {
-        "smoke_id": _SMOKE_ID_INPUT["properties"]["smoke_id"],
-        "checkpoint_id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
-            "not": {"enum": ["before", "final"]},
-        },
-    },
-    "required": ["smoke_id", "checkpoint_id"],
     "additionalProperties": False,
 }
 _SMOKE_OBSERVATIONS_INPUT = {
@@ -306,14 +297,22 @@ def tool_definitions() -> list[Tool]:
         "dev_get_screenshot": "Получить текущий кадр активной DevSession как вложение изображения MCP.",
         "dev_list_smoke_capabilities": "Получить реестр поддерживаемых возможностей SmokeSpec только для чтения.",
         "dev_validate_smoke": "Проверить строгий SmokeSpec и предварительные условия без создания SmokeRun.",
-        "dev_start_smoke": "Выполнить обычный Smoke до terminal typed result; долгий или интерактивный сценарий вернёт отдельный operator run.",
+        "dev_start_smoke": (
+            "Асинхронно запустить SmokeRun и вернуть DEV_SMOKE_STARTED с smoke_id. "
+            "Получайте ход выполнения через dev_get_smoke; для visual_assertions "
+            "используйте dev_get_smoke_evaluation и dev_submit_smoke_evaluation."
+        ),
+        "dev_run_smoke": (
+            "Выполнить ограниченный Smoke и вернуть terminal typed result после очистки. "
+            f"timeout_seconds не может превышать {SMOKE_SYNC_MAX_SECONDS:g} секунд; "
+            "visual_assertions не поддерживаются."
+        ),
         "dev_get_smoke": "Получить ограниченные состояние, ход выполнения, утверждения и сводку целостности SmokeRun.",
         "dev_cancel_smoke": "Сохранить проверенный запрос отмены для конкретного SmokeRun и его supervisor.",
         "dev_get_smoke_evaluation": "Получить замороженную визуальную рубрику и точный сохранённый снимок экрана для внешней оценки.",
         "dev_submit_smoke_evaluation": "Добавить один неизменяемый внешний вердикт к ожидающему SmokeRun.",
         "dev_list_game_observation_capabilities": "Получить каталог game observation capabilities, привязанных к target, только для чтения.",
         "dev_get_game_observation": "Получить ограниченное типизированное observation назначенного game target через application bridge.",
-        "dev_capture_smoke_game_checkpoint": "Вручную сохранить объявленный game checkpoint для диагностики SmokeRun.",
         "dev_get_smoke_game_observations": "Получить ограниченные game observations конкретного SmokeRun и проверить их полноту.",
         "dev_get_database_status": "Получить сводку фиксированной developer-only диагностики PostgreSQL.",
         "dev_list_database_checks": "Получить каталог разрешённых read-only проверок PostgreSQL.",
@@ -339,20 +338,20 @@ def tool_definitions() -> list[Tool]:
         "dev_get_timeline": _TIMELINE_INPUT,
         "dev_validate_smoke": _SMOKE_INPUT,
         "dev_start_smoke": _SMOKE_INPUT,
+        "dev_run_smoke": _BOUNDED_SMOKE_INPUT,
         "dev_get_smoke": _SMOKE_ID_INPUT,
         "dev_cancel_smoke": _SMOKE_ID_INPUT,
         "dev_get_smoke_evaluation": _SMOKE_ID_INPUT,
         "dev_submit_smoke_evaluation": _SMOKE_EVALUATION_INPUT,
         "dev_get_game_observation": _GAME_OBSERVATION_INPUT,
-        "dev_capture_smoke_game_checkpoint": _SMOKE_CHECKPOINT_INPUT,
         "dev_get_smoke_game_observations": _SMOKE_OBSERVATIONS_INPUT,
         "dev_get_database_status": _SESSION_INPUT,
         "dev_run_database_check": _DATABASE_CHECK_INPUT,
         "dev_preview_database_repair": _DATABASE_REPAIR_INPUT,
         "dev_get_control_operation": _CONTROL_ID_INPUT,
     }
-    mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover", "dev_cancel_smoke", "dev_start_smoke"}
-    additive = {"dev_get_evidence", "dev_get_screenshot", "dev_submit_smoke_evaluation", "dev_capture_smoke_game_checkpoint"}
+    mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover", "dev_cancel_smoke", "dev_start_smoke", "dev_run_smoke"}
+    additive = {"dev_get_evidence", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
     control_annotations = {
         "dev_start_game": _CONTROL_START,
         "dev_start_emulator": _CONTROL_START,

@@ -88,9 +88,10 @@ from module.dev_runtime.task_sandbox import (
     write_profile_payload,
 )
 
-SMOKE_SCHEMA_VERSION = 3
+SMOKE_SCHEMA_VERSION = 4
 SMOKE_STATE_SCHEMA_VERSION = 2
 _LEGACY_SMOKE_SCHEMA_VERSIONS = frozenset({1, 2})
+_LEGACY_SMOKE_SPEC_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 _LEGACY_SMOKE_CAPABILITY_IDS = frozenset(
     {
         "session_log_contains_literal",
@@ -643,7 +644,7 @@ class SmokeGameObservationRequest(_StrictModel):
 
 class SmokeGameCheckpoint(_StrictModel):
     checkpoint_id: str = Field(min_length=1, max_length=128)
-    capture_condition: VisualCaptureCondition | None = None
+    capture_condition: VisualCaptureCondition
     observations: list[SmokeGameObservationRequest] = Field(
         min_length=1,
         max_length=SMOKE_MAX_GAME_OBSERVATIONS,
@@ -1332,7 +1333,8 @@ def _drop_legacy_file_log_assertions(payload: Mapping[str, object]) -> dict[str,
 
 def _normalize_legacy_spec_payload(payload: Mapping[str, object]) -> dict[str, object]:
     normalized = dict(payload)
-    if normalized.get("schema_version") == 1:
+    source_version = normalized.get("schema_version")
+    if source_version == 1:
         raw_assertions = normalized.get("assertions")
         if isinstance(raw_assertions, list):
             normalized["assertions"] = [
@@ -1343,6 +1345,21 @@ def _normalize_legacy_spec_payload(payload: Mapping[str, object]) -> dict[str, o
                     and item.get("capability_id") in _LEGACY_SMOKE_CAPABILITY_IDS
                 )
             ]
+    elif source_version == 3:
+        game_observations = normalized.get("game_observations")
+        if isinstance(game_observations, Mapping):
+            checkpoints = game_observations.get("checkpoints")
+            if isinstance(checkpoints, list):
+                normalized_game_observations = dict(game_observations)
+                normalized_game_observations["checkpoints"] = [
+                    checkpoint
+                    for checkpoint in checkpoints
+                    if not (
+                        isinstance(checkpoint, Mapping)
+                        and checkpoint.get("capture_condition") is None
+                    )
+                ]
+                normalized["game_observations"] = normalized_game_observations
     normalized["schema_version"] = SMOKE_SCHEMA_VERSION
     return normalized
 
@@ -2484,13 +2501,14 @@ class SmokeStateStore:
         corrupt_code: str,
         unsupported_code: str,
         label: str,
+        legacy_versions: frozenset[int] = _LEGACY_SMOKE_SCHEMA_VERSIONS,
     ) -> tuple[Mapping[str, object], bool]:
         if not isinstance(payload, Mapping) or type(payload.get("schema_version")) is not int:
             raise SmokeStoreError(corrupt_code, f"{label} не содержит целочисленную schema_version")
         version = payload["schema_version"]
         if version == current_version:
             return payload, False
-        if version in _LEGACY_SMOKE_SCHEMA_VERSIONS:
+        if version in legacy_versions:
             return payload, True
         if version > current_version:
             raise SmokeStoreError(
@@ -2617,6 +2635,7 @@ class SmokeStateStore:
                 corrupt_code="DEV_SMOKE_SPEC_CORRUPT",
                 unsupported_code="DEV_SMOKE_SPEC_UNSUPPORTED",
                 label="SmokeSpec",
+                legacy_versions=_LEGACY_SMOKE_SPEC_SCHEMA_VERSIONS,
             )
             normalized = _normalize_legacy_spec_payload(payload) if legacy else payload
             try:
@@ -3080,14 +3099,6 @@ class SmokeRunManager:
         try:
             self.capabilities.validate_spec(spec)
             if spec.game_observations is not None:
-                for checkpoint in spec.game_observations.checkpoints:
-                    if checkpoint.capture_condition is None:
-                        issues.append(
-                            SmokeValidationIssue(
-                                code="DEV_SMOKE_CHECKPOINT_TRIGGER_REQUIRED",
-        message="Для каждого промежуточного снимка игры нужно условие автоматического захвата",
-                            )
-                        )
                 try:
                     bridge = self._get_game_bridge()
                 except GameObservationError as exc:
@@ -3396,9 +3407,22 @@ class SmokeRunManager:
                 state=SmokeState.FINISHED.value,
             )
         if float(parsed.timeout_seconds) > SMOKE_SYNC_MAX_SECONDS:
-            return self.start_smoke(parsed)
+            return self._result(
+                ok=False,
+                code="DEV_SMOKE_SPEC_UNSUPPORTED",
+                message=(
+                    "dev_run_smoke принимает ограничение timeout_seconds не более "
+                    f"{SMOKE_SYNC_MAX_SECONDS:g} секунд"
+                ),
+                state=SmokeState.FINISHED.value,
+            )
         if parsed.visual_assertions:
-            return self.start_smoke(parsed)
+            return self._result(
+                ok=False,
+                code="DEV_SMOKE_SPEC_UNSUPPORTED",
+                message="dev_run_smoke не поддерживает visual_assertions",
+                state=SmokeState.FINISHED.value,
+            )
         started = self._start_smoke(parsed, launch_supervisor=False)
         if not started.ok:
             return started
@@ -3969,7 +3993,6 @@ class SmokeRunManager:
             condition = checkpoint.capture_condition
             if (
                 checkpoint.checkpoint_id in captured
-                or condition is None
                 or not self._condition_observed(condition, timeline)
             ):
                 continue

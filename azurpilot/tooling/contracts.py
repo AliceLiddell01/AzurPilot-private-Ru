@@ -106,6 +106,9 @@ class WarningCode(StrEnum):
     TOOLING_BROWSER_NOT_OPENED = "TOOLING_BROWSER_NOT_OPENED"
     TOOLING_OUTPUT_TRUNCATED = "TOOLING_OUTPUT_TRUNCATED"
     TOOLING_LEGACY_COMPATIBILITY = "TOOLING_LEGACY_COMPATIBILITY"
+    TOOLING_DELIVERY_JOURNAL_CLEANUP_FAILED = (
+        "TOOLING_DELIVERY_JOURNAL_CLEANUP_FAILED"
+    )
 
 
 class ClosedModel(BaseModel):
@@ -1174,6 +1177,20 @@ class McpReconcileDetails(ClosedModel):
     reload_required: bool = False
 
 
+class McpSyncDetails(ClosedModel):
+    """Итог синхронизации MCP-исходников, runtime и клиента с учётом base."""
+
+    action: Literal["sync"] = "sync"
+    terminal: Literal["NO_CHANGES", "SYNCED", "FAILED"]
+    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    impact: McpImpactDetails
+    changed_components: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+    affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    generated_artifacts: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
+    runtime: McpReconcileDetails | None = None
+    acceptance: McpAcceptanceDetails | None = None
+
+
 class UpdateEvidence(ClosedModel):
     repository: RepositoryRootEvidence
     pre_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
@@ -1285,6 +1302,7 @@ __all__ = [
     "McpReconcileDetails",
     "McpServerStatus",
     "McpStatusDetails",
+    "McpSyncDetails",
     "McpVersionDetails",
     "OperationState",
     "PostgreSqlBackupEvidence",

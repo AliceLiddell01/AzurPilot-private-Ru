@@ -17,7 +17,7 @@
 | Типизированная модель результата | `azurpilot.tooling.contracts` | закрытые модели Pydantic, стабильные result/state/reason codes, ограниченные evidence |
 | Примитивы репозитория/процессов | `azurpilot.tooling` | точная identity, подтверждённое владение path/process, ограниченные операции, fail-closed при неоднозначности |
 | Lifecycle/build/repair/update | соответствующие сервисы в `azurpilot.tooling` | CLI является adapter; платформенно-зависимое поведение не размножается в renderer |
-| Git delivery | `azurpilot.tooling.delivery` | типизированный manifest, exact refs, allowlist, journal, обычный push/read-back |
+| Git delivery | `azurpilot.tooling.delivery` | in-memory typed intent, exact refs, allowlist, journal, обычный push/read-back |
 | Публикация pull request | `azurpilot.tooling.pull_request` | типизированный PR spec/body, явная identity провайдера, draft/read-back contract |
 | Внешние интеграции | `azurpilot.integrations` | прямые типизированные adapters, ограниченная граница credentials/evidence |
 | MCP status/compatibility | tooling + существующие MCP contract gates | состояние source не выдаётся за фактическую регистрацию клиента |
@@ -78,18 +78,19 @@ PowerShell/cmd wrapper являются обходом operator path и запр
 
 Граница delivery публикует только доказанное состояние Git.
 
-Типизированный manifest/spec содержит необходимую identity:
-
-- repository;
-- expected branch/local head;
-- base SHA;
-- remote/ref;
-- intended paths/changes;
-- preimage/postimage и operation intent там, где они нужны.
+Normal path — `azur delivery publish --message <commit-message>` с
+необязательным explicit `--path`. Сервис сам строит закрытый in-memory
+`DeliveryManifest` из exact repository, branch/head, опубликованного base и
+remote refs, candidate paths и preimage/postimage. Внешний JSON-файл является
+только диагностическим input для `delivery validate`, а не prerequisite
+публикации. Transaction journal живёт в repository state area только пока
+требуется recovery и удаляется после подтверждённого push, в том числе после
+read-only recovery неоднозначного ответа.
 
 Правила публикации:
 
-- staged allowlist обязателен; `git add .` как скрытый fallback запрещён;
+- staged allowlist строится из exact candidate snapshot; `git add .` как скрытый
+  fallback запрещён;
 - force/force-with-lease и destructive cleanup не используются;
 - push обычный и проверяется exact remote SHA;
 - unknown/timeout mutation сохраняется во внешнем journal как неоднозначное
@@ -101,6 +102,8 @@ PowerShell/cmd wrapper являются обходом operator path и запр
 - если stacked parent local HEAD отличается от parent remote HEAD, typed delivery
   возвращает `TOOLING_STACKED_PARENT_UNPUBLISHED` и ждёт canonical publication
   parent branch; вспомогательный remote ref не создаётся.
+- по умолчанию все changed candidate paths входят в один task commit, включая
+  актуальные generated MCP artifacts; отдельное MCP-only staging/commit не нужно.
 
 Git lifecycle, ветки и разрешение merge принадлежат
 `.codex/context/GIT-WORKFLOW.md`, а не этому документу.
@@ -237,23 +240,15 @@ MCP diagnostics должны различать:
 Нельзя объявлять effective registration «готовой» только потому, что
 `.codex/config.toml` корректен.
 
-Для изменений MCP следуй короткому порядку штатных команд:
-
-1. `azur mcp impact --base <exact-base-sha>` определяет влияние фактического diff.
-2. Только при `REQUIRED` выполни `azur mcp reconcile --source --bump auto`.
-3. Если нужна проверка через новый клиент, вызови `azur mcp accept`; команда сама
-   создаёт сессию и проверяет контракт, каталог и доступность запросов только для чтения.
-4. Читай `azur mcp status` только для отдельной проверки состояния среды выполнения
-   или после типизированной ошибки среды выполнения.
-
-`source_reconciled` и `runtime_ready=true` — разные факты. Если отдельный
-проверка состояния среды выполнения обязательна и `status` возвращает `stale`/`stopped`, выполни
-одну типизированную попытку восстановления командой `azur mcp reconcile` без `--source`; для восстановления
-устаревшего состояния в том же репозитории нужны сохранённые точные идентификаторы, неизменившаяся метка и
-состояние `STOPPED/no-conflict`. Само по себе `session_state=not_observable` не означает
-ошибку среды выполнения. Не запускай внутренние модули MCP, управляющие сценарии или
-фрагменты с `FreshMcpClientPlan`. Проверка фактической регистрации Codex/plugin выполняется отдельно
-и нужна только при изменении этой границы.
+После заморозки relevant source-set один `azur mcp sync --base
+<exact-base-sha>` определяет effective impact и возвращает terminal
+`NO_CHANGES` или `SYNCED`. При impact операция пересчитывает compatibility от
+exact base и candidate, записывает canonical/generated bundle, восстанавливает
+только owned stale runtime, подтверждает readiness и запускает fresh-client
+acceptance. Внешняя текущая Codex session не является postcondition и hot reload
+не предполагается. `impact`, `status`, `reconcile`, `start`, `stop`, `restart`
+и `accept` остаются diagnostic/admin capabilities; не собирай из них normal
+state machine. Любое изменение MCP source-set требует нового sync.
 
 Для необязательной проверки регистрации Codex используй [единый контракт продолжения между задачами](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md); она не заменяет обязательную проверку нового клиента MCP.
 
@@ -322,7 +317,14 @@ Tooling не должен:
   действительно входит в scope.
 
 Для MCP source/compatibility изменений дополнительно применяется существующий
-MCP compatibility gate и generated metadata verification.
+MCP compatibility gate и generated metadata verification. `azur mcp sync --base`
+завершает этот цикл одним terminal result: `NO_CHANGES` или `SYNCED`; успешный
+`SYNCED` подтверждает `source_reconciled`, `runtime_ready` и fresh-client
+acceptance. Синхронизация проверяет только доступный owned runtime и не заявляет,
+что текущая внешняя session перечитала plugin snapshot. В pipeline `sync` fresh
+client запускается на modified candidate, а совпадение MCP source-set digests
+проверяется до и после acceptance; отдельный `azur mcp accept` остаётся
+fail-closed на dirty checkout.
 
 Для Windows tooling change запускаются Python CLI/lifecycle/shortcut/update/
 repair/build checks. PowerShell остаётся только runner glue и не является

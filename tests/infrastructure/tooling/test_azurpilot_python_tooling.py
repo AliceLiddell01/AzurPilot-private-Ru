@@ -645,7 +645,7 @@ def test_cli_reconcile_rejects_bump_without_source() -> None:
     assert stderr.getvalue() == ""
 
 
-def test_cli_has_one_typed_mcp_runtime_reconcile_route() -> None:
+def test_cli_exposes_mcp_sync_and_retains_diagnostic_reconcile_routes() -> None:
     parser = build_parser()
 
     runtime = parser.parse_args(["mcp", "reconcile"])
@@ -663,6 +663,11 @@ def test_cli_has_one_typed_mcp_runtime_reconcile_route() -> None:
     accept = parser.parse_args(["mcp", "accept"])
     assert accept.mcp_command == "accept"
 
+    sync = parser.parse_args(["mcp", "sync", "--base", "a" * 40, "--json"])
+    assert sync.mcp_command == "sync"
+    assert sync.base == "a" * 40
+    assert sync.json is True
+
     state = parser.parse_args(
         ["app", "state", "commission/recovery", "--profile", "ap"]
     )
@@ -672,6 +677,44 @@ def test_cli_has_one_typed_mcp_runtime_reconcile_route() -> None:
 
     with pytest.raises(CliInvocationError):
         parser.parse_args(["mcp", "reconcile", "--runtime"])
+
+
+def test_cli_routes_mcp_sync_to_canonical_service() -> None:
+    class McpStub:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def sync(self, root: str, *, base_commit: str) -> ToolingResult:
+            self.calls.append((root, base_commit))
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="MCP sync завершён.",
+            )
+
+    mcp = McpStub()
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = main(
+        [
+            "--repository-root",
+            str(REPOSITORY_ROOT),
+            "--json",
+            "mcp",
+            "sync",
+            "--base",
+            "a" * 40,
+        ],
+        services=SimpleNamespace(mcp=mcp),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert mcp.calls == [(str(REPOSITORY_ROOT), "a" * 40)]
+    assert json.loads(stdout.getvalue())["code"] == ResultCode.OK.value
+    assert stderr.getvalue() == ""
 
 
 def test_cli_routes_mcp_accept_to_canonical_service() -> None:
@@ -724,10 +767,10 @@ def test_cli_routes_mcp_accept_to_canonical_service() -> None:
 def test_mcp_accept_uses_repository_owned_fresh_client(monkeypatch: pytest.MonkeyPatch) -> None:
     from dev_tools import mcp_acceptance
 
-    calls: list[Path] = []
+    calls: list[tuple[Path, bool]] = []
 
-    async def accept(root: Path) -> object:
-        calls.append(root)
+    async def accept(root: Path, *, allow_dirty: bool = False) -> object:
+        calls.append((root, allow_dirty))
         return SimpleNamespace(
             state=IntegrationState.READY,
             reason_code="MCP_FRESH_CLIENT_READY",
@@ -745,15 +788,18 @@ def test_mcp_accept_uses_repository_owned_fresh_client(monkeypatch: pytest.Monke
         )
 
     monkeypatch.setattr(mcp_acceptance, "accept", accept)
-    result = tooling_mcp.McpService().accept(REPOSITORY_ROOT)
+    service = tooling_mcp.McpService()
+    result = service.accept(REPOSITORY_ROOT)
+    dirty_result = service.accept(REPOSITORY_ROOT, allow_dirty=True)
 
     assert result.ok is True
+    assert dirty_result.ok is True
     assert result.details.acceptance_state == "READY"
     assert result.details.called_tools == (
         "dev_get_contract",
         "dev_list_smoke_capabilities",
     )
-    assert calls == [REPOSITORY_ROOT]
+    assert calls == [(REPOSITORY_ROOT, False), (REPOSITORY_ROOT, True)]
 
 
 def test_application_state_query_reads_store_without_webui(

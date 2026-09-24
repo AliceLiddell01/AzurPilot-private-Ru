@@ -311,10 +311,26 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_options(delivery_validate, suppress_defaults=True)
     delivery_validate.add_argument("manifest", metavar="MANIFEST")
     delivery_publish = delivery_subparsers.add_parser(
-        "publish", help="staged scan, commit, scoped scan и ordinary push"
+        "publish", help="собрать текущий Git candidate, проверить, commit и ordinary push"
     )
     _add_common_options(delivery_publish, suppress_defaults=True)
-    delivery_publish.add_argument("manifest", metavar="MANIFEST")
+    delivery_publish.add_argument(
+        "--message", required=True, help="сообщение коммита"
+    )
+    delivery_publish.add_argument(
+        "--path",
+        action="append",
+        dest="paths",
+        help=(
+            "путь относительно репозитория; по умолчанию используются все "
+            "изменённые пути кандидата"
+        ),
+    )
+    delivery_publish.add_argument(
+        "--base-branch",
+        default="personal/stable",
+        help="опубликованная base branch (по умолчанию personal/stable)",
+    )
     for action in ("status", "recover"):
         delivery_status = delivery_subparsers.add_parser(
             action,
@@ -374,6 +390,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common_options(impact, suppress_defaults=True)
     impact.add_argument("--base", required=True, help="exact base SHA")
+    sync = mcp_subparsers.add_parser(
+        "sync", help="завершить MCP source, owned runtime и fresh-client acceptance"
+    )
+    _add_common_options(sync, suppress_defaults=True)
+    sync.add_argument("--base", required=True, help="exact base SHA candidate")
     reconcile = mcp_subparsers.add_parser(
         "reconcile", help="согласовать source bundle или owned runtime"
     )
@@ -1126,7 +1147,12 @@ def _dispatch(
         if args.delivery_command == "validate":
             return services.delivery.validate(args.manifest, root)
         if args.delivery_command == "publish":
-            return services.delivery.publish(args.manifest, root)
+            return services.delivery.publish(
+                args.message,
+                root,
+                paths=args.paths,
+                base_branch=args.base_branch,
+            )
         if args.delivery_command == "status":
             return services.delivery.status(args.operation_id, root)
         if args.delivery_command == "recover":
@@ -1141,6 +1167,8 @@ def _dispatch(
     if command == "mcp":
         if args.mcp_command == "impact":
             return services.mcp.impact(root, base_commit=args.base)
+        if args.mcp_command == "sync":
+            return services.mcp.sync(root, base_commit=args.base)
         if args.mcp_command == "status":
             return services.mcp.status(root)
         if args.mcp_command == "versions":

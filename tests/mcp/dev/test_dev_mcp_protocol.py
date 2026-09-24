@@ -77,13 +77,13 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_list_smoke_capabilities",
         "dev_validate_smoke",
         "dev_start_smoke",
+        "dev_run_smoke",
         "dev_get_smoke",
         "dev_cancel_smoke",
         "dev_get_smoke_evaluation",
         "dev_submit_smoke_evaluation",
         "dev_list_game_observation_capabilities",
         "dev_get_game_observation",
-        "dev_capture_smoke_game_checkpoint",
         "dev_get_smoke_game_observations",
         "dev_get_database_status",
         "dev_list_database_checks",
@@ -111,8 +111,9 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_recover",
         "dev_cancel_smoke",
         "dev_start_smoke",
+        "dev_run_smoke",
     }
-    additive = {"dev_get_evidence", "dev_get_screenshot", "dev_submit_smoke_evaluation", "dev_capture_smoke_game_checkpoint"}
+    additive = {"dev_get_evidence", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
     control_start = {"dev_start_game", "dev_start_emulator"}
     control_stop = {"dev_stop_game", "dev_stop_emulator"}
     control_restart = {"dev_restart_game", "dev_restart_emulator", "dev_restart_adb"}
@@ -125,12 +126,12 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_get_timeline",
         "dev_validate_smoke",
         "dev_start_smoke",
+        "dev_run_smoke",
         "dev_get_smoke",
         "dev_cancel_smoke",
         "dev_get_smoke_evaluation",
         "dev_submit_smoke_evaluation",
         "dev_get_game_observation",
-        "dev_capture_smoke_game_checkpoint",
         "dev_get_smoke_game_observations",
         "dev_get_database_status",
         "dev_run_database_check",
@@ -190,8 +191,22 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
     assert game_schema["properties"]["parameters"]["maxProperties"] == 16
     assert game_schema["properties"]["parameters"]["additionalProperties"] is False
     assert game_schema["properties"]["parameters"]["patternProperties"]
-    checkpoint_schema = next(tool for tool in tools if tool.name == "dev_capture_smoke_game_checkpoint").input_schema
-    assert checkpoint_schema["properties"]["checkpoint_id"]["not"] == {"enum": ["before", "final"]}
+    assert "dev_capture_smoke_game_checkpoint" not in names
+    async_smoke = tools[names.index("dev_start_smoke")]
+    assert "DEV_SMOKE_STARTED" in async_smoke.description
+    assert "dev_get_smoke" in async_smoke.description
+    assert "dev_get_smoke_evaluation" in async_smoke.description
+    assert "allOf" not in async_smoke.input_schema
+    smoke_checkpoint = tools[names.index("dev_run_smoke")]
+    checkpoint_schema = smoke_checkpoint.input_schema["$defs"]["SmokeGameCheckpoint"]
+    assert "capture_condition" in checkpoint_schema["required"]
+    assert "terminal" in smoke_checkpoint.description
+    assert "300 секунд" in smoke_checkpoint.description
+    assert "visual_assertions не поддерживаются" in smoke_checkpoint.description
+    assert smoke_checkpoint.input_schema["allOf"] == [
+        {"properties": {"timeout_seconds": {"maximum": 300.0}}},
+        {"properties": {"visual_assertions": {"maxItems": 0}}},
+    ]
 
 
 def test_server_bootstrap_does_not_construct_runtime_manager() -> None:
@@ -380,6 +395,7 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=256 * 1024,
         )
         try:
             initialize = await _raw_request(

@@ -45,27 +45,23 @@ project trust и effective registration должны быть подтвержд
 | Troubleshooting | read-only evidence соответствующего direct route | direct local stdio | соответствующий `module.*_mcp` | none |
 | ChatGPT/public | отдельная remote surface | authenticated HTTPS/remote | соответствующий `module.*_mcp.remote` той же backend family | не является Codex fallback |
 
-Канонический project-owned operator lifecycle:
+Canonical developer synchronization после candidate freeze:
 
 ```text
-azur mcp status
-azur mcp reconcile --source --bump auto
-azur mcp status
-azur mcp reconcile
-azur mcp status
+azur mcp sync --base <exact-base-sha>
 ```
 
-`reconcile --source` означает только `source_reconciled`; live acceptance
-требует повторного `azur mcp status` с `runtime_ready=true`. Если status
-сообщает `runtime_state=stale` или `runtime_state=stopped`, единственный
-канонический runtime repair path — `azur mcp reconcile` без `--source`; для
-same-repository stale marker он использует recorded exact-identity cleanup,
-unchanged marker и STOPPED/no-conflict postcondition, затем запускает нужные
-services. Invalid/unknown/foreign ownership, port conflict или failure
-stop/start остаются fail-closed. Внутренние
-`module.*_mcp` и supervisor modules являются implementation details и напрямую
-не запускаются. Если `azur` отсутствует в PATH, workflow fail-closed; `uv run`,
-Python module entrypoint и shell wrapper не являются fallback.
+`NO_CHANGES` — terminal no-op; `SYNCED` включает source/version finalization от
+exact base, generated metadata, восстановление только доказанного owned stale
+runtime, readiness и fresh-client acceptance. После изменения MCP source-set
+повтори sync, который пересчитает версию от base и нового candidate. Unknown или
+foreign ownership, port conflict и failure readiness остаются fail-closed.
+Текущая внешняя Codex session не является postcondition; hot reload не
+предполагается. `impact`, `status`, `versions`, `reconcile`, `start`, `stop` и
+`restart` остаются admin/diagnostic capabilities. Внутренние `module.*_mcp` и
+supervisor modules напрямую не запускаются. Если `azur` отсутствует в PATH,
+workflow fail-closed; `uv run`, Python module entrypoint и shell wrapper не
+являются fallback.
 
 Codex Desktop aliases намеренно отличаются от protocol identities:
 `azurpilot_dev` → `http://127.0.0.1:8775/mcp` и
@@ -84,12 +80,12 @@ surface и не заменяют local stdio route.
 `config/mcp-versions.toml` — единственный source of truth для first-party
 server identity, API/contract schema, tool/capability fingerprints, source sets,
 plugin version и skill bundle revision. `plugins/azurpilot/compatibility.json`
-является производным snapshot. Проверка и безопасное согласование выполняются
-через `azur mcp status`, `azur mcp versions`, `azur mcp reconcile`,
-`azur mcp start`, `azur mcp stop` и `azur mcp restart`; runtime reconciliation
-не редактирует tracked source. Backend source sets — bounded explicit mapping
-реальных MCP application dependencies; management-only `azurpilot/tooling/mcp.py`
-не входит в runtime identity. При plugin/skill source drift `status` и
-`reconcile` возвращают `MCP_RELOAD_REQUIRED` с `reload_required=true`; hot reload
-не имитируется. Текущая целостность дополнительно проверяется против exact
-base SHA через `dev_tools.mcp_compatibility_gate`.
+является производным snapshot. Normal candidate synchronization выполняется
+через `azur mcp sync --base <exact-base-sha>`. Diagnostic/admin capabilities
+`azur mcp status`, `versions`, `impact`, `reconcile`, `start`, `stop` и
+`restart` остаются доступны; runtime reconcile не редактирует tracked source.
+Backend source sets — bounded explicit mapping реальных MCP application
+dependencies; management-only `azurpilot/tooling/mcp.py` не входит в runtime
+identity. Sync проверяет generated bundle и base-to-candidate compatibility до
+runtime acceptance. Session/plugin reload state остаётся диагностическим
+evidence и не отменяет readiness свежего клиента.

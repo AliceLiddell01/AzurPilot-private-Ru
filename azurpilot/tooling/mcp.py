@@ -47,6 +47,7 @@ from .contracts import (
     McpReconcileDetails,
     McpServerStatus,
     McpStatusDetails,
+    McpSyncDetails,
     McpVersionDetails,
     OperationState,
     ResultCode,
@@ -689,6 +690,7 @@ def _public_change_kind(
     existing_descriptors_unchanged = (
         set(old.tool_descriptor_hashes) == old_names
         and set(new.tool_descriptor_hashes) == new_names
+        and old_names <= new_names
         and all(
             old.tool_descriptor_hashes[name] == new.tool_descriptor_hashes[name]
             for name in old_names
@@ -754,6 +756,7 @@ def _base_public_change_kind(
     existing_descriptors_unchanged = (
         set(old.tool_descriptor_hashes) == old_names
         and set(new.tool_descriptor_hashes) == new_names
+        and old_names <= new_names
         and all(
             old.tool_descriptor_hashes[name] == new.tool_descriptor_hashes[name]
             for name in old_names
@@ -1026,18 +1029,35 @@ def _read_plugin_manifest(root: Path) -> dict[str, object]:
     return payload
 
 
-def _build_bundle(root: Path, requested_bump: str | None) -> _BundleBuild:
+def _build_bundle(
+    root: Path,
+    requested_bump: str | None,
+    *,
+    baseline: _McpBaseline | None = None,
+    base_commit: str | None = None,
+) -> _BundleBuild:
     digests = source_set_digests(root)
-    old_bundle = _current_bundle(root)
-    if old_bundle is None:
+    current_bundle = _current_bundle(root)
+    if current_bundle is None:
         raise ToolingError(
             ResultCode.MCP_SOURCE_BUNDLE_INVALID,
             "Canonical MCP bundle отсутствует или имеет неверную схему.",
         )
+    old_bundle = baseline.bundle if baseline and baseline.bundle else current_bundle
     old_servers = old_bundle.servers
     base_versions = {
-        name: server.version for name, server in old_servers.items()
+        name: baseline.versions[name] if baseline else server.version
+        for name, server in old_servers.items()
     }
+
+    legacy_changed_servers: set[str] = set()
+    if baseline is not None and baseline.bundle is None and base_commit is not None:
+        git = GitClient(root)
+        paths = set(git.changed_paths(base_commit, git.head()))
+        paths.update(_working_tree_paths(git))
+        legacy_changed_servers = set(
+            classify_source_changes(paths).affected_servers
+        )
 
     raw_models: dict[str, McpServerVersion] = {}
     contracts: dict[str, dict[str, object]] = {}
@@ -1052,13 +1072,32 @@ def _build_bundle(root: Path, requested_bump: str | None) -> _BundleBuild:
             source_digest=_server_source_digest(digests, name),
         )
 
-    kinds = {
-        name: _public_change_kind(old_servers.get(name), raw_models[name])
-        for name in MCP_SERVER_NAMES
-    }
+    kinds: dict[str, Literal["none", "patch", "minor", "major"]] = {}
+    for name in MCP_SERVER_NAMES:
+        if baseline is None:
+            kinds[name] = _public_change_kind(
+                current_bundle.servers.get(name), raw_models[name]
+            )
+        elif baseline.bundle is not None:
+            old_server = baseline.bundle.servers.get(name)
+            source_changed = old_server is not None and (
+                old_server.source_set_digest != raw_models[name].source_set_digest
+            )
+            kinds[name] = _base_public_change_kind(
+                old_server,
+                raw_models[name],
+                source_changed=source_changed,
+            )
+        else:
+            # В базе Schema v1 нет отпечатков публичного контракта. Сохраняем
+            # установленную консервативную политику: изменения исходников backend
+            # требуют patch, а повторная синхронизация снова начинается с exact base.
+            kinds[name] = "patch" if name in legacy_changed_servers else "none"
     required_major = tuple(name for name, kind in kinds.items() if kind == "major")
     requested = requested_bump or "auto"
-    if required_major and requested != "major":
+    if required_major and requested != "major" and not (
+        requested == "auto" and baseline is not None
+    ):
         raise ToolingError(
             ResultCode.MCP_VERSION_BUMP_REQUIRED,
             "Изменение MCP-контракта требует явного --bump major.",
@@ -1135,21 +1174,21 @@ def _build_bundle(root: Path, requested_bump: str | None) -> _BundleBuild:
     changed_components = tuple(
         name
         for name in SOURCE_SET_NAMES
-        if old_bundle.source_digests.get(name) != digests[name]
+        if current_bundle.source_digests.get(name) != digests[name]
     )
     affected = tuple(
         name
         for name in MCP_SERVER_NAMES
-        if old_bundle.servers[name].source_set_digest != final_models[name].source_set_digest
-        or old_bundle.servers[name].contract_revision != final_models[name].contract_revision
+        if current_bundle.servers[name].source_set_digest != final_models[name].source_set_digest
+        or current_bundle.servers[name].contract_revision != final_models[name].contract_revision
     )
     plugin_changed = (
-        old_bundle.source_digests.get("PLUGIN_BUNDLE_SOURCE_SET")
+        current_bundle.source_digests.get("PLUGIN_BUNDLE_SOURCE_SET")
         != digests["PLUGIN_BUNDLE_SOURCE_SET"]
-        or old_bundle.source_digests.get("SKILL_BUNDLE_SOURCE_SET")
+        or current_bundle.source_digests.get("SKILL_BUNDLE_SOURCE_SET")
         != digests["SKILL_BUNDLE_SOURCE_SET"]
     )
-    skill_changed = old_bundle.skill_bundle_revision != bundle.skill_bundle_revision
+    skill_changed = current_bundle.skill_bundle_revision != bundle.skill_bundle_revision
     plugin_payload = _read_plugin_manifest(root)
     plugin_payload["version"] = bundle.plugin_version
     plugin_manifest_text = json.dumps(plugin_payload, ensure_ascii=False, indent=2) + "\n"
@@ -1181,11 +1220,23 @@ def _server_bundle_payload(server: McpServerVersion) -> dict[str, object]:
 class McpSourceReconciler:
     """Генератор и fail-closed проверка производных MCP artifacts."""
 
-    def build(self, root: Path | str, *, requested_bump: str | None = None) -> _BundleBuild:
+    def build(
+        self,
+        root: Path | str,
+        *,
+        requested_bump: str | None = None,
+        base_commit: str | None = None,
+    ) -> _BundleBuild:
         resolved = Path(root).resolve()
         if requested_bump not in {None, "auto", "patch", "minor", "major"}:
             raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "Неизвестная политика MCP bump.")
-        return _build_bundle(resolved, requested_bump)
+        baseline = self._baseline(resolved, base_commit) if base_commit else None
+        return _build_bundle(
+            resolved,
+            requested_bump,
+            baseline=baseline,
+            base_commit=base_commit,
+        )
 
     def check(
         self, root: Path | str, *, build: _BundleBuild | None = None
@@ -1237,6 +1288,45 @@ class McpSourceReconciler:
                 ),
             )
         return build
+
+    def delivery_scope_dependencies(
+        self,
+        root: Path | str,
+        *,
+        selected_paths: Iterable[str | Path],
+        candidate_paths: Iterable[str | Path],
+    ) -> tuple[str, ...]:
+        """Закрыть MCP delivery scope всеми зависимыми source/artifact paths.
+
+        Generated metadata описывают весь MCP candidate. Если explicit scope
+        затрагивает MCP source set или generated artifact, сначала проверяем,
+        что bundle соответствует полному working-tree candidate, затем включаем
+        его изменённые MCP sources и производные artifacts в тот же commit.
+        Обычный non-MCP scope не расширяется.
+        """
+
+        def normalize(paths: Iterable[str | Path]) -> set[str]:
+            return {
+                Path(path).as_posix().removeprefix("./")
+                for path in paths
+                if str(path).strip()
+            }
+
+        selected = normalize(selected_paths)
+        candidates = normalize(candidate_paths)
+        generated = {path.as_posix() for path in MCP_GENERATED_ARTIFACTS}
+        selected_source = classify_source_changes(selected).changed_components
+        if not selected_source and not selected.intersection(generated):
+            return ()
+
+        candidate_sources = {
+            path
+            for path in candidates
+            if classify_source_changes((path,)).changed_components
+        }
+        candidate_generated = candidates.intersection(generated)
+        self.check(root)
+        return tuple(sorted((candidate_sources | candidate_generated) - selected))
 
     @staticmethod
     def _baseline(root: Path, base_commit: str) -> _McpBaseline:
@@ -1409,13 +1499,33 @@ class McpSourceReconciler:
             affected_servers=classification.affected_servers,
         )
 
-    def reconcile(self, root: Path | str, *, requested_bump: str | None = None) -> _BundleBuild:
+    def reconcile(
+        self,
+        root: Path | str,
+        *,
+        requested_bump: str | None = None,
+        base_commit: str | None = None,
+    ) -> _BundleBuild:
         resolved = Path(root).resolve()
-        build = self.build(resolved, requested_bump=requested_bump)
+        build = self.build(
+            resolved,
+            requested_bump=requested_bump,
+            base_commit=base_commit,
+        )
+        if source_set_digests(resolved) != dict(build.bundle.source_digests):
+            raise ToolingError(
+                ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
+                "MCP source-set изменился во время финализации candidate; повторите sync.",
+            )
         scoped = ScopedPath(resolved)
         scoped.atomic_write_text("config/mcp-versions.toml", build.manifest_text)
         scoped.atomic_write_text(PLUGIN_MANIFEST_PATH, build.plugin_manifest_text)
         scoped.atomic_write_text(PLUGIN_COMPATIBILITY_PATH, build.compatibility_text)
+        if source_set_digests(resolved) != dict(build.bundle.source_digests):
+            raise ToolingError(
+                ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
+                "MCP source-set изменился во время записи generated artifacts; повторите sync.",
+            )
         return build
 
 
@@ -1787,13 +1897,20 @@ class McpService:
             details=details,
         )
 
-    def accept(self, repository_root: str | Path | None = None) -> ToolingResult[McpAcceptanceDetails, McpLifecycleDetails]:
+    def accept(
+        self,
+        repository_root: str | Path | None = None,
+        *,
+        allow_dirty: bool = False,
+    ) -> ToolingResult[McpAcceptanceDetails, McpLifecycleDetails]:
         """Проверить MCP через новый клиент stdio и вернуть типизированный результат."""
 
         root = self._root(repository_root)
         from dev_tools.mcp_acceptance import accept as accept_fresh_mcp_client
 
-        result = asyncio.run(accept_fresh_mcp_client(root))
+        result = asyncio.run(
+            accept_fresh_mcp_client(root, allow_dirty=allow_dirty)
+        )
         state = str(result.state.value)
         details = McpAcceptanceDetails(
             acceptance_state=state,
@@ -1869,6 +1986,109 @@ class McpService:
                 else "Effective candidate diff не затрагивает MCP source sets."
             ),
             details=details,
+        )
+
+    def sync(
+        self,
+        repository_root: str | Path | None = None,
+        *,
+        base_commit: str,
+    ) -> ToolingResult[McpSyncDetails, McpLifecycleDetails]:
+        """Завершить MCP source, owned runtime и fresh-client acceptance одним вызовом."""
+
+        root = self._root(repository_root)
+        impact = _candidate_mcp_impact(root, base_commit=base_commit)
+        if not impact.reconciliation_required:
+            # Изменения только в generated artifacts нельзя считать NO_CHANGES,
+            # если они нарушили согласованность canonical source bundle.
+            self.source.check(root)
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="MCP impact отсутствует; синхронизация завершена без изменений.",
+                details=McpSyncDetails(
+                    terminal="NO_CHANGES",
+                    base_sha=base_commit,
+                    impact=impact,
+                ),
+            )
+
+        build = self.source.reconcile(
+            root,
+            requested_bump="auto",
+            base_commit=base_commit,
+        )
+        self.source.check(root, build=build)
+        self.source.check_base_to_head(root, base_commit=base_commit, build=build)
+
+        runtime = self.reconcile(root)
+        if not runtime.ok and not (
+            runtime.code is ResultCode.MCP_RELOAD_REQUIRED
+            and runtime.details.runtime_ready
+        ):
+            return ToolingResult(
+                ok=False,
+                code=runtime.code,
+                state=runtime.state,
+                message=runtime.message,
+                details=McpSyncDetails(
+                    terminal="FAILED",
+                    base_sha=base_commit,
+                    impact=impact,
+                    changed_components=impact.changed_components,
+                    affected_servers=impact.affected_servers,
+                    generated_artifacts=tuple(
+                        path.as_posix() for path in MCP_GENERATED_ARTIFACTS
+                    ),
+                    runtime=runtime.details,
+                ),
+            )
+
+        acceptance = self.accept(root, allow_dirty=True)
+        if not acceptance.ok:
+            return ToolingResult(
+                ok=False,
+                code=acceptance.code,
+                state=acceptance.state,
+                message=acceptance.message,
+                details=McpSyncDetails(
+                    terminal="FAILED",
+                    base_sha=base_commit,
+                    impact=impact,
+                    changed_components=impact.changed_components,
+                    affected_servers=impact.affected_servers,
+                    generated_artifacts=tuple(
+                        path.as_posix() for path in MCP_GENERATED_ARTIFACTS
+                    ),
+                    runtime=runtime.details,
+                    acceptance=acceptance.details,
+                ),
+            )
+
+        if source_set_digests(root) != dict(build.bundle.source_digests):
+            raise ToolingError(
+                ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
+                "MCP source-set изменился во время sync; acceptance не подтверждает текущий candidate.",
+            )
+        self.source.check(root, build=build)
+        return ToolingResult(
+            ok=True,
+            code=ResultCode.OK,
+            state=OperationState.READY,
+            message="MCP source, owned runtime и fresh-client acceptance подтверждены.",
+            details=McpSyncDetails(
+                terminal="SYNCED",
+                base_sha=base_commit,
+                impact=impact,
+                changed_components=impact.changed_components,
+                affected_servers=impact.affected_servers,
+                generated_artifacts=tuple(
+                    path.as_posix() for path in MCP_GENERATED_ARTIFACTS
+                ),
+                runtime=runtime.details,
+                acceptance=acceptance.details,
+            ),
         )
 
     @staticmethod

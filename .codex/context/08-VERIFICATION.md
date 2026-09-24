@@ -89,31 +89,16 @@ CodeRabbit, запускай только по явной команде пол�
 или отметки об ограничении. Если проверка запрошена, соответствующий навык описывает запуск,
 подтверждение точного коммита и разбор результатов; значимые замечания нужно устранить до готовности.
 
-Для MCP-изменений первым repository gate является effective candidate
-classification: `azur mcp impact --base <exact-base-sha>`. Команда должна
-учитывать committed base..HEAD и staged/unstaged/untracked candidate paths.
-При `REQUIRED` обязательны source reconciliation, generated artifact check и
-base-to-head compatibility check; изменение соответствующего source set после
-reconciliation инвалидирует прежнее evidence.
-
-После source reconciliation coordinator обязан прочитать `azur mcp status`.
-Если он сообщает `runtime_state=stale` или `runtime_state=stopped`, обязательна
-одна попытка typed repair через `azur mcp reconcile` без `--source` и повторный
-status. Только доказанный failure/ambiguous ownership, foreign port owner,
-ошибка stop/start или нарушенный postcondition оставляет live gate в
-`BLOCKED_PRECONDITION`; исходный stale/stopped status до этой попытки не является
-финальным blocker-ом. Same-repository `LOCAL_MCP_SUPERVISOR_STALE` допустимо
-восстанавливать только typed recorded-identity cleanup с unchanged marker и
-STOPPED/no-conflict postcondition; foreign/invalid/unknown ownership остаётся
-fail-closed. При `runtime_ready=true` и
-`session_state=not_observable` runtime gate не считается failed. При
-При `MCP impact=REQUIRED` используй `azur mcp accept`; команда сама запускает
-новую клиентскую сессию и выбирает штатные запросы только для чтения.
-
-`azur mcp accept` выполняет `initialize()`, согласование каталога,
-проверки контракта и версии, а также вызовы только для чтения. `azur mcp status`, снимок исходников
-или модульные тесты не закрывают эту проверку. Не создавай `FreshMcpClientPlan` во внешнем
-фрагменте кода на Python, если доступна штатная команда.
+После заморозки MCP-relevant candidate выполни один `azur mcp sync --base
+<exact-base-sha>`. Он сам классифицирует committed и working-tree изменения;
+`NO_CHANGES` — terminal no-op, а `SYNCED` подтверждает base-aware generated
+bundle, безопасное восстановление owned runtime и fresh-client acceptance.
+Не собирай normal gate из отдельных `impact`, `reconcile`, `status` и `accept`.
+Изменение MCP source-set инвалидирует предыдущий sync; повторный sync
+пересчитывает SemVer от exact base и текущего candidate. Foreign/unknown
+ownership, port conflict, ошибка stop/start или нарушенный postcondition
+остаются fail-closed. Состояние текущей внешней Codex session не является
+postcondition; hot reload не предполагается.
 
 Codex effective registration — отдельная необязательная integration check. Если
 изменение затрагивает Codex/plugin registration, client-visible tool schema или
@@ -146,6 +131,19 @@ Post-merge verification и cleanup являются отдельным этап�
 после подтверждённого merge. Перед ним нужно повторно проверить exact head,
 required CI, relevant diff и review blockers. Успешный CI или CodeRabbit сам по
 себе не является разрешением на merge.
+
+## Итерации и заморозка candidate
+
+При ошибке сначала повторяй конкретный failing test/node; после fix запускай
+только затронутую дешёвую проверку. Subsystem suite запускай один раз после
+стабилизации области, а полный relevant suite — один раз на замороженном
+candidate. Существенный code/config diff после него требует повторного gate;
+изменение только PR body/report не требует. При изменении текста команды,
+diagnostic или документа сначала обнови связанные literal/contract assertions.
+Для lint используй repository-defined canonical gate, а не bare `ruff check .`.
+Исследование можно остановить после определения owner, call path, ближайшего
+контракта/tests и root cause. Пока CI выполняется, заверши независимую проверку
+diff/report; не опрашивай CI часто, а при сбое сразу исследуй конкретный job.
 
 ## Типовая матрица
 
@@ -259,14 +257,17 @@ Production/network acceptance выполняется после реализац
 
 ## Git delivery и PR publication
 
-Для Git delivery обязателен typed closed-schema manifest с exact repository,
-expected branch/local HEAD, base SHA, remote ref, preimage/postimage и
-allowlist paths. Read-only `validate` не меняет checkout. Mutating `publish`
-добавляет только allowlist paths, подтверждает staged scope, выполняет scoped
-Gitleaks по index и exact committed range, создаёт commit с declared message,
-делает обычный explicit push без force/force-with-lease и после него проверяет
-exact remote SHA. Timeout или неизвестный push переводится в journal и
-read-only `recover`; blind retry запрещён.
+Normal publication — один вызов `azur delivery publish --message ...` с
+необязательными `--path` для явного scope. Tooling сам строит закрытый typed
+manifest в памяти из exact repository/base/head/remote и snapshot выбранных
+путей. Внешний JSON manifest и предварительный `validate MANIFEST` не нужны.
+Read-only `validate MANIFEST` остаётся диагностикой. Publish добавляет только
+зафиксированный allowlist, подтверждает staged scope, выполняет scoped Gitleaks
+по index и exact committed range, создаёт commit с заданным message, делает
+обычный explicit push без force/force-with-lease и после него проверяет exact
+remote SHA. Timeout или неизвестный push переводится в journal и read-only
+`recover`; blind retry запрещён. По умолчанию в один coherent commit входят все
+изменённые candidate paths, в том числе актуальные generated MCP artifacts.
 
 До staging сервис сохраняет candidate raw SHA/size postimage и его Git-clean
 blob representation, а после staging повторно сравнивает обе формы с manifest и
