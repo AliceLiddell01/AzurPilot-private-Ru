@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ from module.application.runtime_control import (
 from module.application.runtime_state import RuntimeStateStore
 from module.dev_runtime import (
     DevEnvironment,
+    DevRuntimeMode,
     DevSessionManager,
     DevSessionState,
     DevTarget,
@@ -152,6 +154,25 @@ def test_bot_runtime_status_distinguishes_missing_lifecycle_matcher(tmp_path: Pa
 
     assert status.ok is False
     assert status.code == "DEV_RUNTIME_MODE_MISMATCH"
+    assert "Bot Runtime manager" in status.message
+
+
+def test_bot_runtime_rejects_standalone_process_session_marker(tmp_path: Path) -> None:
+    manager, _runtime = _manager(tmp_path)
+    assert manager.start().ok is True
+    session = manager._read_session()
+    assert session is not None
+    manager._write_session(
+        replace(session, runtime_mode=DevRuntimeMode.STANDALONE_PROCESS)
+    )
+
+    status = manager.status()
+
+    assert status.ok is False
+    assert status.code == "DEV_RUNTIME_MODE_MISMATCH"
+    assert "Менеджер Dev Runtime" in status.message
+    assert "DevSession" in status.message
+    assert "standalone_process" in status.message
 
 
 def test_bot_runtime_failure_preserves_worker_identity_when_stop_is_unconfirmed(

@@ -330,7 +330,7 @@ class DevDiagnosticsMixin:
                 session,
                 ok=False,
                 code="DEV_RUNTIME_MODE_MISMATCH",
-                message="WebUI обнаружил маркер с неподдерживаемым режимом автономного runtime",
+                message="Менеджер Dev Runtime обнаружил маркер DevSession с неподдерживаемым режимом standalone_process",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
         else:
@@ -402,7 +402,7 @@ class DevDiagnosticsMixin:
                         session.session_id,
                     )
             elif self._bot_runtime_enabled():
-                ready, reason = False, "WebUI обнаружил маркер с неподдерживаемым режимом автономного runtime"
+                ready, reason = False, "Менеджер Dev Runtime обнаружил маркер DevSession с неподдерживаемым режимом standalone_process"
             else:
                 ready, reason = self.readiness_probe(session_environment, identity)
             if not ready:

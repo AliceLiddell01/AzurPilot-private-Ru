@@ -265,6 +265,46 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
     assert adapter.read_tail("ap", 1) == ("<<< Run task Main >>>\n",)
 
 
+@pytest.mark.parametrize("failure_type", (OSError, ValueError))
+def test_legacy_log_adapter_falls_back_when_runtime_projection_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_type: type[Exception],
+) -> None:
+    from module.application import runtime_log_projection
+
+    log_root = tmp_path / "log"
+    log_root.mkdir()
+    (log_root / "ap.txt").write_text("legacy line\n", encoding="utf-8")
+    adapter = LegacyRuntimeLogAdapter(log_root)
+
+    def fail_projection(*_args, **_kwargs):
+        raise failure_type("projection unavailable")
+
+    monkeypatch.setattr(runtime_log_projection, "read_runtime_log_tail", fail_projection)
+
+    assert adapter.read_tail("ap", 1) == ("legacy line\n",)
+
+
+def test_legacy_log_adapter_prefers_nonempty_runtime_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.application import runtime_log_projection
+
+    log_root = tmp_path / "log"
+    log_root.mkdir()
+    (log_root / "ap.txt").write_text("legacy line\n", encoding="utf-8")
+    adapter = LegacyRuntimeLogAdapter(log_root)
+    monkeypatch.setattr(
+        runtime_log_projection,
+        "read_runtime_log_tail",
+        lambda *_args, **_kwargs: ("runtime projection\n",),
+    )
+
+    assert adapter.read_tail("ap", 1) == ("runtime projection\n",)
+
+
 def test_legacy_log_adapter_reads_latest_incident_fallback(tmp_path: Path):
     incident_root = tmp_path / "log" / "error" / "ap"
     first = incident_root / "2026-08-31_00-00-00.000_RuntimeError"

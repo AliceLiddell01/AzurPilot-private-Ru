@@ -108,6 +108,12 @@ class BotRuntimeOwner:
     def wait_for_shutdown(self) -> None:
         self._shutdown_ready.wait()
 
+    def _run_configured_profile_start_in_background(self) -> None:
+        try:
+            self.start_configured_profiles()
+        except Exception:
+            logger.exception("Не удалось выполнить фоновый запуск профилей Bot Runtime")
+
     def _queue_configured_profile_start(self) -> None:
         with self._autostart_lock:
             if self._shutdown_requested.is_set():
@@ -115,7 +121,7 @@ class BotRuntimeOwner:
             if self._autostart_thread is not None and self._autostart_thread.is_alive():
                 return
             thread = threading.Thread(
-                target=self.start_configured_profiles,
+                target=self._run_configured_profile_start_in_background,
                 name="bot-runtime-configured-profile-start",
                 daemon=True,
             )

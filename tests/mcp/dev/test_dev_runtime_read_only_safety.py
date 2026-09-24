@@ -142,6 +142,15 @@ def test_doctor_reads_legacy_worker_registry_without_migration_or_lock_files(
 
     assert result.details["read_only"] is True
     assert legacy.read_bytes() == expected
+    canonical = (
+        manager.environment.repository_root
+        / "config"
+        / "state"
+        / "bot-runtime"
+        / "workers.json"
+    )
+    assert not canonical.exists()
+    assert not canonical.with_suffix(".json.lock").exists()
     assert not (manager.environment.repository_root / "cache" / "webui-workers.json").exists()
     assert not (manager.environment.repository_root / "cache" / "webui-workers.json.lock").exists()
     assert not (manager.environment.repository_root / "config" / "webui-workers.json.lock").exists()

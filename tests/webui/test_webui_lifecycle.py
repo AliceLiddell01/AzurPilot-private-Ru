@@ -162,6 +162,35 @@ class TestWebUILifecycle(unittest.TestCase):
         start_configured_profiles.assert_not_called()
         start_tasks.assert_called_once_with()
 
+    def test_startup_rejects_invalid_autostart_before_runtime_initialization(self):
+        state = SimpleNamespace(init=Mock())
+        with (
+            patch.object(app_lifecycle, "State", state),
+            patch(
+                "module.persistence.runtime.bootstrap_runtime_storage"
+            ) as bootstrap,
+            patch(
+                "deploy.language_migration.migrate_deploy_language"
+            ) as migrate_language,
+            patch.object(
+                app_lifecycle.BotRuntimeClient,
+                "start_configured_profiles",
+            ) as start_configured_profiles,
+            patch.object(app_lifecycle.task_handler, "start") as start_tasks,
+            patch.dict(
+                app_lifecycle.os.environ,
+                {app_lifecycle._AUTOSTART_CONFIGURED_PROFILES_ENV: "true"},
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "должен иметь значение"):
+                app_lifecycle.startup()
+
+        bootstrap.assert_not_called()
+        migrate_language.assert_not_called()
+        state.init.assert_not_called()
+        start_configured_profiles.assert_not_called()
+        start_tasks.assert_not_called()
+
 
 class TestWebUIState(unittest.TestCase):
     def setUp(self):

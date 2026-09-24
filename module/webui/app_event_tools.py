@@ -19,6 +19,8 @@ from module.webui.app_types import WebUIMixinBase
 
 class _RenderableLogSource(Protocol):
     renderables: list[object]
+    renderables_max_length: int
+    renderables_reduce_length: int
     renderables_total: int
 
 

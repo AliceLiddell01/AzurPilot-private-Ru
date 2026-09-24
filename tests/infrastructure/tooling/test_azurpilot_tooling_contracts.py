@@ -539,6 +539,34 @@ def test_bot_and_webui_lifecycle_commands_route_to_separate_services(
         assert tuple(calls) == expected
 
 
+def test_webui_start_aliases_share_options_and_help(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = build_parser()
+    legacy_default = parser.parse_args(["start"])
+    webui_default = parser.parse_args(["webui", "start"])
+    assert legacy_default.timeout == webui_default.timeout == 60.0
+    assert getattr(legacy_default, "browser", False) == getattr(webui_default, "browser", False)
+    assert legacy_default.foreground is webui_default.foreground is False
+
+    legacy_explicit = parser.parse_args(
+        ["start", "--timeout", "12", "--browser", "--foreground"]
+    )
+    webui_explicit = parser.parse_args(
+        ["webui", "start", "--timeout", "12", "--browser", "--foreground"]
+    )
+    assert legacy_explicit.timeout == webui_explicit.timeout == 12.0
+    assert legacy_explicit.browser is webui_explicit.browser is True
+    assert legacy_explicit.foreground is webui_explicit.foreground is True
+
+    for argv, help_fragment in (
+        (["webui", "start", "--help"], "общий срок проверки готовности"),
+        (["webui", "stop", "--help"], "срок штатной остановки WebUI"),
+    ):
+        with pytest.raises(SystemExit) as error:
+            parser.parse_args(argv)
+        assert error.value.code == 0
+        assert help_fragment in capsys.readouterr().out
+
+
 def test_bot_runtime_status_returns_typed_headless_state(tmp_path: Path) -> None:
     root = tmp_path.resolve()
     resolved = ResolvedRepository(root, _repository_evidence())
@@ -553,6 +581,30 @@ def test_bot_runtime_status_returns_typed_headless_state(tmp_path: Path) -> None
     assert result.details.status is OperationState.STOPPED
     assert result.details.owner_running is False
     assert result.details.workers == ()
+
+
+def test_bot_runtime_status_wraps_unsafe_state_store_constructor(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from module.application.runtime_state import RuntimeStateError
+
+    root = tmp_path.resolve()
+    resolved = ResolvedRepository(root, _repository_evidence())
+    service = BotRuntimeService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved)
+    )
+
+    def unsafe_state_store(_root: Path):
+        raise RuntimeStateError("RUNTIME_STATE_UNSAFE_PATH", "unsafe path")
+
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeStateStore", unsafe_state_store)
+
+    with pytest.raises(ToolingError) as error:
+        service.status(root)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+    assert error.value.state is OperationState.UNKNOWN
 
 
 def test_bot_runtime_start_requests_configured_profiles_through_control_plane(

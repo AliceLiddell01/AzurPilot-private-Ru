@@ -57,6 +57,7 @@ def _clearup_step(name, handler) -> bool:
 
 def startup() -> None:
     """Инициализировать WebUI после явной миграции UI locale."""
+    autostart_configured_profiles = _autostart_configured_profiles_enabled()
     from deploy.language_migration import migrate_deploy_language
     from module.persistence.runtime import (
         bootstrap_runtime_storage,
@@ -81,7 +82,7 @@ def startup() -> None:
         ),
     )
     lang.reload()
-    if _autostart_configured_profiles_enabled():
+    if autostart_configured_profiles:
         BotRuntimeClient.start_configured_profiles()
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:

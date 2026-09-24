@@ -130,6 +130,34 @@ def _add_common_options(
     )
 
 
+def _add_webui_start_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=60.0,
+        metavar="SECONDS",
+        help="общий срок проверки готовности",
+    )
+    parser.add_argument(
+        "--browser",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="открыть WebUI после подтверждённой готовности",
+    )
+    parser.add_argument(
+        "--no-browser",
+        dest="browser",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="не открывать WebUI автоматически",
+    )
+    parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="удерживать CLI до остановки службы WebUI",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
         prog="azur",
@@ -153,29 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
         "start", help="устаревший псевдоним webui start"
     )
     _add_common_options(start, suppress_defaults=True)
-    start.add_argument(
-        "--timeout",
-        type=float,
-        default=60.0,
-        metavar="SECONDS",
-        help="общий срок проверки готовности",
-    )
-    start.add_argument(
-        "--browser",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="открыть WebUI после подтверждённой готовности",
-    )
-    start.add_argument(
-        "--no-browser",
-        dest="browser",
-        action="store_false",
-        default=argparse.SUPPRESS,
-        help="не открывать WebUI автоматически",
-    )
-    start.add_argument(
-        "--foreground", action="store_true", help="удерживать CLI до остановки службы WebUI"
-    )
+    _add_webui_start_options(start)
 
     stop = subparsers.add_parser(
         "stop", help="устаревший псевдоним webui stop"
@@ -213,13 +219,16 @@ def build_parser() -> argparse.ArgumentParser:
     webui_actions = webui.add_subparsers(dest="webui_command", required=True)
     webui_start = webui_actions.add_parser("start", help="запустить WebUI")
     _add_common_options(webui_start, suppress_defaults=True)
-    webui_start.add_argument("--timeout", type=float, default=60.0, metavar="SECONDS")
-    webui_start.add_argument("--browser", action="store_true", default=argparse.SUPPRESS)
-    webui_start.add_argument("--no-browser", dest="browser", action="store_false", default=argparse.SUPPRESS)
-    webui_start.add_argument("--foreground", action="store_true")
+    _add_webui_start_options(webui_start)
     webui_stop = webui_actions.add_parser("stop", help="остановить только WebUI")
     _add_common_options(webui_stop, suppress_defaults=True)
-    webui_stop.add_argument("--timeout", type=float, default=30.0, metavar="SECONDS")
+    webui_stop.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        metavar="SECONDS",
+        help="срок штатной остановки WebUI",
+    )
     webui_status = webui_actions.add_parser("status", help="прочитать только WebUI lifecycle")
     _add_common_options(webui_status, suppress_defaults=True)
 

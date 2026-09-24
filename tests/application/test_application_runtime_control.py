@@ -423,22 +423,24 @@ def test_control_client_wraps_plane_lock_timeout(
     assert error.value.code == "RUNTIME_CONTROL_TIMEOUT"
 
 
-def test_control_client_lock_wait_uses_remaining_call_deadline(tmp_path: Path) -> None:
+def test_control_client_lock_wait_uses_remaining_call_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
-    lock_path = tmp_path / "config" / "state" / "bot-runtime" / "control" / "plane.lock"
-    lock_acquired = threading.Event()
-    release_lock = threading.Event()
-    call_finished = threading.Event()
-    outcome: dict[str, object] = {}
+    clock_values = iter((100.0, 100.02, 100.07))
+    lock_timeouts: list[float] = []
 
-    def hold_lock() -> None:
-        with runtime_control.application_host_lock(lock_path):
-            lock_acquired.set()
-            release_lock.wait(timeout=2)
+    class TimedOutLock:
+        def __enter__(self) -> None:
+            raise TimeoutError("synthetic control plane lock timeout")
 
-    holder = threading.Thread(target=hold_lock, daemon=True)
-    holder.start()
-    assert lock_acquired.wait(timeout=1)
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    def blocked_lock(_path: Path, *, timeout: float) -> TimedOutLock:
+        lock_timeouts.append(timeout)
+        return TimedOutLock()
 
     client = RuntimeControlClient(
         tmp_path,
@@ -446,33 +448,14 @@ def test_control_client_lock_wait_uses_remaining_call_deadline(tmp_path: Path) -
         owner_matches=lambda candidate: candidate == owner,
         timeout=0.1,
     )
+    monkeypatch.setattr(runtime_control.time, "monotonic", lambda: next(clock_values))
+    monkeypatch.setattr(runtime_control, "application_host_lock", blocked_lock)
 
-    def call() -> None:
-        started_at = time.monotonic()
-        try:
-            client.call(RuntimeControlOperation.START_PROFILE, "ap")
-        except RuntimeControlError as exc:
-            outcome["error"] = exc.code
-        except Exception as exc:  # pragma: no cover - surfaced by the assertion below.
-            outcome["error"] = exc
-        finally:
-            outcome["elapsed"] = time.monotonic() - started_at
-            call_finished.set()
+    with pytest.raises(RuntimeControlError) as error:
+        client.call(RuntimeControlOperation.START_PROFILE, "ap")
 
-    caller = threading.Thread(target=call, daemon=True)
-    caller.start()
-    try:
-        assert not call_finished.wait(timeout=0.02)
-        assert call_finished.wait(timeout=0.35)
-    finally:
-        release_lock.set()
-        holder.join(timeout=1)
-        caller.join(timeout=1)
-
-    assert not holder.is_alive()
-    assert not caller.is_alive()
-    assert outcome["error"] == "RUNTIME_CONTROL_TIMEOUT"
-    assert outcome["elapsed"] < 0.3
+    assert error.value.code == "RUNTIME_CONTROL_TIMEOUT"
+    assert lock_timeouts == [pytest.approx(0.03)]
 
 
 def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp_path: Path) -> None:

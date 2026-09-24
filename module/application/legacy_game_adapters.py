@@ -511,11 +511,14 @@ class LegacyRuntimeLogAdapter:
             return ()
         from module.application.runtime_log_projection import read_runtime_log_tail
 
-        current = read_runtime_log_tail(
-            instance,
-            limit,
-            repository_root=self._repository_root,
-        )
+        try:
+            current = read_runtime_log_tail(
+                instance,
+                limit,
+                repository_root=self._repository_root,
+            )
+        except (OSError, ValueError):
+            current = ()
         if current:
             return current
         path = self._find_log_file(instance)

@@ -152,9 +152,18 @@ def test_owner_start_server_migrates_legacy_runtime_state(
     legacy_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_payload = {"schema_version": 2, "profiles": {}}
     legacy_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
+    from module.application import bot_runtime_owner as owner_module
+
+    worker_lookups: list[tuple[int, Path | None]] = []
+
+    def get_workers(owner_pid: int, *, repository_root: Path | None = None):
+        worker_lookups.append((owner_pid, repository_root))
+        return {}
+
     monkeypatch.setattr(
-        "module.application.runtime_worker_registry.get_workers",
-        lambda _owner_pid, *, repository_root=None: {},
+        owner_module,
+        "get_workers",
+        get_workers,
     )
     owner = BotRuntimeOwner(tmp_path)
 
@@ -163,6 +172,8 @@ def test_owner_start_server_migrates_legacy_runtime_state(
         assert json.loads(canonical_path.read_text(encoding="utf-8")) == legacy_payload
         assert not legacy_path.exists()
         assert owner._runtime_state_recovery_error is None
+        assert worker_lookups
+        assert all(repository_root == tmp_path for _, repository_root in worker_lookups)
     finally:
         server.close()
 

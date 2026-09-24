@@ -4,23 +4,22 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Final
 
+from module.config.profile import profile_identity_from_name
 from module.logging_core import sanitize_log_text
 
-_PROFILE_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
-_MAX_FILE_BYTES: Final[int] = 2 * 1024 * 1024
-_MAX_RECORD_CHARS: Final[int] = 16 * 1024
-_MAX_LOG_LINES: Final[int] = 2000
+_MAX_FILE_BYTES = 2 * 1024 * 1024
+_MAX_RECORD_CHARS = 16 * 1024
+_MAX_LOG_LINES = 2000
 
 
 def _profile_name(profile: str) -> str:
-    if not isinstance(profile, str) or not _PROFILE_RE.fullmatch(profile):
+    identity = profile_identity_from_name(profile)
+    if identity is None:
         raise ValueError("Имя runtime-профиля имеет неверный формат")
-    return profile
+    return identity.name
 
 
 def _is_reparse_point(path: Path) -> bool:

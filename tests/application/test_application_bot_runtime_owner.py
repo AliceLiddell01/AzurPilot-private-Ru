@@ -140,6 +140,38 @@ def test_configured_profile_start_is_queued_after_result_write(tmp_path, monkeyp
     assert started.wait(timeout=1)
 
 
+def test_background_profile_start_logs_exception_and_can_be_queued_again(
+    tmp_path, monkeypatch
+):
+    owner = BotRuntimeOwner(tmp_path)
+    failure_logged = threading.Event()
+    retry_started = threading.Event()
+    messages: list[str] = []
+
+    def fail_start() -> None:
+        raise RuntimeError("configured profiles unavailable")
+
+    def log_failure(message: str) -> None:
+        messages.append(message)
+        failure_logged.set()
+
+    monkeypatch.setattr(owner, "start_configured_profiles", fail_start)
+    monkeypatch.setattr(owner_module.logger, "exception", log_failure)
+
+    owner._queue_configured_profile_start()
+    failed_thread = owner._autostart_thread
+    assert failure_logged.wait(timeout=2)
+    assert failed_thread is not None
+    failed_thread.join(timeout=1)
+    assert not failed_thread.is_alive()
+    assert messages == ["Не удалось выполнить фоновый запуск профилей Bot Runtime"]
+
+    monkeypatch.setattr(owner, "start_configured_profiles", retry_started.set)
+    owner._queue_configured_profile_start()
+    assert retry_started.wait(timeout=2)
+    assert owner._autostart_thread is not failed_thread
+
+
 @pytest.mark.parametrize("shutdown_timing", ("before", "after"))
 def test_configured_profile_start_preserves_marker_when_shutdown_interrupts(
     tmp_path, monkeypatch, shutdown_timing

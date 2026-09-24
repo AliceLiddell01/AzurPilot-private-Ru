@@ -880,6 +880,10 @@ class BotRuntimeWorkerManager:
         e: object | None = None,
     ) -> None:
         import sys
+        from module.config.profile import profile_identity_from_name
+
+        if profile_identity_from_name(config_name) is None:
+            raise ValueError("Имя runtime-профиля имеет неверный формат")
 
         if sys.platform != "win32":
             import resource
@@ -897,13 +901,22 @@ class BotRuntimeWorkerManager:
         configure_runtime_logging(name=config_name)
         from module.application.runtime_log_projection import RuntimeLogProjectionHandler
 
-        projection = RuntimeLogProjectionHandler(config_name)
-        logger.addHandler(projection)
+        projection = None
+        try:
+            projection = RuntimeLogProjectionHandler(config_name)
+        except (OSError, ValueError) as exc:
+            logger.warning(
+                f"[{config_name}] Не удалось включить проекцию runtime-журнала "
+                f"({type(exc).__name__}); worker продолжит работу без неё"
+            )
+        if projection is not None:
+            logger.addHandler(projection)
         try:
             BotRuntimeWorkerManager._run_process_task_body(config_name, func, e)
         finally:
-            logger.removeHandler(projection)
-            projection.close()
+            if projection is not None:
+                logger.removeHandler(projection)
+                projection.close()
 
     @staticmethod
     def _run_process_task_body(

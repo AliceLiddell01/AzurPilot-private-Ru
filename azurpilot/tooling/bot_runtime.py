@@ -319,7 +319,14 @@ class BotRuntimeService:
 
     @classmethod
     def _snapshot(cls, root: Path) -> BotRuntimeDetails:
-        state_store = RuntimeStateStore(root)
+        try:
+            state_store = RuntimeStateStore(root)
+        except (RuntimeStateError, RuntimeControlError, OSError, RuntimeError) as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                f"Состояние Bot Runtime нельзя безопасно прочитать: {type(exc).__name__}",
+                state=OperationState.UNKNOWN,
+            ) from exc
         legacy_paths = tuple(root / path for path in LEGACY_WORKER_REGISTRY_FILES) + (
             state_store.legacy_path,
         )
