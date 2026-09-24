@@ -58,46 +58,50 @@ alas.py
 
 `module/handler/` может обрабатывать login, информационные окна, auto-search, enemy searching, fast-forward и другие состояния. При «необъяснимом» переходе проверь, не срабатывает ли общий handler до целевого кода.
 
-## WebUI
+## Bot Runtime и WebUI
 
-Типовой поток:
+Bot Runtime — нейтральный headless owner worker-профилей, worker registry,
+runtime state и локального typed control plane. WebUI — отдельный клиент: он
+читает состояние и запрашивает lifecycle-операции через `BotRuntimeClient`, но
+не создаёт workers и не владеет registry.
 
 ```text
-gui.py
-  → параметры запуска и deploy config
-  → создание ASGI/PyWebIO приложения
-  → ProcessManager для экземпляров
-  → запуск/остановка задач в отдельных процессах
+azur bot start|stop|status
+  → BotRuntimeService
+  → headless module/bot_runtime.py
+  → BotRuntimeOwner
+  → workers и канонические runtime state/registry
+
+azur webui start|stop|status
+  → azurpilot.tooling.lifecycle
+  → gui.py / ASGI и PyWebIO
+  → BotRuntimeClient → Bot Runtime
 ```
+
+`azur start` и `azur stop` сохранены как deprecated aliases для прежнего
+WebUI lifecycle; новый операторский текст использует `azur webui ...`.
+Остановка WebUI освобождает только его UI-ресурсы. Она не останавливает Bot
+Runtime и workers. Game MCP, Dev MCP, Smoke и CLI могут bootstrap-ить Bot Runtime
+и работать без WebUI; их проверки не требуют свободного WebUI-порта.
+Запуск WebUI по умолчанию отправляет Bot Runtime команду запуска настроенных
+профилей. Изолированный UI-only запуск может отключить это поведение значением
+`AZURPILOT_WEBUI_AUTOSTART_CONFIGURED_PROFILES=0`.
 
 При изменении lifecycle проверять:
 
-- Windows spawn-семантику;
-- очистку дочерних процессов;
-- restart event;
-- корректное завершение Uvicorn;
-- различие между остановкой WebUI и экземпляра задачи;
-- совместимость с typed `azurpilot.tooling.lifecycle` и `azur start`.
+- Windows spawn-семантику отдельно для headless owner и WebUI;
+- точные identity и ownership проверки для owner и worker-процессов;
+- cleanup WebUI без остановки Bot Runtime;
+- штатный STOP_RUNTIME, handover, idempotency и fail-closed recovery;
+- независимость Game MCP, Dev MCP, Smoke и CLI от WebUI;
+- совместимость с typed `azurpilot.tooling.lifecycle`.
 
-Windows lifecycle пользовательской установки симметричен и принадлежит
-`azurpilot.tooling.lifecycle`:
-
-```text
-azur start
-  → repository-scoped mutex владельца
-  → repository-scoped kernel stop event
-  → project Python + gui.py
-
-azur stop
-  → exact checkout/process ownership
-  → stop event владельцу Start
-  → bounded wait и только exact-owned fallback
-```
-
-Foreground Start, который сам создал backend, сохраняет управление через
-`Ctrl+C`. Повторный Start только подтверждает готовность существующего WebUI,
-открывает его и сообщает путь к Stop. Stop не завершает PostgreSQL и не считает
-один лишь занятый порт доказательством ownership.
+Windows WebUI lifecycle пользовательской установки принадлежит
+`azurpilot.tooling.lifecycle`: `azur webui start` запускает подготовленный
+`gui.py`, `azur webui stop` останавливает только точно принадлежащий checkout
+процесс WebUI. `azur bot start|stop|status` управляет отдельным headless owner.
+Foreground WebUI Start, который сам создал backend, сохраняет управление через
+`Ctrl+C`; один лишь занятый порт не доказывает ownership.
 
 ## Dev Runtime Foundation
 
@@ -112,16 +116,16 @@ API не принимает произвольный профиль. Adapter п�
 target identity и fingerprint критической конфигурации; mismatch не может
 молча перенаправить мутацию на другой профиль и завершается fail-closed.
 
-Обычный runtime запускается только через project `.venv` Python и штатный
-`gui.py --run <configured-target>`. Preflight требует уже подготовленное окружение: наличие
-pending dependency-sync marker блокирует старт, поэтому Dev Runtime сам не
-запускает `uv sync`, upgrade или repair. Готовность подтверждается не таймером.
-В standalone-режиме readiness доказывает принадлежность WebUI/worker дереву
-`session.process`, владение локальным listen socket и HTTP readiness. В
-shared WebUI-режиме текущая read-only проверка подтверждает зарегистрированного
-живого WebUI owner, worker назначенного target и свежий снимок состояния с
-совпадающими `session_id` и identity worker. Связь shared WebUI owner с
-`session.process` этим путём отдельно не доказывается.
+Обычный Dev Runtime использует `BotRuntimeFacade` и штатный
+`BotRuntimeBootstrapper`: headless `module/bot_runtime.py` исполняет lifecycle,
+а DevSession привязывает операцию к текущему canonical target. Preflight
+требует уже подготовленное окружение: pending dependency-sync marker блокирует
+старт, поэтому Dev Runtime сам не запускает `uv sync`, upgrade или repair.
+Готовность подтверждается по точной identity Bot Runtime owner, worker registry,
+worker process и свежему runtime state с совпадающими `session_id` и identity
+worker. Порт WebUI и HTTP readiness в этом пути не используются. Сохранённый
+`standalone_process` режим обслуживает legacy state и не является обычным
+production lifecycle.
 
 DevSession хранит repository-scoped marker и lock под `config/state/`. Marker
 также сохраняет назначенный profile сессии: уже запущенный процесс и его Evidence

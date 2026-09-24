@@ -685,10 +685,12 @@ class DesktopAgentNotificationRuntime:
         clock: Callable[[], datetime] | None = None,
         telemetry: object | None = None,
         retry_policy: RetryPolicy | None = None,
+        dispatcher_enabled: bool = True,
     ) -> None:
         self._uow_factory = uow_factory
         self._credential = credential
         self._enabled = credential is not None
+        self._dispatcher_enabled = dispatcher_enabled
         self._clock = clock or (lambda: datetime.now(UTC))
         self._telemetry = telemetry
         self._stop_event = threading.Event()
@@ -741,6 +743,7 @@ class DesktopAgentNotificationRuntime:
         environment: Mapping[str, str | None] | None = None,
         clock: Callable[[], datetime] | None = None,
         telemetry: object | None = None,
+        dispatcher_enabled: bool = True,
     ) -> DesktopAgentNotificationRuntime:
         source = os.environ if environment is None else environment
         try:
@@ -754,6 +757,7 @@ class DesktopAgentNotificationRuntime:
             credential=credential,
             clock=clock,
             telemetry=telemetry,
+            dispatcher_enabled=dispatcher_enabled,
         )
 
     @property
@@ -813,6 +817,7 @@ class DesktopAgentNotificationRuntime:
         with self._worker_lock:
             if (
                 not self._enabled
+                or not self._dispatcher_enabled
                 or self._worker is not None
                 or self._worker_stopping
                 or self._fatal_stop_reason is not None

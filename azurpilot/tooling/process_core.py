@@ -895,7 +895,12 @@ class ProcessController:
         return "absent"
 
     @staticmethod
-    def terminate(identity: ProcessIdentity, timeout_seconds: float = 15.0) -> bool:
+    def terminate(
+        identity: ProcessIdentity,
+        timeout_seconds: float = 15.0,
+        *,
+        include_children: bool = True,
+    ) -> bool:
         if not identity.matches():
             return False
         try:
@@ -904,9 +909,12 @@ class ProcessController:
             return True
         except psutil.AccessDenied:
             return False
-        try:
-            descendants = tuple(process.children(recursive=True))
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        if include_children:
+            try:
+                descendants = tuple(process.children(recursive=True))
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                descendants = ()
+        else:
             descendants = ()
         if not _signal_process_group(identity.process_group, signal.SIGTERM):
             try:

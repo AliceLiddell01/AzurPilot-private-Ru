@@ -15,6 +15,7 @@ import numpy as np
 import zmq
 
 from module.logger import logger
+from deploy.config import DeployConfig
 from module.ocr.rpc_security import (
     OcrRpcSecurityError,
     client_uri,
@@ -23,7 +24,6 @@ from module.ocr.rpc_security import (
     loopback_bind_uri,
     normalize_loopback_address,
 )
-from module.webui.setting import State
 
 process: multiprocessing.Process | None = None
 _server_stop_event: Any = None
@@ -838,7 +838,7 @@ class ModelProxyFactory:
     def __getattribute__(self, __name: str, /) -> ModelProxy:
         if __name in SUPPORTED_OCR_MODELS:
             if ModelProxy.client is None:
-                ModelProxy.init(address=State.deploy_config.OcrClientAddress)
+                ModelProxy.init(address=DeployConfig().OcrClientAddress)
             return ModelProxy(lang=__name)
         return super().__getattribute__(__name)
 
@@ -1164,5 +1164,5 @@ if __name__ == "__main__":
         help="Loopback-порт; по умолчанию используется OcrServerPort из deploy config",
     )
     args, _ = parser.parse_known_args()
-    port = args.port or State.deploy_config.OcrServerPort
+    port = args.port or DeployConfig().OcrServerPort
     start_ocr_server(port=port)

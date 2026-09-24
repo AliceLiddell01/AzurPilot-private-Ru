@@ -417,6 +417,33 @@ def test_source_classification_follows_bounded_backend_dependencies() -> None:
     assert management.unknown_paths == ("azurpilot/tooling/mcp.py",)
 
 
+def test_bot_runtime_dependency_files_are_in_mcp_source_digests() -> None:
+    expected = {
+        "module/application/runtime_log_projection.py": (
+            "DEV_MCP_SOURCE_SET",
+            "GAME_MCP_SOURCE_SET",
+        ),
+        "module/application/host_lock.py": (
+            "DEV_MCP_SOURCE_SET",
+            "GAME_MCP_SOURCE_SET",
+        ),
+        "module/application/resource_lease.py": (
+            "DEV_MCP_SOURCE_SET",
+            "GAME_MCP_SOURCE_SET",
+        ),
+    }
+
+    for relative, components in expected.items():
+        path = Path(relative)
+        assert all(path in mcp_tooling.SOURCE_SET_PATHS[name] for name in components)
+        classification = mcp_tooling.classify_source_changes((relative,))
+        assert classification.changed_components == components
+        assert all(
+            len(mcp_tooling.source_set_digest(REPOSITORY_ROOT, name)) == 64
+            for name in components
+        )
+
+
 def test_management_and_docker_tooling_changes_do_not_affect_mcp_identity() -> None:
     classification = mcp_tooling.classify_source_changes(
         (

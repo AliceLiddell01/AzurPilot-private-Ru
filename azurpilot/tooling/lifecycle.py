@@ -467,6 +467,7 @@ class LifecycleService:
                 terminate_succeeded = ProcessController.terminate(
                     running.identity,
                     timeout_seconds=min(15.0, max(0.1, timeout_seconds)),
+                    include_children=False,
                 )
                 cleanup_confirmed, _ = self._wait_cleanup(
                     running, settings, timeout_seconds=2.0
@@ -518,7 +519,9 @@ class LifecycleService:
                 cleanup_attempted = True
                 was_running = running.poll() is None
                 terminate_succeeded = ProcessController.terminate(
-                    running.identity, timeout_seconds=min(15.0, timeout_seconds)
+                    running.identity,
+                    timeout_seconds=min(15.0, timeout_seconds),
+                    include_children=False,
                 )
                 cleanup_confirmed, _ = self._wait_cleanup(
                     running, settings, timeout_seconds=2.0
@@ -590,6 +593,7 @@ class LifecycleService:
                     terminated = ProcessController.terminate(
                         running.identity,
                         timeout_seconds=min(15.0, max(0.1, timeout_seconds)),
+                        include_children=False,
                     )
                     cleanup_confirmed, _ = self._wait_cleanup(
                         running, settings, timeout_seconds=2.0
@@ -703,6 +707,7 @@ class LifecycleService:
             terminate_succeeded = ProcessController.terminate(
                 running.identity,
                 timeout_seconds=min(15.0, max(0.1, timeout_seconds)),
+                include_children=False,
             )
             cleanup_confirmed, _ = self._wait_cleanup(
                 running, settings, timeout_seconds=2.0
@@ -815,7 +820,9 @@ class LifecycleService:
             coordinator.request_stop()
             deadline = time.monotonic() + timeout_seconds
             terminated = ProcessController.terminate(
-                identity, timeout_seconds=min(15.0, max(0.1, timeout_seconds))
+                identity,
+                timeout_seconds=min(15.0, max(0.1, timeout_seconds)),
+                include_children=False,
             )
             cleanup_confirmed, _observation = self._wait_stop_cleanup(
                 identity,

@@ -280,6 +280,23 @@ def test_adapter_serializes_mixed_game_and_smoke_capabilities_by_item_schema() -
     }
 
 
+def test_adapter_preserves_unavailable_legacy_smoke_port_projection_as_null() -> None:
+    result = serialize_dev_result(
+        DevResult(
+            ok=True,
+            code="DEV_SMOKE_RESULT_READY",
+            message="Smoke завершён",
+            state="finished",
+            details={"cleanup": {"attempted": True, "port_free": None}},
+        )
+    )
+
+    assert result["details"]["cleanup"] == {
+        "attempted": True,
+        "port_free": None,
+    }
+
+
 def test_adapter_preserves_omitted_game_snapshot_fields_in_provenance() -> None:
     result = serialize_dev_result(
         DevResult(
@@ -406,7 +423,10 @@ def _real_runtime_manager(
 ) -> tuple[DevSessionManager, _SyntheticProcessBackend]:
     root = tmp_path.resolve()
     (root / "module").mkdir()
-    (root / "gui.py").write_text("# тестовый gui\n", encoding="utf-8")
+    (root / "module" / "bot_runtime.py").write_text(
+        "# тестовый Bot Runtime\n", encoding="utf-8"
+    )
+    (root / "gui.py").write_text("# тестовый legacy entrypoint\n", encoding="utf-8")
     config_dir = root / "config"
     config_dir.mkdir()
     profile = {
@@ -433,7 +453,7 @@ def _real_runtime_manager(
     manager = DevSessionManager(
         environment,
         process_backend=backend,
-        shared_webui=False,
+        bot_runtime=False,
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=lambda _environment, _identity: (True, "ready"),
@@ -445,7 +465,7 @@ def _real_runtime_manager(
     )
     manager._project_python_is_supported = lambda: True
     manager._profile_check = lambda: (True, "profile ready")
-    manager._webui_registry_check = lambda: (True, "registry ready")
+    manager._bot_runtime_registry_check = lambda: (True, "registry ready")
     return manager, backend
 
 
@@ -1297,7 +1317,9 @@ def test_serializer_drops_unknown_fields_in_known_nested_structures() -> None:
 def test_read_only_tools_leave_profile_and_runtime_state_unchanged(tmp_path: Path) -> None:
     root = tmp_path.resolve()
     (root / "module").mkdir()
-    (root / "gui.py").write_text("# тестовый gui\n", encoding="utf-8")
+    (root / "module" / "bot_runtime.py").write_text(
+        "# тестовый Bot Runtime\n", encoding="utf-8"
+    )
     config_dir = root / "config"
     config_dir.mkdir()
     profile = {
@@ -1324,7 +1346,7 @@ def test_read_only_tools_leave_profile_and_runtime_state_unchanged(tmp_path: Pat
     )
     manager._project_python_is_supported = lambda: True
     manager._profile_check = lambda: (True, "profile ready")
-    manager._webui_registry_check = lambda: (True, "registry ready")
+    manager._bot_runtime_registry_check = lambda: (True, "registry ready")
     adapter = DevMcpAdapter(lambda: manager)
 
     watched_paths = (profile_path, environment.state_file, environment.task_policy_file)

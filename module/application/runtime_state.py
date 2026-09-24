@@ -10,15 +10,17 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import time
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
-from deploy.atomic import atomic_write
+from deploy.atomic import atomic_remove, atomic_write
 from module.application.host_lock import (
     HOST_LOCK_TIMEOUT_SECONDS,
     application_host_lock,
@@ -512,9 +514,64 @@ class RuntimeStateStore:
 
     def __init__(self, repository_root: Path | str, *, now: Callable[[], str] | None = None) -> None:
         self.repository_root = Path(repository_root).resolve()
-        self.path = _scoped_path(self.repository_root, "config/state/webui-runtime-state.json")
-        self.lock_path = _scoped_path(self.repository_root, "config/state/webui-runtime-state.lock")
+        self.path = _scoped_path(
+            self.repository_root, "config/state/bot-runtime/runtime-state.json"
+        )
+        self.lock_path = _scoped_path(
+            self.repository_root, "config/state/bot-runtime/runtime-state.lock"
+        )
+        self.legacy_path = _scoped_path(
+            self.repository_root, "config/state/webui-runtime-state.json"
+        )
+        self.legacy_lock_path = _scoped_path(
+            self.repository_root, "config/state/webui-runtime-state.lock"
+        )
         self._now = now or _now
+
+    def migrate_legacy_state(self) -> bool:
+        """Атомарно перенести прежний runtime snapshot без постоянной dual-write."""
+        self.path = self._validated_path("config/state/bot-runtime/runtime-state.json")
+        self.lock_path = self._validated_path("config/state/bot-runtime/runtime-state.lock")
+        self.legacy_path = self._validated_path("config/state/webui-runtime-state.json")
+        self.legacy_lock_path = self._validated_path("config/state/webui-runtime-state.lock")
+        lock_paths = sorted(
+            {self.lock_path, self.legacy_lock_path}, key=lambda path: str(path)
+        )
+        with ExitStack() as stack:
+            for lock_path in lock_paths:
+                stack.enter_context(application_host_lock(lock_path))
+            canonical_exists = os.path.lexists(self.path)
+            legacy_exists = os.path.lexists(self.legacy_path)
+            if not legacy_exists:
+                if canonical_exists:
+                    self._read_payload_from(self.path)
+                return False
+
+            legacy_payload = self._read_payload_from(self.legacy_path)
+            if canonical_exists:
+                canonical_payload = self._read_payload_from(self.path)
+                if canonical_payload != legacy_payload:
+                    raise RuntimeStateError(
+                        "RUNTIME_STATE_MIGRATION_CONFLICT",
+                        "Canonical и legacy runtime state расходятся; миграция отклонена",
+                    )
+            else:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write(
+                    self.path,
+                    json.dumps(legacy_payload, ensure_ascii=True, sort_keys=True),
+                )
+            try:
+                atomic_remove(self.legacy_path)
+            except OSError as exc:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_MIGRATION_FAILED",
+                    "Не удалось удалить legacy runtime state после миграции",
+                ) from exc
+            return True
+
+    def _validated_path(self, relative: str) -> Path:
+        return _scoped_path(self.repository_root, relative)
 
     def read(self, profile: str) -> RuntimeStateSnapshot | None:
         profile = _profile(profile)
@@ -639,7 +696,7 @@ class RuntimeStateStore:
     ) -> tuple[str, ...]:
         """Сбросить только worker state с доказанно отсутствующей identity.
 
-        Registry текущего WebUI имеет приоритет над snapshot. Если profile
+        Authoritative worker registry имеет приоритет над snapshot. Если profile
         отсутствует в registry, отсутствие именно старого процесса должно
         быть подтверждено owner-specific checker: ``False`` означает PID
         reuse, ``None`` — отсутствие процесса, а ``True`` блокирует recovery.
@@ -792,7 +849,7 @@ class RuntimeStateStore:
         operation_id: str | None = None,
         session_id: str | None = None,
         phase: RuntimePhase = RuntimePhase.USER_PROFILE_IDLE,
-        provenance: str = "webui_owner",
+        provenance: str = "bot_runtime_owner",
     ) -> RuntimeStateSnapshot:
         self._validate_worker(worker_pid, worker_created_at)
         profile = _profile(profile)
@@ -898,7 +955,7 @@ class RuntimeStateStore:
         session_id: str | None = None,
         phase: RuntimePhase = RuntimePhase.STOPPED,
         terminal_state: str | None = "stopped",
-        provenance: str = "webui_owner",
+        provenance: str = "bot_runtime_owner",
     ) -> RuntimeStateSnapshot:
         expected_worker = self._normalize_expected_worker(
             expected_worker_pid,
@@ -1429,10 +1486,17 @@ class RuntimeStateStore:
         return snapshot
 
     def _read_payload(self) -> dict[str, object]:
+        return self._read_payload_from(self.path)
+
+    def _read_payload_from(self, path: Path) -> dict[str, object]:
         try:
-            if self.path.is_symlink() or bool(getattr(self.path, "is_junction", lambda: False)()):
+            if path == self.path:
+                path = self._validated_path("config/state/bot-runtime/runtime-state.json")
+            elif path == self.legacy_path:
+                path = self._validated_path("config/state/webui-runtime-state.json")
+            if path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)()):
                 raise RuntimeStateError("RUNTIME_STATE_UNSAFE_PATH", "Runtime state файл не должен быть ссылкой")
-            raw = self.path.read_bytes()
+            raw = path.read_bytes()
         except FileNotFoundError:
             return {"schema_version": _STATE_SCHEMA_VERSION, "profiles": {}}
         except RuntimeStateError:

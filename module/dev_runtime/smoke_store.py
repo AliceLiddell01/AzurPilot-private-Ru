@@ -17,11 +17,13 @@ from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_byte
 from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.smoke import (
     _LEGACY_SMOKE_SCHEMA_VERSIONS,
+    _LEGACY_SMOKE_SPEC_SCHEMA_VERSIONS,
     _SAFE_ID,
     SMOKE_MAX_RUN_AGE_SECONDS,
     SMOKE_MAX_RUN_BYTES,
     SMOKE_MAX_RUNS,
     SMOKE_MAX_SPEC_BYTES,
+    SMOKE_RESULT_SCHEMA_VERSION,
     SMOKE_SCHEMA_VERSION,
     SMOKE_STATE_SCHEMA_VERSION,
     SmokeControl,
@@ -121,13 +123,14 @@ class SmokeStateStore:
         corrupt_code: str,
         unsupported_code: str,
         label: str,
+        legacy_versions: frozenset[int] = _LEGACY_SMOKE_SCHEMA_VERSIONS,
     ) -> tuple[Mapping[str, object], bool]:
         if not isinstance(payload, Mapping) or type(payload.get("schema_version")) is not int:
             raise SmokeStoreError(corrupt_code, f"{label} не содержит целочисленную schema_version")
         version = payload["schema_version"]
         if version == current_version:
             return payload, False
-        if version in _LEGACY_SMOKE_SCHEMA_VERSIONS:
+        if version in legacy_versions:
             return payload, True
         if version > current_version:
             raise SmokeStoreError(
@@ -161,16 +164,16 @@ class SmokeStateStore:
         raw = self._read_json(path, SMOKE_MAX_RUN_BYTES)
         payload, legacy = self._versioned_payload(
             raw,
-            current_version=SMOKE_STATE_SCHEMA_VERSION,
+            current_version=SMOKE_RESULT_SCHEMA_VERSION,
             corrupt_code="DEV_SMOKE_RESULT_CORRUPT",
             unsupported_code="DEV_SMOKE_RESULT_UNSUPPORTED",
             label="SmokeResult",
         )
-        normalized = (
-            _drop_legacy_file_log_assertions(payload)
-            if legacy
-            else payload
-        )
+        if legacy:
+            normalized = _drop_legacy_file_log_assertions(payload)
+            normalized["schema_version"] = SMOKE_RESULT_SCHEMA_VERSION
+        else:
+            normalized = payload
         try:
             result = _validate_json_model(SmokeResult, normalized)
         except ValidationError as exc:
@@ -254,6 +257,7 @@ class SmokeStateStore:
                 corrupt_code="DEV_SMOKE_SPEC_CORRUPT",
                 unsupported_code="DEV_SMOKE_SPEC_UNSUPPORTED",
                 label="SmokeSpec",
+                legacy_versions=_LEGACY_SMOKE_SPEC_SCHEMA_VERSIONS,
             )
             normalized = _normalize_legacy_spec_payload(payload) if legacy else payload
             try:

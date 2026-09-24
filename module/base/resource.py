@@ -181,8 +181,8 @@ def release_resources(next_task=''):
         next_task (str): Имя следующей задачи. Пустая строка означает состояние простоя.
     """
     released_ocr_models = 0
-    from module.webui.setting import State
-    if State.deploy_config.UseOcrServer:
+    from deploy.config import DeployConfig
+    if DeployConfig().UseOcrServer:
         if not next_task:
             # В состоянии простоя отключаемся от OCR-сервера
             from module.ocr.ocr import OCR_MODEL

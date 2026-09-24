@@ -71,7 +71,7 @@ def test_failed_session_rechecks_orphan_under_start_lock(tmp_path: Path) -> None
     manager = DevSessionManager(
         environment,
         process_backend=backend,
-        shared_webui=False,
+        bot_runtime=False,
         session_id_factory=lambda: "must-not-start",
         now=lambda: datetime(2026, 8, 29, tzinfo=timezone.utc),
     )

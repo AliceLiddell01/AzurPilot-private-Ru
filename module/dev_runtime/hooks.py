@@ -23,7 +23,7 @@ def _repository_root() -> Path:
             candidate = None
         if (
             candidate is not None
-            and (candidate / "gui.py").is_file()
+            and (candidate / "module" / "bot_runtime.py").is_file()
             and (candidate / "module").is_dir()
         ):
             return candidate

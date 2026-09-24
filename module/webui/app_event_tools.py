@@ -1,8 +1,9 @@
 """Инструменты WebUI, не являющиеся источниками фактов Event UI."""
 
+from typing import Protocol
+
 from module.webui.app_dependencies import (
     BinarySwitchButton,
-    ProcessManager,
     RichLog,
     base64,
     cast,
@@ -14,6 +15,13 @@ from module.webui.app_dependencies import (
     use_scope,
 )
 from module.webui.app_types import WebUIMixinBase
+
+
+class _RenderableLogSource(Protocol):
+    renderables: list[object]
+    renderables_max_length: int
+    renderables_reduce_length: int
+    renderables_total: int
 
 
 class EventToolsMixin(WebUIMixinBase):
@@ -34,7 +42,7 @@ class EventToolsMixin(WebUIMixinBase):
 
             self._simulator_logger_pm = SimulatorLogger()
 
-        pm = self._simulator_logger_pm
+        pm = cast(_RenderableLogSource, self._simulator_logger_pm)
         import logging
 
         class ListHandler(logging.Handler):
@@ -138,4 +146,4 @@ class EventToolsMixin(WebUIMixinBase):
                     pass
 
         self.task_handler.add(update_simulator_figure, 0.5, True)
-        self.task_handler.add(log.put_log(cast(ProcessManager, pm)), 0.25, True)
+        self.task_handler.add(log.put_log(pm), 0.25, True)

@@ -520,7 +520,7 @@ class BuildService:
                     warnings.append(
                         ToolingWarning(
                             code=WarningCode.TOOLING_SHORTCUT_UNSUPPORTED,
-                            message="Ярлык Windows не применяется на POSIX; используйте azur start.",
+                            message="Ярлык Windows не применяется на POSIX; используйте azur webui start.",
                         )
                     )
             transaction = transaction.model_copy(update={"phase": "path_registered"})

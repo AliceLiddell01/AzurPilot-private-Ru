@@ -935,6 +935,22 @@ class LifecycleEvidence(ClosedModel):
     port_owner: str = Field(min_length=1, max_length=40)
 
 
+class BotRuntimeWorker(ClosedModel):
+    profile: str = Field(min_length=1, max_length=128)
+    pid: int = Field(ge=1)
+    created_at: float = Field(gt=0)
+    running: bool
+
+
+class BotRuntimeDetails(ClosedModel):
+    status: OperationState
+    owner_pid: int | None = Field(default=None, ge=1)
+    owner_created_at: float | None = Field(default=None, gt=0)
+    owner_running: bool = False
+    workers: tuple[BotRuntimeWorker, ...] = Field(default_factory=tuple, max_length=128)
+    recovery_required: bool = False
+
+
 class BuildDetails(ClosedModel):
     status: OperationState
     venv_created: bool
@@ -1253,6 +1269,8 @@ __all__ = [
     "AnalysisScope",
     "ApplicationStateDetails",
     "BranchIdentity",
+    "BotRuntimeDetails",
+    "BotRuntimeWorker",
     "BuildDetails",
     "BuildEvidence",
     "CapabilityCheck",

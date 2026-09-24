@@ -66,7 +66,7 @@ passfiles. Migrator выбирается только maintenance-команда
 
 ## Lifecycle
 
-- `azur start` и typed infrastructure services проверяют Docker Compose и
+- `azur webui start` и typed infrastructure services проверяют Docker Compose и
   поднимают service `postgres` с ожиданием health; при заданных
   `AZURPILOT_CADDY_HOST` и
   `AZURPILOT_GAME_MCP_PUBLIC_HOST` он также поднимает Caddy profile

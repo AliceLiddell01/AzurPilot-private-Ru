@@ -1,20 +1,24 @@
-"""Выполнение общего WebUI runtime control catalog внутри owner-процесса."""
+"""Единый headless владелец Bot Runtime и выполнения worker-профилей."""
 
 from __future__ import annotations
 
 import math
+import json
 import os
+import threading
+import uuid
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from module.application.host_lock import HOST_LOCK_TIMEOUT_SECONDS
 from module.application.resource_lease import ResourceLeaseError, game_runtime_lease
 from module.application.runtime_control import (
+    RUNTIME_CONTROL_PROFILE,
     RuntimeControlOperation,
     RuntimeControlResult,
     RuntimeOwnerIdentity,
-    WebUIControlServer,
+    RuntimeControlServer,
 )
 from module.application.runtime_handover import (
     HandoverHooks,
@@ -28,11 +32,18 @@ from module.application.runtime_state import (
     RuntimeStateSnapshot,
     RuntimeStateStore,
 )
+from module.application.runtime_worker_registry import (
+    claim_owner,
+    clear_owner,
+    get_owner_record,
+    get_workers,
+    process_matches,
+)
 from module.logger import logger
 
 
-class WebUIRuntimeControlOwner:
-    """Единственный executor, имеющий доступ к WebUI-owned ProcessManager."""
+class BotRuntimeOwner:
+    """Единственный executor, имеющий доступ к worker lifecycle."""
 
     def __init__(
         self,
@@ -60,25 +71,155 @@ class WebUIRuntimeControlOwner:
         self._development_profile_provider = development_profile_provider
         self.state = RuntimeStateStore(self.repository_root)
         self._runtime_state_recovery_error: RuntimeStateError | None = None
+        self._shutdown_requested = threading.Event()
+        self._shutdown_ready = threading.Event()
+        self._autostart_lock = threading.Lock()
+        self._autostart_thread: threading.Thread | None = None
 
-    def start_server(self) -> WebUIControlServer:
+    def start_server(self) -> RuntimeControlServer:
+        claim_owner(os.getpid(), repository_root=self.repository_root)
+        self.state.migrate_legacy_state()
         self._reconcile_runtime_state()
-        server = WebUIControlServer(
+        if self._runtime_state_recovery_error is not None:
+            error = self._runtime_state_recovery_error
+            raise RuntimeError(f"Bot Runtime recovery заблокирован ({error.code})") from error
+        server = RuntimeControlServer(
             self.repository_root,
             owner_reader=self.owner_identity,
             owner_matches=self.owner_matches,
             executor=self.execute,
+            after_result_written=self._after_result_written,
         )
         server.start()
         return server
+
+    def _after_result_written(self, result: RuntimeControlResult) -> None:
+        if result.operation is RuntimeControlOperation.START_CONFIGURED_PROFILES and result.ok:
+            self._queue_configured_profile_start()
+        # После успешной очистки workers сервер ещё может пометить ответ expired,
+        # если срок истёк на финальной проверке. Durable response уже записан;
+        # владелец должен завершить остановку, чтобы не остаться без workers.
+        if (
+            result.operation is RuntimeControlOperation.STOP_RUNTIME
+            and self._shutdown_requested.is_set()
+        ):
+            self._shutdown_ready.set()
+
+    def wait_for_shutdown(self) -> None:
+        self._shutdown_ready.wait()
+
+    def _run_configured_profile_start_in_background(self) -> None:
+        try:
+            self.start_configured_profiles()
+        except Exception:
+            logger.exception("Не удалось выполнить фоновый запуск профилей Bot Runtime")
+
+    def _queue_configured_profile_start(self) -> None:
+        with self._autostart_lock:
+            if self._shutdown_requested.is_set():
+                return
+            if self._autostart_thread is not None and self._autostart_thread.is_alive():
+                return
+            thread = threading.Thread(
+                target=self._run_configured_profile_start_in_background,
+                name="bot-runtime-configured-profile-start",
+                daemon=True,
+            )
+            self._autostart_thread = thread
+            try:
+                thread.start()
+            except RuntimeError:
+                self._autostart_thread = None
+                logger.exception(
+                    "Не удалось создать поток фонового autostart; выполняем запуск профилей синхронно"
+                )
+                self._run_configured_profile_start_in_background()
+
+    def start_configured_profiles(self) -> None:
+        """Восстановить только явно настроенные и сохранённые autostart-профили."""
+        from deploy.config import DeployConfig
+        from module.config.profile import (
+            MAX_PROFILE_CONFIG_CANDIDATES,
+            profile_identity_from_name,
+        )
+
+        configured = _parse_profile_list(DeployConfig().Run)
+        reload_marker = self.repository_root / "config" / "reloadalas"
+        marker_profiles: list[str] = []
+        if os.path.lexists(reload_marker):
+            if reload_marker.is_symlink() or (
+                hasattr(reload_marker, "is_junction") and reload_marker.is_junction()
+            ):
+                raise RuntimeError("Legacy-маркер config/reloadalas проходит через ссылку")
+            try:
+                raw = reload_marker.read_bytes()
+            except OSError as exc:
+                raise RuntimeError("Не удалось прочитать legacy-маркер config/reloadalas") from exc
+            if len(raw) > 16 * 1024:
+                raise RuntimeError("Legacy-маркер config/reloadalas превышает ограничение размера")
+            try:
+                marker_profiles = [line.strip() for line in raw.decode("utf-8").splitlines()]
+            except UnicodeDecodeError as exc:
+                raise RuntimeError("Legacy-маркер config/reloadalas имеет неверную кодировку") from exc
+            marker_profiles = list(dict.fromkeys(name for name in marker_profiles if name))
+            if len(marker_profiles) > MAX_PROFILE_CONFIG_CANDIDATES:
+                raise RuntimeError(
+                    "Legacy-маркер config/reloadalas превышает ограничение числа профилей"
+                )
+
+        names = list(dict.fromkeys((*configured, *marker_profiles)))
+        available = set(self._profiles())
+        all_started = True
+        for name in names:
+            if self._shutdown_requested.is_set():
+                all_started = False
+                break
+            identity = profile_identity_from_name(name)
+            if identity is None or identity.mod_name != "alas" or identity.name not in available:
+                logger.error("Профиль Bot Runtime autostart не найден или не является canonical: %s", name)
+                all_started = False
+                continue
+            request_id = str(uuid.uuid4())
+            result = self.execute(
+                RuntimeControlOperation.START_PROFILE,
+                identity.name,
+                request_id=request_id,
+                idempotency_key=f"autostart-{uuid.uuid4().hex}",
+                session_id=None,
+                expires_at=(datetime.now(UTC) + timedelta(seconds=120)).isoformat(),
+            )
+            if self._shutdown_requested.is_set():
+                all_started = False
+                break
+            if result.code in {"RUNTIME_CONTROL_EXPIRED"}:
+                all_started = False
+                continue
+            if not result.ok:
+                logger.error(
+                    "Не удалось восстановить профиль Bot Runtime %s (%s)",
+                    identity.name,
+                    result.code,
+                )
+                all_started = False
+        if marker_profiles and all_started:
+            try:
+                reload_marker.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("Не удалось удалить legacy-маркер config/reloadalas: %s", type(exc).__name__)
+
+    def close(self) -> None:
+        workers = get_workers(os.getpid(), repository_root=self.repository_root)
+        if workers:
+            raise RuntimeError(
+                f"Нельзя освободить Bot Runtime owner при живых worker: {', '.join(sorted(workers))}"
+            )
+        clear_owner(os.getpid(), repository_root=self.repository_root)
 
     def _reconcile_runtime_state(self) -> None:
         """Согласовать эфемерный snapshot с registry до первой mutation."""
 
         try:
-            from module.webui.worker_registry import get_workers, process_matches
-
-            workers = get_workers(os.getpid())
+            workers = get_workers(os.getpid(), repository_root=self.repository_root)
 
             def worker_identity_checker(pid: int, created_at: float) -> bool | None:
                 return process_matches({"pid": pid, "created_at": created_at})
@@ -130,17 +271,12 @@ class WebUIRuntimeControlOwner:
                 ", ".join(ownership_reconciled),
             )
 
-    @staticmethod
-    def owner_identity() -> RuntimeOwnerIdentity | None:
-        from module.webui.worker_registry import get_owner_record
-
-        record = get_owner_record()
+    def owner_identity(self) -> RuntimeOwnerIdentity | None:
+        record = get_owner_record(self.repository_root)
         return None if record is None else RuntimeOwnerIdentity.from_value(record)
 
     @staticmethod
     def owner_matches(owner: RuntimeOwnerIdentity) -> bool:
-        from module.webui.worker_registry import process_matches
-
         try:
             return process_matches(owner.as_dict()) is True
         except RuntimeError:
@@ -155,6 +291,7 @@ class WebUIRuntimeControlOwner:
         idempotency_key: str,
         session_id: str | None,
         expires_at: str,
+        function: str | None = None,
     ) -> RuntimeControlResult:
         owner = self.owner_identity()
         try:
@@ -189,10 +326,27 @@ class WebUIRuntimeControlOwner:
                     request_id,
                     idempotency_key,
                     "RUNTIME_OWNER_STALE",
-                    "Идентичность WebUI owner не подтверждена во время выполнения operation",
+                    "Идентичность Bot Runtime owner не подтверждена во время выполнения operation",
                     owner=owner,
                 )
-            if profile not in self._profiles():
+            if self._shutdown_requested.is_set() and operation is not RuntimeControlOperation.STOP_RUNTIME:
+                return self._failure(
+                    operation,
+                    profile,
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_OWNER_SHUTTING_DOWN",
+                    "Bot Runtime отклоняет новые операции во время остановки",
+                    owner=owner,
+                )
+            if (
+                operation
+                not in {
+                    RuntimeControlOperation.START_CONFIGURED_PROFILES,
+                    RuntimeControlOperation.STOP_RUNTIME,
+                }
+                and profile not in self._profiles()
+            ):
                 return self._failure(
                     operation,
                     profile,
@@ -213,10 +367,24 @@ class WebUIRuntimeControlOwner:
                     "Срок действия runtime control request истёк до захвата игрового ресурса",
                     owner=owner,
                 )
+            if operation is RuntimeControlOperation.START_CONFIGURED_PROFILES:
+                return self._success(
+                    operation,
+                    profile,
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_AUTOSTART_QUEUED",
+                    "Запрос запуска настроенных профилей принят Bot Runtime",
+                    None,
+                    owner,
+                    {},
+                )
             if operation is RuntimeControlOperation.START_PROFILE:
                 target_operation = self._start
             elif operation is RuntimeControlOperation.STOP_PROFILE:
                 target_operation = self._stop
+            elif operation is RuntimeControlOperation.STOP_RUNTIME:
+                target_operation = self._stop_runtime
             else:
                 target_operation = None
             if target_operation is None:
@@ -231,6 +399,19 @@ class WebUIRuntimeControlOwner:
                 )
             lease_timeout = self._remaining_deadline(deadline)
             with game_runtime_lease(self.repository_root, timeout=lease_timeout):
+                if (
+                    self._shutdown_requested.is_set()
+                    and operation is not RuntimeControlOperation.STOP_RUNTIME
+                ):
+                    return self._failure(
+                        operation,
+                        profile,
+                        request_id,
+                        idempotency_key,
+                        "RUNTIME_OWNER_SHUTTING_DOWN",
+                        "Bot Runtime отклоняет новые операции во время остановки",
+                        owner=owner,
+                    )
                 if self._deadline_expired(deadline):
                     return self._failure(
                         operation,
@@ -241,14 +422,19 @@ class WebUIRuntimeControlOwner:
                         "Срок действия runtime control request истёк до выполнения operation",
                         owner=owner,
                     )
+                operation_kwargs = {
+                    "request_id": request_id,
+                    "idempotency_key": idempotency_key,
+                    "session_id": session_id,
+                    "owner": owner,
+                    "deadline": deadline,
+                    "development_profile": development_profile,
+                }
+                if operation is RuntimeControlOperation.START_PROFILE:
+                    operation_kwargs["function"] = function
                 return target_operation(
                     profile,
-                    request_id=request_id,
-                    idempotency_key=idempotency_key,
-                    session_id=session_id,
-                    owner=owner,
-                    deadline=deadline,
-                    development_profile=development_profile,
+                    **operation_kwargs,
                 )
         except (ResourceLeaseError, TimeoutError):
             code = (
@@ -292,6 +478,125 @@ class WebUIRuntimeControlOwner:
                 owner=owner,
             )
 
+    def _stop_runtime(
+        self,
+        _profile: str,
+        *,
+        request_id: str,
+        idempotency_key: str,
+        session_id: str | None,
+        owner: RuntimeOwnerIdentity,
+        deadline: datetime,
+        development_profile: str | None,
+        function: str | None = None,
+    ) -> RuntimeControlResult:
+        """Остановить только worker текущего owner с подтверждением очистки."""
+        if session_id is not None:
+            return self._failure(
+                RuntimeControlOperation.STOP_RUNTIME,
+                RUNTIME_CONTROL_PROFILE,
+                request_id,
+                idempotency_key,
+                "RUNTIME_SESSION_INVALID",
+                "Остановка всего Bot Runtime не принимает session_id",
+                owner=owner,
+            )
+
+        try:
+            workers = get_workers(os.getpid(), repository_root=self.repository_root)
+        except Exception as exc:  # noqa: BLE001 - нельзя объявлять остановку при неизвестном реестре.
+            return self._failure(
+                RuntimeControlOperation.STOP_RUNTIME,
+                RUNTIME_CONTROL_PROFILE,
+                request_id,
+                idempotency_key,
+                "RUNTIME_REGISTRY_UNKNOWN",
+                "Не удалось подтвердить worker перед остановкой Bot Runtime",
+                owner=owner,
+                details={"error": type(exc).__name__},
+            )
+
+        profiles = sorted(set(workers) | set(self._live_profiles()))
+        stopped: list[str] = []
+        for profile in profiles:
+            if self._deadline_expired(deadline):
+                return self._failure(
+                    RuntimeControlOperation.STOP_RUNTIME,
+                    RUNTIME_CONTROL_PROFILE,
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_CONTROL_EXPIRED",
+                    "Срок остановки Bot Runtime истёк до завершения всех worker",
+                    owner=owner,
+                    details={"stopped_profiles": stopped, "remaining_profiles": profiles[len(stopped):]},
+                )
+            snapshot = self.state.read(profile)
+            profile_session = snapshot.session_id if snapshot is not None else None
+            result = self._stop(
+                profile,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                session_id=profile_session,
+                owner=owner,
+                deadline=deadline,
+                development_profile=development_profile,
+            )
+            if not result.ok:
+                return self._failure(
+                    RuntimeControlOperation.STOP_RUNTIME,
+                    RUNTIME_CONTROL_PROFILE,
+                    request_id,
+                    idempotency_key,
+                    result.code,
+                    "Bot Runtime не остановил все worker с подтверждённой очисткой",
+                    owner=owner,
+                    details={
+                        "profile": profile,
+                        "cause": {"code": result.code, "message": result.message},
+                        "stopped_profiles": stopped,
+                    },
+                )
+            stopped.append(profile)
+
+        try:
+            remaining = get_workers(os.getpid(), repository_root=self.repository_root)
+        except Exception as exc:  # noqa: BLE001 - окончательное readback обязателен.
+            return self._failure(
+                RuntimeControlOperation.STOP_RUNTIME,
+                RUNTIME_CONTROL_PROFILE,
+                request_id,
+                idempotency_key,
+                "RUNTIME_REGISTRY_UNKNOWN",
+                "Не удалось проверить очистку worker после остановки Bot Runtime",
+                owner=owner,
+                details={"stopped_profiles": stopped, "error": type(exc).__name__},
+            )
+        if remaining:
+            return self._failure(
+                RuntimeControlOperation.STOP_RUNTIME,
+                RUNTIME_CONTROL_PROFILE,
+                request_id,
+                idempotency_key,
+                "RUNTIME_CLEANUP_UNCONFIRMED",
+                "В реестре остались worker после остановки Bot Runtime",
+                owner=owner,
+                details={"stopped_profiles": stopped, "remaining_profiles": sorted(remaining)},
+            )
+        # Устанавливается до освобождения общей игровой lease: ожидающий
+        # autostart после этого не сможет запустить worker перед выходом owner.
+        self._shutdown_requested.set()
+        return self._success(
+            RuntimeControlOperation.STOP_RUNTIME,
+            RUNTIME_CONTROL_PROFILE,
+            request_id,
+            idempotency_key,
+            "RUNTIME_STOPPED",
+            "Bot Runtime остановлен",
+            None,
+            owner,
+            {"stopped_profiles": stopped},
+        )
+
     def _start(
         self,
         profile: str,
@@ -302,6 +607,7 @@ class WebUIRuntimeControlOwner:
         owner: RuntimeOwnerIdentity,
         deadline: datetime,
         development_profile: str | None,
+        function: str | None = None,
     ) -> RuntimeControlResult:
         if self._deadline_expired(deadline):
             return self._failure(
@@ -388,7 +694,7 @@ class WebUIRuntimeControlOwner:
                 request_id,
                 idempotency_key,
                 "RUNTIME_ALREADY_RUNNING",
-                "Профиль уже запущен в общем WebUI",
+            "Профиль уже запущен в Bot Runtime",
                 snapshot,
                 owner,
                 {"idempotent": True},
@@ -469,7 +775,7 @@ class WebUIRuntimeControlOwner:
         if profile == development_profile:
             self.state.mark_resource_acquiring(profile, operation_id=request_id, session_id=session_id)
         try:
-            self._start_manager(manager, profile, request_id, session_id)
+            self._start_manager(manager, profile, request_id, session_id, function)
         except RuntimeStateError as exc:
             return self._start_failure_after_launch(
                 profile,
@@ -494,7 +800,7 @@ class WebUIRuntimeControlOwner:
                 owner=owner,
                 deadline=deadline,
                 code="RUNTIME_START_UNCONFIRMED",
-                message="WebUI-owned ProcessManager не подтвердил запуск worker",
+                message="Bot Runtime worker manager не подтвердил запуск worker",
                 terminal_state="start_failed",
                 extra_details={"error": type(exc).__name__},
             )
@@ -523,7 +829,7 @@ class WebUIRuntimeControlOwner:
                 owner=owner,
                 deadline=deadline,
                 code="RUNTIME_START_UNCONFIRMED",
-                message="WebUI-owned ProcessManager не подтвердил состояние worker",
+                message="Bot Runtime worker manager не подтвердил состояние worker",
                 terminal_state="start_unconfirmed",
                 extra_details={"error": type(exc).__name__},
             )
@@ -537,7 +843,7 @@ class WebUIRuntimeControlOwner:
                 owner=owner,
                 deadline=deadline,
                 code="RUNTIME_START_UNCONFIRMED",
-                message="WebUI-owned ProcessManager не подтвердил запуск worker",
+                message="Bot Runtime worker manager не подтвердил запуск worker",
                 terminal_state="start_unconfirmed",
             )
         try:
@@ -619,7 +925,7 @@ class WebUIRuntimeControlOwner:
             request_id,
             idempotency_key,
             "RUNTIME_STARTED",
-            "Профиль запущен в общем WebUI",
+            "Профиль запущен в Bot Runtime",
             snapshot,
             owner,
             {"handover": handover_details} if handover_details is not None else {},
@@ -764,7 +1070,7 @@ class WebUIRuntimeControlOwner:
                     request_id,
                     idempotency_key,
                     "RUNTIME_STOP_UNCONFIRMED",
-                    "WebUI-owned ProcessManager не подтвердил остановку worker",
+                    "Bot Runtime worker manager не подтвердил остановку worker",
                     owner=owner,
                     details=details,
                 )
@@ -807,7 +1113,7 @@ class WebUIRuntimeControlOwner:
                 request_id,
                 idempotency_key,
                 "RUNTIME_STOP_UNCONFIRMED",
-                "WebUI-owned ProcessManager не подтвердил остановку worker",
+                "Bot Runtime worker manager не подтвердил остановку worker",
                 owner=owner,
                 details=details or None,
             )
@@ -869,19 +1175,27 @@ class WebUIRuntimeControlOwner:
     def _manager(self, profile: str) -> object:
         if self._manager_factory is not None:
             return self._manager_factory(profile)
-        from module.webui.process_manager import ProcessManager
+        from module.application.runtime_process_manager import BotRuntimeWorkerManager
 
-        return ProcessManager.get_manager(profile)
+        return BotRuntimeWorkerManager.get_manager(profile)
 
     @staticmethod
     def _read_alive(manager: object) -> bool:
         value = getattr(manager, "alive", False)
         if type(value) is not bool:
-            raise RuntimeError("ProcessManager.alive должен быть bool")
+            raise RuntimeError("BotRuntimeWorkerManager.alive должен быть bool")
         return value
 
-    def _start_manager(self, manager: object, profile: str, operation_id: str, session_id: str | None) -> None:
-        function = self._function_factory(profile) if self._function_factory is not None else None
+    def _start_manager(
+        self,
+        manager: object,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+        function: str | None,
+    ) -> None:
+        if function is None and self._function_factory is not None:
+            function = self._function_factory(profile)
         if function is None:
             from module.submodule.utils import get_config_mod
 
@@ -889,7 +1203,7 @@ class WebUIRuntimeControlOwner:
 
         start = getattr(manager, "start", None)
         if not callable(start):
-            raise TypeError("WebUI-owned ProcessManager не предоставляет start")
+            raise TypeError("BotRuntimeWorkerManager не предоставляет start")
         start(
             func=function,
             operation_id=operation_id,
@@ -980,9 +1294,9 @@ class WebUIRuntimeControlOwner:
         if self._worker_record_provider is not None:
             record = self._worker_record_provider(profile)
         else:
-            from module.webui.worker_registry import get_workers
-
-            record = get_workers(os.getpid()).get(profile)
+            record = get_workers(
+                os.getpid(), repository_root=self.repository_root
+            ).get(profile)
         if not isinstance(record, dict) or set(record) != {"pid", "created_at"}:
             return None
         pid = record.get("pid")
@@ -1040,20 +1354,12 @@ class WebUIRuntimeControlOwner:
     def _deploy_config(self) -> object:
         if self._deploy_config_provider is not None:
             return self._deploy_config_provider()
-        from module.webui.setting import State
+        from deploy.config import DeployConfig
 
-        return State.deploy_config
+        return DeployConfig()
 
     def _application_adapter(self) -> object:
         if self._application is None:
-            import sys
-
-            from module.webui.fake_pil_module import remove_fake_pil_module
-
-            # Runtime control создаёт настоящий Device в owner-процессе; ему
-            # нужен реальный PIL, а не startup-заглушка WebUI.
-            if not hasattr(sys.modules.get("PIL"), "__path__"):
-                remove_fake_pil_module()
             from module.application.legacy_game_adapters import (
                 LegacyGameApplicationAdapter,
             )
@@ -1132,19 +1438,9 @@ class WebUIRuntimeControlOwner:
             if isinstance(result, NotificationOutcome):
                 return result
             return NotificationOutcome.ACCEPTED if result is True else NotificationOutcome.FAILED
-        from module.notify.notify import notify_webui
-
-        try:
-            result = notify_webui(
-                profile,
-                title="Требуется подтверждение передачи игрового ресурса",
-                content=content,
-            )
-        except Exception:  # noqa: BLE001 - ошибка границы notification переводит путь в fail-closed режим.
-            return NotificationOutcome.UNAVAILABLE
-        # Legacy notify_webui подтверждает только постановку в очередь, а не
-        # доставку уведомления пользователю.
-        return NotificationOutcome.ACCEPTED if result is True else NotificationOutcome.FAILED
+        # Headless owner не обращается к WebUI даже для уведомлений. Если у
+        # runtime нет нейтрального доставщика, handover остаётся fail-closed.
+        return NotificationOutcome.UNAVAILABLE
 
     def request_cooperative_quiesce(
         self,
@@ -1178,7 +1474,7 @@ class WebUIRuntimeControlOwner:
         key: str,
         code: str,
         message: str,
-        snapshot: RuntimeStateSnapshot,
+        snapshot: RuntimeStateSnapshot | None,
         owner: RuntimeOwnerIdentity,
         details: dict[str, object],
     ) -> RuntimeControlResult:
@@ -1190,7 +1486,7 @@ class WebUIRuntimeControlOwner:
             profile=profile,
             request_id=request_id,
             idempotency_key=key,
-            state=snapshot.as_dict(),
+            state=None if snapshot is None else snapshot.as_dict(),
             details=details,
             owner=owner,
         )
@@ -1223,7 +1519,7 @@ class WebUIRuntimeControlOwner:
 class _OwnerHandoverHooks(HandoverHooks):
     def __init__(
         self,
-        owner: WebUIRuntimeControlOwner,
+        owner: BotRuntimeOwner,
         profile: str,
         *,
         deadline: datetime | None = None,
@@ -1342,4 +1638,31 @@ class _OwnerHandoverHooks(HandoverHooks):
         return self.owner.is_main_confirmed(profile)
 
 
-__all__ = ["WebUIRuntimeControlOwner"]
+__all__ = ["BotRuntimeOwner"]
+
+
+def _parse_profile_list(value: object) -> tuple[str, ...]:
+    if value is None or value is False:
+        return ()
+    if isinstance(value, list):
+        items = value
+    else:
+        text = str(value).strip()
+        if not text or text.casefold() == "null":
+            return ()
+        items = None
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                items = parsed
+        if items is None:
+            items = text.strip("[]").split(",")
+    names: list[str] = []
+    for item in items:
+        name = str(item).strip(" \t\r\n'\"")
+        if name and name not in names:
+            names.append(name)
+    return tuple(names)

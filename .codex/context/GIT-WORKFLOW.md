@@ -395,7 +395,7 @@ dependency/bootstrap/test/build задач, где он является вла�
 ## 14. Контракт Start/Update/Repair/Build
 
 ```text
-azur start
+azur webui start
 azur update
 azur repair
 azur build

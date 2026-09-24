@@ -6,8 +6,10 @@ import json
 import os
 import subprocess
 import sys
-from types import ModuleType
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from module.application.runtime_control import (
     RuntimeControlOperation,
@@ -16,7 +18,7 @@ from module.application.runtime_control import (
 from module.application.runtime_handover import NotificationOutcome
 from module.application.runtime_state import RuntimePhase
 from module.application.scheduler_runtime import SchedulerRuntimeStateReader
-from module.webui.runtime_control_owner import WebUIRuntimeControlOwner
+from module.application.bot_runtime_owner import BotRuntimeOwner
 
 _EXPIRY = "2099-01-01T00:00:00+00:00"
 
@@ -125,10 +127,10 @@ class Application:
         return True
 
 
-def _owner(tmp_path: Path, manager: Manager) -> WebUIRuntimeControlOwner:
+def _owner(tmp_path: Path, manager: Manager) -> BotRuntimeOwner:
     owner_identity = RuntimeOwnerIdentity(pid=100, created_at=200.0)
     record = {"pid": 101, "created_at": 201.0}
-    instance_owner = WebUIRuntimeControlOwner(
+    instance_owner = BotRuntimeOwner(
         tmp_path,
         manager_factory=lambda _profile: manager,
         profile_provider=lambda: ("ap",),
@@ -141,51 +143,117 @@ def _owner(tmp_path: Path, manager: Manager) -> WebUIRuntimeControlOwner:
     return instance_owner
 
 
-def test_owner_start_server_runs_runtime_state_upgrade_recovery(
+def test_owner_start_server_migrates_legacy_runtime_state(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    state_path = tmp_path / "config" / "state" / "webui-runtime-state.json"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps({"schema_version": 1, "profiles": {"ap": {"phase": "failed"}}}),
-        encoding="utf-8",
-    )
+    legacy_path = tmp_path / "config" / "state" / "webui-runtime-state.json"
+    canonical_path = tmp_path / "config" / "state" / "bot-runtime" / "runtime-state.json"
+    legacy_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_payload = {"schema_version": 2, "profiles": {}}
+    legacy_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
+    from module.application import bot_runtime_owner as owner_module
+
+    worker_lookups: list[tuple[int, Path | None]] = []
+
+    def get_workers(owner_pid: int, *, repository_root: Path | None = None):
+        worker_lookups.append((owner_pid, repository_root))
+        return {}
+
     monkeypatch.setattr(
-        "module.webui.worker_registry.get_workers",
-        lambda _owner_pid: {},
+        owner_module,
+        "get_workers",
+        get_workers,
     )
-    owner = WebUIRuntimeControlOwner(tmp_path)
+    owner = BotRuntimeOwner(tmp_path)
 
     server = owner.start_server()
     try:
-        assert json.loads(state_path.read_text(encoding="utf-8")) == {
-            "schema_version": 2,
-            "profiles": {},
-        }
+        assert json.loads(canonical_path.read_text(encoding="utf-8")) == legacy_payload
+        assert not legacy_path.exists()
         assert owner._runtime_state_recovery_error is None
+        assert worker_lookups
+        assert all(repository_root == tmp_path for _, repository_root in worker_lookups)
     finally:
         server.close()
 
 
-def test_owner_loads_real_pil_before_legacy_handover_adapter(
+def test_owner_imports_and_removes_bounded_webui_restart_marker(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    fake_pil = ModuleType("PIL")
-    fake_pil.Image = ModuleType("PIL.Image")
-    monkeypatch.setitem(sys.modules, "PIL", fake_pil)
-    monkeypatch.setitem(sys.modules, "PIL.Image", fake_pil.Image)
+    from module.application.runtime_control import RuntimeControlOperation
 
-    owner = WebUIRuntimeControlOwner(tmp_path)
+    marker = tmp_path / "config" / "reloadalas"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("alas\nfarm\nalas\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "deploy.config.DeployConfig",
+        lambda: SimpleNamespace(Run="[]"),
+    )
+    owner = BotRuntimeOwner(tmp_path, profile_provider=lambda: ("alas", "farm"))
+    calls = []
+    owner.execute = lambda operation, profile, **kwargs: (
+        calls.append((operation, profile, kwargs))
+        or SimpleNamespace(ok=True, code="RUNTIME_STARTED")
+    )
 
-    adapter = owner._application_adapter()
+    owner.start_configured_profiles()
 
-    assert adapter.__class__.__name__ == "LegacyGameApplicationAdapter"
-    assert "PIL" not in sys.modules
+    assert [call[0:2] for call in calls] == [
+        (RuntimeControlOperation.START_PROFILE, "alas"),
+        (RuntimeControlOperation.START_PROFILE, "farm"),
+    ]
+    assert not marker.exists()
 
 
-def test_shared_handover_loads_ui_asset_from_non_repository_cwd(
+def test_owner_keeps_legacy_restart_marker_when_a_profile_start_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    marker = tmp_path / "config" / "reloadalas"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("alas\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "deploy.config.DeployConfig",
+        lambda: SimpleNamespace(Run="[]"),
+    )
+    owner = BotRuntimeOwner(tmp_path, profile_provider=lambda: ("alas",))
+    owner.execute = lambda *_args, **_kwargs: SimpleNamespace(
+        ok=False,
+        code="RUNTIME_START_FAILED",
+    )
+
+    owner.start_configured_profiles()
+
+    assert marker.exists()
+
+
+def test_owner_rejects_oversized_legacy_restart_profile_list(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from module.config.profile import MAX_PROFILE_CONFIG_CANDIDATES
+
+    marker = tmp_path / "config" / "reloadalas"
+    marker.parent.mkdir(parents=True)
+    names = [f"profile{index}" for index in range(MAX_PROFILE_CONFIG_CANDIDATES + 1)]
+    marker.write_text("\n".join(names), encoding="utf-8")
+    monkeypatch.setattr(
+        "deploy.config.DeployConfig",
+        lambda: SimpleNamespace(Run="[]"),
+    )
+    owner = BotRuntimeOwner(tmp_path, profile_provider=lambda: tuple(names))
+    owner.execute = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("excessive migration data must be rejected before start")
+    )
+
+    with pytest.raises(RuntimeError, match="ограничение числа профилей"):
+        owner.start_configured_profiles()
+    assert marker.exists()
+
+
+def test_bot_runtime_handover_loads_asset_without_importing_webui(
     tmp_path: Path,
 ) -> None:
     repository_root = REPOSITORY_ROOT
@@ -196,10 +264,12 @@ def test_shared_handover_loads_ui_asset_from_non_repository_cwd(
             "repository_root = Path(sys.argv[1]).resolve()",
             "assert Path.cwd().resolve() != repository_root",
             "sys.path.insert(0, str(repository_root))",
-            "import module.webui.app_dependencies",
-            "from module.webui.runtime_control_owner import WebUIRuntimeControlOwner",
-            "owner = WebUIRuntimeControlOwner(repository_root)",
+            "import module.bot_runtime",
+            "from module.application.bot_runtime_owner import BotRuntimeOwner",
+            "assert not any(name == 'module.webui' or name.startswith('module.webui.') for name in sys.modules)",
+            "owner = BotRuntimeOwner(repository_root)",
             "owner._application_adapter()",
+            "assert not any(name == 'module.webui' or name.startswith('module.webui.') for name in sys.modules)",
             "from module.ui.assets import MAIN_GOTO_FLEET",
             "MAIN_GOTO_FLEET.ensure_template()",
             "assert MAIN_GOTO_FLEET.image.shape == (26, 143, 3)",
@@ -220,7 +290,43 @@ def test_shared_handover_loads_ui_asset_from_non_repository_cwd(
     assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
 
 
-def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(
+def test_headless_entrypoint_does_not_autostart_configured_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import module.bot_runtime as bot_runtime
+
+    calls: list[str] = []
+
+    class FakeServer:
+        def close(self) -> None:
+            calls.append("server-close")
+
+    class FakeOwner:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def start_server(self) -> FakeServer:
+            calls.append("server-start")
+            return FakeServer()
+
+        def start_configured_profiles(self) -> None:
+            calls.append("autostart")
+
+        def wait_for_shutdown(self) -> None:
+            calls.append("wait")
+
+        def close(self) -> None:
+            calls.append("owner-close")
+
+    monkeypatch.setattr(bot_runtime, "_build_notification_runtime", lambda: None)
+    monkeypatch.setattr(bot_runtime, "configure_runtime_logging", lambda **_kwargs: None)
+    monkeypatch.setattr(bot_runtime, "BotRuntimeOwner", FakeOwner)
+
+    assert bot_runtime.main() == 0
+    assert calls == ["server-start", "wait", "server-close", "owner-close"]
+
+
+def test_owner_executes_profile_and_repeats_start_idempotently(
     tmp_path: Path,
 ) -> None:
     manager = Manager()
@@ -400,7 +506,7 @@ def test_owner_rejects_development_start_without_session_before_manager_lookup(
     tmp_path: Path,
 ) -> None:
     manager_lookups: list[str] = []
-    owner = WebUIRuntimeControlOwner(
+    owner = BotRuntimeOwner(
         tmp_path,
         manager_factory=lambda profile: manager_lookups.append(profile) or Manager(),
         profile_provider=lambda: ("ap",),
@@ -455,7 +561,7 @@ def test_owner_rejects_development_stop_without_session_before_manager_lookup(
     tmp_path: Path,
 ) -> None:
     manager_lookups: list[str] = []
-    owner = WebUIRuntimeControlOwner(
+    owner = BotRuntimeOwner(
         tmp_path,
         manager_factory=lambda profile: manager_lookups.append(profile) or Manager(),
         profile_provider=lambda: ("ap",),
@@ -565,7 +671,7 @@ def test_owner_rejects_session_mismatch_for_running_non_development_worker(
     manager.alive = True
     owner_identity = RuntimeOwnerIdentity(pid=100, created_at=200.0)
     record = {"pid": 101, "created_at": 201.0}
-    owner = WebUIRuntimeControlOwner(
+    owner = BotRuntimeOwner(
         tmp_path,
         manager_factory=lambda _profile: manager,
         profile_provider=lambda: ("user", "ap"),
@@ -604,7 +710,7 @@ def test_owner_handover_fails_closed_when_authoritative_state_is_missing(
     managers = {"alas": user, "ap": development}
     records = {"alas": {"pid": 201, "created_at": 301.0}}
     owner_identity = RuntimeOwnerIdentity(pid=100, created_at=200.0)
-    owner = WebUIRuntimeControlOwner(
+    owner = BotRuntimeOwner(
         tmp_path,
         manager_factory=lambda profile: managers[profile],
         profile_provider=lambda: ("alas", "ap"),
@@ -692,7 +798,7 @@ def test_owner_handover_warns_and_uses_cooperative_stop_before_ap_start(tmp_path
     application = Application()
     notifications: list[tuple[str, str, str]] = []
     owner_identity = RuntimeOwnerIdentity(pid=100, created_at=200.0)
-    owner = WebUIRuntimeControlOwner(
+    owner = BotRuntimeOwner(
         tmp_path,
         manager_factory=lambda profile: managers[profile],
         profile_provider=lambda: ("alas", "ap"),

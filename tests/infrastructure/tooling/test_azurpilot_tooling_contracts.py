@@ -17,6 +17,8 @@ from types import SimpleNamespace
 import pytest
 
 import dev_tools.postgresql_runtime as tooling_postgresql_runtime
+import azurpilot.cli as tooling_cli
+import azurpilot.tooling.bot_runtime as tooling_bot_runtime
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
@@ -24,9 +26,11 @@ from azurpilot.tooling import filesystem as tooling_filesystem
 from azurpilot.tooling import lifecycle as tooling_lifecycle
 from azurpilot.tooling import shortcut as tooling_shortcut
 from azurpilot.tooling import update as tooling_update
+from azurpilot.tooling.bot_runtime import BotRuntimeService
 from azurpilot.tooling.bootstrap import BuildService
 from azurpilot.tooling.config import DeploySettings, load_deploy_settings
 from azurpilot.tooling.contracts import (
+    BotRuntimeDetails,
     CapabilityCheck,
     CapabilityStatus,
     DeliveryJournal,
@@ -340,7 +344,11 @@ def test_lifecycle_keeps_state_when_termination_is_not_confirmed(
     monkeypatch.setattr(
         tooling_lifecycle.ProcessController,
         "terminate",
-        lambda _identity, timeout_seconds=15.0: False,
+        lambda _identity, timeout_seconds=15.0, *, include_children=True: (
+            pytest.fail("WebUI Stop не должен завершать дерево worker-процессов")
+            if include_children
+            else False
+        ),
     )
     service = LifecycleService(
         resolver=resolver,
@@ -446,7 +454,11 @@ def test_lifecycle_stop_succeeds_when_cleanup_proves_process_already_exited(
     monkeypatch.setattr(
         tooling_lifecycle.ProcessController,
         "terminate",
-        lambda _identity, timeout_seconds=15.0: False,
+        lambda _identity, timeout_seconds=15.0, *, include_children=True: (
+            pytest.fail("WebUI Stop не должен завершать дерево worker-процессов")
+            if include_children
+            else False
+        ),
     )
     service = LifecycleService(
         resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
@@ -474,6 +486,356 @@ def test_build_shortcut_defaults_are_explicitly_overridable() -> None:
 
     assert not hasattr(default_args, "shortcut")
     assert disabled_args.shortcut is False
+
+
+def test_bot_and_webui_lifecycle_commands_route_to_separate_services(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[object, ...]] = []
+    root = str(tmp_path)
+
+    class BotRuntime:
+        def status(self, repository_root=None):
+            calls.append(("bot", "status", repository_root))
+            return object()
+
+        def start(self, repository_root=None, *, timeout_seconds):
+            calls.append(("bot", "start", repository_root, timeout_seconds))
+            return SimpleNamespace(ok=True)
+
+        def stop(self, repository_root=None, *, timeout_seconds):
+            calls.append(("bot", "stop", repository_root, timeout_seconds))
+            return object()
+
+    class WebUI:
+        def inspect(self, repository_root=None):
+            calls.append(("webui", "status", repository_root))
+            return object()
+
+        def start(self, repository_root=None, *, timeout_seconds, open_browser, foreground):
+            calls.append(("webui", "start", repository_root, timeout_seconds, open_browser, foreground))
+            return object()
+
+        def stop(self, repository_root=None, *, timeout_seconds):
+            calls.append(("webui", "stop", repository_root, timeout_seconds))
+            return object()
+
+    services = SimpleNamespace(bot_runtime=BotRuntime(), lifecycle=WebUI())
+    commands = (
+        (["bot", "start", "--repository-root", root], (("bot", "start", root, 30.0),)),
+        (["bot", "stop", "--repository-root", root], (("bot", "stop", root, 120.0),)),
+        (["bot", "status", "--repository-root", root], (("bot", "status", root),)),
+        (
+            ["webui", "start", "--repository-root", root],
+            (("webui", "start", root, 60.0, False, False),),
+        ),
+        (["webui", "stop", "--repository-root", root], (("webui", "stop", root, 30.0),)),
+        (["webui", "status", "--repository-root", root], (("webui", "status", root),)),
+    )
+
+    for argv, expected in commands:
+        calls.clear()
+        tooling_cli._dispatch(build_parser().parse_args(argv), services)
+        assert tuple(calls) == expected
+
+
+def test_webui_start_aliases_share_options_and_help(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = build_parser()
+    legacy_default = parser.parse_args(["start"])
+    webui_default = parser.parse_args(["webui", "start"])
+    assert legacy_default.timeout == webui_default.timeout == 60.0
+    assert getattr(legacy_default, "browser", False) == getattr(webui_default, "browser", False)
+    assert legacy_default.foreground is webui_default.foreground is False
+
+    legacy_explicit = parser.parse_args(
+        ["start", "--timeout", "12", "--browser", "--foreground"]
+    )
+    webui_explicit = parser.parse_args(
+        ["webui", "start", "--timeout", "12", "--browser", "--foreground"]
+    )
+    assert legacy_explicit.timeout == webui_explicit.timeout == 12.0
+    assert legacy_explicit.browser is webui_explicit.browser is True
+    assert legacy_explicit.foreground is webui_explicit.foreground is True
+
+    for argv, help_fragment in (
+        (["webui", "start", "--help"], "общий срок проверки готовности"),
+        (["webui", "stop", "--help"], "срок штатной остановки WebUI"),
+    ):
+        with pytest.raises(SystemExit) as error:
+            parser.parse_args(argv)
+        assert error.value.code == 0
+        assert help_fragment in capsys.readouterr().out
+
+
+def test_bot_runtime_status_returns_typed_headless_state(tmp_path: Path) -> None:
+    root = tmp_path.resolve()
+    resolved = ResolvedRepository(root, _repository_evidence())
+    service = BotRuntimeService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved)
+    )
+
+    result = service.status(root)
+
+    assert result.ok is True
+    assert isinstance(result.details, BotRuntimeDetails)
+    assert result.details.status is OperationState.STOPPED
+    assert result.details.owner_running is False
+    assert result.details.workers == ()
+
+
+def test_bot_runtime_status_wraps_unsafe_state_store_constructor(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from module.application.runtime_state import RuntimeStateError
+
+    root = tmp_path.resolve()
+    resolved = ResolvedRepository(root, _repository_evidence())
+    service = BotRuntimeService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved)
+    )
+
+    def unsafe_state_store(_root: Path):
+        raise RuntimeStateError("RUNTIME_STATE_UNSAFE_PATH", "unsafe path")
+
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeStateStore", unsafe_state_store)
+
+    with pytest.raises(ToolingError) as error:
+        service.status(root)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+    assert error.value.state is OperationState.UNKNOWN
+
+
+def test_bot_runtime_start_requests_configured_profiles_through_control_plane(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from module.application.runtime_control import RuntimeControlOperation, RuntimeOwnerIdentity
+
+    root = tmp_path.resolve()
+    resolved = ResolvedRepository(root, _repository_evidence())
+    owner = RuntimeOwnerIdentity(pid=321, created_at=10.5)
+    details = BotRuntimeDetails(
+        status=OperationState.READY,
+        owner_pid=owner.pid,
+        owner_created_at=owner.created_at,
+        owner_running=True,
+    )
+    calls: list[tuple[RuntimeControlOperation, str]] = []
+
+    class FakeBootstrapper:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def ensure(self) -> RuntimeOwnerIdentity:
+            return owner
+
+    class FakeControlClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def call(self, operation: RuntimeControlOperation, profile: str, **_kwargs: object):
+            calls.append((operation, profile))
+            return SimpleNamespace(ok=True)
+
+    service = BotRuntimeService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved)
+    )
+    monkeypatch.setattr(tooling_bot_runtime, "BotRuntimeBootstrapper", FakeBootstrapper)
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeControlClient", FakeControlClient)
+    monkeypatch.setattr(service, "_snapshot", lambda _root: details)
+
+    result = service.start(root)
+
+    assert result.ok is True
+    assert calls == [(RuntimeControlOperation.START_CONFIGURED_PROFILES, "runtime")]
+
+
+def test_bot_runtime_stop_shares_one_deadline_with_control_request(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import time
+
+    from module.application.runtime_control import RuntimeOwnerIdentity
+
+    root = tmp_path.resolve()
+    resolved = ResolvedRepository(root, _repository_evidence())
+    owner = RuntimeOwnerIdentity(pid=321, created_at=10.5)
+    before = BotRuntimeDetails(
+        status=OperationState.READY,
+        owner_pid=owner.pid,
+        owner_created_at=owner.created_at,
+        owner_running=True,
+    )
+    control_timeouts: list[float] = []
+
+    class FakeControlClient:
+        def __init__(self, *_args: object, timeout: float, **_kwargs: object) -> None:
+            control_timeouts.append(timeout)
+
+        def call(self, *_args: object, **_kwargs: object) -> SimpleNamespace:
+            time.sleep(0.11)
+            return SimpleNamespace(ok=True, owner=owner)
+
+    service = BotRuntimeService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
+        poll_interval=0.01,
+    )
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeControlClient", FakeControlClient)
+    monkeypatch.setattr(tooling_bot_runtime, "process_matches", lambda _identity: True)
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_owner_record_read_only",
+        lambda **_kwargs: owner.as_dict(),
+    )
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_workers_read_only",
+        lambda **_kwargs: {},
+    )
+    def delayed_snapshot(_root: Path) -> BotRuntimeDetails:
+        time.sleep(0.02)
+        return before
+
+    monkeypatch.setattr(service, "_snapshot", delayed_snapshot)
+
+    with pytest.raises(ToolingError):
+        service.stop(root, timeout_seconds=0.15)
+
+    assert len(control_timeouts) == 1
+    assert control_timeouts[0] < 0.14
+
+
+def test_bot_runtime_snapshot_treats_exited_owner_and_worker_as_stopped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path.resolve()
+    owner = {"pid": 321, "created_at": 10.5}
+    worker = {"pid": 654, "created_at": 11.5}
+
+    class EmptyRuntimeState:
+        def __init__(self, _root: Path) -> None:
+            self.legacy_path = root / "missing-legacy-runtime-state.json"
+
+        def read_all(self) -> dict:
+            return {
+                "orphan": SimpleNamespace(
+                    worker_running=True,
+                    worker_pid=987,
+                    worker_created_at=12.5,
+                )
+            }
+
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeStateStore", EmptyRuntimeState)
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_owner_record_read_only",
+        lambda **_kwargs: owner,
+    )
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_workers_read_only",
+        lambda **_kwargs: {"ap": worker},
+    )
+    monkeypatch.setattr(tooling_bot_runtime, "process_matches", lambda _identity: None)
+
+    details = BotRuntimeService._snapshot(root)
+
+    assert details.status is OperationState.STOPPED
+    assert details.owner_running is False
+    assert details.recovery_required is True
+    assert len(details.workers) == 1
+    assert details.workers[0].running is False
+
+
+def test_bot_runtime_snapshot_keeps_process_inspection_errors_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path.resolve()
+    owner = {"pid": 321, "created_at": 10.5}
+
+    class EmptyRuntimeState:
+        def __init__(self, _root: Path) -> None:
+            self.legacy_path = root / "missing-legacy-runtime-state.json"
+
+        def read_all(self) -> dict:
+            return {}
+
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeStateStore", EmptyRuntimeState)
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_owner_record_read_only",
+        lambda **_kwargs: owner,
+    )
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_workers_read_only",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "process_matches",
+        lambda _identity: (_ for _ in ()).throw(RuntimeError("identity unavailable")),
+    )
+
+    with pytest.raises(ToolingError) as error:
+        BotRuntimeService._snapshot(root)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+
+
+def test_bot_runtime_stop_accepts_exited_owner_and_worker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from module.application.runtime_control import RuntimeOwnerIdentity
+
+    root = tmp_path.resolve()
+    resolved = ResolvedRepository(root, _repository_evidence())
+    owner = RuntimeOwnerIdentity(pid=321, created_at=10.5)
+    before = BotRuntimeDetails(
+        status=OperationState.READY,
+        owner_pid=owner.pid,
+        owner_created_at=owner.created_at,
+        owner_running=True,
+    )
+    after = BotRuntimeDetails(
+        status=OperationState.STOPPED,
+        owner_pid=owner.pid,
+        owner_created_at=owner.created_at,
+        recovery_required=True,
+    )
+
+    class FakeControlClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def call(self, *_args: object, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(ok=True, owner=owner)
+
+    service = BotRuntimeService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
+        poll_interval=0.01,
+    )
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeControlClient", FakeControlClient)
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_owner_record_read_only",
+        lambda **_kwargs: owner.as_dict(),
+    )
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_workers_read_only",
+        lambda **_kwargs: {"ap": {"pid": 654, "created_at": 11.5}},
+    )
+    monkeypatch.setattr(tooling_bot_runtime, "process_matches", lambda _identity: None)
+    snapshots = iter((before, after))
+    monkeypatch.setattr(service, "_snapshot", lambda _root: next(snapshots))
+
+    result = service.stop(root, timeout_seconds=0.1)
+
+    assert result.ok is True
+    assert result.state is OperationState.STOPPED
+    assert result.details.recovery_required is True
 
 
 def test_build_generates_update_ready_config_from_production_template(

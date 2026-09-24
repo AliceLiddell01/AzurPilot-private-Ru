@@ -1443,7 +1443,7 @@ class GameMcpAdapter:
                 getattr(control, "lifecycle_mutation_lock_owned_externally", False)
                 is True
             ):
-                # Lifecycle mutation передаётся общему WebUI owner.
+                # Lifecycle mutation передаётся headless Bot Runtime owner.
                 # Удержание того же межпроцессного lease во время ожидания
                 # owner привело бы к взаимной блокировке handover.
                 return nullcontext()

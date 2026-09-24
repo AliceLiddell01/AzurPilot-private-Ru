@@ -31,7 +31,6 @@ from module.webui.setting import (
     clear_dependency_sync_pending,
     is_dependency_sync_pending,
 )
-from module.webui import worker_registry
 
 
 WEBUI_READY_TIMEOUT = 120
@@ -331,7 +330,7 @@ def _wait_for_webui_ready(process, ready_event: Event, timeout=WEBUI_READY_TIMEO
             return False
 
 
-def _stop_process_tree(process, name: str) -> bool:
+def _stop_process_tree(process, name: str, *, include_children: bool = True) -> bool:
     """终止指定进程及其子树，并确认根进程已退出。"""
     if not process:
         return True
@@ -353,8 +352,11 @@ def _stop_process_tree(process, name: str) -> bool:
     psutil_module = None
     if os.name == "nt":
         try:
+            command = ["taskkill", "/PID", str(pid), "/F"]
+            if include_children:
+                command.insert(3, "/T")
             result = subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                command,
                 check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -377,7 +379,7 @@ def _stop_process_tree(process, name: str) -> bool:
 
             psutil_module = psutil
             parent = psutil.Process(pid)
-            child_processes = parent.children(recursive=True)
+            child_processes = parent.children(recursive=True) if include_children else []
             for child in reversed(child_processes):
                 try:
                     child.kill()
@@ -424,216 +426,14 @@ def _stop_process_tree(process, name: str) -> bool:
     return stopped and tree_terminated
 
 
-def _wait_for_registered_worker_exit(
-    pid: int,
-    name: str,
-    record: dict,
-    timeout: float = 3,
-) -> bool:
-    """等待登记 worker 退出，并拒绝 PID 已复用的记录。"""
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            matches = worker_registry.process_matches(record)
-        except RuntimeError as exc:
-            logger.error(f"[GUI] Не удалось подтвердить завершение worker «{name}» (PID: {pid}): {exc}")
-            return False
-        if matches is None:
-            return True
-        if not matches:
-            logger.error(
-                f"[GUI] PID worker был повторно использован; завершение неизвестного процесса отклонено: {name} (PID: {pid})"
-            )
-            return False
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            logger.error(f"[GUI] Превышено время ожидания завершения worker «{name}» (PID: {pid})")
-            return False
-        time.sleep(min(0.1, remaining))
-
-
-def _stop_registered_worker(pid: int, name: str, record: dict) -> bool:
-    """终止登记的 worker，并验证 PID 没有被系统复用。"""
-    try:
-        matches = worker_registry.process_matches(record)
-    except RuntimeError as exc:
-        logger.error(f"[GUI] Не удалось подтвердить идентичность worker «{name}» (PID: {pid}): {exc}")
-        return False
-    if matches is None:
-        return True
-    if not matches:
-        logger.error(
-            f"[GUI] PID worker был повторно использован; завершение неизвестного процесса отклонено: {name} (PID: {pid})"
-        )
-        return False
-
-    if os.name == "nt":
-        try:
-            result = subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                timeout=5,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            logger.warning(f"[GUI] Не удалось завершить worker «{name}» (PID: {pid}): {exc}")
-            return False
-        if result.returncode != 0:
-            logger.warning(
-                f"[GUI] taskkill при завершении worker «{name}» (PID: {pid}) вернул код {result.returncode}"
-            )
-    else:
-        try:
-            import psutil
-        except ImportError:
-            logger.warning(f"[GUI] psutil недоступен; невозможно завершить worker «{name}» (PID: {pid})")
-            return False
-
-        try:
-            parent = psutil.Process(pid)
-            children = parent.children(recursive=True)
-            for child in reversed(children):
-                child.kill()
-            parent.kill()
-            alive = [parent, *children]
-            deadline = time.monotonic() + 3
-            while alive:
-                remaining = []
-                for process in alive:
-                    try:
-                        if process.status() != psutil.STATUS_ZOMBIE:
-                            remaining.append(process)
-                    except psutil.NoSuchProcess:
-                        continue
-                alive = remaining
-                if not alive or time.monotonic() >= deadline:
-                    break
-                time.sleep(0.05)
-            if alive:
-                logger.error(f"[GUI] worker «{name}» (PID: {pid}) всё ещё выполняется")
-                return False
-        except psutil.NoSuchProcess:
-            return True
-        except Exception as exc:
-            logger.warning(f"[GUI] Не удалось завершить worker «{name}» (PID: {pid}): {exc}")
-            return False
-
-    return _wait_for_registered_worker_exit(pid, name, record)
-
-
-def _stop_registered_workers(
-    owner_pid: int | None,
-    discard_reused: bool = False,
-) -> bool:
-    """回收指定 WebUI 所登记的 worker，覆盖根进程已异常退出的场景。"""
-    if owner_pid is None:
-        return True
-    try:
-        workers = worker_registry.get_workers(owner_pid)
-    except RuntimeError as exc:
-        logger.error(f"[GUI] Не удалось прочитать реестр worker WebUI: {exc}")
-        return False
-
-    stopped = True
-    for name, record in workers.items():
-        try:
-            pid = int(record["pid"])
-            matches = worker_registry.process_matches(record)
-        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
-            logger.error(f"[GUI] Недопустимая запись worker ({name}): {exc}")
-            stopped = False
-            continue
-        if matches is None:
-            continue
-        if not matches:
-            if discard_reused:
-                logger.warning(
-                    f"[GUI] PID worker был повторно использован; устаревшая запись прежнего владельца отброшена: {name} (PID: {pid})"
-                )
-            else:
-                logger.error(
-                    f"[GUI] PID worker был повторно использован; завершение неизвестного процесса отклонено: {name} (PID: {pid})"
-                )
-                stopped = False
-            continue
-        stopped = _stop_registered_worker(pid, name, record) and stopped
-
-    if stopped:
-        try:
-            worker_registry.clear_owner(owner_pid)
-        except RuntimeError as exc:
-            logger.error(f"[GUI] Не удалось очистить реестр worker WebUI: {exc}")
-            return False
-    return stopped
-
-
-def _pid_exists(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return True
-    return True
-
-
-def _recover_orphaned_workers() -> bool:
-    """启动前回收上次异常退出的 WebUI worker。"""
-    try:
-        owner_record = worker_registry.get_owner_record()
-    except RuntimeError as exc:
-        logger.error(f"[GUI] Не удалось прочитать прежний реестр worker WebUI: {exc}")
-        return False
-    if owner_record is None:
-        return True
-
-    owner_pid = owner_record["pid"]
-    try:
-        owner_matches = worker_registry.process_matches(owner_record)
-    except RuntimeError as exc:
-        # Совместимость со старыми файлами регистрации: при отсутствии времени создания безопасная очистка возможна только после подтверждения отсутствия PID.
-        if not _pid_exists(owner_pid):
-            logger.warning(
-                f"[GUI] В записи прежнего владельца WebUI отсутствуют данные идентификации; выполняется очистка завершённого экземпляра (PID: {owner_pid})"
-            )
-            return _stop_registered_workers(owner_pid, discard_reused=True)
-        logger.error(
-            f"[GUI] Не удалось проверить прежнего владельца WebUI (PID: {owner_pid}): {exc}; запуск второго WebUI отклонён"
-        )
-        return False
-
-    if owner_matches is True:
-        logger.error(
-            f"[GUI] Обнаружен работающий владелец WebUI (PID: {owner_pid}); запуск второго WebUI отклонён"
-        )
-        return False
-    if owner_matches is False:
-        logger.warning(
-            f"[GUI] PID прежнего владельца WebUI был повторно использован; выполняется очистка зарегистрированных worker (PID: {owner_pid})"
-        )
-    else:
-        logger.warning(f"[GUI] Очистка worker после аварийного завершения предыдущего WebUI (PID: {owner_pid})")
-    return _stop_registered_workers(owner_pid, discard_reused=True)
-
-
 def _stop_dependency_sync_service_tree(process) -> bool:
     """终止卡住的依赖同步服务及其 uv 子进程。"""
     return _stop_process_tree(process, "служба синхронизации зависимостей")
 
 
 def _stop_webui_process_tree(process) -> bool:
-    """终止 WebUI 及其 AzurPilot worker 子进程，避免重启后重复控制设备。"""
-    root_stopped = _stop_process_tree(process, "WebUI")
-    if not root_stopped:
-        # Корневой WebUI может продолжать создавать worker'ы или управлять ими, удалять его регистрацию нельзя.
-        return False
-    owner_pid = getattr(process, "pid", None) if process is not None else None
-    workers_stopped = _stop_registered_workers(owner_pid, discard_reused=True)
-    return root_stopped and workers_stopped
+    """Остановить только процесс WebUI; Bot Runtime имеет отдельный lifecycle."""
+    return _stop_process_tree(process, "WebUI", include_children=False)
 
 
 def _start_dependency_sync_service():
@@ -851,8 +651,6 @@ def run_webui_supervisor() -> None:
     startup_failures = 0
     runtime_failures = 0
     force_dependency_sync = False
-    if not _recover_orphaned_workers():
-        return
     try:
         while not should_exit:
             (
@@ -1025,10 +823,8 @@ def run_webui_supervisor() -> None:
 
 
 def _run_webui_without_reload() -> bool:
-    """Восстановить orphaned worker-процессы перед прямым запуском WebUI."""
+    """Запустить WebUI без влияния на owner и worker-процессы Bot Runtime."""
     _configure_gui_logging()
-    if not _recover_orphaned_workers():
-        return False
     func(None, None)
     return True
 

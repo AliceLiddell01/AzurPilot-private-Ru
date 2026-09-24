@@ -1,9 +1,9 @@
 """Управление жизненным циклом ASGI-приложения WebUI."""
 
 from module.webui.app_dependencies import (
-    ProcessManager,
     RemoteAccess,
     State,
+    BotRuntimeClient,
     close_discord_rpc,
     init_discord_rpc,
     lang,
@@ -17,6 +17,17 @@ from module.webui.app_dependencies import (
 from module.webui.app_helpers import (
     is_demo_mode,
 )
+
+_AUTOSTART_CONFIGURED_PROFILES_ENV = "AZURPILOT_WEBUI_AUTOSTART_CONFIGURED_PROFILES"
+
+
+def _autostart_configured_profiles_enabled() -> bool:
+    value = os.environ.get(_AUTOSTART_CONFIGURED_PROFILES_ENV, "1")
+    if value not in {"0", "1"}:
+        raise RuntimeError(
+            f"{_AUTOSTART_CONFIGURED_PROFILES_ENV} должен иметь значение '0' или '1'"
+        )
+    return value == "1"
 
 
 def build_fleet_page_runtime_context(*, clock=None, require_ready: bool = True):
@@ -46,6 +57,7 @@ def _clearup_step(name, handler) -> bool:
 
 def startup() -> None:
     """Инициализировать WebUI после явной миграции UI locale."""
+    autostart_configured_profiles = _autostart_configured_profiles_enabled()
     from deploy.language_migration import migrate_deploy_language
     from module.persistence.runtime import (
         bootstrap_runtime_storage,
@@ -61,12 +73,17 @@ def startup() -> None:
         logger.info("[WebUI] Старое значение Language безопасно изменено на ru-RU")
     telemetry = build_runtime_notification_telemetry()
     State.init(
-        notification_runtime=build_runtime_notification_composition(telemetry=telemetry),
+        notification_runtime=build_runtime_notification_composition(
+            telemetry=telemetry,
+            dispatcher_enabled=False,
+        ),
         desktop_agent_runtime=build_runtime_desktop_agent_composition(
             telemetry=telemetry
         ),
     )
     lang.reload()
+    if autostart_configured_profiles:
+        BotRuntimeClient.start_configured_profiles()
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:
         init_discord_rpc()
@@ -94,22 +111,6 @@ def clearup() -> bool:
         ):
             success = _clearup_step(name, handler) and success
 
-        try:
-            instances = ProcessManager.running_instances()
-        except Exception as exc:
-            logger.exception_context(
-                title='Ошибка очистки WebUI: не удалось получить запущенные профили',
-                exc=exc,
-                impact='Нельзя подтвердить остановку всех рабочих процессов AzurPilot.',
-                action='Проверьте реестр процессов WebUI и состояние службы Manager.',
-                level=40,
-            )
-            instances = []
-            success = False
-
-        for alas in instances:
-            success = _clearup_step(f"профиль AzurPilot {alas.config_name}", alas.stop) and success
-
         if success:
             try:
                 State.clearup()
@@ -117,14 +118,14 @@ def clearup() -> bool:
                 logger.exception_context(
                     title='Ошибка очистки WebUI: общее состояние',
                     exc=exc,
-                    impact='Manager завершён не полностью; родительский процесс принудительно закроет дерево процессов.',
-                    action='Проверьте службу Manager и системные права управления процессами.',
+                    impact='Состояние WebUI очищено не полностью.',
+                    action='Проверьте журналы очистки ресурсов WebUI.',
                     level=40,
                 )
                 success = False
         else:
             logger.error(
-                "Очистка WebUI не завершена; служба Manager сохранена до завершения дерева процессов родительским процессом"
+                "Очистка WebUI не завершена; Bot Runtime продолжает работать независимо от WebUI"
             )
         logger.info("[WebUI-жизненный цикл] AzurPilot остановлен")
         return success

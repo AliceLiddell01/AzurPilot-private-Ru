@@ -97,7 +97,7 @@ from module.webui.patch import (
     patch_mimetype,
 )
 from module.webui.pin import put_checkbox, put_input, put_select
-from module.webui.process_manager import ProcessManager
+from module.application.bot_runtime_client import BotRuntimeClient
 from module.webui.remote_access import RemoteAccess
 from module.webui.setting import State
 from module.webui.utils import (

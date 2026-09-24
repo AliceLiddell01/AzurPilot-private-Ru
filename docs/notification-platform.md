@@ -1549,11 +1549,16 @@ lookup для stream state и ACK ограничен profile/channel/event scope
 
 ### [Факт] Runtime/config и границы Stage 3
 
-`State.init()` получает composition поверх уже созданного process-local
-Engine, запускает bounded dispatcher worker вместе с WebUI owner и в том же
-каноническом WebUI lifecycle поднимает outbound `DesktopAgentClientRuntime`.
-Client вызывает существующее локальное WebUI presentation callback, сохраняет
-cursor и logical `delivery_id` в одном защищённом RMW-файле, ACK-ит только после
+Bot Runtime создаёт notification composition поверх уже созданного
+process-local Engine и единолично запускает bounded dispatcher, поэтому
+публикация handover-событий и обработка очереди доступны без WebUI. Для перехода
+в `DELIVERED` требуется проверенный durable Agent ACK через WebUI API; пока API
+недоступен, bounded ожидание завершается с отказом закрытого типа. WebUI создаёт
+API-facing composition без фонового dispatcher: он обслуживает Agent stream/ACK API и поднимает outbound
+`DesktopAgentClientRuntime`. Durable PostgreSQL delivery leases сохраняют
+восстановление незавершённых delivery после перезапуска dispatcher. Клиент
+вызывает существующий локальный WebUI presentation callback, сохраняет cursor
+и logical `delivery_id` в одном защищённом RMW-файле, ACK-ит только после
 presentation и восстанавливает profile loop после bounded stale ACK. Конфигурация
 использует `AZURPILOT_NOTIFICATION_AGENT_URL`, `..._ID`, `..._PROFILES` и
 `..._TOKEN` либо `..._TOKEN_FILE`; outbound client создаётся только при явном

@@ -383,12 +383,13 @@ class ConnectionAttr:
         Returns:
             str: Абсолютный путь к исполняемому файлу ADB.
         """
-        from module.webui.setting import State
+        from deploy.config import DeployConfig
 
         # Везде проверяем абсолютные пути, чтобы избежать проблем с CWD из-за относительных путей
         # Пути в deploy.yaml задаются относительно корня проекта
-        deploy_adb = State.deploy_config.AdbExecutable
-        root = State.deploy_config.root_filepath
+        deploy_config = DeployConfig()
+        deploy_adb = deploy_config.AdbExecutable
+        root = deploy_config.root_filepath
         deploy_adb_file = os.path.abspath(os.path.join(root, deploy_adb)).replace('\\', '/')
         if os.path.exists(deploy_adb_file):
             return deploy_adb_file

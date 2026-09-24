@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import socket
 import subprocess
@@ -12,7 +11,6 @@ import urllib.request
 from pathlib import Path
 
 from module.config.profile import ProfileDiscoveryError, classify_profile_config
-from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.contracts import (
     DevEnvironment,
     DevResult,
@@ -24,7 +22,6 @@ from module.dev_runtime.contracts import (
 )
 from module.dev_runtime.task_sandbox import TaskSandboxError
 
-_REGISTRY_MAX_BYTES = 1024 * 1024
 _TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
     {
         "DEV_TASK_POLICY_MISSING",
@@ -37,14 +34,14 @@ _TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
 
 
 class DevDiagnosticsMixin:
-    shared_webui: bool = False
-    shared_lifecycle: object | None = None
+    bot_runtime: bool = False
+    bot_runtime_lifecycle: object | None = None
 
     def _environment_for_session(self, session: DevSession) -> DevEnvironment:
         raise NotImplementedError("DevDiagnosticsMixin требует разрешения окружения сессии")
 
-    def _shared_runtime_enabled(self) -> bool:
-        return self.shared_webui
+    def _bot_runtime_enabled(self) -> bool:
+        return self.bot_runtime
 
     @staticmethod
     def _call_readiness(probe: object, *args: object) -> tuple[bool, str]:
@@ -73,12 +70,22 @@ class DevDiagnosticsMixin:
                 blockers.append(code)
 
         root = self.environment.repository_root
+        runtime_entrypoint = (
+            root / "module" / "bot_runtime.py"
+            if self._bot_runtime_enabled()
+            else root / "gui.py"
+        )
         add(
             "repository",
-            (root / "gui.py").is_file() and (root / "module").is_dir(),
+            runtime_entrypoint.is_file()
+            and (root / "module").is_dir(),
             "DEV_REPOSITORY_INVALID",
-            "Корень репозитория и gui.py найдены"
-            if (root / "gui.py").is_file() and (root / "module").is_dir()
+            "Корень репозитория и headless Bot Runtime найдены"
+            if self._bot_runtime_enabled()
+            and runtime_entrypoint.is_file()
+            and (root / "module").is_dir()
+            else "Корень репозитория и entrypoint Dev Runtime найдены"
+            if runtime_entrypoint.is_file() and (root / "module").is_dir()
             else "Текущий каталог не похож на рабочую копию AzurPilot",
         )
 
@@ -168,15 +175,15 @@ class DevDiagnosticsMixin:
             else f"Старт заблокирован текущим состоянием DevSession: {state.state}",
         )
 
-        registry_ok, registry_message = self._webui_registry_check()
-        add("webui_registry", registry_ok, "DEV_WEBUI_CONFLICT", registry_message)
+        registry_ok, registry_message = self._bot_runtime_registry_check()
+        add("bot_runtime_registry", registry_ok, "DEV_RUNTIME_CONFLICT", registry_message)
 
-        if self._shared_runtime_enabled():
+        if self._bot_runtime_enabled():
             add(
                 "port",
                 True,
-                "DEV_SHARED_WEBUI_PORT_IGNORED",
-                "Shared WebUI использует собственный canonical endpoint; второй Dev-порт не открывается",
+                "DEV_BOT_RUNTIME_PORT_IGNORED",
+                "Bot Runtime использует собственный canonical endpoint; второй Dev-порт не открывается",
             )
         else:
             port_busy = self.port_probe(self.environment.host, self.environment.port)
@@ -284,23 +291,23 @@ class DevDiagnosticsMixin:
                 message="Маркер не содержит подтверждённую идентичность процесса",
                 state=DevStatusKind.STALE,
             )
-        if session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
-            if not self._shared_runtime_enabled():
+        if session.runtime_mode is DevRuntimeMode.BOT_RUNTIME:
+            if not self._bot_runtime_enabled():
                 return self._session_result(
                     session,
                     ok=False,
                     code="DEV_RUNTIME_MODE_MISMATCH",
-                    message="Маркер DevSession требует shared WebUI, но текущий manager его не использует",
+                    message="Маркер DevSession требует Bot Runtime, но текущий manager его не использует",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
-            shared = self.shared_lifecycle
-            matches_session = getattr(shared, "matches_session", None)
+            bot_runtime = self.bot_runtime_lifecycle
+            matches_session = getattr(bot_runtime, "matches_session", None)
             if not callable(matches_session):
                 return self._session_result(
                     session,
                     ok=False,
                     code="DEV_RUNTIME_MODE_MISMATCH",
-                    message="Shared WebUI manager не предоставил службу проверки принадлежности сессии",
+                    message="Bot Runtime manager не предоставил службу проверки принадлежности сессии",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
             try:
@@ -315,15 +322,15 @@ class DevDiagnosticsMixin:
                     session,
                     ok=False,
                     code="DEV_OWNERSHIP_MISMATCH",
-                    message="Shared WebUI worker не принадлежит текущей DevSession",
+                    message="Bot Runtime worker не принадлежит текущей DevSession",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
-        elif self._shared_runtime_enabled():
+        elif self._bot_runtime_enabled():
             return self._session_result(
                 session,
                 ok=False,
                 code="DEV_RUNTIME_MODE_MISMATCH",
-                message="Shared WebUI manager обнаружил marker с неподдерживаемым standalone runtime mode",
+                message="Менеджер Dev Runtime обнаружил маркер DevSession с неподдерживаемым режимом standalone_process",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
         else:
@@ -383,19 +390,19 @@ class DevDiagnosticsMixin:
                     state=DevStatusKind.FAILED,
                     details={"error": exc.as_dict()},
                 )
-            if session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
-                shared = self.shared_lifecycle
-                probe = getattr(shared, "ready", None)
-                if not self._shared_runtime_enabled():
-                    ready, reason = False, "текущий manager не поддерживает shared runtime mode"
+            if session.runtime_mode is DevRuntimeMode.BOT_RUNTIME:
+                bot_runtime = self.bot_runtime_lifecycle
+                probe = getattr(bot_runtime, "ready", None)
+                if not self._bot_runtime_enabled():
+                    ready, reason = False, "текущий manager не поддерживает Bot Runtime mode"
                 else:
                     ready, reason = self._call_readiness(
                         probe,
                         session.profile_name or session_environment.profile_name,
                         session.session_id,
                     )
-            elif self._shared_runtime_enabled():
-                ready, reason = False, "Shared WebUI manager обнаружил marker с неподдерживаемым standalone runtime mode"
+            elif self._bot_runtime_enabled():
+                ready, reason = False, "Менеджер Dev Runtime обнаружил маркер DevSession с неподдерживаемым режимом standalone_process"
             else:
                 ready, reason = self.readiness_probe(session_environment, identity)
             if not ready:
@@ -433,22 +440,22 @@ class DevDiagnosticsMixin:
     def _default_readiness_probe(
         self, environment: DevEnvironment, identity: ProcessIdentity
     ) -> tuple[bool, str]:
-        if self._shared_runtime_enabled():
-            shared = self.shared_lifecycle
-            probe = getattr(shared, "ready", None)
+        if self._bot_runtime_enabled():
+            bot_runtime = self.bot_runtime_lifecycle
+            probe = getattr(bot_runtime, "ready", None)
             return self._call_readiness(probe, environment.profile_name)
         try:
-            from module.webui import worker_registry
+            from module.application import runtime_worker_registry as worker_registry
 
             owner, workers = _read_worker_registry_snapshot(environment)
             if owner is None:
-                return False, "WebUI ещё не зарегистрировала владельца"
+                return False, "Bot Runtime ещё не зарегистрировал владельца"
             owner_pid = int(owner["pid"])
             owner_matches = worker_registry.process_matches(owner)
             if owner_matches is not True:
-                return False, "владелец WebUI не подтверждён"
+                return False, "владелец Bot Runtime не подтверждён"
             if not self.process_backend.is_descendant(owner_pid, identity):
-                return False, "владелец WebUI не принадлежит дереву DevSession"
+                return False, "владелец Bot Runtime не принадлежит дереву DevSession"
             if not self.process_backend.listens_on(
                 owner_pid, environment.host, environment.port
             ):
@@ -464,8 +471,8 @@ class DevDiagnosticsMixin:
         except Exception as exc:
             return False, f"реестр рабочих процессов не готов: {type(exc).__name__}"
         if not _http_ready(environment.host, environment.port):
-            return False, "Принадлежащий DevSession WebUI ещё не отвечает через локальный интерфейс"
-        return True, "WebUI и рабочий процесс development target готовы, владение подтверждено"
+            return False, "Принадлежащий DevSession Bot Runtime ещё не отвечает через локальный интерфейс"
+        return True, "Bot Runtime и рабочий процесс development target готовы, владение подтверждено"
 
     def _project_python_is_supported(self) -> bool:
         version_ok = (3, 14, 6) <= sys.version_info[:3] < (3, 15, 0)
@@ -499,37 +506,42 @@ class DevDiagnosticsMixin:
             return False, "Назначенный development target не соответствует структурному контракту AzurPilot"
         return True, "Назначенный development target существует и структурно допустим"
 
-    def _webui_registry_check(self) -> tuple[bool, str]:
+    def _bot_runtime_registry_check(self) -> tuple[bool, str]:
         try:
-            from module.webui import worker_registry
+            from module.application import runtime_worker_registry
 
-            owner, workers = _read_worker_registry_snapshot(self.environment)
+            owner = runtime_worker_registry.get_canonical_owner_record_read_only(
+                repository_root=self.environment.repository_root
+            )
+            workers = runtime_worker_registry.get_canonical_workers_read_only(
+                repository_root=self.environment.repository_root
+            )
             if owner is not None:
-                matches = worker_registry.process_matches(owner)
+                matches = runtime_worker_registry.process_matches(owner)
                 if matches is True:
-                    if self._shared_runtime_enabled():
-                        return True, "Общий WebUI owner подтверждён; Dev Runtime использует существующий процесс"
-                    return False, "В этой рабочей копии уже работает WebUI; второй владелец запрещён"
+                    if self._bot_runtime_enabled():
+                        return True, "Bot Runtime owner подтверждён"
+                    return False, "В этой рабочей копии уже работает Bot Runtime; второй владелец запрещён"
                 if matches is False:
-                    owner_message = "PID старого WebUI переиспользован"
+                    owner_message = "PID предыдущего Bot Runtime переиспользован"
                 else:
-                    owner_message = "Предыдущий WebUI завершён"
+                    owner_message = "Предыдущий Bot Runtime завершён"
             else:
-                owner_message = "Активный владелец WebUI отсутствует"
+                owner_message = "Активный владелец Bot Runtime отсутствует"
 
             for name, record in workers.items():
-                worker_matches = worker_registry.process_matches(record)
+                worker_matches = runtime_worker_registry.process_matches(record)
                 if worker_matches is True:
                     return (
                         False,
-                        f"После прежнего WebUI всё ещё работает worker {name}; Dev Runtime не будет завершать чужой процесс",
+                        f"После предыдущего owner работает worker {name}; Dev Runtime не будет присваивать или завершать чужой процесс",
                     )
 
             if owner is None and not workers:
                 return True, owner_message
             return (
                 True,
-                f"{owner_message}; остались только безопасно устаревшие записи, штатный gui.py может их очистить",
+                f"{owner_message}; устаревшие записи проверит Bot Runtime при bootstrap",
             )
         except Exception as exc:
             return False, f"Нельзя безопасно проверить реестр рабочих процессов: {type(exc).__name__}"
@@ -548,83 +560,19 @@ def _read_worker_registry_snapshot(
 ) -> tuple[dict[str, object] | None, dict[str, dict[str, object]]]:
     """Прочитать worker registry без блокировок, миграции и любых записей."""
 
-    current = environment.repository_root / "cache" / "webui-workers.json"
-    legacy = environment.repository_root / "config" / "webui-workers.json"
-    current_payload = _read_registry_file(current)
-    legacy_payload = _read_registry_file(legacy)
+    from module.application.runtime_worker_registry import (
+        get_canonical_owner_record_read_only,
+        get_canonical_workers_read_only,
+    )
 
-    if current_payload is not None and legacy_payload is not None:
-        if current_payload != legacy_payload:
-            raise RuntimeError("Новый и legacy worker registry конфликтуют")
-        payload = current_payload
-    else:
-        payload = current_payload if current_payload is not None else legacy_payload
-
-    if payload is None:
-        return None, {}
-    return _validate_registry_payload(payload)
-
-
-def _read_registry_file(path: Path) -> object | None:
-    try:
-        if path.is_symlink() or (
-            hasattr(path, "is_junction") and path.is_junction()
-        ):
-            raise RuntimeError("worker registry не должен быть ссылкой или junction")
-        raw = read_bounded_bytes(path, max_bytes=_REGISTRY_MAX_BYTES)
-    except FileNotFoundError:
-        return None
-    except BoundedReadTooLarge as exc:
-        raise RuntimeError("worker registry превышает допустимый размер") from exc
-    except OSError as exc:
-        raise RuntimeError("worker registry невозможно безопасно прочитать") from exc
-    try:
-        return json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise RuntimeError("worker registry содержит некорректный JSON") from exc
-
-
-def _validate_registry_payload(
-    payload: object,
-) -> tuple[dict[str, object] | None, dict[str, dict[str, object]]]:
-    if not isinstance(payload, dict):
-        raise RuntimeError("worker registry должен быть объектом")
-    workers_payload = payload.get("workers")
-    if not isinstance(workers_payload, dict):
-        raise RuntimeError("worker registry содержит некорректный workers")
-
-    owner_pid = payload.get("owner_pid")
-    owner_created_at = payload.get("owner_created_at")
-    owner: dict[str, object] | None
-    if owner_pid is None:
-        if owner_created_at is not None:
-            raise RuntimeError("worker registry содержит owner_created_at без owner_pid")
-        owner = None
-    else:
-        owner = _validated_process_record(
-            {"pid": owner_pid, "created_at": owner_created_at},
-            label="owner",
-        )
-
-    workers: dict[str, dict[str, object]] = {}
-    for name, record in workers_payload.items():
-        if not isinstance(name, str) or not name:
-            raise RuntimeError("worker registry содержит некорректное имя worker")
-        workers[name] = _validated_process_record(record, label=f"worker {name}")
-    return owner, workers
-
-
-def _validated_process_record(record: object, *, label: str) -> dict[str, object]:
-    if not isinstance(record, dict):
-        raise RuntimeError(f"worker registry содержит некорректную запись {label}")
-    try:
-        pid = int(record["pid"])
-        created_at = float(record["created_at"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise RuntimeError(f"worker registry содержит неполную запись {label}") from exc
-    if pid <= 0 or created_at <= 0:
-        raise RuntimeError(f"worker registry содержит недопустимую запись {label}")
-    return {"pid": pid, "created_at": created_at}
+    return (
+        get_canonical_owner_record_read_only(
+            repository_root=environment.repository_root
+        ),
+        get_canonical_workers_read_only(
+            repository_root=environment.repository_root
+        ),
+    )
 
 
 def _port_is_listening(host: str, port: int) -> bool:

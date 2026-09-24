@@ -195,10 +195,10 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
         self.assertIn("Перенаправление на приватный хост запрещено", source)
         self.assertIn("Перенаправление на недоверенный хост запрещено", source)
 
-    def test_process_manager_state_override_keeps_allowed_states(self):
+    def test_webui_runtime_client_state_override_keeps_allowed_states(self):
         method = _class_method(
-            "module/webui/process_manager.py",
-            "ProcessManager",
+            "module/application/bot_runtime_client.py",
+            "_ProfileClient",
             "set_state_override",
         )
         first_if = next(node for node in method.body if isinstance(node, ast.If))

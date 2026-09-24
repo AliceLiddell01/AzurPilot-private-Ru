@@ -28,6 +28,14 @@ from module.persistence import runtime as persistence_runtime
 ROOT = REPOSITORY_ROOT
 
 
+def _mark_bot_runtime_repository(root: Path) -> None:
+    module = root / "module"
+    module.mkdir(exist_ok=True)
+    (module / "bot_runtime.py").write_text(
+        "# тестовый Bot Runtime\n", encoding="utf-8"
+    )
+
+
 class _Coordinator:
     def __init__(self, execution=None, error=None) -> None:
         self.calls = []
@@ -112,8 +120,7 @@ def test_nested_task_delay_does_not_finish_authoritative_execution(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     store = RuntimeStateStore(tmp_path)
     worker_identity = _worker_identity()
@@ -147,8 +154,7 @@ def test_auto_search_remains_nested_under_parent_scheduler_task(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     store = RuntimeStateStore(tmp_path)
     worker_identity = _worker_identity()
@@ -443,8 +449,7 @@ def test_loop_does_not_run_when_handover_wins_atomic_task_start(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     store = RuntimeStateStore(tmp_path)
     store.mark_worker_started("alas", worker_pid=1008, worker_created_at=2008.0)
@@ -496,8 +501,7 @@ def test_loop_does_not_run_task_without_authoritative_worker_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
 
     script = _script()
@@ -540,8 +544,7 @@ def test_loop_finishes_runtime_task_boundary_when_task_raises(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     store = RuntimeStateStore(tmp_path)
     store.mark_worker_started("alas", worker_pid=1009, worker_created_at=2009.0)
@@ -595,8 +598,7 @@ def test_loop_treats_task_end_as_success_and_finishes_boundary_once(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     store = RuntimeStateStore(tmp_path)
     worker_identity = _worker_identity()

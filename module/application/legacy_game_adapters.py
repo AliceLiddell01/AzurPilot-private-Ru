@@ -54,12 +54,17 @@ from module.application.host_lock import (
     host_scoped_lock_path,
 )
 from module.application.runtime_control import (
+    BotRuntimeBootstrapper,
+    RuntimeControlClient,
     RuntimeControlError,
     RuntimeControlOperation,
     RuntimeControlResult,
     RuntimeOwnerIdentity,
-    SharedWebUIBootstrapper,
-    WebUIControlClient,
+)
+from module.application.runtime_worker_registry import (
+    get_canonical_owner_record_read_only,
+    get_canonical_worker_read_only,
+    process_matches,
 )
 from module.application.runtime_execution import (
     RuntimeExecutionReader,
@@ -497,12 +502,25 @@ class LegacyRuntimeLogAdapter:
     ) -> None:
         self._log_root = Path(log_root)
         self._date_provider = date_provider or date.today
+        self._repository_root = self._log_root.parent.resolve()
 
     def read_tail(self, instance: str, limit: int) -> tuple[str, ...]:
         if type(limit) is not int or not 0 <= limit <= _MAX_LOG_LINES:
             raise ValueError("limit вне допустимого диапазона")
         if limit == 0:
             return ()
+        from module.application.runtime_log_projection import read_runtime_log_tail
+
+        try:
+            current = read_runtime_log_tail(
+                instance,
+                limit,
+                repository_root=self._repository_root,
+            )
+        except (OSError, ValueError):
+            current = ()
+        if current:
+            return current
         path = self._find_log_file(instance)
         return self._read_bounded_tail(path, limit)
 
@@ -598,11 +616,16 @@ class LegacyRuntimeLogAdapter:
 class LegacyWorkerIdentityReader:
     """Проверить точную identity worker через существующий owner registry."""
 
+    def __init__(self, repository_root: Path | str | None = None) -> None:
+        self._repository_root = Path(repository_root or _REPOSITORY_ROOT).resolve()
+
     def read_worker_identity(self, profile: str) -> WorkerIdentityEvidence:
         try:
-            from module.webui import worker_registry
+            from module.application import runtime_worker_registry as worker_registry
 
-            record = worker_registry.get_worker_read_only(profile)
+            record = worker_registry.get_canonical_worker_read_only(
+                profile, repository_root=self._repository_root
+            )
         except Exception:  # noqa: BLE001 - runtime reader обязан закрыть ошибку.
             return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
         if record is None:
@@ -654,7 +677,7 @@ class LegacyRuntimeExecutionReader:
             else RuntimeStateStore(repository_root),
             worker_identity_reader
             if worker_identity_reader is not None
-            else LegacyWorkerIdentityReader(),
+            else LegacyWorkerIdentityReader(repository_root),
         )
 
     def read_current_task(self, profile: str) -> CurrentTaskSnapshot:
@@ -1344,7 +1367,7 @@ class LegacyGameApplicationAdapter:
 
 
 class LegacyProcessManagerAdapter:
-    """Узкий adapter к WebUI-owned ProcessManager."""
+    """Совместимый Game MCP adapter к headless Bot Runtime."""
 
     def __init__(
         self,
@@ -1352,7 +1375,7 @@ class LegacyProcessManagerAdapter:
         manager_factory: Callable[[str], object] | None = None,
         function_factory: Callable[[str], str] | None = None,
         repository_root: Path | str | None = None,
-        control_client: WebUIControlClient | None = None,
+        control_client: RuntimeControlClient | None = None,
         operation_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
@@ -1371,10 +1394,10 @@ class LegacyProcessManagerAdapter:
             if type(value) is not bool:
                 raise TypeError("ProcessManager.alive должен быть bool")
             return value
-        from module.webui import worker_registry
-
         try:
-            record = worker_registry.get_worker_read_only(instance)
+            record = get_canonical_worker_read_only(
+                instance, repository_root=self._repository_root
+            )
         except RuntimeError as exc:
             raise OwnershipAmbiguousError(
                 "Нельзя подтвердить registry worker без риска скрыть неизвестное состояние."
@@ -1382,7 +1405,7 @@ class LegacyProcessManagerAdapter:
         if record is None:
             return False
         try:
-            matches = worker_registry.process_matches(record)
+            matches = process_matches(record)
         except RuntimeError as exc:
             raise OwnershipAmbiguousError(
                 "Нельзя подтвердить identity worker без риска PID reuse."
@@ -1443,20 +1466,20 @@ class LegacyProcessManagerAdapter:
 
     @property
     def lifecycle_mutation_lock_owned_externally(self) -> bool:
-        """Вернуть, передаёт ли lifecycle mutation внешнему WebUI owner."""
+        """Вернуть, выполняется ли lifecycle mutation внешним Bot Runtime owner."""
 
         return self._manager_factory is None
 
-    def _control(self) -> WebUIControlClient:
+    def _control(self) -> RuntimeControlClient:
         if self._control_client is None:
             owner_reader = self._owner_reader
             owner_matches = self._owner_matches
-            bootstrapper = SharedWebUIBootstrapper(
+            bootstrapper = BotRuntimeBootstrapper(
                 self._repository_root,
                 owner_reader=owner_reader,
                 owner_matches=owner_matches,
             )
-            self._control_client = WebUIControlClient(
+            self._control_client = RuntimeControlClient(
                 self._repository_root,
                 owner_reader=owner_reader,
                 owner_matches=owner_matches,
@@ -1464,17 +1487,14 @@ class LegacyProcessManagerAdapter:
             )
         return self._control_client
 
-    @staticmethod
-    def _owner_reader() -> RuntimeOwnerIdentity | None:
-        from module.webui.worker_registry import get_owner_record_read_only
-
-        record = get_owner_record_read_only()
+    def _owner_reader(self) -> RuntimeOwnerIdentity | None:
+        record = get_canonical_owner_record_read_only(
+            repository_root=self._repository_root
+        )
         return None if record is None else RuntimeOwnerIdentity.from_value(record)
 
     @staticmethod
     def _owner_matches(owner: RuntimeOwnerIdentity) -> bool:
-        from module.webui.worker_registry import process_matches
-
         try:
             return process_matches(owner.as_dict()) is True
         except RuntimeError:
@@ -1548,7 +1568,7 @@ class LegacyProcessManagerAdapter:
         manager_factory = self._manager_factory
         if manager_factory is None:
             raise PreconditionFailedError(
-                "Стандартный ProcessManager недоступен вне процесса WebUI owner"
+                "Lifecycle Bot Runtime доступен только через typed runtime client"
             )
         return manager_factory(instance)
 
@@ -1905,10 +1925,11 @@ class LegacyAdbAdapter:
     def _default_adb_path() -> str:
         configured_root: Path | None = None
         try:
-            from module.webui.setting import State
+            from deploy.config import DeployConfig
 
-            configured = State.deploy_config.AdbExecutable
-            configured_root = Path(State.deploy_config.root_filepath).resolve()
+            deploy_config = DeployConfig()
+            configured = deploy_config.AdbExecutable
+            configured_root = Path(deploy_config.root_filepath).resolve()
             if not configured_root.is_dir():
                 configured_root = None
             if configured:

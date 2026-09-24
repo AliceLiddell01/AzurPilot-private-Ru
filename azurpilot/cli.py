@@ -30,9 +30,12 @@ from .tooling.contracts import (
     McpVersionDetails,
     OperationState,
     ResultCode,
+    ToolingWarning,
     ToolingResult,
+    WarningCode,
     exit_code_for,
 )
+from .tooling.bot_runtime import BotRuntimeService
 from .tooling.delivery import DeliveryService
 from .tooling.docker import DockerDeploymentService
 from .tooling.doctor import DoctorService
@@ -68,6 +71,7 @@ class ServiceContainer:
     mcp: McpService
     application_state: ApplicationStateService
     integrations: IntegrationService
+    bot_runtime: BotRuntimeService
 
     @classmethod
     def create(cls) -> ServiceContainer:
@@ -85,6 +89,7 @@ class ServiceContainer:
             mcp=mcp,
             application_state=ApplicationStateService(),
             integrations=integrations,
+            bot_runtime=BotRuntimeService(),
         )
 
 
@@ -125,6 +130,34 @@ def _add_common_options(
     )
 
 
+def _add_webui_start_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=60.0,
+        metavar="SECONDS",
+        help="общий срок проверки готовности",
+    )
+    parser.add_argument(
+        "--browser",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="открыть WebUI после подтверждённой готовности",
+    )
+    parser.add_argument(
+        "--no-browser",
+        dest="browser",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="не открывать WebUI автоматически",
+    )
+    parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="удерживать CLI до остановки службы WebUI",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
         prog="azur",
@@ -145,35 +178,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     start = subparsers.add_parser(
-        "start", help="запустить WebUI после проверки владения и готовности"
+        "start", help="устаревший псевдоним webui start"
     )
     _add_common_options(start, suppress_defaults=True)
-    start.add_argument(
-        "--timeout",
-        type=float,
-        default=60.0,
-        metavar="SECONDS",
-        help="общий срок проверки готовности",
-    )
-    start.add_argument(
-        "--browser",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="открыть WebUI после подтверждённой готовности",
-    )
-    start.add_argument(
-        "--no-browser",
-        dest="browser",
-        action="store_false",
-        default=argparse.SUPPRESS,
-        help="не открывать WebUI автоматически",
-    )
-    start.add_argument(
-        "--foreground", action="store_true", help="удерживать CLI до остановки службы WebUI"
-    )
+    _add_webui_start_options(start)
 
     stop = subparsers.add_parser(
-        "stop", help="остановить только подтверждённое дерево WebUI"
+        "stop", help="устаревший псевдоним webui stop"
     )
     _add_common_options(stop, suppress_defaults=True)
     stop.add_argument(
@@ -183,6 +194,43 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="срок остановки",
     )
+
+    bot = subparsers.add_parser("bot", help="управлять headless Bot Runtime")
+    _add_common_options(bot, suppress_defaults=True)
+    bot_actions = bot.add_subparsers(dest="bot_command", required=True)
+    for action, help_text, default_timeout in (
+        ("start", "запустить Bot Runtime без WebUI", 30.0),
+        ("stop", "штатно остановить Bot Runtime и его workers", 120.0),
+    ):
+        action_parser = bot_actions.add_parser(action, help=help_text)
+        _add_common_options(action_parser, suppress_defaults=True)
+        action_parser.add_argument(
+            "--timeout",
+            type=float,
+            default=default_timeout,
+            metavar="SECONDS",
+            help="общий ограниченный срок операции",
+        )
+    bot_status = bot_actions.add_parser("status", help="прочитать состояние Bot Runtime")
+    _add_common_options(bot_status, suppress_defaults=True)
+
+    webui = subparsers.add_parser("webui", help="управлять только WebUI")
+    _add_common_options(webui, suppress_defaults=True)
+    webui_actions = webui.add_subparsers(dest="webui_command", required=True)
+    webui_start = webui_actions.add_parser("start", help="запустить WebUI")
+    _add_common_options(webui_start, suppress_defaults=True)
+    _add_webui_start_options(webui_start)
+    webui_stop = webui_actions.add_parser("stop", help="остановить только WebUI")
+    _add_common_options(webui_stop, suppress_defaults=True)
+    webui_stop.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        metavar="SECONDS",
+        help="срок штатной остановки WebUI",
+    )
+    webui_status = webui_actions.add_parser("status", help="прочитать только WebUI lifecycle")
+    _add_common_options(webui_status, suppress_defaults=True)
 
     build = subparsers.add_parser(
         "build", help="подготовить окружение Python без Git update"
@@ -1088,6 +1136,18 @@ def _render_human(
         stream.flush()
 
 
+def _with_legacy_lifecycle_warning(
+    result: ToolingResult,
+    command: str,
+    canonical: str,
+) -> ToolingResult:
+    warning = ToolingWarning(
+        code=WarningCode.TOOLING_LEGACY_COMPATIBILITY,
+        message=f"{command} устарела; используйте {canonical}.",
+    )
+    return result.model_copy(update={"warnings": (*result.warnings, warning)})
+
+
 def _dispatch(
     args: argparse.Namespace,
     services: ServiceContainer,
@@ -1100,15 +1160,37 @@ def _dispatch(
         if getattr(args, "full", False):
             return services.doctor.run(root, include_external_integrations=True)
         return services.doctor.run(root)
+    if command == "bot":
+        service = services.bot_runtime
+        if args.bot_command == "status":
+            return service.status(root)
+        if args.bot_command == "start":
+            return service.start(root, timeout_seconds=args.timeout)
+        if args.bot_command == "stop":
+            return service.stop(root, timeout_seconds=args.timeout)
+    if command == "webui":
+        if args.webui_command == "status":
+            return services.lifecycle.inspect(root)
+        if args.webui_command == "start":
+            return services.lifecycle.start(
+                root,
+                timeout_seconds=args.timeout,
+                open_browser=getattr(args, "browser", False),
+                foreground=args.foreground,
+            )
+        if args.webui_command == "stop":
+            return services.lifecycle.stop(root, timeout_seconds=args.timeout)
     if command == "start":
-        return services.lifecycle.start(
+        result = services.lifecycle.start(
             root,
             timeout_seconds=args.timeout,
             open_browser=getattr(args, "browser", False),
             foreground=args.foreground,
         )
+        return _with_legacy_lifecycle_warning(result, "azur start", "azur webui start")
     if command == "stop":
-        return services.lifecycle.stop(root, timeout_seconds=args.timeout)
+        result = services.lifecycle.stop(root, timeout_seconds=args.timeout)
+        return _with_legacy_lifecycle_warning(result, "azur stop", "azur webui stop")
     if command == "build":
         return services.build.build(
             root,

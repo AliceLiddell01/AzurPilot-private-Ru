@@ -12,6 +12,7 @@ from typing import NoReturn
 
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+_JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x00000800
 _SYNCHRONIZE = 0x00100000
 _WAIT_OBJECT_0 = 0
 _INFINITE = 0xFFFFFFFF
@@ -115,7 +116,9 @@ def _create_process_tree_job() -> int:
         )
 
     information = _JobObjectExtendedLimitInformation()
-    information.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    information.BasicLimitInformation.LimitFlags = (
+        _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | _JOB_OBJECT_LIMIT_BREAKAWAY_OK
+    )
     configured = kernel32.SetInformationJobObject(
         handle,
         _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,

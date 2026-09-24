@@ -66,7 +66,7 @@ def test_stop_converts_mid_stop_runtime_error_to_fail_closed_result(tmp_path: Pa
     manager = DevSessionManager(
         environment,
         process_backend=backend,
-        shared_webui=False,
+        bot_runtime=False,
         now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
         stop_timeout=0.01,
     )

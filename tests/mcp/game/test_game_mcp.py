@@ -782,12 +782,11 @@ def test_profile_selector_accepts_canonical_name_without_local_length_cap() -> N
 
 def test_canonical_profile_reaches_game_mcp_through_authoritative_runtime(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     profile = "a" * 129
-    worker_registry_file = tmp_path / "cache" / "webui-workers.json"
+    worker_registry_file = tmp_path / "config" / "state" / "bot-runtime" / "workers.json"
     worker_registry_file.parent.mkdir(parents=True)
-    from module.webui import worker_registry
+    from module.application import runtime_worker_registry as worker_registry
 
     created_at = worker_registry._process_created_at(os.getpid())
     worker_registry_file.write_text(
@@ -805,18 +804,6 @@ def test_canonical_profile_reaches_game_mcp_through_authoritative_runtime(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(worker_registry, "WORKER_REGISTRY_FILE", worker_registry_file)
-    monkeypatch.setattr(
-        worker_registry,
-        "DEFAULT_WORKER_REGISTRY_FILE",
-        worker_registry_file,
-    )
-    monkeypatch.setattr(
-        worker_registry,
-        "LEGACY_WORKER_REGISTRY_FILE",
-        tmp_path / "config" / "webui-workers.json",
-    )
-
     RuntimeStateStore(tmp_path).mark_worker_started(
         profile,
         worker_pid=os.getpid(),

@@ -1349,7 +1349,7 @@ _SMOKE_CLEANUP_CHILD_SCHEMAS: dict[str, str | None] = {
     "overrides_restored": "bool",
     "source_unchanged": "bool",
     "no_owned_orphan": "bool",
-    "port_free": "bool",
+    "port_free": "bool_or_none",
     "confirmed": "bool",
     "failure_code": "string",
 }
@@ -2031,6 +2031,8 @@ def _safe_value(
         return None
     if schema == "bool":
         return value if isinstance(value, bool) else None
+    if schema == "bool_or_none":
+        return value if value is None or isinstance(value, bool) else None
     if schema == "int":
         return (
             value
