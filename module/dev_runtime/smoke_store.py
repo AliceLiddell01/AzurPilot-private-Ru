@@ -22,6 +22,7 @@ from module.dev_runtime.smoke import (
     SMOKE_MAX_RUN_BYTES,
     SMOKE_MAX_RUNS,
     SMOKE_MAX_SPEC_BYTES,
+    SMOKE_RESULT_SCHEMA_VERSION,
     SMOKE_SCHEMA_VERSION,
     SMOKE_STATE_SCHEMA_VERSION,
     SmokeControl,
@@ -161,7 +162,7 @@ class SmokeStateStore:
         raw = self._read_json(path, SMOKE_MAX_RUN_BYTES)
         payload, legacy = self._versioned_payload(
             raw,
-            current_version=SMOKE_STATE_SCHEMA_VERSION,
+            current_version=SMOKE_RESULT_SCHEMA_VERSION,
             corrupt_code="DEV_SMOKE_RESULT_CORRUPT",
             unsupported_code="DEV_SMOKE_RESULT_UNSUPPORTED",
             label="SmokeResult",

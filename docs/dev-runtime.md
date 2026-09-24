@@ -1,19 +1,20 @@
-# Dev Runtime: Task Sandbox поверх общего WebUI
+# Dev Runtime: Task Sandbox поверх Bot Runtime
 
-Dev Runtime создаёт логическую development-сессию поверх единственного штатного
-WebUI owner и его `ProcessManager`. Development target выбирается через локальный
-repository-scoped marker после структурной проверки профиля. Если marker отсутствует,
-read-only registry разрешает профиль из tracked `module/dev_runtime/target_policy.json`
-по умолчанию; сейчас это `ap`, если такой профиль проходит структурную проверку.
-`ap` является обычным canonical profile внутри общего runtime: в пользовательском
-списке WebUI он скрыт, но machine-facing registry и MCP его видят.
+Dev Runtime создаёт логическую development-сессию поверх единственного headless
+Bot Runtime owner. Development target выбирается через локальный
+repository-scoped marker после структурной проверки профиля. Если marker
+отсутствует, read-only registry разрешает профиль из tracked
+`module/dev_runtime/target_policy.json` по умолчанию; сейчас это `ap`, если такой
+профиль проходит структурную проверку. `ap` является canonical profile в Bot
+Runtime: он скрыт в пользовательском списке WebUI, но доступен machine-facing
+registry и MCP.
 
-Dev Runtime не поднимает второй WebUI и не владеет общим сервером, пользовательскими
-профилями или их scheduler. Запуск и остановка development worker проходят через
-фиксированный локальный typed control plane, исполняемый фактическим WebUI owner.
-Task Sandbox добавляет API с учётом задач поверх этого жизненного цикла, не меняя
-обычный рабочий планировщик. Для Codex и ChatGPT предусмотрены разные transport
-boundaries поверх одного adapter.
+Dev Runtime не запускает WebUI и не владеет workers, registry, пользовательскими
+профилями или их scheduler. `BotRuntimeFacade` bootstrap-ит headless owner через
+фиксированный typed control plane; только `BotRuntimeOwner` исполняет lifecycle
+worker-профилей. Task Sandbox добавляет API с учётом задач поверх этого жизненного
+цикла, не меняя обычный рабочий планировщик. Для Codex и ChatGPT предусмотрены
+разные transport boundaries поверх одного adapter.
 
 ## Dev MCP для Codex
 
@@ -22,9 +23,9 @@ Dev MCP добавляет отдельный адаптер только для
 ```text
 MCP client
   → Dev MCP / DevSessionManager
-  → shared WebUI runtime facade
+  → BotRuntimeFacade
   → локальный typed control plane
-  → фактический WebUI owner / ProcessManager
+  → headless BotRuntimeOwner
   → настроенный development target
 ```
 
@@ -431,14 +432,15 @@ target. `dev_get_runtime_status` выполняет только read-only probe
 приложения, а также состояние DevSession, SmokeRun и control operation; serial,
 package, executable и пользовательские пути наружу не выдаются.
 
-### Shared WebUI profile lifecycle
+### Bot Runtime profile lifecycle
 
 `game_start_profile` и `dev_start_session` используют общий профильный runtime.
-Если WebUI owner уже подтверждён, запрос передаётся его executor на стороне owner. Если
-owner отсутствует, первый запрос выполняет один canonical bootstrap `gui.py`, после
-чего повторно проверяет owner identity и запускает профиль в том же WebUI. Повторный
-запуск уже работающего профиля идемпотентен; caller никогда не записывает worker
-registry напрямую и не передаёт arbitrary command, path, module или shell.
+Если Bot Runtime owner уже подтверждён, запрос передаётся его executor. Если owner
+отсутствует, первый запрос запускает canonical headless bootstrap
+`module/bot_runtime.py`, после чего повторно проверяет owner identity и запускает
+профиль. Ни один MCP caller не запускает WebUI, не пишет worker registry напрямую
+и не передаёт arbitrary command, path, module или shell. Повторный запуск уже
+работающего профиля идемпотентен.
 
 При передаче game/device runtime от занятого пользовательского профиля сначала
 записываются `HANDOVER_REQUESTED`, `PREEMPTION_NOTICE` и `GRACE_PERIOD`, затем
@@ -462,7 +464,7 @@ raw persisted `Scheduler.Enable` читается узким `SchedulerRuntimeSt
 process-shared state. Отсутствующий, устаревший или принадлежащий другому процессу
 snapshot не открывает выполнение. Любая worker-owned запись начала или завершения
 task также требует той же exact identity; поздний finish старого worker отклоняется.
-Каждый обычный повторный `ProcessManager.start()` перед созданием нового процесса
+Каждый обычный `BotRuntimeOwner.start_profile()` перед созданием нового процесса
 сверяет runtime snapshots с authoritative worker registry и owner-specific проверкой
 PID. Только доказанно завершённый или заменённый PID можно атомарно перевести в
 `STOPPED`; живой или неопределённый orphan запрашиваемого профиля блокирует его
@@ -745,7 +747,7 @@ uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository
 ```
 
 Если `AZURPILOT_CADDY_HOST` удалён из `.env`, следующий запуск через
-`azur start` останавливает только принадлежащий этому Compose project
+`azur webui start` останавливает только принадлежащий этому Compose project
 service `caddy`. Named volumes и остальные инфраструктурные services не трогаются;
 при ошибке остановки startup завершается с ошибкой.
 

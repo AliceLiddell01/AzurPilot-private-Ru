@@ -18,7 +18,7 @@ from module.application.fleet_page import (
 )
 from module.formation.model import FleetSelection, SUPPORTED_SURFACE_FLEET_INDICES
 from module.webui.app_dependencies import (
-    ProcessManager,
+    BotRuntimeClient,
     logger,
     pin,
     put_button,
@@ -181,7 +181,7 @@ class FleetPageMixin(WebUIMixinBase):
         *,
         instance: str,
     ) -> None:
-        worker_running = ProcessManager.is_running(instance)
+        worker_running = BotRuntimeClient.is_running(instance)
         with use_scope("fleet_manual_status", clear=True):
             put_text(
                 self._manual_status_text(command, worker_running=worker_running)

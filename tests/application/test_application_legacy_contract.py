@@ -12,7 +12,7 @@ from module.application.models import TaskMetadata
 from module.config import locale as config_locale
 from module.config import utils as config_utils
 from module.config.mcp_helper import McpConfigHelper
-from module.webui import worker_registry
+from module.application import runtime_worker_registry as worker_registry
 
 
 def _legacy_task_dict(task: TaskMetadata) -> dict[str, object]:
@@ -116,7 +116,7 @@ def test_default_legacy_runtime_adapter_reads_registry_without_process_housekeep
     with (
         patch.object(
             worker_registry,
-            "get_worker_read_only",
+            "get_canonical_worker_read_only",
             return_value={"pid": 123, "created_at": 10.5},
         ) as read_only,
         patch.object(worker_registry, "process_matches", return_value=None) as matches,
@@ -124,7 +124,7 @@ def test_default_legacy_runtime_adapter_reads_registry_without_process_housekeep
     ):
         status = InstanceQueryService(adapter).get_status("ap")
 
-    read_only.assert_called_once_with("ap")
+    read_only.assert_called_once()
     matches.assert_called_once_with({"pid": 123, "created_at": 10.5})
     locked.assert_not_called()
     assert status.running is False
@@ -137,7 +137,7 @@ def test_default_legacy_runtime_adapter_maps_process_check_error_to_warning():
     with (
         patch.object(
             worker_registry,
-            "get_worker_read_only",
+            "get_canonical_worker_read_only",
             return_value={"pid": 123, "created_at": 10.5},
         ),
         patch.object(

@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING, cast
 
 from module.webui.app_dependencies import (
-    ProcessManager,
+    BotRuntimeClient,
     State,
     alas_instance,
     alas_template,
@@ -49,7 +49,7 @@ class InstanceMixin(WebUIMixinBase):
         clear("content")
         self.alas_name = config_name
         self.alas_mod = get_config_mod(config_name)
-        self.alas = ProcessManager.get_manager(config_name)
+        self.alas = BotRuntimeClient.get_manager(config_name)
         self.alas_config = load_config(config_name)
         if hasattr(self, "state_switch"):
             try:

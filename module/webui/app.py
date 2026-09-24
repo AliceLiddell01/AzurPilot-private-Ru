@@ -16,7 +16,6 @@ from module.webui.app_dependencies import (
     IS_ON_PHONE_CLOUD,
     List,
     PUBLIC_WEBUI_PASSWORD_GENERATE_FAILED_MESSAGE,
-    ProcessManager,
     RichLog,
     State,
     argparse,
@@ -156,7 +155,7 @@ def app():
         "--run",
         nargs="+",
         type=str,
-        help="Запустить при старте указанные конфигурации AzurPilot",
+        help="Устарело: запуск профилей выполняет `azur bot start`, параметр игнорируется",
     )
     args, _ = parser.parse_known_args()
 
@@ -172,16 +171,8 @@ def app():
     key = args.key if is_webui_password_set(args.key) else State.deploy_config.Password
     key, password_error = ensure_public_webui_password(key)
     cdn: str | bool = args.cdn if args.cdn else State.deploy_config.CDN
-    runs: List[str] | None = None
     if args.run:
-        runs = args.run
-    elif State.deploy_config.Run:
-        # Старый формат deploy.yaml хранит Run как строку с разделителями-запятыми;
-        # сохраняем совместимость до появления списков в конфигурационном reader.
-        tmp = State.deploy_config.Run.split(",")
-        runs = [item.strip(" ['\"]") for item in tmp if item]
-    # Без --run сохраняем None, чтобы менеджер процессов не запускал экземпляры.
-    instances: List[str] | None = runs
+        logger.warning("Параметр WebUI --run устарел и игнорируется; запускайте профили через `azur bot start`")
 
     logger.hr("[WebUI] Конфигурация WebUI")
     logger.attr("Тема", State.deploy_config.Theme)
@@ -252,10 +243,7 @@ def app():
         cdn=cdn,
         static_mounts=static_mounts,
         debug=True,
-        on_startup=[
-            startup,
-            lambda: ProcessManager.restart_processes(instances=instances),
-        ],
+        on_startup=[startup],
         on_shutdown=[clearup],
     )
     return application

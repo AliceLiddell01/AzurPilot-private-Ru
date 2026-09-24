@@ -144,7 +144,7 @@ def _manager(
     manager = DevSessionManager(
         environment,
         process_backend=process_backend,
-        shared_webui=False,
+        bot_runtime=False,
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=port_probe or (lambda _host, _port: False),
         readiness_probe=readiness or (lambda _environment, _identity: (True, "ready")),
@@ -155,7 +155,7 @@ def _manager(
     )
     manager._project_python_is_supported = lambda: True
     manager._profile_check = lambda: (True, "profile ready")
-    manager._webui_registry_check = lambda: (True, "registry ready")
+    manager._bot_runtime_registry_check = lambda: (True, "registry ready")
     return manager, process_backend
 
 

@@ -56,7 +56,7 @@ from module.dev_runtime.process import (
     _same_path,
 )
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
-from module.dev_runtime.shared_webui import SharedWebUIRuntime
+from module.dev_runtime.bot_runtime import BotRuntimeFacade
 from module.dev_runtime.target import (
     DevTarget,
     DevTargetError,
@@ -132,20 +132,18 @@ class DevSessionManager(DevDiagnosticsMixin):
         smoke_owner: bool = False,
         game_bridge_factory: Callable[[DevEnvironment], object] | None = None,
         database_diagnostics_factory: Callable[[DevEnvironment], object] | None = None,
-        shared_webui: bool | None = None,
-        shared_lifecycle: object | None = None,
+        bot_runtime: bool | None = None,
+        bot_runtime_lifecycle: object | None = None,
     ):
         self.environment = environment or DevEnvironment.current()
-        # Production lifecycle всегда принадлежит единственному общему WebUI
-        # owner. Standalone backend разрешён только при явном выборе тестового
-        # seam через shared_webui=False.
-        self.shared_webui = True if shared_webui is None else shared_webui
-        self._owns_shared_lifecycle = shared_lifecycle is None and self.shared_webui
+        # Production lifecycle принадлежит одному headless Bot Runtime.
+        self.bot_runtime = True if bot_runtime is None else bot_runtime
+        self._owns_bot_runtime_lifecycle = bot_runtime_lifecycle is None and self.bot_runtime
         self.process_backend = process_backend or ProcessBackend()
-        self.shared_lifecycle = (
-            shared_lifecycle
-            if shared_lifecycle is not None
-            else (SharedWebUIRuntime(self.environment.repository_root) if self.shared_webui else None)
+        self.bot_runtime_lifecycle = (
+            bot_runtime_lifecycle
+            if bot_runtime_lifecycle is not None
+            else (BotRuntimeFacade(self.environment.repository_root) if self.bot_runtime else None)
         )
         self.storage_probe = storage_probe or _default_storage_probe
         self.port_probe = port_probe or _port_is_listening
@@ -183,8 +181,8 @@ class DevSessionManager(DevDiagnosticsMixin):
         if current_target == self.environment.dev_target:
             return
         self.environment = replace(self.environment, dev_target=current_target)
-        if self._owns_shared_lifecycle:
-            self.shared_lifecycle = SharedWebUIRuntime(self.environment.repository_root)
+        if self._owns_bot_runtime_lifecycle:
+            self.bot_runtime_lifecycle = BotRuntimeFacade(self.environment.repository_root)
         # Эти фасады держат environment внутри себя; после смены registry они
         # не должны продолжать новые операции с прежним target.
         self._evidence_store = None
@@ -407,10 +405,10 @@ class DevSessionManager(DevDiagnosticsMixin):
     def _session_runtime_matches(self, session: DevSession) -> bool | None:
         """Проверить ownership текущей DevSession через её фактический runtime."""
 
-        if session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
-            if not self.shared_webui:
+        if session.runtime_mode is DevRuntimeMode.BOT_RUNTIME:
+            if not self.bot_runtime:
                 return None
-            matcher = getattr(self.shared_lifecycle, "matches_session", None)
+            matcher = getattr(self.bot_runtime_lifecycle, "matches_session", None)
             if not callable(matcher):
                 return False
             try:
@@ -420,7 +418,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 ) is True
             except Exception:
                 return None
-        if self.shared_webui:
+        if self.bot_runtime:
             return None
         if session.process is None:
             return None
@@ -1547,12 +1545,12 @@ class DevSessionManager(DevDiagnosticsMixin):
                 if session is not None and session.is_task_aware
                 else None
             )
-            shared_session = (
+            bot_runtime_session = (
                 session is not None
-                and self.shared_webui
-                and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI
+                and self.bot_runtime
+                and session.runtime_mode is DevRuntimeMode.BOT_RUNTIME
             )
-            if shared_session:
+            if bot_runtime_session:
                 profile = session.profile_name or self.environment.profile_name
                 if session.process is not None:
                     ownership = self._session_runtime_matches(session)
@@ -1561,7 +1559,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                             session,
                             ok=False,
                             code="DEV_OWNERSHIP_UNKNOWN",
-                            message="Владение shared worker невозможно подтвердить; cleanup запрещен",
+                            message="Владение Bot Runtime worker невозможно подтвердить; cleanup запрещен",
                             state=DevStatusKind.OWNERSHIP_MISMATCH,
                         )
                     if ownership is True:
@@ -1569,16 +1567,16 @@ class DevSessionManager(DevDiagnosticsMixin):
                             session,
                             ok=False,
                             code="DEV_SESSION_ACTIVE",
-                            message="Сначала безопасно остановите активный shared development worker",
+                            message="Сначала безопасно остановите активный Bot Runtime development worker",
                             state=DevStatusKind.RUNNING_OWNED,
                         )
-                    present = getattr(self.shared_lifecycle, "worker_present", None)
+                    present = getattr(self.bot_runtime_lifecycle, "worker_present", None)
                     if not callable(present):
                         return self._session_result(
                             session,
                             ok=False,
                             code="DEV_OWNERSHIP_UNKNOWN",
-                            message="Shared facade не предоставляет безопасную проверку worker",
+                            message="Bot Runtime facade не предоставляет безопасную проверку worker",
                             state=DevStatusKind.OWNERSHIP_MISMATCH,
                         )
                     try:
@@ -1588,7 +1586,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                             session,
                             ok=False,
                             code="DEV_OWNERSHIP_UNKNOWN",
-                            message=f"Нельзя подтвердить состояние shared worker: {type(exc).__name__}",
+                            message=f"Нельзя подтвердить состояние Bot Runtime worker: {type(exc).__name__}",
                             state=DevStatusKind.OWNERSHIP_MISMATCH,
                         )
                     if worker_present is None:
@@ -1596,7 +1594,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                             session,
                             ok=False,
                             code="DEV_OWNERSHIP_UNKNOWN",
-                            message="Не удалось доказать отсутствие shared worker; cleanup запрещен",
+                            message="Не удалось доказать отсутствие Bot Runtime worker; cleanup запрещен",
                             state=DevStatusKind.OWNERSHIP_MISMATCH,
                         )
                     if worker_present is True:
@@ -1604,12 +1602,12 @@ class DevSessionManager(DevDiagnosticsMixin):
                             session,
                             ok=False,
                             code="DEV_OWNERSHIP_MISMATCH",
-                            message="Shared worker не подтверждён как отсутствующий; cleanup запрещен",
+                            message="Bot Runtime worker не подтверждён как отсутствующий; cleanup запрещен",
                             state=DevStatusKind.OWNERSHIP_MISMATCH,
                         )
                     session.process = None
                 elif session.state is not DevSessionState.STOPPED:
-                    present = getattr(self.shared_lifecycle, "worker_present", None)
+                    present = getattr(self.bot_runtime_lifecycle, "worker_present", None)
                     try:
                         worker_present = present(profile) if callable(present) else None
                     except Exception:
@@ -1619,7 +1617,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                             session,
                             ok=False,
                             code="DEV_OWNERSHIP_UNKNOWN",
-                            message="Нельзя подтвердить отсутствие shared worker; cleanup запрещен",
+                            message="Нельзя подтвердить отсутствие Bot Runtime worker; cleanup запрещен",
                             state=DevStatusKind.OWNERSHIP_MISMATCH,
                         )
                     if worker_present is True:
@@ -1627,7 +1625,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                             session,
                             ok=False,
                             code="DEV_SESSION_ACTIVE",
-                            message="Найден принадлежащий shared worker; сначала безопасно остановите его",
+                            message="Найден принадлежащий Bot Runtime worker; сначала безопасно остановите его",
                             state=DevStatusKind.RUNNING_OWNED,
                         )
             elif session is not None and session.process is not None:
@@ -1925,7 +1923,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok=True,
                 code="DEV_TASK_SESSION_PREPARED",
-                message="Task sandbox подготовлен до запуска gui.py",
+                message="Task sandbox подготовлен до запуска Bot Runtime",
                 state=DevSessionState.CREATED.value,
                 session_id=session.session_id,
                 details={
@@ -2524,8 +2522,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                     task_cleanup_required=task_plan is not None,
                     task_policy_expected=task_plan is not None,
                     runtime_mode=(
-                        DevRuntimeMode.SHARED_WEBUI
-                        if self.shared_webui
+                        DevRuntimeMode.BOT_RUNTIME
+                        if self.bot_runtime
                         else DevRuntimeMode.STANDALONE_PROCESS
                     ),
                 )
@@ -2558,16 +2556,16 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session.state = DevSessionState.STARTING
                 session.updated_at = self._timestamp()
                 session.last_code = "DEV_SESSION_STARTING"
-                session.last_message = "Запускается штатный gui.py для назначенного development target"
+                session.last_message = "Запускается Bot Runtime для назначенного development target"
                 self._write_session(session)
 
-            if self.shared_webui:
+            if self.bot_runtime:
                 if before_process_launch is not None:
                     try:
                         before_process_launch(session.session_id)
                     except Exception as exc:  # noqa: BLE001 - ошибка prestart gate переводит путь в fail-closed режим.
                         self._evidence_error(exc, phase="session_start")
-                        return self._shared_start_failure(
+                        return self._bot_runtime_start_failure(
                             session,
                             task_plan,
                             process_started=False,
@@ -2575,7 +2573,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                             code="DEV_LAUNCH_FAILED",
                             message=f"Не удалось выполнить pre-execution checkpoint: {type(exc).__name__}",
                         )
-                return self._start_shared_session(session, task_plan)
+                return self._start_bot_runtime_session(session, task_plan)
 
             pid: int | None = None
             launched_identity: ProcessIdentity | None = None
@@ -2831,43 +2829,43 @@ class DevSessionManager(DevDiagnosticsMixin):
                 },
             )
 
-    def _start_shared_session(
+    def _start_bot_runtime_session(
         self,
         session: DevSession,
         task_plan: TaskPlan | None,
     ) -> DevResult:
-        """Запустить только target worker через уже существующий WebUI owner."""
+        """Запустить только target worker через уже существующий Bot Runtime owner."""
 
-        shared = self.shared_lifecycle
-        start = getattr(shared, "start_profile", None)
+        bot_runtime = self.bot_runtime_lifecycle
+        start = getattr(bot_runtime, "start_profile", None)
         if not callable(start):
-            return self._shared_start_failure(
+            return self._bot_runtime_start_failure(
                 session,
                 task_plan,
                 process_started=False,
                 worker_stopped=True,
-                code="DEV_SHARED_WEBUI_UNAVAILABLE",
-                message="Shared WebUI facade не предоставляет запуск development target",
+                code="DEV_BOT_RUNTIME_UNAVAILABLE",
+                message="Bot Runtime facade не предоставляет запуск development target",
             )
         try:
             result = start(session_id=session.session_id, idempotency_key=session.session_id)
         except Exception as exc:  # noqa: BLE001 - manager преобразует ошибку границы в безопасный результат.
-            worker_stopped = self._stop_shared_worker(session)
-            return self._shared_start_failure(
+            worker_stopped = self._stop_bot_runtime_worker(session)
+            return self._bot_runtime_start_failure(
                 session,
                 task_plan,
                 process_started=True,
                 worker_stopped=worker_stopped,
-                code="DEV_SHARED_WEBUI_START_FAILED",
-                message=f"Не удалось запустить target через shared WebUI: {type(exc).__name__}",
+                code="DEV_BOT_RUNTIME_START_FAILED",
+                message=f"Не удалось запустить target через Bot Runtime: {type(exc).__name__}",
             )
         if getattr(result, "ok", False) is not True:
             self._record_handover_evidence(result)
-            result_code = getattr(result, "code", "DEV_SHARED_WEBUI_START_FAILED")
-            result_message = getattr(result, "message", "Shared WebUI не подтвердил запуск target")
+            result_code = getattr(result, "code", "DEV_BOT_RUNTIME_START_FAILED")
+            result_message = getattr(result, "message", "Bot Runtime не подтвердил запуск target")
             result_details = getattr(result, "details", {})
-            worker_stopped = self._stop_shared_worker(session)
-            return self._shared_start_failure(
+            worker_stopped = self._stop_bot_runtime_worker(session)
+            return self._bot_runtime_start_failure(
                 session,
                 task_plan,
                 process_started=True,
@@ -2879,16 +2877,16 @@ class DevSessionManager(DevDiagnosticsMixin):
 
         self._record_handover_evidence(result)
         try:
-            identity = self._shared_owner_process_identity()
+            identity = self._bot_runtime_owner_process_identity()
         except Exception as exc:  # noqa: BLE001 - не оставлять worker без учёта.
-            worker_stopped = self._stop_shared_worker(session)
-            return self._shared_start_failure(
+            worker_stopped = self._stop_bot_runtime_worker(session)
+            return self._bot_runtime_start_failure(
                 session,
                 task_plan,
                 process_started=True,
                 worker_stopped=worker_stopped,
-                code="DEV_SHARED_WEBUI_START_UNCONFIRMED",
-                message=f"Не удалось подтвердить identity общего WebUI: {type(exc).__name__}",
+                code="DEV_BOT_RUNTIME_START_UNCONFIRMED",
+                message=f"Не удалось подтвердить identity Bot Runtime: {type(exc).__name__}",
             )
         with self._locked_state():
             latest = self._read_session()
@@ -2902,30 +2900,30 @@ class DevSessionManager(DevDiagnosticsMixin):
                 self._write_session(latest)
                 self._evidence_event(
                     "process_started",
-                    {"state": DevSessionState.STARTING.value, "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value},
+                    {"state": DevSessionState.STARTING.value, "runtime_mode": DevRuntimeMode.BOT_RUNTIME.value},
                 )
                 session = latest
 
         if state_changed:
-            self._stop_shared_worker(session)
+            self._stop_bot_runtime_worker(session)
             return DevResult(
                 False,
                 "DEV_SESSION_STATE_CHANGED",
-                "Маркер DevSession изменился после запуска shared target",
+                "Маркер DevSession изменился после запуска Bot Runtime worker",
                 DevStatusKind.OWNERSHIP_MISMATCH.value,
                 session.session_id,
             )
 
-        ready, reason = self._wait_for_shared_readiness(session)
+        ready, reason = self._wait_for_bot_runtime_readiness(session)
         if not ready:
-            stop_result = self._stop_shared_worker(session)
+            stop_result = self._stop_bot_runtime_worker(session)
             with self._locked_state():
                 latest = self._read_session()
                 if latest is None or latest.session_id != session.session_id:
                     return DevResult(
                         False,
                         "DEV_SESSION_STATE_CHANGED",
-                        "Маркер DevSession изменился во время shared readiness",
+                        "Маркер DevSession изменился во время Bot Runtime readiness",
                         DevStatusKind.OWNERSHIP_MISMATCH.value,
                         session.session_id,
                     )
@@ -2933,7 +2931,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 latest.process = None if stop_result else latest.process
                 latest.updated_at = self._timestamp()
                 latest.last_code = "DEV_READINESS_FAILED"
-                latest.last_message = f"Shared target не достиг готовности: {reason}"
+                latest.last_message = f"Bot Runtime worker не достиг готовности: {reason}"
                 self._write_session(latest)
                 self._evidence_event(
                     "runtime_warning",
@@ -2948,7 +2946,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 )
                 details: dict[str, object] = {
                     "cleanup_confirmed": stop_result,
-                    "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
+                    "runtime_mode": DevRuntimeMode.BOT_RUNTIME.value,
                 }
                 if task_plan is not None:
                     cleanup = (
@@ -2959,7 +2957,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                         )
                         if stop_result
                         else self._task_cleanup_unconfirmed_locked(
-                            message="После shared readiness failure worker AP не удалось безопасно остановить",
+                            message="После Bot Runtime readiness failure worker AP не удалось безопасно остановить",
                             session=latest,
                         )
                     )
@@ -2993,13 +2991,13 @@ class DevSessionManager(DevDiagnosticsMixin):
             state_changed = latest is None or latest.session_id != session.session_id
             ownership_lost = False
             if not state_changed:
-                shared_ready = getattr(shared, "matches_session", None)
-                if not callable(shared_ready):
+                bot_runtime_ready = getattr(bot_runtime, "matches_session", None)
+                if not callable(bot_runtime_ready):
                     ownership_lost = True
                 else:
                     try:
                         ownership_lost = (
-                            shared_ready(
+                            bot_runtime_ready(
                                 latest.session_id,
                                 latest.profile_name or self.environment.profile_name,
                             )
@@ -3013,58 +3011,58 @@ class DevSessionManager(DevDiagnosticsMixin):
                         latest.task_phase = DevTaskPhase.RUNNING
                     latest.updated_at = self._timestamp()
                     latest.last_code = "DEV_SESSION_READY"
-                    latest.last_message = "Dev-сессия готова в общем WebUI"
+                    latest.last_message = "Dev-сессия готова в Bot Runtime"
                     self._write_session(latest)
                     self._evidence_event(
                         "session_ready",
                         {
                             "state": DevSessionState.RUNNING.value,
                             "profile": self.environment.profile_name,
-                            "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
+                            "runtime_mode": DevRuntimeMode.BOT_RUNTIME.value,
                         },
                     )
                     return self._session_result(
                         latest,
                         ok=True,
                         code="DEV_SESSION_READY",
-                        message="Dev-сессия готова в общем WebUI",
+                        message="Dev-сессия готова в Bot Runtime",
                         state=DevStatusKind.RUNNING_OWNED,
                         details={
-                            "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
+                            "runtime_mode": DevRuntimeMode.BOT_RUNTIME.value,
                             "profile": self.environment.profile_name,
                         },
                     )
 
         if state_changed:
-            self._stop_shared_worker(session)
+            self._stop_bot_runtime_worker(session)
             return DevResult(
                 False,
                 "DEV_SESSION_STATE_CHANGED",
-                "Маркер DevSession изменился во время shared readiness",
+                "Маркер DevSession изменился во время Bot Runtime readiness",
                 DevStatusKind.OWNERSHIP_MISMATCH.value,
                 session.session_id,
             )
         if ownership_lost:
-            worker_stopped = self._stop_shared_worker(session)
-            return self._shared_start_failure(
+            worker_stopped = self._stop_bot_runtime_worker(session)
+            return self._bot_runtime_start_failure(
                 session,
                 task_plan,
                 process_started=True,
                 worker_stopped=worker_stopped,
                 code="DEV_OWNERSHIP_LOST",
-                message="Shared WebUI worker не подтвердил принадлежность текущей DevSession",
+                message="Bot Runtime worker не подтвердил принадлежность текущей DevSession",
             )
-        worker_stopped = self._stop_shared_worker(session)
-        return self._shared_start_failure(
+        worker_stopped = self._stop_bot_runtime_worker(session)
+        return self._bot_runtime_start_failure(
             session,
             task_plan,
             process_started=True,
             worker_stopped=worker_stopped,
-            code="DEV_SHARED_WEBUI_START_FAILED",
-            message="Shared WebUI запуск завершился без подтверждённого результата",
+            code="DEV_BOT_RUNTIME_START_FAILED",
+            message="Bot Runtime запуск завершился без подтверждённого результата",
         )
 
-    def _shared_start_failure(
+    def _bot_runtime_start_failure(
         self,
         session: DevSession,
         task_plan: TaskPlan | None,
@@ -3081,7 +3079,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 return DevResult(
                     ok=False,
                     code="DEV_SESSION_STATE_CHANGED",
-                    message="Маркер DevSession изменился до фиксации ошибки shared target",
+                    message="Маркер DevSession изменился до фиксации ошибки Bot Runtime worker",
                     state=DevStatusKind.OWNERSHIP_MISMATCH.value,
                     session_id=session.session_id,
                 )
@@ -3110,7 +3108,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     )
                     if worker_stopped
                     else self._task_cleanup_unconfirmed_locked(
-                        message="После ошибки shared target worker не удалось безопасно остановить",
+                        message="После ошибки не удалось безопасно остановить worker Bot Runtime",
                         session=latest,
                     )
                 )
@@ -3135,9 +3133,9 @@ class DevSessionManager(DevDiagnosticsMixin):
                 details=cleanup_details,
             )
 
-    def _shared_owner_process_identity(self) -> ProcessIdentity:
-        shared = self.shared_lifecycle
-        owner = getattr(shared, "owner_identity", lambda: None)()
+    def _bot_runtime_owner_process_identity(self) -> ProcessIdentity:
+        bot_runtime = self.bot_runtime_lifecycle
+        owner = getattr(bot_runtime, "owner_identity", lambda: None)()
         if owner is not None:
             try:
                 captured = self.process_backend.capture(int(owner.pid))
@@ -3149,18 +3147,18 @@ class DevSessionManager(DevDiagnosticsMixin):
                 pid=int(owner.pid),
                 created_at=float(owner.created_at),
                 executable=str(self.environment.python_executable),
-                command_line=("gui.py",),
+                command_line=("module.bot_runtime",),
                 cwd=str(self.environment.repository_root),
             )
-        raise RuntimeError("Shared WebUI owner identity отсутствует после start")
+        raise RuntimeError("Bot Runtime owner identity отсутствует после start")
 
-    def _wait_for_shared_readiness(self, session: DevSession) -> tuple[bool, str]:
-        shared = self.shared_lifecycle
-        probe = getattr(shared, "ready", None)
+    def _wait_for_bot_runtime_readiness(self, session: DevSession) -> tuple[bool, str]:
+        bot_runtime = self.bot_runtime_lifecycle
+        probe = getattr(bot_runtime, "ready", None)
         if not callable(probe):
-            return False, "shared runtime facade отсутствует"
+            return False, "Bot Runtime facade отсутствует"
         deadline = time.monotonic() + self.ready_timeout
-        last_reason = "готовность shared target ещё не подтверждена"
+        last_reason = "готовность Bot Runtime worker ещё не подтверждена"
         while True:
             try:
                 result = probe(
@@ -3168,14 +3166,14 @@ class DevSessionManager(DevDiagnosticsMixin):
                     session.session_id,
                 )
             except Exception as exc:  # noqa: BLE001 - граница readiness работает в режиме fail-closed.
-                return False, f"проверка shared readiness завершилась ошибкой: {type(exc).__name__}"
+                return False, f"проверка Bot Runtime readiness завершилась ошибкой: {type(exc).__name__}"
             if (
                 not isinstance(result, tuple)
                 or len(result) != 2
                 or type(result[0]) is not bool
                 or not isinstance(result[1], str)
             ):
-                return False, "shared readiness вернула неподдерживаемый результат"
+                return False, "Bot Runtime readiness вернула неподдерживаемый результат"
             ready, reason = result
             if ready:
                 return True, reason
@@ -3185,9 +3183,9 @@ class DevSessionManager(DevDiagnosticsMixin):
                 return False, last_reason
             time.sleep(min(0.25, remaining))
 
-    def _stop_shared_worker(self, session: DevSession) -> bool:
-        shared = self.shared_lifecycle
-        stop = getattr(shared, "stop_profile", None)
+    def _stop_bot_runtime_worker(self, session: DevSession) -> bool:
+        bot_runtime = self.bot_runtime_lifecycle
+        stop = getattr(bot_runtime, "stop_profile", None)
         if not callable(stop):
             return False
         try:
@@ -3209,7 +3207,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         except RuntimeCoordinationError as exc:
             return self._coordination_error(exc)
 
-    def _stop_shared_impl(self, *, preserve_task_state: bool = False) -> DevResult:
+    def _stop_bot_runtime_session(self, *, preserve_task_state: bool = False) -> DevResult:
         """Остановить только development worker через owner control plane."""
 
         with self._locked_state():
@@ -3236,23 +3234,23 @@ class DevSessionManager(DevDiagnosticsMixin):
                     message="DevSession уже остановлена",
                     preserve_task_state=preserve_task_state,
                 )
-            if session.runtime_mode is not DevRuntimeMode.SHARED_WEBUI:
+            if session.runtime_mode is not DevRuntimeMode.BOT_RUNTIME:
                 return self._session_result(
                     session,
                     ok=False,
                     code="DEV_RUNTIME_MODE_MISMATCH",
-                    message="DevSession не использует shared WebUI lifecycle",
+                    message="DevSession не использует Bot Runtime lifecycle",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
             if session.process is None:
-                return self._recover_shared_locked(session)
+                return self._recover_bot_runtime_locked(session)
             ownership = self._session_runtime_matches(session)
             if ownership is None:
                 return self._session_result(
                     session,
                     ok=False,
                     code="DEV_OWNERSHIP_UNKNOWN",
-                    message="Владение shared WebUI worker невозможно подтвердить; остановка запрещена",
+                    message="Владение Bot Runtime worker невозможно подтвердить; остановка запрещена",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
             if ownership is not True:
@@ -3260,24 +3258,24 @@ class DevSessionManager(DevDiagnosticsMixin):
                     session,
                     ok=False,
                     code="DEV_OWNERSHIP_MISMATCH",
-                    message="Shared WebUI worker не принадлежит текущей DevSession; остановка запрещена",
+                    message="Bot Runtime worker не принадлежит текущей DevSession; остановка запрещена",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
             session.state = DevSessionState.STOPPING
             session.updated_at = self._timestamp()
             session.last_code = "DEV_SESSION_STOPPING"
-            session.last_message = "Останавливается принадлежащий shared WebUI development worker"
+            session.last_message = "Останавливается принадлежащий Bot Runtime development worker"
             self._write_session(session)
             self._evidence_event("stop_requested", {"state": DevSessionState.STOPPING.value})
 
-        stopped = self._stop_shared_worker(session)
+        stopped = self._stop_bot_runtime_worker(session)
         with self._locked_state():
             latest = self._read_session()
             if latest is None or latest.session_id != session.session_id:
                 return DevResult(
                     ok=False,
                     code="DEV_SESSION_STATE_CHANGED",
-                    message="Маркер DevSession изменился во время остановки shared worker",
+                    message="Маркер DevSession изменился во время остановки Bot Runtime worker",
                     state=DevStatusKind.OWNERSHIP_MISMATCH.value,
                     session_id=session.session_id,
                 )
@@ -3285,7 +3283,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 return self._finish_stopped_locked(
                     latest,
                     code="DEV_SESSION_STOPPED",
-                    message="Development worker остановлен через общий WebUI; общий WebUI сохранён",
+                    message="Development worker остановлен через Bot Runtime; Bot Runtime сохранён",
                     preserve_task_state=preserve_task_state,
                 )
             latest.state = DevSessionState.STALE
@@ -3301,7 +3299,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     pass
             latest.updated_at = self._timestamp()
             latest.last_code = "DEV_STOP_UNCONFIRMED"
-            latest.last_message = "Shared WebUI не подтвердил остановку development worker"
+            latest.last_message = "Bot Runtime не подтвердил остановку development worker"
             self._write_session(latest)
             self._evidence_event(
                 "runtime_warning",
@@ -3327,24 +3325,24 @@ class DevSessionManager(DevDiagnosticsMixin):
                     message=f"Маркер DevSession повреждён; остановка запрещена: {exc}",
                     state=DevStatusKind.CORRUPT.value,
                 )
-        if current is not None and current.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
-            if not self.shared_webui:
+        if current is not None and current.runtime_mode is DevRuntimeMode.BOT_RUNTIME:
+            if not self.bot_runtime:
                 return self._session_result(
                     current,
                     ok=False,
                     code="DEV_RUNTIME_MODE_MISMATCH",
-                    message="Маркер DevSession требует shared WebUI, но текущий manager работает в другом runtime mode",
+                    message="Маркер DevSession требует Bot Runtime, но текущий manager работает в другом runtime mode",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
-            return self._stop_shared_impl(preserve_task_state=preserve_task_state)
-        if self.shared_webui:
+            return self._stop_bot_runtime_session(preserve_task_state=preserve_task_state)
+        if self.bot_runtime:
             if current is None:
-                return self._stop_shared_impl(preserve_task_state=preserve_task_state)
+                return self._stop_bot_runtime_session(preserve_task_state=preserve_task_state)
             return self._session_result(
                 current,
                 ok=False,
                 code="DEV_RUNTIME_MODE_MISMATCH",
-                message="Shared WebUI manager обнаружил marker с неподдерживаемым standalone runtime mode",
+                message="Bot Runtime manager обнаружил marker с неподдерживаемым standalone runtime mode",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
         with self._locked_state():
@@ -3540,22 +3538,22 @@ class DevSessionManager(DevDiagnosticsMixin):
                 message="DevSession отсутствует",
                 state=DevStatusKind.NO_SESSION.value,
             )
-        if session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
-            if not self.shared_webui:
+        if session.runtime_mode is DevRuntimeMode.BOT_RUNTIME:
+            if not self.bot_runtime:
                 return self._session_result(
                     session,
                     ok=False,
                     code="DEV_RUNTIME_MODE_MISMATCH",
-                    message="Маркер DevSession требует shared WebUI, но текущий manager работает в другом runtime mode",
+                    message="Маркер DevSession требует Bot Runtime, но текущий manager работает в другом runtime mode",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
-            return self._recover_shared_locked(session)
-        if self.shared_webui:
+            return self._recover_bot_runtime_locked(session)
+        if self.bot_runtime:
             return self._session_result(
                 session,
                 ok=False,
                 code="DEV_RUNTIME_MODE_MISMATCH",
-                message="Shared WebUI manager обнаружил marker с неподдерживаемым standalone runtime mode",
+                message="Bot Runtime manager обнаружил marker с неподдерживаемым standalone runtime mode",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
         try:
@@ -3650,8 +3648,8 @@ class DevSessionManager(DevDiagnosticsMixin):
             ),
         )
 
-    def _recover_shared_locked(self, session: DevSession) -> DevResult:
-        """Восстановить shared DevSession без поиска или убийства чужих процессов."""
+    def _recover_bot_runtime_locked(self, session: DevSession) -> DevResult:
+        """Восстановить Bot Runtime DevSession без поиска или убийства чужих процессов."""
 
         if session.state is DevSessionState.STOPPED and session.process is None:
             return self._finish_stopped_locked(
@@ -3667,7 +3665,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     session,
                     ok=False,
                     code="DEV_RECOVERY_OWNERSHIP_UNKNOWN",
-                    message="Владение shared worker невозможно подтвердить; восстановление запрещено",
+                    message="Владение Bot Runtime worker невозможно подтвердить; восстановление запрещено",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
             if ownership is True:
@@ -3675,20 +3673,20 @@ class DevSessionManager(DevDiagnosticsMixin):
                     session,
                     ok=False,
                     code="DEV_SESSION_ACTIVE",
-                    message="Точно принадлежащий shared worker ещё работает; восстановление не выполняет разрушительную очистку",
+                    message="Точно принадлежащий Bot Runtime worker ещё работает; восстановление не выполняет разрушительную очистку",
                     state=(
                         DevStatusKind.RUNNING_OWNED
                         if session.state is DevSessionState.RUNNING
                         else DevStatusKind.STALE
                     ),
                 )
-        present = getattr(self.shared_lifecycle, "worker_present", None)
+        present = getattr(self.bot_runtime_lifecycle, "worker_present", None)
         if not callable(present):
             return self._session_result(
                 session,
                 ok=False,
                 code="DEV_RECOVERY_OWNERSHIP_UNKNOWN",
-                message="Shared facade не предоставляет безопасную проверку отсутствия worker",
+                message="Bot Runtime facade не предоставляет безопасную проверку отсутствия worker",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
         try:
@@ -3698,7 +3696,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session,
                 ok=False,
                 code="DEV_RECOVERY_OWNERSHIP_UNKNOWN",
-                message=f"Нельзя подтвердить отсутствие shared worker: {type(exc).__name__}",
+                message=f"Нельзя подтвердить отсутствие Bot Runtime worker: {type(exc).__name__}",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
         if worker_present is None:
@@ -3706,7 +3704,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session,
                 ok=False,
                 code="DEV_RECOVERY_OWNERSHIP_UNKNOWN",
-                message="Не удалось доказать отсутствие shared worker; восстановление запрещено",
+                message="Не удалось доказать отсутствие Bot Runtime worker; восстановление запрещено",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
         if worker_present is True:
@@ -3714,13 +3712,13 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session,
                 ok=False,
                 code="DEV_OWNERSHIP_MISMATCH",
-                message="Shared worker не подтверждён как отсутствующий; восстановление запрещено",
+                message="Bot Runtime worker не подтверждён как отсутствующий; восстановление запрещено",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
         return self._finish_stopped_locked(
             session,
             code="DEV_STALE_RECOVERED",
-            message="Устаревший shared marker закрыт после подтверждения отсутствия worker",
+            message="Устаревший Bot Runtime marker закрыт после подтверждения отсутствия worker",
             preserve_task_state=False,
         )
 

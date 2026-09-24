@@ -10,7 +10,7 @@ from module.webui.app_dependencies import (
     IS_ON_PHONE_CLOUD,
     List,
     Optional,
-    ProcessManager,
+    BotRuntimeClient,
     State,
     actions,
     alas_instance,
@@ -238,7 +238,7 @@ def app_manage(gui: "AlasGUI") -> None:
     def _delete_block_reason(config_name: str) -> Optional[str]:
         if len(alas_instance()) <= 1:
             return t("Gui.AppManage.DeleteLast")
-        if ProcessManager.is_running(config_name):
+        if BotRuntimeClient.is_running(config_name):
             return t("Gui.AppManage.DeleteRunning", name=config_name)
         return None
 
@@ -291,7 +291,7 @@ def app_manage(gui: "AlasGUI") -> None:
             )
             return
 
-        ProcessManager.remove_manager(config_name)
+        BotRuntimeClient.remove_manager(config_name)
         gui.refresh_aside_instances(force=True)
         toast(
             t("Gui.AppManage.DeleteSuccess", name=config_name),

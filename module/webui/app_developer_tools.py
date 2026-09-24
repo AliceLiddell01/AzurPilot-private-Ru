@@ -1,11 +1,10 @@
 """WebUI调试工具和远程访问"""
 
-from deploy.atomic import atomic_write
 from module.logger import logger
 
 from module.webui.app_dependencies import (
     Optional,
-    ProcessManager,
+    BotRuntimeClient,
     RemoteAccess,
     State,
     Switch,
@@ -32,26 +31,12 @@ from module.webui.app_types import WebUIMixinBase
 
 
 def prepare_webui_restart() -> bool:
-    """保存当前运行实例，供新 WebUI 在重启后恢复。"""
-    try:
-        names = [
-            f"{alas.config_name}\n" for alas in ProcessManager.running_instances()
-        ]
-        atomic_write("./config/reloadalas", "".join(names))
-    except Exception as exc:
-        logger.exception_context(
-            title='Не удалось подготовить ручной перезапуск WebUI',
-            exc=exc,
-            impact='При продолжении запущенные профили AzurPilot не будут восстановлены автоматически.',
-            action='Проверьте права записи в каталог config и повторите попытку.',
-            level=50,
-        )
-        return False
+    """Разрешить перезапуск интерфейса без изменения lifecycle Bot Runtime."""
     return True
 
 
 def request_webui_restart() -> bool:
-    """请求由父监督器执行手动 WebUI 重启。"""
+    """Попросить родительский supervisor перезапустить WebUI."""
     if State.restart_event is None:
         return False
     if not State.restart_lock.acquire(blocking=False):
@@ -86,7 +71,7 @@ def request_webui_restart() -> bool:
             logger.exception_context(
                 title='Не удалось запросить у родительского процесса перезапуск WebUI',
                 exc=exc,
-                impact='Текущая WebUI не завершится, а сохранённая отметка восстановления профилей останется.',
+                impact='Текущая WebUI не завершится; worker Bot Runtime не затронуты.',
                 action='Проверьте связь с родительским процессом и повторите перезапуск.',
                 level=50,
             )
@@ -125,7 +110,7 @@ class DeveloperToolsMixin(WebUIMixinBase):
             if not target:
                 toast("Нет доступного профиля для имитации состояния значка", color="warning")
                 return
-            ProcessManager.get_manager(target).set_state_override(
+            BotRuntimeClient.get_manager(target).set_state_override(
                 state, duration=seconds
             )
             _refresh_debug_status()
@@ -136,7 +121,7 @@ class DeveloperToolsMixin(WebUIMixinBase):
             if not target:
                 toast("Нет доступного профиля для сброса тестового состояния", color="warning")
                 return
-            ProcessManager.get_manager(target).clear_state_override()
+            BotRuntimeClient.get_manager(target).clear_state_override()
             _refresh_debug_status()
             toast(f"Тестовое состояние значка {target} сброшено", color="success")
 

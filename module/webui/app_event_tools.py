@@ -2,7 +2,7 @@
 
 from module.webui.app_dependencies import (
     BinarySwitchButton,
-    ProcessManager,
+    BotRuntimeClient,
     RichLog,
     base64,
     cast,
@@ -138,4 +138,4 @@ class EventToolsMixin(WebUIMixinBase):
                     pass
 
         self.task_handler.add(update_simulator_figure, 0.5, True)
-        self.task_handler.add(log.put_log(cast(ProcessManager, pm)), 0.25, True)
+        self.task_handler.add(log.put_log(cast(BotRuntimeClient, pm)), 0.25, True)

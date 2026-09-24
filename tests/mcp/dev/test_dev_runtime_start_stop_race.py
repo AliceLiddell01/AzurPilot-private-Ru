@@ -98,7 +98,7 @@ def test_concurrent_stop_wins_over_stale_start_readiness(tmp_path: Path) -> None
     manager = DevSessionManager(
         environment,
         process_backend=backend,
-        shared_webui=False,
+        bot_runtime=False,
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=delayed_ready,
@@ -109,7 +109,7 @@ def test_concurrent_stop_wins_over_stale_start_readiness(tmp_path: Path) -> None
     )
     manager._project_python_is_supported = lambda: True
     manager._profile_check = lambda: (True, "profile ready")
-    manager._webui_registry_check = lambda: (True, "registry ready")
+    manager._bot_runtime_registry_check = lambda: (True, "registry ready")
 
     start_results: list[DevResult] = []
     start_thread = threading.Thread(target=lambda: start_results.append(manager.start()))

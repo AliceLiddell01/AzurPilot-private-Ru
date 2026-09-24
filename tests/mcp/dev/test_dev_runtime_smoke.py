@@ -175,6 +175,7 @@ class _Runtime:
         self.task_finished = task_finished
         self.stopped_session_id = stopped_session_id
         self.stop_calls = 0
+        self.port_probe_calls = 0
         self.execution_order: list[str] = []
         self._timeline_emitted = False
         self.transient_state_available = True
@@ -311,6 +312,7 @@ class _Runtime:
         return self.screenshot
 
     def port_probe(self, *_: object) -> bool:
+        self.port_probe_calls += 1
         return False
 
 
@@ -824,7 +826,7 @@ def test_smoke_store_reads_v1_legacy_spec_state_result_without_file_log_payload(
     assert specification.schema_version == smoke.SMOKE_SCHEMA_VERSION == 4
     assert specification._legacy_schema_version == 1
     assert result is not None
-    assert result.schema_version == smoke.SMOKE_STATE_SCHEMA_VERSION
+    assert result.schema_version == smoke.SMOKE_RESULT_SCHEMA_VERSION
     assert result._legacy_schema_version == 1
     assert specification.assertions == []
     assert loaded.assertions == []
@@ -1157,7 +1159,8 @@ def test_cancel_request_keeps_completed_product_outcome_separate(tmp_path: Path,
     assert result.product_execution_outcome is smoke.ProductExecutionOutcome.RETURNED
     assert result.operator_intervention_outcome is smoke.OperatorInterventionOutcome.CANCEL_REQUESTED
     assert result.cleanup.confirmed is True
-    assert result.cleanup.port_free is True
+    assert result.cleanup.port_free is None
+    assert runtime.port_probe_calls == 0
     assert runtime.stop_calls == 1
     assert manager.cancel_smoke(smoke_id).code == "DEV_SMOKE_ALREADY_FINISHED"
 
@@ -1188,6 +1191,30 @@ def test_run_smoke_executes_bounded_run_inline_and_returns_terminal_result(
     assert result.state == smoke.SmokeState.FINISHED.value
     assert result.details["result"]["outcome"] == smoke.SmokeOutcome.PASS.value
     assert manager.has_active_run() is False
+    assert runtime.port_probe_calls == 0
+
+
+def test_smoke_reads_dev_port_only_when_spec_requests_that_assertion(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    runtime = _Runtime()
+    manager = _manager(tmp_path, runtime)
+    result = manager.run_smoke(
+        _spec(
+            assertions=[
+                smoke.DevPortStateAssertion(
+                    assertion_id="dev-port-free",
+                    capability_id="dev_port_state",
+                    expected_state="free",
+                )
+            ]
+        )
+    )
+
+    assert result.ok is True
+    assert runtime.port_probe_calls > 0
+    assert result.details["result"]["cleanup"]["port_free"] is None
 
 
 @pytest.mark.parametrize(

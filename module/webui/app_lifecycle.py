@@ -1,7 +1,6 @@
 """Управление жизненным циклом ASGI-приложения WebUI."""
 
 from module.webui.app_dependencies import (
-    ProcessManager,
     RemoteAccess,
     State,
     close_discord_rpc,
@@ -61,7 +60,10 @@ def startup() -> None:
         logger.info("[WebUI] Старое значение Language безопасно изменено на ru-RU")
     telemetry = build_runtime_notification_telemetry()
     State.init(
-        notification_runtime=build_runtime_notification_composition(telemetry=telemetry),
+        notification_runtime=build_runtime_notification_composition(
+            telemetry=telemetry,
+            dispatcher_enabled=False,
+        ),
         desktop_agent_runtime=build_runtime_desktop_agent_composition(
             telemetry=telemetry
         ),
@@ -94,22 +96,6 @@ def clearup() -> bool:
         ):
             success = _clearup_step(name, handler) and success
 
-        try:
-            instances = ProcessManager.running_instances()
-        except Exception as exc:
-            logger.exception_context(
-                title='Ошибка очистки WebUI: не удалось получить запущенные профили',
-                exc=exc,
-                impact='Нельзя подтвердить остановку всех рабочих процессов AzurPilot.',
-                action='Проверьте реестр процессов WebUI и состояние службы Manager.',
-                level=40,
-            )
-            instances = []
-            success = False
-
-        for alas in instances:
-            success = _clearup_step(f"профиль AzurPilot {alas.config_name}", alas.stop) and success
-
         if success:
             try:
                 State.clearup()
@@ -117,14 +103,14 @@ def clearup() -> bool:
                 logger.exception_context(
                     title='Ошибка очистки WebUI: общее состояние',
                     exc=exc,
-                    impact='Manager завершён не полностью; родительский процесс принудительно закроет дерево процессов.',
-                    action='Проверьте службу Manager и системные права управления процессами.',
+                    impact='Состояние WebUI очищено не полностью.',
+                    action='Проверьте журналы очистки ресурсов WebUI.',
                     level=40,
                 )
                 success = False
         else:
             logger.error(
-                "Очистка WebUI не завершена; служба Manager сохранена до завершения дерева процессов родительским процессом"
+                "Очистка WebUI не завершена; Bot Runtime продолжает работать независимо от WebUI"
             )
         logger.info("[WebUI-жизненный цикл] AzurPilot остановлен")
         return success

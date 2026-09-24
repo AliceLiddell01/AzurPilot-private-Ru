@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 import dev_tools.postgresql_runtime as tooling_postgresql_runtime
+import azurpilot.cli as tooling_cli
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
@@ -24,9 +25,11 @@ from azurpilot.tooling import filesystem as tooling_filesystem
 from azurpilot.tooling import lifecycle as tooling_lifecycle
 from azurpilot.tooling import shortcut as tooling_shortcut
 from azurpilot.tooling import update as tooling_update
+from azurpilot.tooling.bot_runtime import BotRuntimeService
 from azurpilot.tooling.bootstrap import BuildService
 from azurpilot.tooling.config import DeploySettings, load_deploy_settings
 from azurpilot.tooling.contracts import (
+    BotRuntimeDetails,
     CapabilityCheck,
     CapabilityStatus,
     DeliveryJournal,
@@ -340,7 +343,11 @@ def test_lifecycle_keeps_state_when_termination_is_not_confirmed(
     monkeypatch.setattr(
         tooling_lifecycle.ProcessController,
         "terminate",
-        lambda _identity, timeout_seconds=15.0: False,
+        lambda _identity, timeout_seconds=15.0, *, include_children=True: (
+            pytest.fail("WebUI Stop не должен завершать дерево worker-процессов")
+            if include_children
+            else False
+        ),
     )
     service = LifecycleService(
         resolver=resolver,
@@ -446,7 +453,11 @@ def test_lifecycle_stop_succeeds_when_cleanup_proves_process_already_exited(
     monkeypatch.setattr(
         tooling_lifecycle.ProcessController,
         "terminate",
-        lambda _identity, timeout_seconds=15.0: False,
+        lambda _identity, timeout_seconds=15.0, *, include_children=True: (
+            pytest.fail("WebUI Stop не должен завершать дерево worker-процессов")
+            if include_children
+            else False
+        ),
     )
     service = LifecycleService(
         resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
@@ -474,6 +485,69 @@ def test_build_shortcut_defaults_are_explicitly_overridable() -> None:
 
     assert not hasattr(default_args, "shortcut")
     assert disabled_args.shortcut is False
+
+
+def test_bot_and_webui_lifecycle_commands_route_to_separate_services(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[object, ...]] = []
+    root = str(tmp_path)
+
+    class BotRuntime:
+        def status(self, repository_root=None):
+            calls.append(("bot", "status", repository_root))
+            return object()
+
+        def start(self, repository_root=None, *, timeout_seconds):
+            calls.append(("bot", "start", repository_root, timeout_seconds))
+            return object()
+
+        def stop(self, repository_root=None, *, timeout_seconds):
+            calls.append(("bot", "stop", repository_root, timeout_seconds))
+            return object()
+
+    class WebUI:
+        def inspect(self, repository_root=None):
+            calls.append(("webui", "status", repository_root))
+            return object()
+
+        def start(self, repository_root=None, *, timeout_seconds, open_browser, foreground):
+            calls.append(("webui", "start", repository_root, timeout_seconds, open_browser, foreground))
+            return object()
+
+        def stop(self, repository_root=None, *, timeout_seconds):
+            calls.append(("webui", "stop", repository_root, timeout_seconds))
+            return object()
+
+    services = SimpleNamespace(bot_runtime=BotRuntime(), lifecycle=WebUI())
+    commands = (
+        (["bot", "start", "--repository-root", root], ("bot", "start", root, 30.0)),
+        (["bot", "stop", "--repository-root", root], ("bot", "stop", root, 120.0)),
+        (["bot", "status", "--repository-root", root], ("bot", "status", root)),
+        (["webui", "start", "--repository-root", root], ("webui", "start", root, 60.0, False, False)),
+        (["webui", "stop", "--repository-root", root], ("webui", "stop", root, 30.0)),
+        (["webui", "status", "--repository-root", root], ("webui", "status", root)),
+    )
+
+    for argv, expected in commands:
+        tooling_cli._dispatch(build_parser().parse_args(argv), services)
+        assert calls[-1] == expected
+
+
+def test_bot_runtime_status_returns_typed_headless_state(tmp_path: Path) -> None:
+    root = tmp_path.resolve()
+    resolved = ResolvedRepository(root, _repository_evidence())
+    service = BotRuntimeService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved)
+    )
+
+    result = service.status(root)
+
+    assert result.ok is True
+    assert isinstance(result.details, BotRuntimeDetails)
+    assert result.details.status is OperationState.STOPPED
+    assert result.details.owner_running is False
+    assert result.details.workers == ()
 
 
 def test_build_generates_update_ready_config_from_production_template(

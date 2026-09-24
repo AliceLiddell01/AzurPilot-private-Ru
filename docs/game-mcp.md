@@ -4,13 +4,14 @@ Game MCP — отдельная stateless read/control поверхность д
 является режимом Dev MCP; Game и Dev MCP имеют независимые tool catalogs,
 authorization scopes и runtime boundaries.
 
-Профильный lifecycle остаётся stateless на стороне Game MCP, но выполнение на стороне WebUI owner
-делегируется единственному WebUI runtime через локальный typed control plane. Поэтому
-`game_start_profile` не пишет worker registry из процесса MCP: при отсутствии owner он
-штатно обеспечивает один canonical WebUI, затем запускает выбранный canonical profile
-внутри него и ждёт authoritative readback. Скрытый в пользовательском WebUI `ap`
-остаётся видимым для machine-facing profile catalog. Повторный start работающего
-профиля идемпотентен; второй WebUI или legacy compatibility server не создаётся.
+Профильный lifecycle остаётся stateless на стороне Game MCP, а выполнение
+делегируется единственному headless Bot Runtime owner через локальный typed
+control plane. Поэтому `game_start_profile` не пишет worker registry из процесса
+MCP: при отсутствии owner он штатно запускает canonical `module/bot_runtime.py`,
+затем запускает выбранный canonical profile и ждёт authoritative readback. WebUI
+не требуется и не запускается. Скрытый в пользовательском WebUI `ap` остаётся
+видимым для machine-facing profile catalog. Повторный start работающего профиля
+идемпотентен; второй Bot Runtime owner не создаётся.
 
 ## Точки входа
 
@@ -111,8 +112,8 @@ bounded logs и validated screenshot. Отдельный control catalog вкл�
 `game_clear_scheduler_queue`, `game_update_config`,
 `game_restart_emulator`, `game_restart_runtime`, `game_login_runtime` и
 `game_restart_adb`.
-`game_start_profile`/`game_stop_profile` используют тот же runtime на стороне WebUI owner и не
-являются обходом WebUI ownership. Передача ресурса от busy user profile выполняется
+`game_start_profile`/`game_stop_profile` используют тот же runtime на стороне
+Bot Runtime owner и не являются обходом ownership. Передача ресурса от busy user profile выполняется
 через cooperative handover с уведомлением, grace period, возвратом на главный экран
 и подтверждением безопасной остановки; persistent user scheduler не переписывается.
 Стабильный contract находится в
@@ -122,7 +123,7 @@ authorization policy совместимо с текущим read contract, по�
 `contract_schema_version` и `game_mcp_api_version` остаются равными `1`.
 
 `game_get_current_task` читает только общий `RuntimeStateStore`, нормализованный
-через exact worker identity из существующего WebUI registry. Он возвращает
+через exact worker identity из канонического Bot Runtime registry. Он возвращает
 `running` с task, `idle` с `task: null`, `stopped` с сохранением семантики
 `GAME_PROFILE_NOT_RUNNING` или `unknown`, если отсутствует подтверждение
 состояния, свежий running snapshot недоступен, snapshot противоречив либо

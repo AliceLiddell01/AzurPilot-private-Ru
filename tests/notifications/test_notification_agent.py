@@ -163,6 +163,25 @@ def test_partial_agent_configuration_fails_closed_instead_of_disabling_silently(
     assert disabled.enabled is False
 
 
+def test_webui_agent_api_does_not_start_a_dispatcher(monkeypatch) -> None:
+    def unexpected_thread(*args, **kwargs):
+        pytest.fail("WebUI must not create a notification dispatcher thread")
+
+    monkeypatch.setattr("module.application.notifications.agent.threading.Thread", unexpected_thread)
+    runtime = DesktopAgentNotificationRuntime(
+        lambda: _MemoryUow(_MemoryRepository()),
+        credential=_credential(),
+        dispatcher_enabled=False,
+    )
+
+    runtime.start()
+
+    assert runtime.enabled is True
+    assert runtime.authenticator.authenticate(
+        {"Authorization": "Bearer agent-token-0123456789abcdef"}
+    ) is not None
+
+
 def test_api_requires_authentication_for_stream_and_ack(monkeypatch) -> None:
     from module.webui import api as webui_api
 

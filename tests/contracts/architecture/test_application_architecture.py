@@ -257,6 +257,33 @@ def test_legacy_mcp_entrypoint_is_absent_and_webui_has_no_mcp_mount():
     assert (ROOT / "module" / "mcp_shared" / "remote.py").is_file()
 
 
+def test_application_layer_has_no_webui_imports():
+    paths = tuple(APPLICATION_ROOT.rglob("*.py"))
+    assert paths, APPLICATION_ROOT
+    for path in paths:
+        candidates = imports_for_path(ROOT, path)
+        assert not any(
+            name == "module.webui" or name.startswith("module.webui.")
+            for name in candidates
+        ), path
+
+
+def test_headless_worker_boundaries_do_not_import_webui_settings():
+    paths = (
+        ROOT / "module" / "device" / "connection_attr.py",
+        ROOT / "module" / "base" / "base.py",
+        ROOT / "module" / "base" / "resource.py",
+        ROOT / "module" / "ocr" / "ocr.py",
+        ROOT / "module" / "ocr" / "rpc.py",
+    )
+    for path in paths:
+        candidates = imports_for_path(ROOT, path)
+        assert not any(
+            name == "module.webui" or name.startswith("module.webui.")
+            for name in candidates
+        ), path
+
+
 def test_route_analysis_uses_scope_specific_bindings():
     tree = ast.parse(
         """

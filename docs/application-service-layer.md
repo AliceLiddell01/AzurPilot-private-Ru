@@ -32,18 +32,18 @@ Canonical task metadata остаются в generated `module/config/argument/ar
 Game MCP-сервисы не добавляют отдельный лимит длины profile; bounded
 `MAX_NAME_LENGTH` сохраняется для task/group и ключей конфигурации.
 
-Физическое размещение `ProcessManager` в `module.webui` — зафиксированный legacy
-ownership debt. На этой стадии менеджер не переносится и не дублируется.
-Основной default status path использует
-`LegacyInstanceRuntimeAdapter._default_read_instance_status`: он читает
-worker registry через `get_worker_read_only` и `process_matches`, не вызывая
-`ProcessManager` и lifecycle housekeeping. Injection path с
-`manager_factory` сохраняется только для совместимых legacy callers и
-тестов. Read-only registry snapshot сам по себе не проверяет владельца и может
-содержать запись завершившегося процесса; caller обязан отдельно выполнить
-`process_matches`. Повреждённый, нечитаемый или неоднозначный snapshot имеет
-состояние `unknown`, а не `absent`; вызывающий код обязан сохранить
-fail-closed semantics.
+Worker lifecycle принадлежит headless `BotRuntimeOwner` в
+`module.application.bot_runtime_owner`; WebUI вызывает его через
+`module.application.bot_runtime_client.BotRuntimeClient` и не держит собственный
+manager или registry. Основной default status path
+`LegacyInstanceRuntimeAdapter._default_read_instance_status` читает канонический
+Bot Runtime registry и отдельно проверяет `process_matches`, не выполняя
+lifecycle housekeeping. Injection path с `manager_factory` сохраняется для
+совместимых legacy callers и тестов. Read-only registry snapshot сам по себе не
+проверяет владельца и может содержать запись завершившегося процесса; caller
+обязан отдельно выполнить `process_matches`. Повреждённый, нечитаемый или
+неоднозначный snapshot имеет состояние `unknown`, а не `absent`; вызывающий код
+обязан сохранить fail-closed semantics.
 
 ## Production storage wiring
 

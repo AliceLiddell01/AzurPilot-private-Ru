@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from module.dev_runtime.smoke import (
+    SMOKE_RESULT_SCHEMA_VERSION,
     SMOKE_SCHEMA_VERSION,
-    SMOKE_STATE_SCHEMA_VERSION,
     SmokeOutcome,
 )
 from module.mcp_shared.catalog import (
@@ -71,7 +71,7 @@ def contract_payload() -> dict[str, object]:
         "tool_catalog_sha256": tool_catalog_sha256_from_tools(tool_definitions()),
         "authorization_scopes": [DEV_MCP_REQUIRED_SCOPE],
         "smoke_spec_schema_version": SMOKE_SCHEMA_VERSION,
-        "smoke_result_schema_version": SMOKE_STATE_SCHEMA_VERSION,
+        "smoke_result_schema_version": SMOKE_RESULT_SCHEMA_VERSION,
         "feature_flags": dict(DEV_MCP_FEATURE_FLAGS),
         "capability_families": list(DEV_MCP_CAPABILITY_FAMILIES),
         "result_outcomes": list(DEV_MCP_RESULT_OUTCOMES),

@@ -3,7 +3,7 @@
 from module.webui.app_dependencies import (
     AzurLaneConfig,
     Icon,
-    ProcessManager,
+    BotRuntimeClient,
     State,
     alas_instance,
     clear,
@@ -130,7 +130,7 @@ class AppShellMixin(WebUIMixinBase):
 
         def update(name, seq):
             with use_scope(f"alas-instance-{seq}", clear=True):
-                rendered_state = ProcessManager.get_manager(name).state
+                rendered_state = BotRuntimeClient.get_manager(name).state
                 if rendered_state == 1:
                     icon_html = Icon.RUNNING
                 elif rendered_state == 3:
@@ -159,7 +159,7 @@ class AppShellMixin(WebUIMixinBase):
                 self.rendered_cache.append(update(inst, index))
         else:
             for index, inst in enumerate(instances):
-                state = ProcessManager.get_manager(inst).state
+                state = BotRuntimeClient.get_manager(inst).state
                 if state != self.rendered_cache[index]:
                     self.rendered_cache[index] = update(inst, index)
                     changed = True

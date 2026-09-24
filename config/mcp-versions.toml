@@ -1,42 +1,42 @@
 schema_version = 2
-bundle_revision = "625045afd617d7c8d40be31cb33d34f5335bf49327c629cdd3ff71fac6326053"
-plugin_version = "0.1.0+codex.99394363918855"
+bundle_revision = "10e1f463218f372e3b833e25289221c9fa042d13932f8d11fde4cfe36e74d905"
+plugin_version = "0.1.0+codex.44774146384457"
 skill_bundle_revision = "6da136727f0609ffdad0d4fd9edb9e8d8cf1b814b3192256d637d9ef601923f9"
 
 [servers.azurpilot-dev]
-version = "7.0.0"
+version = "8.0.0"
 api_version = 3
 contract_schema_version = 1
 tool_catalog_sha256 = "f0e072bb2cd61a6a107ec19d7751bc15e543936934d5bc8c3e4f2873b6675a88"
 tool_names = ["dev_cancel_smoke", "dev_cleanup", "dev_doctor", "dev_get_contract", "dev_get_control_operation", "dev_get_database_status", "dev_get_evidence", "dev_get_game_observation", "dev_get_runtime_status", "dev_get_screenshot", "dev_get_smoke", "dev_get_smoke_evaluation", "dev_get_smoke_game_observations", "dev_get_timeline", "dev_list_database_checks", "dev_list_database_repairs", "dev_list_game_observation_capabilities", "dev_list_smoke_capabilities", "dev_list_tasks", "dev_plan_session", "dev_preflight", "dev_preview_database_repair", "dev_recover", "dev_restart_adb", "dev_restart_emulator", "dev_restart_game", "dev_run_database_check", "dev_run_smoke", "dev_start_emulator", "dev_start_game", "dev_start_session", "dev_start_smoke", "dev_status", "dev_stop_emulator", "dev_stop_game", "dev_stop_session", "dev_submit_smoke_evaluation", "dev_validate_smoke"]
 tool_descriptor_hashes = {"dev_cancel_smoke" = "b69ba47f4f6c0ba72e17ae65b2b7185eab37b0bc3091771da7f7f72ebffa594f", "dev_cleanup" = "6a60479b9d9c13f4d6b9f5dd89800f0b78c67e360b17a803504d5a16e69fa67a", "dev_doctor" = "5cdb5fa378d4a66e1d2d694aef6d1f5b2abfb2eaa3fbee4d015e7e2cc6d2301f", "dev_get_contract" = "733ad3b2d07eac4ff9ce8ee53c5c0ce0365158f54e79c7d8975e3473bbd02c52", "dev_get_control_operation" = "c363b5a8f6e9d91e53562b5da643bd5546daf647a76e88cd23784cbd5eeaa4d3", "dev_get_database_status" = "755b91323b4e4cf61a379d49f2e6931dd770e1d4912de7cb648fd0ebb5793d69", "dev_get_evidence" = "3e1bca3dd33715ff89acb391552c01707a118818279f9ba0e0eecc66708de514", "dev_get_game_observation" = "8d9d3ab232480303e81e2d026e49bd217f7a99e72598c8a63243e68885381968", "dev_get_runtime_status" = "2e703aedda67e8e292bcca642417bb60b1617406e268476e41e6db690fab81ea", "dev_get_screenshot" = "358faaa8eec1d2a3b217ce3bac43ba58f3c9f03a64a61934437d0201865ab66d", "dev_get_smoke" = "db22970b54fe98f403b27dc9bf823a52efed0217f573bc56af531e70eade1545", "dev_get_smoke_evaluation" = "ef19df1ffb1ab3787781f4d1a407499bfcc540c2ca68888bcddc27cd26a51eb0", "dev_get_smoke_game_observations" = "47c8bff63ced5a589ea5ecc137cc9ae58f20d540187a33dffdc76752885775be", "dev_get_timeline" = "d28454ab95e7238f87bb351c189c795c37161b55129f7587c4d0068a09764bb8", "dev_list_database_checks" = "dba68cc2a352954fd6d8b711d23c9d5853b6c0bbe150cc3f783b25f14eeed74e", "dev_list_database_repairs" = "0dace221204efe9295a12f48fac9d56e9581978310e6a28ebc4c6d4ffa3367a1", "dev_list_game_observation_capabilities" = "2ad2ebec77465eb40ba05c865248eb9d5a908a5f44b849f925559aafc076f470", "dev_list_smoke_capabilities" = "771dd74597827860991ab5a0f7b8deb91b867f831725abef87f8c2347df955fb", "dev_list_tasks" = "8f90854888a0c3269d1f6e6ff0fd423dafef5eb102699cc3f7d27dae94225d83", "dev_plan_session" = "ea6a29581ec91ca27574da62b2a5c964a0ee1bffd5a15c9e438d55d74127e11b", "dev_preflight" = "dc7f06ceba7e7a395bd67118c72ce14cd858372df40784073c19c4b48b4433f0", "dev_preview_database_repair" = "aae25a40286c00698406624e0b220ae6b9f28913be3c68831bd55805227de41d", "dev_recover" = "31e5839b95c7441e9b1e0568c5c057421abffe0dad1083ed070b92e08fdba927", "dev_restart_adb" = "eb21f3171c004b2331d7c2ab62f08dce3816b2e6dc8db0622a1f0aefe26878a9", "dev_restart_emulator" = "06dee5ea3719fc2d07a5a411886c53f7d93eee746f9fdc849f94f091a32a0588", "dev_restart_game" = "0d627a9848ac6be443cbbd8b7497b1d2e99af2e0282f2dc5ee1088ca76417252", "dev_run_database_check" = "966cb5d34de70ebf2a0bc7e9e6710cd6fa163947a1cee5f679101abb7581a5f8", "dev_run_smoke" = "5fa1454b32167021ea4b721554c9cfc0a67e0479723bf6913de0cbd4608982c3", "dev_start_emulator" = "730bafdcd76b97456c2b1da0b537be8f53426f0707490aa9218e07e19848dd1e", "dev_start_game" = "383abe24dda960b038003d881a9d0314bdc931d81baf571c0f0f566da71c4f30", "dev_start_session" = "bc2fee7be8ab92b655f9c4ef884bb38c22cc66e22bb96dfb542cd82c07086624", "dev_start_smoke" = "55e2ac4a04acfc955442088c0cfe002d16a55c8ef605b0d4383cd69e8a41f429", "dev_status" = "eacf28248b84f326acdb672f135d2c9a8d9f21b54c3c6a44fa00ecc982763d3c", "dev_stop_emulator" = "67b6c3d0e012e34810c8ebd2effcb1884d60c7bd0ca62ec3974ff54ce5f39abd", "dev_stop_game" = "f9ab3849ec08698c72b3a2ff033759781535246d5a04eb3dd7e8f8a738ee8b14", "dev_stop_session" = "c45c3fb2a2db1ef46d1a0ceafce67cf7583652f54f4e1030af2bd4ba897a6599", "dev_submit_smoke_evaluation" = "3c01646fb9ceff41158682a21e1647e79531f7f78cd4bab826597333f6dd28f4", "dev_validate_smoke" = "539755124e48f71d41ab9a18acc0b861c4ba1d11e5b538a79316f1d1f507b8cb"}
 capability_catalog_sha256 = "97853974a1f2a8387b6b9578a01dbc25ef463346ad5742bc6304a2b5bb3152d9"
-contract_revision = "1cde633c2252641eef71e4bcc8f629bfbe087c3e45fcfc7e0c41f2e342cb9511"
-source_set_digest = "7fc78a8b6c24192fe28bae2421c2172a9fb53f3b3e664b75306ee82624edb6c6"
+contract_revision = "398abe3cdfc6020b554704cae679e354d8ecf940464e55e5afd382d3e235ef29"
+source_set_digest = "38f8de81276e0fa8f083831cb81a2c92b39724e4b81840f7aa9696319dbdce6a"
 authorization_scopes = ["azurpilot:dev"]
 feature_flags = {"task_sandbox" = true, "evidence_api" = true, "universal_smoke_harness" = true, "external_visual_evaluation" = true, "runtime_control" = true, "game_lifecycle" = true, "emulator_lifecycle" = true, "adb_maintenance" = true, "game_observations" = true, "database_diagnostics" = true, "database_repairs" = false}
 capability_families = ["diagnostics", "evidence", "lifecycle", "smoke", "runtime_control", "game", "database"]
 result_vocabulary = ["PASS", "PRODUCT_FAILED", "PRECONDITION_FAILED", "HARNESS_FAILED", "EVIDENCE_INCOMPLETE", "TIMEOUT", "INVALIDATED", "CANCELLED"]
 smoke_spec_schema_version = 4
-smoke_result_schema_version = 2
+smoke_result_schema_version = 3
 
 [servers.azurpilot-game]
-version = "2.0.22"
+version = "2.0.23"
 api_version = 1
 contract_schema_version = 1
 tool_catalog_sha256 = "82be6e4f0435056095228971bde827e19082a80285113c3e9232fadc2a17782c"
 tool_names = ["game_clear_scheduler_queue", "game_get_config", "game_get_contract", "game_get_current_task", "game_get_fleet_state", "game_get_morale", "game_get_profile_status", "game_get_recent_logs", "game_get_resources", "game_get_scheduler_queue", "game_get_screenshot", "game_get_task_help", "game_list_profiles", "game_list_tasks", "game_login_runtime", "game_restart_adb", "game_restart_emulator", "game_restart_runtime", "game_start_profile", "game_stop_profile", "game_trigger_task", "game_update_config"]
 tool_descriptor_hashes = {"game_clear_scheduler_queue" = "5bfd5c7cdd03d0305a41f728f8645c93e28003ef77f5b830ab1844ea0c7ff85c", "game_get_config" = "dc27d3e8309f09408533085c98272915a79c584e1eaf1663e695e762d72df3d8", "game_get_contract" = "d3cdcfa8698d21390b9ab9de916be174d0270b00b61404970778141925a700a6", "game_get_current_task" = "b487bb022904e4669b885775591d48f6d72e0e59fd8043f9b1166700a412f6a9", "game_get_fleet_state" = "2a325f908802d0a75900b195c1774c334a877a74c37374737e1c9a56b45a7321", "game_get_morale" = "e9a9d6c85c61ed3718e17d248246fff8cfc420e4cf247054accfad4f126856db", "game_get_profile_status" = "5444c22f43e8e09a743b2b6e082c6150c0ae4384c26894a70701b96fb5b9f5dc", "game_get_recent_logs" = "c3c4151076bf3e065bcaa5bafe005cb6cd61198205dfd0c75e434a50e32ca4e1", "game_get_resources" = "87c3d1c5956e2ce00f891aa6abf7c1a14eafa7868e6c82c8a95a79820aa615a8", "game_get_scheduler_queue" = "397ee166d328830568aa32faf85b1261be05fd0c4dc72dd2999e5597bd60cf87", "game_get_screenshot" = "c6281f2043f3d0fca67e64cba9cfa3cd05625121b56f2e642387f04e9c6c46cf", "game_get_task_help" = "23cae07219fc7e0cf3541cf8a728eab9e9358627b6dd548aacacf0a73927c9bd", "game_list_profiles" = "65be50082c224edf605a9ef0f428ec74f048596e407e129528ed5f7f6566c678", "game_list_tasks" = "b26b87136a6dd075e19f1a9d22a222d554140dc9b3a8a2304c57cb3fcb68c394", "game_login_runtime" = "a1171f687535a6732686e05e27d56cec28e725f8f48ee84129cc4fef133a8486", "game_restart_adb" = "62d61a46bc7adf639ceaab9329ee0416418363e79418708c47e26d40d9de6c66", "game_restart_emulator" = "70c66aaf2ac135a68319050624c278aaa091db0dbed7555e2f1c8c46f302d2e5", "game_restart_runtime" = "1c7da57ac73eb2ec4490ca4bff8ae05291c29597dabd63295f95bf49d5afbe1c", "game_start_profile" = "4116fd7a2121da70670acf623a726a4e7bdf0c42b6afe0048d080ca651f1280f", "game_stop_profile" = "fffb533a174c82c2e4bfee9873c3728e6474e27b6208191b0a49166f2c97b49a", "game_trigger_task" = "bd00f80bc9a9c8430f5198fbb252f178bc4ddda47e3a6ff1eabfc2a6735b40eb", "game_update_config" = "8bd346de8696db8d5abb38d39de544764e58a627dab12ede97e34a01529dfc65"}
 capability_catalog_sha256 = "115b25b6082846093ff4047d44d7bd82661f713c7bebf00145784ff72fcc24d7"
-contract_revision = "055b9b7da366ac92349bb61a2a327d17b0b1416d369eb74d0bc7f55a643c8d44"
-source_set_digest = "59985efbca17d204d6f129f0efa68fb876ff2247c938e54bf3f15c8cd6617d14"
+contract_revision = "ba98cc617cfc7208e62f1cebb95a3d53aa97a511d784d8b546cc38df4ff56702"
+source_set_digest = "d855bffbabfbba8eb38184d3d683bdb12a43016878a5393a35f626d9ab68ed31"
 authorization_scopes = ["azurpilot:game.read", "azurpilot:game.control"]
 feature_flags = {"read_only" = false, "stateless" = true, "multi_profile" = true, "control_plane" = true, "lifecycle_control" = true, "task_control" = true, "scheduler_mutation" = true, "configuration_write" = true, "emulator_control" = true, "adb_control" = true, "fleet_state" = true, "morale" = true, "resources" = true, "configuration_read" = true, "runtime_logs" = true, "screenshots" = true, "remote_streamable_http" = true, "no_database_diagnostics" = true, "no_arbitrary_filesystem_read" = true, "no_arbitrary_sql" = true, "no_dev_runtime" = true, "no_generic_action_api" = true}
 capability_families = ["profiles", "runtime", "resources", "tasks", "configuration", "logs", "screenshots", "control", "lifecycle_control", "task_control", "scheduler_mutation", "configuration_write", "emulator_control", "adb_control", "fleet_state", "morale"]
 result_vocabulary = ["ready", "running", "idle", "stopped", "warning", "updating", "partial", "unknown", "not_running", "unavailable", "failed", "scheduled"]
 
 [compatibility]
-required_mcp_servers = {"azurpilot-dev" = ">=7.0.0,<8.0.0", "azurpilot-game" = ">=2.0.22,<3.0.0"}
+required_mcp_servers = {"azurpilot-dev" = ">=8.0.0,<9.0.0", "azurpilot-game" = ">=2.0.23,<3.0.0"}
 
 [compatibility.azurpilot-dev]
 required_feature_flags = {"task_sandbox" = true, "evidence_api" = true, "universal_smoke_harness" = true, "external_visual_evaluation" = true, "runtime_control" = true, "game_lifecycle" = true, "emulator_lifecycle" = true, "adb_maintenance" = true, "game_observations" = true, "database_diagnostics" = true, "database_repairs" = false}
@@ -49,8 +49,8 @@ required_capability_families = ["profiles", "runtime", "resources", "tasks", "co
 result_vocabulary = ["ready", "running", "idle", "stopped", "warning", "updating", "partial", "unknown", "not_running", "unavailable", "failed", "scheduled"]
 
 [source_digests]
-DEV_MCP_SOURCE_SET = "907e37556a9cd6bdbca7e3ebf34cbfea57bb67695fb11c2cc916a5b72b8911b4"
-GAME_MCP_SOURCE_SET = "28a936f7369a10d7b7396ed9480cfc539668ebcd6927cf3c4e26bcbc56d81d90"
-SHARED_MCP_SOURCE_SET = "0c20b3594f8a0dfe1613a71182092f2a96b7eedcd30cb382abdf0a35b3f954d3"
+DEV_MCP_SOURCE_SET = "ed57a68a09ae1030366b0345eb67c1b5e3cad9bced2bff94633e6f759af66c69"
+GAME_MCP_SOURCE_SET = "33d8cab58bb416dda84b0540fb5b7a3373c64570a1a512519925f05cbe280824"
+SHARED_MCP_SOURCE_SET = "ac5ecb93679cfd93e13f32fbbeaa12f1332269c788cb3b605b28f8c429c8bbba"
 PLUGIN_BUNDLE_SOURCE_SET = "9446969342fa4be03149ad923fb72661647944c332a182aa6dc7670529a0e2a5"
 SKILL_BUNDLE_SOURCE_SET = "6da136727f0609ffdad0d4fd9edb9e8d8cf1b814b3192256d637d9ef601923f9"

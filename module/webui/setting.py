@@ -1,47 +1,22 @@
-"""WebUI 设置与状态管理模块，维护界面偏好和持久化状态。
-包括主题配置、展开折叠状态、依赖同步标记，
-以及预览资源路径定义和缓存管理机制。"""
+"""Настройки и состояние WebUI: предпочтения интерфейса, маркер синхронизации зависимостей и кэш ресурсов."""
 
 # Этот файл предназначен для управления настройками самого Web-интерфейса и классами сохраняемого состояния.
 # Включает тему интерфейса, состояние раскрытия/сворачивания часто используемых элементов, пути к изображениям-заглушкам предпросмотра и ресурсам иконок, а также механизм управления кэшем.
-import multiprocessing
 import os
+import multiprocessing
 import threading
-from multiprocessing.managers import SyncManager
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Generic, TypeVar
+from typing import TYPE_CHECKING
 
 from deploy.atomic import atomic_remove, atomic_write
+from module.base.decorator import cached_class_property
 
 if TYPE_CHECKING:
     from module.config.config_updater import ConfigUpdater
     from module.webui.config import DeployConfig
 
-T = TypeVar("T")
-
-
 # После обновления кода родительский супервизор должен сначала завершить синхронизацию изолированного окружения и только затем создавать новый дочерний процесс WebUI.
 DEPENDENCY_SYNC_PENDING_FILE = "./config/webui-dependency-sync-pending"
-
-
-def _close_runtime_control_server(server: object | None) -> None:
-    """Закрыть control server, если объект предоставляет штатный lifecycle hook."""
-
-    if server is None:
-        return
-    close = getattr(server, "close", None)
-    if callable(close):
-        try:
-            close()
-        except Exception as exc:  # noqa: BLE001 - очистка должна продолжиться после ошибки закрытия.
-            try:
-                from module.logger import logger
-
-                logger.warning(
-                    f"Не удалось закрыть runtime control server во время очистки: {type(exc).__name__}"
-                )
-            except Exception:
-                pass
 
 
 def _stop_notification_runtime(runtime: object | None) -> None:
@@ -122,43 +97,6 @@ def clear_dependency_sync_pending() -> None:
     atomic_remove(DEPENDENCY_SYNC_PENDING_FILE)
 
 
-class cached_class_property(Generic[T]):
-    """
-    Code from https://github.com/dssg/dickens
-    Add typing support
-
-    Descriptor decorator implementing a class-level, read-only
-    property, which caches its results on the class(es) on which it
-    operates.
-    Inheritance is supported, insofar as the descriptor is never hidden
-    by its cache; rather, it stores values under its access name with
-    added underscores. For example, when wrapping getters named
-    "choices", "choices_" or "_choices", each class's result is stored
-    on the class at "_choices_"; decoration of a getter named
-    "_choices_" would raise an exception.
-    """
-
-    class AliasConflict(ValueError):
-        pass
-
-    def __init__(self, func: Callable[..., T]):
-        self.__func__ = func
-        self.__cache_name__ = '_{}_'.format(func.__name__.strip('_'))
-        if self.__cache_name__ == func.__name__:
-            raise self.AliasConflict(self.__cache_name__)
-
-    def __get__(self, instance, cls=None) -> T:
-        if cls is None:
-            cls = type(instance)
-
-        try:
-            return vars(cls)[self.__cache_name__]
-        except KeyError:
-            result = self.__func__(cls)
-            setattr(cls, self.__cache_name__, result)
-            return result
-
-
 class State:
     """
     Shared settings
@@ -172,9 +110,6 @@ class State:
 
     restart_event: threading.Event = None
     dependency_sync_event: threading.Event = None
-    manager: SyncManager = None
-    process_registry = None
-    _runtime_control_server = None
     _notification_runtime = None
     _desktop_agent_runtime = None
     electron: bool = False
@@ -233,44 +168,13 @@ class State:
     def init(cls, *, notification_runtime=None, desktop_agent_runtime=None):
         cls._clearup = False
         cls._restart_requested = False
-        previous_server = cls._runtime_control_server
-        cls._runtime_control_server = None
-        _close_runtime_control_server(previous_server)
         previous_desktop_agent_runtime = cls._desktop_agent_runtime
         cls._desktop_agent_runtime = None
         _stop_notification_runtime(previous_desktop_agent_runtime)
         previous_notification_runtime = cls._notification_runtime
         cls._notification_runtime = None
         _stop_notification_runtime(previous_notification_runtime)
-        manager = multiprocessing.Manager()
-        cls.manager = manager
-        # Browser sessions may run in separate processes, so workers need a
-        # process-wide registry instead of session-local Python objects.
-        cls.process_registry = manager.dict()
-        from module.webui.worker_registry import claim_owner
-
         try:
-            claim_owner(os.getpid())
-        except Exception:
-            # При ошибке захвата владельца нельзя оставлять дочерний процесс Manager без владельца.
-            cls.process_registry = None
-            cls.manager = None
-            cls._init = False
-            try:
-                manager.shutdown()
-            except Exception:
-                pass
-            raise
-        server = None
-        try:
-            from module.webui.runtime_control_owner import WebUIRuntimeControlOwner
-
-            owner = WebUIRuntimeControlOwner(
-                Path(__file__).resolve().parents[2],
-                notification_service=notification_runtime,
-            )
-            server = owner.start_server()
-            cls._runtime_control_server = server
             cls._notification_runtime = notification_runtime
             cls._desktop_agent_runtime = desktop_agent_runtime
             if notification_runtime is not None:
@@ -282,34 +186,11 @@ class State:
                 if callable(start):
                     start()
         except Exception:
-            # Нельзя оставлять worker registry owner без control server: это
-            # создало бы невидимый и неуправляемый runtime.
             cls._notification_runtime = None
             cls._desktop_agent_runtime = None
-            _close_runtime_control_server(server)
             _stop_notification_runtime(notification_runtime)
             _stop_notification_runtime(desktop_agent_runtime)
-            try:
-                from module.webui.worker_registry import clear_owner
-
-                clear_owner(os.getpid())
-            except Exception as exc:  # noqa: BLE001 - ошибку rollback необходимо отразить в журнале.
-                from module.logger import logger
-
-                logger.exception_context(
-                    title="Не удалось откатить регистрацию WebUI owner",
-                    exc=exc,
-                    impact="В registry могла остаться запись owner без control server.",
-                    action="Проверьте состояние registry и выполните безопасное восстановление WebUI.",
-                    level=40,
-                )
-            cls.process_registry = None
-            cls.manager = None
             cls._init = False
-            try:
-                manager.shutdown()
-            except Exception:
-                pass
             raise
         cls._init = True
 
@@ -317,29 +198,13 @@ class State:
     def clearup(cls):
         if cls._clearup:
             return
-        from module.webui.worker_registry import clear_owner, get_workers
-
-        workers = get_workers(os.getpid())
-        if workers:
-            raise RuntimeError(f"Остались незавершённые записи рабочих процессов: {list(workers)}")
         cls._clearup = True
-        server = cls._runtime_control_server
-        cls._runtime_control_server = None
         desktop_agent_runtime = cls._desktop_agent_runtime
         cls._desktop_agent_runtime = None
         _stop_notification_runtime(desktop_agent_runtime)
-        _close_runtime_control_server(server)
         notification_runtime = cls._notification_runtime
         cls._notification_runtime = None
         _stop_notification_runtime(notification_runtime)
-        manager = cls.manager
-        try:
-            if manager is not None:
-                manager.shutdown()
-        finally:
-            cls.manager = None
-            cls.process_registry = None
-            clear_owner(os.getpid())
 
     @cached_class_property
     def deploy_config(self) -> "DeployConfig":

@@ -1,4 +1,4 @@
-"""Dev Runtime facade к одному уже существующему WebUI owner."""
+"""Узкий Dev Runtime facade к самостоятельному headless Bot Runtime."""
 
 from __future__ import annotations
 
@@ -6,23 +6,28 @@ import math
 from pathlib import Path
 
 from module.application.runtime_control import (
+    BotRuntimeBootstrapper,
+    RuntimeControlClient,
     RuntimeControlOperation,
     RuntimeControlResult,
     RuntimeOwnerIdentity,
-    SharedWebUIBootstrapper,
-    WebUIControlClient,
 )
 from module.application.runtime_state import RuntimeStateStore
+from module.application.runtime_worker_registry import (
+    get_canonical_owner_record_read_only,
+    get_canonical_worker_read_only,
+    process_matches,
+)
 
 
-class SharedWebUIRuntime:
-    """Только typed calls и read-only ownership checks, без второго WebUI."""
+class BotRuntimeFacade:
+    """Typed lifecycle calls и read-only identity checks для Dev Runtime."""
 
     def __init__(
         self,
         repository_root: Path | str,
         *,
-        control_client: WebUIControlClient | None = None,
+        control_client: RuntimeControlClient | None = None,
     ) -> None:
         self.repository_root = Path(repository_root).resolve()
         self.state = RuntimeStateStore(self.repository_root)
@@ -37,7 +42,7 @@ class SharedWebUIRuntime:
             self._profile_name = DevTargetRegistry.load(self.repository_root).profile_name
         return self._profile_name
 
-    def ensure_webui(self) -> RuntimeOwnerIdentity:
+    def ensure_runtime(self) -> RuntimeOwnerIdentity:
         return self._client().ensure_owner()
 
     def start_profile(self, *, session_id: str, idempotency_key: str | None = None) -> RuntimeControlResult:
@@ -79,7 +84,7 @@ class SharedWebUIRuntime:
         return self._session_state_matches(profile, session_id, record)
 
     def worker_present(self, profile: str | None = None) -> bool | None:
-        """Проверить наличие worker без изменения registry или ProcessManager."""
+        """Проверить наличие worker без изменения реестра или состояния процессов."""
 
         profile = profile or self.profile_name
         try:
@@ -95,8 +100,6 @@ class SharedWebUIRuntime:
             # recovery. Проверяем именно этот PID и created_at; не считаем
             # отсутствие registry доказательством отсутствия живого worker.
             try:
-                from module.webui.worker_registry import process_matches
-
                 worker_pid = snapshot.worker_pid
                 worker_created_at = snapshot.worker_created_at
                 if (
@@ -121,8 +124,6 @@ class SharedWebUIRuntime:
                 return None
             return worker_matches is True
         try:
-            from module.webui.worker_registry import process_matches
-
             return process_matches(record) is True
         except RuntimeError:
             return None
@@ -133,9 +134,9 @@ class SharedWebUIRuntime:
         profile = profile or self.profile_name
         owner = self.owner_identity()
         if owner is None:
-            return False, "общий WebUI owner не зарегистрирован"
+            return False, "Bot Runtime owner не зарегистрирован"
         if not self._owner_matches(owner):
-            return False, "идентичность общего WebUI owner не подтверждена"
+            return False, "идентичность Bot Runtime owner не подтверждена"
         try:
             record = self._worker_record(profile)
         except RuntimeError:
@@ -146,7 +147,7 @@ class SharedWebUIRuntime:
             return False, "worker development target не подтверждён"
         if session_id is not None and not self._session_state_matches(profile, session_id, record):
             return False, "worker не принадлежит текущей DevSession"
-        return True, "общий WebUI и worker development target готовы"
+        return True, "Bot Runtime и worker development target готовы"
 
     def _session_state_matches(
         self,
@@ -163,13 +164,13 @@ class SharedWebUIRuntime:
             and self._worker_identity_matches(snapshot, record)
         )
 
-    def _client(self) -> WebUIControlClient:
+    def _client(self) -> RuntimeControlClient:
         if self._control_client is None:
-            self._control_client = WebUIControlClient(
+            self._control_client = RuntimeControlClient(
                 self.repository_root,
                 owner_reader=self._owner_reader,
                 owner_matches=self._owner_matches,
-                bootstrapper=SharedWebUIBootstrapper(
+                bootstrapper=BotRuntimeBootstrapper(
                     self.repository_root,
                     owner_reader=self._owner_reader,
                     owner_matches=self._owner_matches,
@@ -177,33 +178,27 @@ class SharedWebUIRuntime:
             )
         return self._control_client
 
-    @staticmethod
-    def _owner_reader() -> RuntimeOwnerIdentity | None:
-        from module.webui.worker_registry import get_owner_record_read_only
-
-        record = get_owner_record_read_only()
+    def _owner_reader(self) -> RuntimeOwnerIdentity | None:
+        record = get_canonical_owner_record_read_only(
+            repository_root=self.repository_root
+        )
         return None if record is None else RuntimeOwnerIdentity.from_value(record)
 
     @staticmethod
     def _owner_matches(owner: RuntimeOwnerIdentity) -> bool:
-        from module.webui.worker_registry import process_matches
-
         try:
             return process_matches(owner.as_dict()) is True
         except RuntimeError:
             return False
 
-    @staticmethod
-    def _worker_record(profile: str) -> dict | None:
-        from module.webui.worker_registry import get_worker_read_only
-
-        record = get_worker_read_only(profile)
+    def _worker_record(self, profile: str) -> dict | None:
+        record = get_canonical_worker_read_only(
+            profile, repository_root=self.repository_root
+        )
         return record if isinstance(record, dict) else None
 
     @staticmethod
     def _process_matches(record: dict) -> bool:
-        from module.webui.worker_registry import process_matches
-
         try:
             return process_matches(record) is True
         except RuntimeError:
@@ -237,4 +232,4 @@ class SharedWebUIRuntime:
         )
 
 
-__all__ = ["SharedWebUIRuntime"]
+__all__ = ["BotRuntimeFacade"]

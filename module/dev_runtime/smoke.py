@@ -90,6 +90,7 @@ from module.dev_runtime.task_sandbox import (
 
 SMOKE_SCHEMA_VERSION = 4
 SMOKE_STATE_SCHEMA_VERSION = 2
+SMOKE_RESULT_SCHEMA_VERSION = 3
 _LEGACY_SMOKE_SCHEMA_VERSIONS = frozenset({1, 2})
 _LEGACY_SMOKE_SPEC_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 _LEGACY_SMOKE_CAPABILITY_IDS = frozenset(
@@ -892,7 +893,9 @@ class SmokeCleanup(_StrictModel):
     overrides_restored: StrictBool = False
     source_unchanged: StrictBool = False
     no_owned_orphan: StrictBool = False
-    port_free: StrictBool = False
+    # Legacy projection retained for persisted Smoke results. Bot Runtime does
+    # not own a WebUI port, so new runs leave this value unset.
+    port_free: StrictBool | None = None
     confirmed: StrictBool = False
     failure_code: str | None = None
 
@@ -910,7 +913,6 @@ class SmokeCleanup(_StrictModel):
             or not self.overrides_restored
             or not self.source_unchanged
             or not self.no_owned_orphan
-            or not self.port_free
             or self.failure_code is not None
         ):
             raise ValueError("подтверждённая очистка содержит неподтверждённые проверки")
@@ -1165,7 +1167,7 @@ class SmokeRunRecord(_StrictModel):
 
 
 class SmokeResult(_StrictModel):
-    schema_version: Literal[SMOKE_STATE_SCHEMA_VERSION] = SMOKE_STATE_SCHEMA_VERSION
+    schema_version: Literal[SMOKE_RESULT_SCHEMA_VERSION] = SMOKE_RESULT_SCHEMA_VERSION
     _legacy_schema_version: int | None = PrivateAttr(default=None)
     smoke_id: str
     spec_hash: str
@@ -2542,16 +2544,16 @@ class SmokeStateStore:
         raw = self._read_json(path, SMOKE_MAX_RUN_BYTES)
         payload, legacy = self._versioned_payload(
             raw,
-            current_version=SMOKE_STATE_SCHEMA_VERSION,
+            current_version=SMOKE_RESULT_SCHEMA_VERSION,
             corrupt_code="DEV_SMOKE_RESULT_CORRUPT",
             unsupported_code="DEV_SMOKE_RESULT_UNSUPPORTED",
             label="SmokeResult",
         )
-        normalized = (
-            _drop_legacy_file_log_assertions(payload)
-            if legacy
-            else payload
-        )
+        if legacy:
+            normalized = dict(_drop_legacy_file_log_assertions(payload))
+            normalized["schema_version"] = SMOKE_RESULT_SCHEMA_VERSION
+        else:
+            normalized = payload
         try:
             result = _validate_json_model(SmokeResult, normalized)
         except ValidationError as exc:
@@ -3662,7 +3664,7 @@ class SmokeRunManager:
             ],
             message="Внешняя визуальная оценка пройдена" if verdict == "pass" else "Внешняя визуальная оценка отклонена",
         )
-        outcome = SmokeOutcome.PASS if verdict == "pass" and record.cleanup.confirmed and record.cleanup.source_unchanged and record.cleanup.port_free and record.cleanup.no_owned_orphan else SmokeOutcome.PRODUCT_FAILED if verdict == "fail" else SmokeOutcome.HARNESS_FAILED
+        outcome = SmokeOutcome.PASS if verdict == "pass" and record.cleanup.confirmed and record.cleanup.source_unchanged and record.cleanup.no_owned_orphan else SmokeOutcome.PRODUCT_FAILED if verdict == "fail" else SmokeOutcome.HARNESS_FAILED
         code = "DEV_SMOKE_PASS" if outcome is SmokeOutcome.PASS else "DEV_SMOKE_VISUAL_FAILED" if outcome is SmokeOutcome.PRODUCT_FAILED else "DEV_SMOKE_CLEANUP_GATE_FAILED"
         finished_at = _timestamp_now(self.now)
         primary_failure = None if outcome is SmokeOutcome.PASS else SmokeFailure(code=code, message="Внешняя оценка или проверка очистки не дали PASS", assertion_id=assertion_id)
@@ -4515,7 +4517,6 @@ class SmokeRunManager:
         outcome = primary_outcome or SmokeOutcome.PASS
         if outcome is SmokeOutcome.PASS and (
             not cleanup.confirmed
-            or cleanup.port_free is not True
             or cleanup.source_unchanged is not True
             or cleanup.no_owned_orphan is not True
             or (final_observed.context.evidence_health != EVIDENCE_HEALTH_COMPLETE if final_observed.evidence_ok else True)
@@ -4577,8 +4578,11 @@ class SmokeRunManager:
             current_task = summary.get("current_task") if isinstance(summary.get("current_task"), str) else None
             config_paths = self._observed_config_paths(spec)
             config_values = self._read_safe_config(config_paths)
-            port_probe = getattr(runtime, "port_probe", None)
-            port_listening = port_probe(self.environment.host, self.environment.port) if callable(port_probe) else None
+            port_listening = None
+            if any(isinstance(assertion, DevPortStateAssertion) for assertion in spec.assertions):
+                port_probe = getattr(runtime, "port_probe", None)
+                if callable(port_probe):
+                    port_listening = port_probe(self.environment.host, self.environment.port)
             errors = self._structured_errors(summary, timeline)
             screenshots = summary.get("screenshots")
             metadata: tuple[Mapping[str, object], ...] = ()
@@ -4869,7 +4873,6 @@ class SmokeRunManager:
         task_clean = False
         scheduler_clean = False
         no_orphan = False
-        port_free = False
         restored = False
         source_unchanged = False
         try:
@@ -4906,15 +4909,6 @@ class SmokeRunManager:
                 final_details = _result_details(final_status)
                 lifecycle = final_details.get("task_lifecycle")
                 task_clean = task_clean and (not isinstance(lifecycle, Mapping) or lifecycle.get("phase") in {"clean", "none"})
-            port_probe = getattr(runtime, "port_probe", None)
-            if callable(port_probe):
-                probe_result = port_probe(self.environment.host, self.environment.port)
-                if isinstance(probe_result, bool):
-                    port_free = not probe_result
-                else:
-                    failures.append("DEV_SMOKE_PORT_PROBE_INVALID")
-            else:
-                failures.append("DEV_SMOKE_PORT_PROBE_UNAVAILABLE")
         except Exception as exc:  # noqa: BLE001
             failures.append(f"DEV_SMOKE_CLEANUP_{type(exc).__name__.upper()[:32]}")
         try:
@@ -4957,10 +4951,8 @@ class SmokeRunManager:
             failures.append("DEV_SMOKE_OVERRIDE_RESTORE_FAILED")
         if not no_orphan:
             failures.append("DEV_SMOKE_OWNED_ORPHAN_REMAINS")
-        if not port_free:
-            failures.append("DEV_SMOKE_PORT_NOT_FREE")
-        confirmed = not failures and stopped and task_clean and scheduler_clean and restored and source_unchanged and no_orphan and port_free
-        cleanup = SmokeCleanup(attempted=True, session_stopped=stopped, task_cleanup_confirmed=task_clean, scheduler_clean=scheduler_clean, overrides_restored=restored, source_unchanged=source_unchanged, no_owned_orphan=no_orphan, port_free=port_free, confirmed=confirmed, failure_code=failures[0] if failures else None)
+        confirmed = not failures and stopped and task_clean and scheduler_clean and restored and source_unchanged and no_orphan
+        cleanup = SmokeCleanup(attempted=True, session_stopped=stopped, task_cleanup_confirmed=task_clean, scheduler_clean=scheduler_clean, overrides_restored=restored, source_unchanged=source_unchanged, no_owned_orphan=no_orphan, confirmed=confirmed, failure_code=failures[0] if failures else None)
         return cleanup, SmokeFailure(code=failures[0], message="; ".join(failures)) if failures else None
 
     def _finish_record(self, record: SmokeRunRecord, outcome: SmokeOutcome, code: str, message: str, cleanup: SmokeCleanup, *, assertions: Sequence[SmokeAssertionResult] | None = None, primary_failure: SmokeFailure | None = None, harness_failure: SmokeFailure | None = None) -> SmokeResult:
@@ -4995,7 +4987,6 @@ class SmokeRunManager:
             overrides_restored=True,
             source_unchanged=outcome is not SmokeOutcome.INVALIDATED,
             no_owned_orphan=no_owned_orphan,
-            port_free=False,
             confirmed=False,
             failure_code=code,
         )
@@ -5016,9 +5007,7 @@ class SmokeRunManager:
                 overrides_restored=True,
                 source_unchanged=True,
                 no_owned_orphan=True,
-                port_free=False,
                 confirmed=False,
-                failure_code="DEV_SMOKE_PORT_PROBE_UNAVAILABLE",
             )
         self._finish_record(record, SmokeOutcome.CANCELLED, "DEV_SMOKE_CANCELLED", failure.message, cleanup, primary_failure=failure)
         return self.store.load(record.smoke_id)

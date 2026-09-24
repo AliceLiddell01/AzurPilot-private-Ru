@@ -15,10 +15,19 @@ from module.application.runtime_control import (
     RuntimeControlOperation,
     RuntimeControlResult,
     RuntimeOwnerIdentity,
-    SharedWebUIBootstrapper,
-    WebUIControlClient,
-    WebUIControlServer,
+    BotRuntimeBootstrapper,
+    RuntimeControlClient,
+    RuntimeControlServer,
 )
+
+
+def _create_bot_runtime_files(tmp_path: Path) -> Path:
+    entrypoint = tmp_path / "module" / "bot_runtime.py"
+    entrypoint.parent.mkdir(parents=True, exist_ok=True)
+    entrypoint.write_text("# synthetic Bot Runtime\n", encoding="utf-8")
+    python_executable = tmp_path / "python.exe"
+    python_executable.write_bytes(b"synthetic")
+    return python_executable
 
 
 def test_control_plane_accepts_canonical_profile_without_local_length_cap() -> None:
@@ -30,7 +39,7 @@ def test_control_plane_accepts_canonical_profile_without_local_length_cap() -> N
 def test_control_client_default_timeout_covers_cooperative_handover_grace(tmp_path: Path) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
 
-    client = WebUIControlClient(
+    client = RuntimeControlClient(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
@@ -66,14 +75,14 @@ def test_control_plane_executes_owner_operation_once_and_is_idempotent(tmp_path:
             owner=owner,
         )
 
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
         executor=executor,
         poll_interval=0.005,
     )
-    client = WebUIControlClient(
+    client = RuntimeControlClient(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
@@ -100,13 +109,13 @@ def test_control_plane_executes_owner_operation_once_and_is_idempotent(tmp_path:
     assert first.ok is True
     assert second.as_dict() == first.as_dict()
     assert calls == [(RuntimeControlOperation.START_PROFILE, "ap")]
-    assert not list((tmp_path / "config" / "state" / "webui-control" / "requests").glob("*.json"))
+    assert not list((tmp_path / "config" / "state" / "bot-runtime" / "control" / "requests").glob("*.json"))
 
 
 def test_control_plane_rejects_changed_owner_and_unsafe_error_key(tmp_path: Path) -> None:
     expected = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
     current = RuntimeOwnerIdentity(pid=4322, created_at=1234.5)
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: current.as_dict(),
         owner_matches=lambda candidate: candidate == current,
@@ -123,8 +132,8 @@ def test_control_plane_rejects_changed_owner_and_unsafe_error_key(tmp_path: Path
         "created_at": "2026-09-04T00:00:00+00:00",
         "expires_at": "2099-01-01T00:00:00+00:00",
     }
-    requests = tmp_path / "config" / "state" / "webui-control" / "requests"
-    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    requests = tmp_path / "config" / "state" / "bot-runtime" / "control" / "requests"
+    results = tmp_path / "config" / "state" / "bot-runtime" / "control" / "results"
     requests.mkdir(parents=True)
     results.mkdir(parents=True)
     (requests / "key-1.json").write_text(json.dumps(request), encoding="utf-8")
@@ -138,7 +147,7 @@ def test_control_plane_rejects_changed_owner_and_unsafe_error_key(tmp_path: Path
     malicious["idempotency_key"] = "../escape"
     (requests / "malicious.json").write_text(json.dumps(malicious), encoding="utf-8")
     assert server.serve_once() == 0
-    assert not (tmp_path / "config" / "state" / "webui-control" / "escape.json").exists()
+    assert not (tmp_path / "config" / "state" / "bot-runtime" / "control" / "escape.json").exists()
     assert not (requests / "malicious.json").exists()
 
 
@@ -177,14 +186,14 @@ def test_control_plane_serializes_concurrent_owner_operations(tmp_path: Path) ->
             with guard:
                 active -= 1
 
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
         executor=executor,
         poll_interval=0.005,
     )
-    client = WebUIControlClient(
+    client = RuntimeControlClient(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
@@ -234,7 +243,7 @@ def test_control_client_accepts_ownerless_failure_result() -> None:
         owner=None,
     )
 
-    WebUIControlClient._validate_result(
+    RuntimeControlClient._validate_result(
         result,
         RuntimeControlOperation.START_PROFILE,
         "ap",
@@ -276,7 +285,7 @@ def test_control_client_wraps_plane_lock_timeout(
         return BlockedLock()
 
     monkeypatch.setattr(runtime_control, "application_host_lock", blocked_lock)
-    client = WebUIControlClient(
+    client = RuntimeControlClient(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
@@ -292,14 +301,14 @@ def test_control_client_wraps_plane_lock_timeout(
 def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp_path: Path) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
     with pytest.raises(ValueError):
-        WebUIControlClient(
+        RuntimeControlClient(
             tmp_path,
             owner_reader=lambda: owner.as_dict(),
             owner_matches=lambda candidate: candidate == owner,
             timeout=0,
         )
     with pytest.raises(ValueError):
-        SharedWebUIBootstrapper(
+        BotRuntimeBootstrapper(
             tmp_path,
             owner_reader=lambda: owner.as_dict(),
             owner_matches=lambda candidate: candidate == owner,
@@ -313,14 +322,14 @@ def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp
         calls += 1
         raise AssertionError("просроченный request не должен достигать executor")
 
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
         executor=executor,
     )
-    requests = tmp_path / "config" / "state" / "webui-control" / "requests"
-    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    requests = tmp_path / "config" / "state" / "bot-runtime" / "control" / "requests"
+    results = tmp_path / "config" / "state" / "bot-runtime" / "control" / "results"
     requests.mkdir(parents=True)
     results.mkdir(parents=True)
     now = datetime.now(UTC)
@@ -356,13 +365,13 @@ def test_control_plane_keeps_timed_out_client_request_until_server_rejects_it(
         calls += 1
         raise AssertionError("просроченный request не должен достигать executor")
 
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
         executor=executor,
     )
-    client = WebUIControlClient(
+    client = RuntimeControlClient(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
@@ -378,8 +387,8 @@ def test_control_plane_keeps_timed_out_client_request_until_server_rejects_it(
         )
 
     assert error.value.code == "RUNTIME_CONTROL_TIMEOUT"
-    requests = tmp_path / "config" / "state" / "webui-control" / "requests"
-    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    requests = tmp_path / "config" / "state" / "bot-runtime" / "control" / "requests"
+    results = tmp_path / "config" / "state" / "bot-runtime" / "control" / "results"
     assert (requests / "client-timeout.json").exists()
     assert server.serve_once() == 1
     result = RuntimeControlResult.from_dict(
@@ -394,13 +403,13 @@ def test_control_plane_keeps_expired_request_when_error_result_write_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
         executor=lambda *args, **kwargs: pytest.fail("executor не должен быть вызван"),
     )
-    requests = tmp_path / "config" / "state" / "webui-control" / "requests"
+    requests = tmp_path / "config" / "state" / "bot-runtime" / "control" / "requests"
     requests.mkdir(parents=True)
     now = datetime.now(UTC)
     request = {
@@ -427,13 +436,13 @@ def test_control_plane_retains_recent_results_for_possible_client_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
         executor=lambda *args, **kwargs: pytest.fail("executor не должен быть вызван"),
     )
-    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    results = tmp_path / "config" / "state" / "bot-runtime" / "control" / "results"
     results.mkdir(parents=True)
     old_result = results / "old-result.json"
     recent_result = results / "recent-result.json"
@@ -455,13 +464,13 @@ def test_control_plane_enforces_emergency_result_file_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
         executor=lambda *args, **kwargs: pytest.fail("executor не должен быть вызван"),
     )
-    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    results = tmp_path / "config" / "state" / "bot-runtime" / "control" / "results"
     results.mkdir(parents=True)
     files = [results / f"recent-{index}.json" for index in range(3)]
     for path in files:
@@ -506,14 +515,14 @@ def test_control_plane_expires_requests_before_request_batch_limit(
             owner=owner,
         )
 
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
         executor=executor,
     )
-    requests = tmp_path / "config" / "state" / "webui-control" / "requests"
-    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    requests = tmp_path / "config" / "state" / "bot-runtime" / "control" / "requests"
+    results = tmp_path / "config" / "state" / "bot-runtime" / "control" / "results"
     requests.mkdir(parents=True)
     results.mkdir(parents=True)
     now = datetime.now(UTC)
@@ -578,14 +587,14 @@ def test_control_plane_rejects_executor_result_from_different_owner(tmp_path: Pa
             owner=foreign,
         )
 
-    server = WebUIControlServer(
+    server = RuntimeControlServer(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
         executor=executor,
         poll_interval=0.005,
     )
-    client = WebUIControlClient(
+    client = RuntimeControlClient(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
@@ -606,21 +615,22 @@ def test_control_plane_rejects_executor_result_from_different_owner(tmp_path: Pa
     assert result.code == "RUNTIME_EXECUTION_INVALID"
 
 
-def test_bootstrap_replaces_stale_owner_only_through_canonical_gui(
+def test_bootstrap_replaces_stale_owner_only_through_canonical_bot_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import module.application.runtime_control as runtime_control
 
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    python_executable = tmp_path / "python.exe"
-    python_executable.write_bytes(b"synthetic")
+    python_executable = _create_bot_runtime_files(tmp_path)
     stale = RuntimeOwnerIdentity(pid=100, created_at=200.0)
     fresh = RuntimeOwnerIdentity(pid=101, created_at=201.0)
     current = {"owner": stale.as_dict()}
 
+    launches: list[tuple[object, ...]] = []
+
     class FakeProcess:
-        def __init__(self, *_args: object, **_kwargs: object) -> None:
+        def __init__(self, args: object, **_kwargs: object) -> None:
+            launches.append(tuple(args))  # type: ignore[arg-type]
             current["owner"] = fresh.as_dict()
 
         @staticmethod
@@ -628,7 +638,7 @@ def test_bootstrap_replaces_stale_owner_only_through_canonical_gui(
             return None
 
     monkeypatch.setattr(runtime_control.subprocess, "Popen", FakeProcess)
-    bootstrapper = SharedWebUIBootstrapper(
+    bootstrapper = BotRuntimeBootstrapper(
         tmp_path,
         owner_reader=lambda: current["owner"],
         owner_matches=lambda owner: owner == fresh,
@@ -638,15 +648,16 @@ def test_bootstrap_replaces_stale_owner_only_through_canonical_gui(
     )
 
     assert bootstrapper.ensure() == fresh
+    assert launches == [
+        (str(python_executable), "-m", "module.bot_runtime")
+    ]
 
 
 def test_bootstrap_stops_owned_process_when_owner_read_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    python_executable = tmp_path / "python.exe"
-    python_executable.write_bytes(b"synthetic")
+    python_executable = _create_bot_runtime_files(tmp_path)
     # RuntimeControlError должен вернуться как результат чтения owner, а не
     # быть ошибочно принят за исключение от самого bootstrap процесса.
     owner_reads = iter(
@@ -668,7 +679,7 @@ def test_bootstrap_stops_owned_process_when_owner_read_fails(
 
     process = FakeProcess()
     monkeypatch.setattr(runtime_control.subprocess, "Popen", lambda *_args, **_kwargs: process)
-    bootstrapper = SharedWebUIBootstrapper(
+    bootstrapper = BotRuntimeBootstrapper(
         tmp_path,
         owner_reader=lambda: next(owner_reads),
         owner_matches=lambda _owner: True,
@@ -688,9 +699,7 @@ def test_bootstrap_does_not_stop_previous_process_on_new_launch_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    python_executable = tmp_path / "python.exe"
-    python_executable.write_bytes(b"synthetic")
+    python_executable = _create_bot_runtime_files(tmp_path)
 
     class PreviousProcess:
         terminated = False
@@ -710,7 +719,7 @@ def test_bootstrap_does_not_stop_previous_process_on_new_launch_error(
         raise OSError("synthetic launch failure")
 
     monkeypatch.setattr(runtime_control.subprocess, "Popen", fail_launch)
-    bootstrapper = SharedWebUIBootstrapper(
+    bootstrapper = BotRuntimeBootstrapper(
         tmp_path,
         owner_reader=lambda: None,
         owner_matches=lambda _owner: True,

@@ -14,12 +14,12 @@ from module.base.decorator import cached_property
 from module.base.utils import crop, crop_to_text, extract_letters, float2str, rgb2luma
 from module.logger import logger
 from module.ocr.rpc import ModelProxyFactory
-from module.webui.setting import State
+from deploy.config import DeployConfig
 
 if TYPE_CHECKING:
     from module.ocr.al_ocr import AlOcr
 
-if not State.deploy_config.UseOcrServer:
+if not DeployConfig().UseOcrServer:
     from module.ocr.models import OCR_MODEL
 else:
     OCR_MODEL = ModelProxyFactory()

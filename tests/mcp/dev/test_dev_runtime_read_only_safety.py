@@ -84,7 +84,7 @@ def _manager(
     manager = DevSessionManager(
         _environment(tmp_path),
         process_backend=backend or _Backend(),
-        shared_webui=False,
+        bot_runtime=False,
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=lambda _host, _port: False,
         now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
@@ -105,7 +105,7 @@ def test_preflight_blocks_pending_dependency_sync_without_starting_gui(
     tmp_path: Path,
 ) -> None:
     manager = _manager(tmp_path)
-    manager._webui_registry_check = lambda: (True, "registry ready")
+    manager._bot_runtime_registry_check = lambda: (True, "registry ready")
     marker = manager.environment.repository_root / "config" / "webui-dependency-sync-pending"
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("pending\n", encoding="utf-8")
@@ -134,7 +134,7 @@ def test_doctor_reads_legacy_worker_registry_without_migration_or_lock_files(
             },
         },
     )
-    from module.webui import worker_registry
+    from module.application import runtime_worker_registry as worker_registry
 
     monkeypatch.setattr(worker_registry, "process_matches", lambda _record: None)
 
@@ -152,7 +152,13 @@ def test_preflight_refuses_live_orphan_worker_without_killing_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = _manager(tmp_path)
-    registry = manager.environment.repository_root / "cache" / "webui-workers.json"
+    registry = (
+        manager.environment.repository_root
+        / "config"
+        / "state"
+        / "bot-runtime"
+        / "workers.json"
+    )
     _write_registry(
         registry,
         {
@@ -163,14 +169,14 @@ def test_preflight_refuses_live_orphan_worker_without_killing_it(
             },
         },
     )
-    from module.webui import worker_registry
+    from module.application import runtime_worker_registry as worker_registry
 
     monkeypatch.setattr(worker_registry, "process_matches", lambda _record: True)
 
     preflight = manager.preflight()
 
     assert preflight.ok is False
-    assert "DEV_WEBUI_CONFLICT" in preflight.details["blockers"]
+    assert "DEV_RUNTIME_CONFLICT" in preflight.details["blockers"]
     assert manager.process_backend.request_stop_count == 0
     assert manager.process_backend.force_stop_count == 0
 
@@ -190,11 +196,17 @@ def test_readiness_uses_read_only_registry_snapshot(
     manager = DevSessionManager(
         environment,
         process_backend=_Backend(identity),
-        shared_webui=False,
+        bot_runtime=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
     )
-    registry = environment.repository_root / "cache" / "webui-workers.json"
+    registry = (
+        environment.repository_root
+        / "config"
+        / "state"
+        / "bot-runtime"
+        / "workers.json"
+    )
     expected = _write_registry(
         registry,
         {
@@ -205,7 +217,7 @@ def test_readiness_uses_read_only_registry_snapshot(
             },
         },
     )
-    from module.webui import worker_registry
+    from module.application import runtime_worker_registry as worker_registry
 
     monkeypatch.setattr(worker_registry, "process_matches", lambda _record: True)
     monkeypatch.setattr(diagnostics_module, "_http_ready", lambda _host, _port: True)
@@ -214,7 +226,7 @@ def test_readiness_uses_read_only_registry_snapshot(
 
     assert ready is True
     assert registry.read_bytes() == expected
-    assert not registry.with_name("webui-workers.json.lock").exists()
+    assert not registry.with_suffix(".json.lock").exists()
 
 
 def test_failed_live_process_remains_blocked_after_preflight_race(
@@ -232,7 +244,7 @@ def test_failed_live_process_remains_blocked_after_preflight_race(
     manager = DevSessionManager(
         environment,
         process_backend=backend,
-        shared_webui=False,
+        bot_runtime=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
         now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
@@ -279,7 +291,13 @@ def test_readiness_rejects_ap_worker_outside_devsession_tree(
         command_line=("python", "gui.py"),
         cwd=str(environment.repository_root),
     )
-    registry = environment.repository_root / "cache" / "webui-workers.json"
+    registry = (
+        environment.repository_root
+        / "config"
+        / "state"
+        / "bot-runtime"
+        / "workers.json"
+    )
     registry.parent.mkdir(parents=True)
     registry.write_text(
         json.dumps(
@@ -302,12 +320,12 @@ def test_readiness_rejects_ap_worker_outside_devsession_tree(
     manager = DevSessionManager(
         environment,
         process_backend=TreeBackend(),
-        shared_webui=False,
+        bot_runtime=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
     )
 
-    from module.webui import worker_registry
+    from module.application import runtime_worker_registry as worker_registry
 
     monkeypatch.setattr(worker_registry, "process_matches", lambda _record: True)
     monkeypatch.setattr(diagnostics_module, "_http_ready", lambda _host, _port: True)

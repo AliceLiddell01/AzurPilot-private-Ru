@@ -148,7 +148,11 @@ forward-fix, автоматический rollback на SQLite запрещён.
 - отсутствие блокировки главного игрового цикла.
 
 Notification handover использует существующий process-local PostgreSQL
-Engine и единственный владелец WebUI. `State.init()` подключает
+Engine. Headless Bot Runtime собирает notifier из полной Agent configuration,
+поэтому bounded handover delivery остаётся доступной при выключенном WebUI.
+WebUI отдельно обслуживает UI-facing Agent API и `DesktopAgentClientRuntime`;
+его process/restart lifecycle не является владельцем Bot Runtime workers.
+`State.init()` подключает
 `DesktopAgentNotificationRuntime` только при полной Agent configuration;
 `GET /api/notification-agent/stream` является durable profile-scoped SSE
 projection, а `POST /api/notification-agent/ack` — отдельной authenticated

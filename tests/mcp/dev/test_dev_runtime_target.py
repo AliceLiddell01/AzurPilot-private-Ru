@@ -340,7 +340,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
     manager = DevSessionManager(
         environment_b,
         process_backend=backend,
-        shared_webui=False,
+        bot_runtime=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=lambda _environment, _identity: (True, "ready"),
@@ -401,7 +401,7 @@ def test_long_lived_shared_manager_rebinds_owned_lifecycle_after_target_switch(
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
     )
-    old_lifecycle = manager.shared_lifecycle
+    old_lifecycle = manager.bot_runtime_lifecycle
 
     DevTargetRegistry.configure(
         tmp_path,
@@ -412,9 +412,9 @@ def test_long_lived_shared_manager_rebinds_owned_lifecycle_after_target_switch(
     result = manager.list_tasks()
 
     assert result.ok is True
-    assert manager.shared_lifecycle is not old_lifecycle
-    assert manager.shared_lifecycle is not None
-    assert manager.shared_lifecycle.profile_name == "profile-b"
+    assert manager.bot_runtime_lifecycle is not old_lifecycle
+    assert manager.bot_runtime_lifecycle is not None
+    assert manager.bot_runtime_lifecycle.profile_name == "profile-b"
 
 
 def test_long_lived_manager_reports_target_registry_error_as_result(

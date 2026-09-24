@@ -1,9 +1,8 @@
-"""Ограниченные адаптеры к текущим generated и WebUI-owned источникам.
+"""Ограниченные адаптеры к generated и Bot Runtime источникам.
 
 Модуль не выполняет I/O при импорте. Зависимости legacy runtime загружаются
-только при явном вызове адаптера. ProcessManager остаётся физически и логически
-принадлежащим `module.webui`; этот долг должен исчезнуть на будущей стадии
-переноса runtime ownership, а не копированием менеджера сюда.
+только при явном вызове адаптера. Lifecycle выполняется headless Bot Runtime;
+адаптеры только читают его authoritative registry.
 """
 
 from __future__ import annotations
@@ -73,15 +72,15 @@ class LegacyInstanceRuntimeAdapter:
 
     @staticmethod
     def _default_manager_factory(name: str) -> _LegacyManager:
-        process_manager = importlib.import_module("module.webui.process_manager")
-        return process_manager.ProcessManager.get_manager(name)
+        process_manager = importlib.import_module("module.application.bot_runtime_client")
+        return process_manager.BotRuntimeClient.get_manager(name)
 
     @staticmethod
     def _default_read_instance_status(name: str) -> RuntimeSnapshot:
         """Проверить worker registry без вызова lifecycle housekeeping."""
-        worker_registry = importlib.import_module("module.webui.worker_registry")
+        worker_registry = importlib.import_module("module.application.runtime_worker_registry")
         try:
-            record = worker_registry.get_worker_read_only(name)
+            record = worker_registry.get_canonical_worker_read_only(name)
         except RuntimeError:
             return RuntimeSnapshot(False, int(RuntimeState.WARNING))
         if record is None:

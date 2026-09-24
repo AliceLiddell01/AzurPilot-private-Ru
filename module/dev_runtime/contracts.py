@@ -74,7 +74,7 @@ class DevSessionState(StrEnum):
 
 class DevRuntimeMode(StrEnum):
     STANDALONE_PROCESS = "standalone_process"
-    SHARED_WEBUI = "shared_webui"
+    BOT_RUNTIME = "bot_runtime"
 
 
 class DevTaskMode(StrEnum):
@@ -272,7 +272,7 @@ class DevSession:
     profile_name: str | None = None
     target_identity: str | None = None
     # Отсутствие поля в маркере означает прежний жизненный цикл отдельного
-    # процесса; рабочий менеджер явно передаёт режим shared.
+    # процесса; production manager явно выбирает режим Bot Runtime.
     runtime_mode: DevRuntimeMode = DevRuntimeMode.STANDALONE_PROCESS
 
     def __post_init__(self) -> None:
@@ -380,9 +380,12 @@ class DevSession:
         if target_identity is not None and not isinstance(target_identity, str):
             raise ValueError("target_identity должен быть строкой или null")
         try:
-            runtime_mode = DevRuntimeMode(
-                str(payload.get("runtime_mode", DevRuntimeMode.STANDALONE_PROCESS.value))
+            mode_value = str(
+                payload.get("runtime_mode", DevRuntimeMode.STANDALONE_PROCESS.value)
             )
+            if mode_value == "shared_webui":
+                mode_value = DevRuntimeMode.BOT_RUNTIME.value
+            runtime_mode = DevRuntimeMode(mode_value)
         except ValueError as exc:
             raise ValueError("маркер содержит некорректный runtime mode") from exc
         try:

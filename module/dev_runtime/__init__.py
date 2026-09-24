@@ -46,7 +46,7 @@ from module.dev_runtime.evidence import (
 )
 from module.dev_runtime.manager import DevSessionManager
 from module.dev_runtime.process import ProcessBackend
-from module.dev_runtime.shared_webui import SharedWebUIRuntime
+from module.dev_runtime.bot_runtime import BotRuntimeFacade
 from module.dev_runtime.target import (
     DEV_TARGET_FILE_NAME,
     DEV_TARGET_POLICY_FILE_NAME,
@@ -112,6 +112,7 @@ __all__ = [
     "DevTargetError",
     "DevTargetPolicy",
     "DevTargetRegistry",
+    "BotRuntimeFacade",
     "DevTaskMode",
     "DevTaskPhase",
     "EvidenceCorrupt",
@@ -122,7 +123,6 @@ __all__ = [
     "GitSnapshot",
     "ProcessBackend",
     "ProcessIdentity",
-    "SharedWebUIRuntime",
     "RuntimeControlError",
     "RuntimeControlManager",
     "RuntimeSessionState",

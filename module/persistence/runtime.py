@@ -420,7 +420,7 @@ def build_runtime_notification_telemetry() -> object | None:
 
 
 def build_runtime_notification_composition(
-    *, telemetry: object | None = None
+    *, telemetry: object | None = None, dispatcher_enabled: bool = True
 ) -> DesktopAgentNotificationRuntime | None:
     """Собрать Agent notification поверх уже созданного process-local Engine."""
 
@@ -432,6 +432,7 @@ def build_runtime_notification_composition(
     runtime = DesktopAgentNotificationRuntime.from_environment(
         lambda: PostgresUnitOfWork(engine),
         telemetry=telemetry,
+        dispatcher_enabled=dispatcher_enabled,
     )
     return runtime if runtime.enabled else None
 

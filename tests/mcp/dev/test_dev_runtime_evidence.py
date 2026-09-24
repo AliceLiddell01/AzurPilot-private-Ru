@@ -31,6 +31,14 @@ from tests.support.paths import REPOSITORY_ROOT
 _TIME = "2026-08-30T00:00:00+00:00"
 
 
+def _mark_bot_runtime_repository(root: Path) -> None:
+    module = root / "module"
+    module.mkdir(exist_ok=True)
+    (module / "bot_runtime.py").write_text(
+        "# тестовый Bot Runtime\n", encoding="utf-8"
+    )
+
+
 def test_event_registry_is_public_and_single_source(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
@@ -1101,8 +1109,7 @@ def test_task_hooks_fail_closed_without_runtime_worker_state(
 ) -> None:
     from module.dev_runtime import hooks
 
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
 
@@ -1119,8 +1126,7 @@ def test_runtime_error_hook_does_not_create_missing_runtime_state(
 ) -> None:
     from module.dev_runtime import hooks
 
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     monkeypatch.delenv("AZURPILOT_DEV_SESSION_ID", raising=False)
 
@@ -1138,8 +1144,7 @@ def test_runtime_error_hook_preserves_active_handover_coordination(
     from module.application.runtime_state import RuntimePhase, RuntimeStateStore
     from module.dev_runtime import hooks
 
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     store = RuntimeStateStore(tmp_path)
     store.mark_worker_started(
         "ap",
@@ -1174,8 +1179,7 @@ def test_runtime_error_hook_keeps_active_task_until_scheduler_finish(
     from module.application.runtime_state import RuntimePhase, RuntimeStateStore
     from module.dev_runtime import hooks
 
-    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (tmp_path / "module").mkdir()
+    _mark_bot_runtime_repository(tmp_path)
     store = RuntimeStateStore(tmp_path)
     store.mark_worker_started(
         "ap",
@@ -1256,8 +1260,7 @@ def test_hooks_repository_root_does_not_depend_on_process_cwd(
 
     configured_root = tmp_path / "configured-root"
     configured_root.mkdir()
-    (configured_root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
-    (configured_root / "module").mkdir()
+    _mark_bot_runtime_repository(configured_root)
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(configured_root))
     assert hooks._repository_root() == configured_root.resolve()
 

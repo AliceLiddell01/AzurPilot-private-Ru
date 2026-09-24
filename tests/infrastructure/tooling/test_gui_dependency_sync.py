@@ -445,11 +445,14 @@ class TestDependencySyncServiceStop(unittest.TestCase):
 
         with (
             patch("gui._stop_process_tree", return_value=False),
-            patch("gui._stop_registered_workers") as stop_workers,
+            patch(
+                "module.application.runtime_worker_registry.get_workers",
+                side_effect=AssertionError("WebUI stop must not inspect Bot Runtime workers"),
+            ) as get_workers,
         ):
             self.assertFalse(gui._stop_webui_process_tree(process))
 
-        stop_workers.assert_not_called()
+        get_workers.assert_not_called()
 
 
 class TestGuiReadyHandshake(unittest.TestCase):
@@ -503,7 +506,6 @@ class TestWebUISupervisor(unittest.TestCase):
         processes = [Mock(pid=100 + index) for index in range(3)]
 
         with (
-            patch("gui._recover_orphaned_workers", return_value=True),
             patch("gui.is_dependency_sync_pending", return_value=False),
             patch("gui._start_dependency_sync_service", return_value=self._service()),
             patch("gui._stop_dependency_sync_service", return_value=True),
@@ -523,7 +525,6 @@ class TestWebUISupervisor(unittest.TestCase):
 
     def test_supervisor_syncs_pending_environment_before_creating_webui(self):
         with (
-            patch("gui._recover_orphaned_workers", return_value=True),
             patch("gui.is_dependency_sync_pending", return_value=True),
             patch("gui._start_dependency_sync_service", return_value=self._service()),
             patch("gui._complete_pending_dependency_sync", return_value=False) as sync,
@@ -544,7 +545,6 @@ class TestWebUISupervisor(unittest.TestCase):
         process = Mock(pid=12345)
 
         with (
-            patch("gui._recover_orphaned_workers", return_value=True),
             patch("gui.is_dependency_sync_pending", return_value=False),
             patch("gui._start_dependency_sync_service", return_value=self._service()),
             patch("gui._stop_dependency_sync_service", return_value=True),
@@ -573,7 +573,6 @@ class TestWebUISupervisor(unittest.TestCase):
             events.extend([restart_event, Mock(), Mock()])
 
         with (
-            patch("gui._recover_orphaned_workers", return_value=True),
             patch("gui.is_dependency_sync_pending", return_value=False),
             patch("gui._start_dependency_sync_service", return_value=self._service()),
             patch("gui._stop_dependency_sync_service", return_value=True),
@@ -597,7 +596,6 @@ class TestWebUISupervisor(unittest.TestCase):
         restart_event.wait.return_value = False
 
         with (
-            patch("gui._recover_orphaned_workers", return_value=True),
             patch("gui.is_dependency_sync_pending", return_value=False),
             patch("gui._start_dependency_sync_service", return_value=self._service()),
             patch("gui._stop_dependency_sync_service", return_value=True),
@@ -624,7 +622,6 @@ class TestWebUISupervisor(unittest.TestCase):
         restart_event.wait.return_value = False
 
         with (
-            patch("gui._recover_orphaned_workers", return_value=True),
             patch("gui.is_dependency_sync_pending", side_effect=[False, True]),
             patch("gui._start_dependency_sync_service", return_value=self._service()),
             patch("gui._complete_pending_dependency_sync", return_value=False) as sync,
@@ -646,24 +643,40 @@ class TestWebUISupervisor(unittest.TestCase):
         sync.assert_called_once_with(ANY, ANY, ANY, force=True)
         error_context.assert_called_once()
 
-    def test_supervisor_refuses_new_child_when_previous_owner_is_alive(self):
+    def test_supervisor_starts_webui_without_bot_runtime_owner_lookup(self):
+        process = Mock(pid=12345)
+        process.is_alive.return_value = False
+        restart_event = Mock()
+        restart_event.wait.return_value = False
+
         with (
             patch(
-                "gui.worker_registry.get_owner_record",
-                return_value={"pid": 12345, "created_at": 10.5},
+                "module.application.runtime_worker_registry.get_owner_record",
+                side_effect=AssertionError("WebUI supervisor must not own Bot Runtime"),
+            ) as owner_reader,
+            patch(
+                "gui._prepare_dependency_sync_before_webui_start",
+                side_effect=[(True, None, None, None), (False, None, None, None)],
             ),
-            patch("gui.worker_registry.process_matches", return_value=True),
-            patch("gui._start_dependency_sync_service") as start_service,
+            patch("gui.Event", side_effect=[restart_event, Mock(), Mock()]),
+            patch("gui.Process", return_value=process) as process_factory,
+            patch("gui._wait_for_webui_ready", return_value=True),
+            patch("gui._stop_webui_process_tree", return_value=True),
+            patch("gui.time.sleep"),
         ):
             gui.run_webui_supervisor()
 
-        start_service.assert_not_called()
+        owner_reader.assert_not_called()
+        process_factory.assert_called_once_with(
+            target=gui.func,
+            args=(restart_event, ANY, ANY),
+            name="gui",
+        )
 
     def test_supervisor_starts_without_sync_service_when_no_pending_marker(self):
         processes = [Mock(pid=100 + index) for index in range(3)]
 
         with (
-            patch("gui._recover_orphaned_workers", return_value=True),
             patch("gui.is_dependency_sync_pending", return_value=False),
             patch(
                 "gui._start_dependency_sync_service",
@@ -692,7 +705,6 @@ class TestWebUISupervisor(unittest.TestCase):
         process = Mock(pid=12345)
 
         with (
-            patch("gui._recover_orphaned_workers", return_value=True),
             patch("gui.is_dependency_sync_pending", return_value=False),
             patch(
                 "gui._start_dependency_sync_service",

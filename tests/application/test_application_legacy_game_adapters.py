@@ -33,6 +33,7 @@ from module.application.legacy_game_adapters import (
     LegacyWorkerIdentityReader,
 )
 from module.application.runtime_control import (
+    BotRuntimeBootstrapper,
     RuntimeControlError,
     RuntimeControlOperation,
     RuntimeControlResult,
@@ -299,13 +300,13 @@ def test_legacy_log_adapter_orders_mixed_incident_formats_by_actual_time(
     [True, float("nan"), float("inf"), float("-inf"), 0, -1],
 )
 def test_legacy_worker_identity_rejects_invalid_created_at(created_at):
-    from module.webui import worker_registry
+    from module.application import runtime_worker_registry as worker_registry
 
     reader = LegacyWorkerIdentityReader()
     with (
         patch.object(
             worker_registry,
-            "get_worker_read_only",
+            "get_canonical_worker_read_only",
             return_value={"pid": 123, "created_at": created_at},
         ),
         patch.object(worker_registry, "process_matches", return_value=True),
@@ -317,13 +318,13 @@ def test_legacy_worker_identity_rejects_invalid_created_at(created_at):
 
 @pytest.mark.parametrize("pid", [True, 0, -1])
 def test_legacy_worker_identity_rejects_invalid_pid(pid: object):
-    from module.webui import worker_registry
+    from module.application import runtime_worker_registry as worker_registry
 
     reader = LegacyWorkerIdentityReader()
     with (
         patch.object(
             worker_registry,
-            "get_worker_read_only",
+            "get_canonical_worker_read_only",
             return_value={"pid": pid, "created_at": 123.0},
         ),
         patch.object(worker_registry, "process_matches", return_value=True),
@@ -334,13 +335,13 @@ def test_legacy_worker_identity_rejects_invalid_pid(pid: object):
 
 
 def test_legacy_worker_identity_does_not_treat_corrupt_registry_as_absent():
-    from module.webui import worker_registry
+    from module.application import runtime_worker_registry as worker_registry
 
     reader = LegacyWorkerIdentityReader()
 
     with patch.object(
         worker_registry,
-        "get_worker_read_only",
+        "get_canonical_worker_read_only",
         side_effect=RuntimeError("registry unavailable"),
     ):
         evidence = reader.read_worker_identity("ap")
@@ -444,11 +445,14 @@ def test_legacy_process_manager_translates_direct_control_errors() -> None:
             getattr(lifecycle, method_name)("secondary")
 
 
-def test_legacy_process_manager_requires_owner_manager_for_direct_adapter() -> None:
+def test_legacy_process_manager_uses_headless_runtime_without_webui_manager() -> None:
     lifecycle = LegacyProcessManagerAdapter(manager_factory=None)
 
-    with pytest.raises(PreconditionFailedError, match="ProcessManager недоступен"):
-        lifecycle._manager("secondary")
+    client = lifecycle._control()
+
+    assert lifecycle.lifecycle_mutation_lock_owned_externally is True
+    assert client.bootstrapper is not None
+    assert isinstance(client.bootstrapper, BotRuntimeBootstrapper)
 
 
 def test_legacy_process_manager_translates_unknown_control_code_to_operation_error() -> None:

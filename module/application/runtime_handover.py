@@ -18,7 +18,7 @@ from module.application.runtime_state import (
 
 
 class NotificationOutcome(StrEnum):
-    """Подтверждённый результат передачи уведомления в WebUI."""
+    """Подтверждённый результат отправки уведомления через доступный канал."""
 
     ACCEPTED = "accepted"
     DELIVERED = "delivered"

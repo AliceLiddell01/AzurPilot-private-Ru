@@ -13,7 +13,10 @@ from module.dev_mcp.contract import (
     server_bundle_drift_issues,
     server_compatibility_issues,
 )
-from module.dev_runtime.smoke import SMOKE_SCHEMA_VERSION, SMOKE_STATE_SCHEMA_VERSION
+from module.dev_runtime.smoke import (
+    SMOKE_RESULT_SCHEMA_VERSION,
+    SMOKE_SCHEMA_VERSION,
+)
 from module.game_mcp.contract import contract_payload as game_contract_payload
 from module.mcp_shared.versioning import SemVer, version_satisfies
 from tests.support.paths import REPOSITORY_ROOT
@@ -142,7 +145,7 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
     assert server_compatibility_issues(compatibility, game_runtime) == ()
     assert runtime["dev_mcp_api_version"] == 3
     assert compatibility["smoke_spec_schema_version"] == runtime["smoke_spec_schema_version"] == SMOKE_SCHEMA_VERSION
-    assert compatibility["smoke_result_schema_version"] == runtime["smoke_result_schema_version"] == SMOKE_STATE_SCHEMA_VERSION
+    assert compatibility["smoke_result_schema_version"] == runtime["smoke_result_schema_version"] == SMOKE_RESULT_SCHEMA_VERSION
     assert "profile" not in compatibility
     assert "profile" not in runtime
     assert set(compatibility["required_feature_flags"]).issubset(runtime["feature_flags"])
@@ -312,7 +315,7 @@ def test_project_config_declares_separate_local_http_registration_aliases() -> N
         ("contract_schema_version", 2),
         ("product_family", "OtherProduct"),
         ("smoke_spec_schema_version", SMOKE_SCHEMA_VERSION + 1),
-        ("smoke_result_schema_version", SMOKE_STATE_SCHEMA_VERSION + 1),
+        ("smoke_result_schema_version", SMOKE_RESULT_SCHEMA_VERSION + 1),
         ("server_name", "other-server"),
     ],
 )

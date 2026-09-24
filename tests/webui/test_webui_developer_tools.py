@@ -21,35 +21,18 @@ class TestDeveloperToolsRestart(unittest.TestCase):
         State.restart_event = self.original_restart_event
         State._restart_requested = self.original_restart_requested
 
-    def test_prepare_restart_saves_running_instance_names(self):
-        instances = [Mock(config_name="alas"), Mock(config_name="farm")]
-
+    def test_prepare_restart_does_not_enumerate_or_mutate_bot_runtime(self):
         with (
             patch(
-                "module.webui.app_developer_tools.ProcessManager.running_instances",
-                return_value=instances,
-            ),
-            patch("module.webui.app_developer_tools.atomic_write") as write_marker,
+                "module.webui.app_developer_tools.BotRuntimeClient.running_instances",
+                side_effect=AssertionError("WebUI restart must not inspect Bot Runtime workers"),
+            ) as running_instances,
+            patch("module.webui.app_developer_tools.BotRuntimeClient.get_manager") as get_manager,
         ):
             self.assertTrue(prepare_webui_restart())
 
-        write_marker.assert_called_once_with("./config/reloadalas", "alas\nfarm\n")
-
-    def test_prepare_restart_cancels_when_marker_write_fails(self):
-        with (
-            patch(
-                "module.webui.app_developer_tools.ProcessManager.running_instances",
-                return_value=[],
-            ),
-            patch(
-                "module.webui.app_developer_tools.atomic_write",
-                side_effect=OSError("read-only"),
-            ),
-            patch("module.webui.app_developer_tools.logger.exception_context") as log_error,
-        ):
-            self.assertFalse(prepare_webui_restart())
-
-        log_error.assert_called_once()
+        running_instances.assert_not_called()
+        get_manager.assert_not_called()
 
     def test_manual_restart_does_not_interrupt_active_update_transaction(self):
         entered = threading.Event()
