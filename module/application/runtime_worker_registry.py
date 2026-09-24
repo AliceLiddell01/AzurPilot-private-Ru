@@ -523,9 +523,13 @@ def _require_current_owner(registry: dict, owner_pid: int) -> None:
     )
 
 
-def is_current_owner(owner_pid: int) -> bool:
+def is_current_owner(
+    owner_pid: int,
+    *,
+    repository_root: Path | str | None = None,
+) -> bool:
     """Проверить, принадлежит ли PID текущему Bot Runtime owner."""
-    with _locked_registry() as registry_file:
+    with _locked_registry(repository_root) as registry_file:
         registry = _read_registry(registry_file)
         try:
             _require_current_owner(registry, owner_pid)
@@ -613,7 +617,13 @@ def claim_owner(
         _write_registry(_empty_registry(owner_pid, owner_created_at), registry_file)
 
 
-def register_worker(owner_pid: int, config_name: str, pid: int) -> dict[str, float | int]:
+def register_worker(
+    owner_pid: int,
+    config_name: str,
+    pid: int,
+    *,
+    repository_root: Path | str | None = None,
+) -> dict[str, float | int]:
     """Зарегистрировать worker, чтобы Bot Runtime мог подтвердить его identity."""
     try:
         pid = int(pid)
@@ -622,7 +632,7 @@ def register_worker(owner_pid: int, config_name: str, pid: int) -> dict[str, flo
 
     created_at = _process_created_at(pid)
     record = {"created_at": created_at, "pid": pid}
-    with _locked_registry() as registry_file:
+    with _locked_registry(repository_root) as registry_file:
         registry = _read_registry(registry_file)
         _require_current_owner(registry, owner_pid)
         registry["workers"][config_name] = record
@@ -635,9 +645,10 @@ def unregister_worker(
     config_name: str,
     *,
     expected_worker: dict | None,
+    repository_root: Path | str | None = None,
 ) -> bool:
     """Удалить запись worker только при совпадении ожидаемой identity."""
-    with _locked_registry() as registry_file:
+    with _locked_registry(repository_root) as registry_file:
         registry = _read_registry(registry_file)
         try:
             _require_current_owner(registry, owner_pid)

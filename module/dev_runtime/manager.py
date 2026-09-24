@@ -3112,7 +3112,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                         session=latest,
                     )
                 )
-                cleanup_details = {"task_cleanup": cleanup.as_dict()}
+                cleanup_details["task_cleanup"] = cleanup.as_dict()
                 cleanup_confirmed = worker_stopped and cleanup.ok
             if not cleanup_confirmed:
                 latest.last_code = "DEV_CLEANUP_FAILED"

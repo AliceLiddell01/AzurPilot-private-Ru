@@ -71,7 +71,7 @@ class ServiceContainer:
     mcp: McpService
     application_state: ApplicationStateService
     integrations: IntegrationService
-    bot_runtime: BotRuntimeService | None = None
+    bot_runtime: BotRuntimeService
 
     @classmethod
     def create(cls) -> ServiceContainer:
@@ -1152,7 +1152,7 @@ def _dispatch(
             return services.doctor.run(root, include_external_integrations=True)
         return services.doctor.run(root)
     if command == "bot":
-        service = services.bot_runtime or BotRuntimeService()
+        service = services.bot_runtime
         if args.bot_command == "status":
             return service.status(root)
         if args.bot_command == "start":

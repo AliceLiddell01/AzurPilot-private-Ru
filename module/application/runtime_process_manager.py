@@ -381,7 +381,7 @@ class BotRuntimeWorkerManager:
         """Вернуть подтверждённую identity worker; вызывающая сторона должна держать lifecycle lock."""
         cached_pid = None
         try:
-            workers = get_workers(os.getpid())
+            workers = get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT)
             if not isinstance(workers, dict):
                 logger.error(
                     f"[{self.config_name}] Не удалось прочитать authoritative registry worker"
@@ -423,12 +423,12 @@ class BotRuntimeWorkerManager:
             return None, None, True
 
         try:
-            if not is_current_owner(os.getpid()):
+            if not is_current_owner(os.getpid(), repository_root=_REPOSITORY_ROOT):
                 logger.error(
                     f"[{self.config_name}] Текущий Bot Runtime не владеет записью worker; операция с PID {pid} отклонена"
                 )
                 return pid, None, False
-            record = get_workers(os.getpid()).get(self.config_name)
+            record = get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT).get(self.config_name)
             try:
                 record_pid = int(record["pid"])
             except (KeyError, TypeError, ValueError):
@@ -494,7 +494,7 @@ class BotRuntimeWorkerManager:
             )
 
         try:
-            workers = get_workers(os.getpid())
+            workers = get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT)
             reconciled = RuntimeStateStore(_REPOSITORY_ROOT).reconcile_stale_workers(
                 workers,
                 worker_identity_checker=check_worker,
@@ -526,13 +526,18 @@ class BotRuntimeWorkerManager:
     def _register_process(self, pid: int | None) -> None:
         if pid is None:
             return
-        registered_record = register_worker(os.getpid(), self.config_name, pid)
+        registered_record = register_worker(
+            os.getpid(),
+            self.config_name,
+            pid,
+            repository_root=_REPOSITORY_ROOT,
+        )
         record: dict | None = None
         try:
             from module.application.runtime_state import RuntimePhase, RuntimeStateStore
 
             state_store = RuntimeStateStore(_REPOSITORY_ROOT)
-            record = get_workers(os.getpid()).get(self.config_name)
+            record = get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT).get(self.config_name)
             if not isinstance(record, dict):
                 raise RuntimeError("После регистрации отсутствует запись worker")
             worker_pid = int(record["pid"])
@@ -578,10 +583,10 @@ class BotRuntimeWorkerManager:
             # Отсутствие ожидаемой identity означает, что этот manager больше
             # не имеет права очищать запись, которая могла уже принадлежать
             # новому worker того же профиля.
-            if not is_current_owner(os.getpid()):
+            if not is_current_owner(os.getpid(), repository_root=_REPOSITORY_ROOT):
                 return False
             try:
-                if get_workers(os.getpid()).get(self.config_name) is not None:
+                if get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT).get(self.config_name) is not None:
                     logger.error(
                         f"[{self.config_name}] Запись worker существует без подтверждённой identity; очистка отклонена"
                     )
@@ -600,6 +605,7 @@ class BotRuntimeWorkerManager:
                 os.getpid(),
                 self.config_name,
                 expected_worker=expected_worker,
+                repository_root=_REPOSITORY_ROOT,
             ):
                 logger.error(
                     f"[{self.config_name}] Текущий Bot Runtime не владеет записью рабочего процесса; очистка отклонена"
@@ -965,7 +971,7 @@ class BotRuntimeWorkerManager:
 
     @classmethod
     def running_instances(cls) -> list["BotRuntimeWorkerManager"]:
-        workers = get_workers(os.getpid())
+        workers = get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT)
         with cls._managers_lock:
             names = set(cls._processes)
         names.update(workers)

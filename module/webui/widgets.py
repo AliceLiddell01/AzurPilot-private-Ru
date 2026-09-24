@@ -26,10 +26,10 @@ from module.config.task_priority import (
     merge_task_priority,
     parse_task_priority,
 )
+from module.application.bot_runtime_client import BotRuntimeClient
 from module.logger import HTMLConsole, Highlighter, WEB_THEME
 from module.webui.lang import t
 from module.webui.pin import put_checkbox, put_input, put_select, put_textarea
-from module.application.bot_runtime_client import BotRuntimeClient
 from module.webui.setting import State
 from module.webui.utils import (
     DARK_TERMINAL_THEME,
@@ -225,15 +225,33 @@ class RichLog:
     #     self._callback_thread = None
     #     self.console.width = int(_width)
 
-    def put_log(self, pm: BotRuntimeClient) -> Generator:
+    def put_log(self, pm: Any) -> Generator:
         yield
         try:
             while True:
                 refresh = getattr(pm, "refresh_renderables", None)
-                if callable(refresh) and refresh():
-                    html = "".join(map(self.render, pm.renderables))
-                    self.reset()
-                    self.extend(html)
+                if callable(refresh):
+                    if refresh():
+                        html = "".join(map(self.render, pm.renderables))
+                        self.reset()
+                        self.extend(html)
+                else:
+                    total = getattr(pm, "renderables_total", None)
+                    renderables = getattr(pm, "renderables", None)
+                    if type(total) is int and total >= 0 and isinstance(renderables, list):
+                        rendered_total = getattr(self, "_rendered_total", 0)
+                        rendered_length = getattr(self, "_rendered_source_length", 0)
+                        appended = max(0, total - rendered_total)
+                        truncated = len(renderables) < rendered_length + appended
+                        if total < rendered_total or truncated:
+                            self.reset()
+                            rendered_total = 0
+                        missed = total - rendered_total
+                        start = max(0, len(renderables) - missed)
+                        if missed > 0:
+                            self.extend("".join(map(self.render, renderables[start:])))
+                        self._rendered_total = total
+                        self._rendered_source_length = len(renderables)
                 yield
         except SessionException:
             pass

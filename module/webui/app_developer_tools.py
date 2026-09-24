@@ -30,11 +30,6 @@ from module.webui.app_lifecycle import clearup
 from module.webui.app_types import WebUIMixinBase
 
 
-def prepare_webui_restart() -> bool:
-    """Разрешить перезапуск интерфейса без изменения lifecycle Bot Runtime."""
-    return True
-
-
 def request_webui_restart() -> bool:
     """Попросить родительский supervisor перезапустить WebUI."""
     if State.restart_event is None:
@@ -46,9 +41,6 @@ def request_webui_restart() -> bool:
     try:
         if State._restart_requested:
             return True
-        if not prepare_webui_restart():
-            return False
-
         State._restart_requested = True
         try:
             if not clearup():
@@ -147,7 +139,7 @@ class DeveloperToolsMixin(WebUIMixinBase):
             if request_webui_restart():
                 toast(t("Gui.Toast.AlasRestart"), duration=0, color="error")
             else:
-                toast("Перезапуск WebUI отменён: операция занята или не удалось сохранить активный профиль", color="error")
+                toast("Перезапуск WebUI отменён: запрос уже выполняется или родительский процесс недоступен", color="error")
 
         put_button(label="Перезапустить AzurPilot", onclick=_force_restart, scope="develop_detail")
 

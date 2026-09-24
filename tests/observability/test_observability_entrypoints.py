@@ -71,18 +71,25 @@ def test_gui_logging_uses_component_without_fake_profile() -> None:
 
 
 def test_gui_supervisor_configures_logging_before_dependency_gate() -> None:
+    events = []
     with (
-        patch.object(gui, "_configure_gui_logging") as configure_logging,
+        patch.object(
+            gui,
+            "_configure_gui_logging",
+            side_effect=lambda: events.append("logging"),
+        ) as configure_logging,
         patch.object(
             gui,
             "_prepare_dependency_sync_before_webui_start",
-            return_value=(False, None, None, None),
+            side_effect=lambda *_args, **_kwargs: events.append("dependency")
+            or (False, None, None, None),
         ),
         patch.object(gui, "Process") as process_factory,
     ):
         gui.run_webui_supervisor()
 
     configure_logging.assert_called_once_with()
+    assert events == ["logging", "dependency"]
     process_factory.assert_not_called()
 
 

@@ -842,6 +842,24 @@ def test_smoke_store_reads_v1_legacy_spec_state_result_without_file_log_payload(
     }
 
 
+def test_legacy_smoke_state_store_resolves_to_canonical_store() -> None:
+    assert smoke.SmokeStateStore is PersistedSmokeStateStore
+
+
+def test_smoke_store_reads_v2_legacy_result_with_current_result_schema(tmp_path: Path) -> None:
+    store, _specification, smoke_id = _legacy_run_files(tmp_path, finished=True)
+    result_path = store._file(smoke_id, "result.json")
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 2
+    result_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = store.load_result(smoke_id)
+
+    assert result is not None
+    assert result.schema_version == smoke.SMOKE_RESULT_SCHEMA_VERSION == 3
+    assert result._legacy_schema_version == 2
+
+
 def test_smoke_store_migrates_v3_checkpoints_without_capture_conditions(
     tmp_path: Path,
 ) -> None:

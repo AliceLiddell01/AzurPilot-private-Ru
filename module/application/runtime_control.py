@@ -41,6 +41,7 @@ _SAFE_CODE = r"[A-Z][A-Z0-9_]{1,96}"
 class RuntimeControlOperation(StrEnum):
     START_PROFILE = "start_profile"
     STOP_PROFILE = "stop_profile"
+    START_CONFIGURED_PROFILES = "start_configured_profiles"
     STOP_RUNTIME = "stop_runtime"
 
 
@@ -208,6 +209,13 @@ def _profile(value: object) -> str:
 
 
 def _control_profile(value: object, *, operation: RuntimeControlOperation) -> str:
+    if operation is RuntimeControlOperation.START_CONFIGURED_PROFILES:
+        if value == RUNTIME_CONTROL_PROFILE:
+            return RUNTIME_CONTROL_PROFILE
+        raise RuntimeControlError(
+            "RUNTIME_CONTROL_FIELD_INVALID",
+            "Запуск настроенных профилей должен использовать profile=runtime",
+        )
     if operation is RuntimeControlOperation.STOP_RUNTIME and value == RUNTIME_CONTROL_PROFILE:
         return RUNTIME_CONTROL_PROFILE
     return _profile(value)
@@ -507,6 +515,17 @@ class RuntimeControlClient:
         idempotency_key: str | None = None,
         function: str | None = None,
     ) -> RuntimeControlResult:
+        deadline = time.monotonic() + self.timeout
+
+        def remaining_timeout() -> float:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeControlError(
+                    "RUNTIME_CONTROL_TIMEOUT",
+                    "Операция управления Bot Runtime не завершилась в ограниченный срок",
+                )
+            return remaining
+
         if not isinstance(operation, RuntimeControlOperation):
             raise RuntimeControlError("RUNTIME_OPERATION_INVALID", "Операция runtime control не входит в typed catalog")
         profile = _control_profile(profile, operation=operation)
@@ -521,7 +540,7 @@ class RuntimeControlClient:
             function = _runtime_function(function)
         key = _token(idempotency_key or str(uuid.uuid4()), field="idempotency_key")
         self._ensure_directories()
-        owner = self._ensure_owner()
+        owner = self._ensure_owner(timeout=remaining_timeout())
         result_path = self._result_path(key)
         existing = self._read_result(result_path)
         if existing is not None:
@@ -530,7 +549,7 @@ class RuntimeControlClient:
 
         request_path = self._request_path(key)
         try:
-            with application_host_lock(self.lock_path):
+            with application_host_lock(self.lock_path, timeout=remaining_timeout()):
                 existing = self._read_result(result_path)
                 if existing is not None:
                     self._validate_result(existing, operation, profile, key, owner=owner)
@@ -556,7 +575,7 @@ class RuntimeControlClient:
                         "session_id": session_id,
                         "expected_owner": owner.as_dict(),
                         "created_at": _timestamp(),
-                        "expires_at": _expires_at(self.timeout),
+                        "expires_at": _expires_at(remaining_timeout()),
                     }
                     if function is not None:
                         payload["function"] = function
@@ -567,18 +586,12 @@ class RuntimeControlClient:
                 "Не удалось получить lock control plane в ограниченный срок",
             ) from exc
 
-        deadline = time.monotonic() + self.timeout
         while True:
             result = self._read_result(result_path)
             if result is not None:
                 self._validate_result(result, operation, profile, key, owner=owner)
                 return result
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise RuntimeControlError(
-                    "RUNTIME_CONTROL_TIMEOUT",
-                    "Операция управления Bot Runtime не завершилась в ограниченный срок",
-                )
+            remaining = remaining_timeout()
             time.sleep(min(self.poll_interval, remaining))
 
     def ensure_owner(self) -> RuntimeOwnerIdentity:
@@ -586,11 +599,11 @@ class RuntimeControlClient:
 
         return self._ensure_owner()
 
-    def _ensure_owner(self) -> RuntimeOwnerIdentity:
+    def _ensure_owner(self, *, timeout: float | None = None) -> RuntimeOwnerIdentity:
         raw = self.owner_reader()
         if self.bootstrapper is not None:
             if raw is None:
-                self.bootstrapper.ensure()
+                self.bootstrapper.ensure(timeout=timeout)
             else:
                 candidate = RuntimeOwnerIdentity.from_value(raw)
                 try:
@@ -603,7 +616,7 @@ class RuntimeControlClient:
                 if matches is not True:
                     # Штатный Bot Runtime сам атомарно перепроверит старую запись
                     # и не сможет перезаписать живого owner или осиротевший worker.
-                    self.bootstrapper.ensure()
+                    self.bootstrapper.ensure(timeout=timeout)
             raw = self.owner_reader()
         if raw is None:
             raise RuntimeControlError("RUNTIME_OWNER_UNAVAILABLE", "Bot Runtime owner не найден")
@@ -1121,7 +1134,21 @@ class BotRuntimeBootstrapper:
         self.poll_interval = float(poll_interval)
         self._process: subprocess.Popen[bytes] | None = None
 
-    def ensure(self) -> RuntimeOwnerIdentity:
+    def ensure(self, *, timeout: float | None = None) -> RuntimeOwnerIdentity:
+        if timeout is None:
+            effective_timeout = self.timeout
+        elif (
+            type(timeout) not in (int, float)
+            or not math.isfinite(float(timeout))
+            or float(timeout) <= 0
+        ):
+            raise RuntimeControlError(
+                "RUNTIME_BOOTSTRAP_TIMEOUT",
+                "Срок bootstrap Bot Runtime истёк до запуска",
+            )
+        else:
+            effective_timeout = min(self.timeout, float(timeout))
+        deadline = time.monotonic() + effective_timeout
         existing = self._read_valid_owner()
         if existing is not None:
             return existing
@@ -1129,10 +1156,22 @@ class BotRuntimeBootstrapper:
         if not module_path.with_suffix(".py").is_file() or not self.python_executable.is_file():
             raise RuntimeControlError("RUNTIME_BOOTSTRAP_UNAVAILABLE", "Headless Bot Runtime или project Python отсутствует")
         try:
-            with application_host_lock(self.lock_path, timeout=min(30.0, self.timeout)):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeControlError(
+                    "RUNTIME_BOOTSTRAP_TIMEOUT",
+                    "Срок bootstrap Bot Runtime истёк до захвата блокировки",
+                )
+            with application_host_lock(self.lock_path, timeout=remaining):
                 existing = self._read_valid_owner()
                 if existing is not None:
                     return existing
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeControlError(
+                        "RUNTIME_BOOTSTRAP_TIMEOUT",
+                        "Срок bootstrap Bot Runtime истёк до запуска процесса",
+                    )
                 try:
                     self._process = None
                     try:
@@ -1153,7 +1192,6 @@ class BotRuntimeBootstrapper:
                         )
                     except OSError as exc:
                         raise RuntimeControlError("RUNTIME_BOOTSTRAP_FAILED", "Не удалось запустить Bot Runtime") from exc
-                    deadline = time.monotonic() + self.timeout
                     while True:
                         owner = self._read_valid_owner()
                         if owner is not None:

@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from module.application.runtime_control import (
     RuntimeControlOperation,
     RuntimeOwnerIdentity,
@@ -148,7 +150,6 @@ def test_owner_start_server_migrates_legacy_runtime_state(
     legacy_path = tmp_path / "config" / "state" / "webui-runtime-state.json"
     canonical_path = tmp_path / "config" / "state" / "bot-runtime" / "runtime-state.json"
     legacy_path.parent.mkdir(parents=True, exist_ok=True)
-    legacy_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_payload = {"schema_version": 2, "profiles": {}}
     legacy_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
     monkeypatch.setattr(
@@ -236,12 +237,9 @@ def test_owner_rejects_oversized_legacy_restart_profile_list(
         AssertionError("excessive migration data must be rejected before start")
     )
 
-    try:
+    with pytest.raises(RuntimeError, match="ограничение числа профилей"):
         owner.start_configured_profiles()
-    except RuntimeError as exc:
-        assert "ограничение числа профилей" in str(exc)
-    else:
-        raise AssertionError("Legacy-маркер превысил предел числа профилей")
+    assert marker.exists()
 
 
 def test_bot_runtime_handover_loads_asset_without_importing_webui(
@@ -279,6 +277,42 @@ def test_bot_runtime_handover_loads_asset_without_importing_webui(
     )
 
     assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
+
+
+def test_headless_entrypoint_does_not_autostart_configured_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import module.bot_runtime as bot_runtime
+
+    calls: list[str] = []
+
+    class FakeServer:
+        def close(self) -> None:
+            calls.append("server-close")
+
+    class FakeOwner:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def start_server(self) -> FakeServer:
+            calls.append("server-start")
+            return FakeServer()
+
+        def start_configured_profiles(self) -> None:
+            calls.append("autostart")
+
+        def wait_for_shutdown(self) -> None:
+            calls.append("wait")
+
+        def close(self) -> None:
+            calls.append("owner-close")
+
+    monkeypatch.setattr(bot_runtime, "_build_notification_runtime", lambda: None)
+    monkeypatch.setattr(bot_runtime, "configure_runtime_logging", lambda **_kwargs: None)
+    monkeypatch.setattr(bot_runtime, "BotRuntimeOwner", FakeOwner)
+
+    assert bot_runtime.main() == 0
+    assert calls == ["server-start", "wait", "server-close", "owner-close"]
 
 
 def test_owner_executes_profile_and_repeats_start_idempotently(

@@ -124,7 +124,7 @@ def test_default_legacy_runtime_adapter_reads_registry_without_process_housekeep
     ):
         status = InstanceQueryService(adapter).get_status("ap")
 
-    read_only.assert_called_once()
+    read_only.assert_called_once_with("ap")
     matches.assert_called_once_with({"pid": 123, "created_at": 10.5})
     locked.assert_not_called()
     assert status.running is False

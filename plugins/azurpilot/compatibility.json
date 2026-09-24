@@ -2,7 +2,7 @@
   "contract_schema_version": 1,
   "product_family": "AzurPilot",
   "plugin_version": "0.1.0+codex.44774146384457",
-  "bundle_revision": "15db1193d210f84749bcfb1f656e4765b8b15e451d51619483c6110c548e3c36",
+  "bundle_revision": "85d43420c576ce3a90fabe0b6a4abaf54056fe1919796b76bf14ef2dee85e258",
   "skill_bundle_revision": "6da136727f0609ffdad0d4fd9edb9e8d8cf1b814b3192256d637d9ef601923f9",
   "required_mcp_servers": {
     "azurpilot-dev": ">=8.0.0,<9.0.0",
@@ -57,7 +57,7 @@
       },
       "capability_catalog_sha256": "97853974a1f2a8387b6b9578a01dbc25ef463346ad5742bc6304a2b5bb3152d9",
       "contract_revision": "398abe3cdfc6020b554704cae679e354d8ecf940464e55e5afd382d3e235ef29",
-      "source_set_digest": "824d0a0dcdbff5e43cb10d9d86b9cf25444b389a04b1a1aa1be4fd5d251229ed"
+      "source_set_digest": "0b642bae3e4329eabb979ccc05fda90a161a6ad1e866cb815443ef24d35f085d"
     },
     "azurpilot-game": {
       "version": "2.0.23",
@@ -91,7 +91,7 @@
       },
       "capability_catalog_sha256": "115b25b6082846093ff4047d44d7bd82661f713c7bebf00145784ff72fcc24d7",
       "contract_revision": "ba98cc617cfc7208e62f1cebb95a3d53aa97a511d784d8b546cc38df4ff56702",
-      "source_set_digest": "bb2bde21e979a124b1d56566ea8a4b8f735e1e1ea19b5f45b9ef9bc3ddc69fa0"
+      "source_set_digest": "755a8e65f40c4759d4c8abb67c2ab55aa84ded285293751a03be7d5b548529d0"
     }
   },
   "required_feature_flags": {
@@ -235,8 +235,8 @@
     "azurpilot-game": "ba98cc617cfc7208e62f1cebb95a3d53aa97a511d784d8b546cc38df4ff56702"
   },
   "source_digests": {
-    "DEV_MCP_SOURCE_SET": "6a410f49bff439b2f9be6d1a4ed5e07957f12bd8bd525f0b29d747bcb4e904d6",
-    "GAME_MCP_SOURCE_SET": "117dd8003388716097af9b573de2aadacc3c0ad9aafe6ad5401cc0855b313cc8",
+    "DEV_MCP_SOURCE_SET": "6013b30f09d268f8567ab2847bf5ec05f1c8f2ac0986ffedb60afc0320fa1f6f",
+    "GAME_MCP_SOURCE_SET": "f37db17b6103a6e5308e4394b848e22fd3698482d757b7e619b1396154f17034",
     "SHARED_MCP_SOURCE_SET": "ac5ecb93679cfd93e13f32fbbeaa12f1332269c788cb3b605b28f8c429c8bbba",
     "PLUGIN_BUNDLE_SOURCE_SET": "9446969342fa4be03149ad923fb72661647944c332a182aa6dc7670529a0e2a5",
     "SKILL_BUNDLE_SOURCE_SET": "6da136727f0609ffdad0d4fd9edb9e8d8cf1b814b3192256d637d9ef601923f9"

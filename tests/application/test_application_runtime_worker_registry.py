@@ -153,6 +153,52 @@ class TestWorkerRegistry(unittest.TestCase):
                     json.loads(registry_file.read_text(encoding="utf-8")),
                 )
 
+    def test_worker_mutations_use_explicit_repository_root_when_cwd_differs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repository_root = base / "repository"
+            current_root = base / "other"
+            repository_root.mkdir()
+            current_root.mkdir()
+            previous_cwd = Path.cwd()
+            os.chdir(current_root)
+            try:
+                with patch.object(
+                    worker_registry,
+                    "_process_created_at",
+                    side_effect=lambda pid: float(pid),
+                ):
+                    worker_registry.claim_owner(100, repository_root=repository_root)
+                    worker = worker_registry.register_worker(
+                        100,
+                        "alas",
+                        200,
+                        repository_root=repository_root,
+                    )
+
+                    self.assertTrue(
+                        worker_registry.is_current_owner(100, repository_root=repository_root)
+                    )
+                    self.assertFalse(
+                        worker_registry.is_current_owner(100, repository_root=current_root)
+                    )
+                    self.assertEqual(
+                        {"alas": worker},
+                        worker_registry.get_workers(100, repository_root=repository_root),
+                    )
+                    self.assertEqual({}, worker_registry.get_workers(100, repository_root=current_root))
+                    self.assertTrue(
+                        worker_registry.unregister_worker(
+                            100,
+                            "alas",
+                            expected_worker=worker,
+                            repository_root=repository_root,
+                        )
+                    )
+                    self.assertEqual({}, worker_registry.get_workers(100, repository_root=repository_root))
+            finally:
+                os.chdir(previous_cwd)
+
     def test_unregister_worker_requires_expected_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             registry_file = Path(directory) / "workers.json"

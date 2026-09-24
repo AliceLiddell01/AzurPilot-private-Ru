@@ -330,7 +330,7 @@ class DevDiagnosticsMixin:
                 session,
                 ok=False,
                 code="DEV_RUNTIME_MODE_MISMATCH",
-                message="Bot Runtime manager обнаружил marker с неподдерживаемым standalone runtime mode",
+                message="WebUI обнаружил маркер с неподдерживаемым режимом автономного runtime",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
         else:
@@ -402,7 +402,7 @@ class DevDiagnosticsMixin:
                         session.session_id,
                     )
             elif self._bot_runtime_enabled():
-                ready, reason = False, "Bot Runtime manager обнаружил marker с неподдерживаемым standalone runtime mode"
+                ready, reason = False, "WebUI обнаружил маркер с неподдерживаемым режимом автономного runtime"
             else:
                 ready, reason = self.readiness_probe(session_environment, identity)
             if not ready:
@@ -449,13 +449,13 @@ class DevDiagnosticsMixin:
 
             owner, workers = _read_worker_registry_snapshot(environment)
             if owner is None:
-                return False, "Bot Runtime ещё не зарегистрировала владельца"
+                return False, "Bot Runtime ещё не зарегистрировал владельца"
             owner_pid = int(owner["pid"])
             owner_matches = worker_registry.process_matches(owner)
             if owner_matches is not True:
-                return False, "владелец WebUI не подтверждён"
+                return False, "владелец Bot Runtime не подтверждён"
             if not self.process_backend.is_descendant(owner_pid, identity):
-                return False, "владелец WebUI не принадлежит дереву DevSession"
+                return False, "владелец Bot Runtime не принадлежит дереву DevSession"
             if not self.process_backend.listens_on(
                 owner_pid, environment.host, environment.port
             ):

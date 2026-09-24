@@ -72,6 +72,9 @@ class BotRuntimeOwner:
         self.state = RuntimeStateStore(self.repository_root)
         self._runtime_state_recovery_error: RuntimeStateError | None = None
         self._shutdown_requested = threading.Event()
+        self._shutdown_ready = threading.Event()
+        self._autostart_lock = threading.Lock()
+        self._autostart_thread: threading.Thread | None = None
 
     def start_server(self) -> RuntimeControlServer:
         claim_owner(os.getpid(), repository_root=self.repository_root)
@@ -91,11 +94,27 @@ class BotRuntimeOwner:
         return server
 
     def _after_result_written(self, result: RuntimeControlResult) -> None:
+        if result.operation is RuntimeControlOperation.START_CONFIGURED_PROFILES and result.ok:
+            self._queue_configured_profile_start()
         if result.operation is RuntimeControlOperation.STOP_RUNTIME and result.ok:
-            self._shutdown_requested.set()
+            self._shutdown_ready.set()
 
     def wait_for_shutdown(self) -> None:
-        self._shutdown_requested.wait()
+        self._shutdown_ready.wait()
+
+    def _queue_configured_profile_start(self) -> None:
+        with self._autostart_lock:
+            if self._shutdown_requested.is_set():
+                return
+            if self._autostart_thread is not None and self._autostart_thread.is_alive():
+                return
+            thread = threading.Thread(
+                target=self.start_configured_profiles,
+                name="bot-runtime-configured-profile-start",
+                daemon=True,
+            )
+            self._autostart_thread = thread
+            thread.start()
 
     def start_configured_profiles(self) -> None:
         """Восстановить только явно настроенные и сохранённые autostart-профили."""
@@ -134,6 +153,7 @@ class BotRuntimeOwner:
         all_started = True
         for name in names:
             if self._shutdown_requested.is_set():
+                all_started = False
                 break
             identity = profile_identity_from_name(name)
             if identity is None or identity.mod_name != "alas" or identity.name not in available:
@@ -150,6 +170,7 @@ class BotRuntimeOwner:
                 expires_at=(datetime.now(UTC) + timedelta(seconds=120)).isoformat(),
             )
             if self._shutdown_requested.is_set():
+                all_started = False
                 break
             if result.code in {"RUNTIME_CONTROL_EXPIRED"}:
                 all_started = False
@@ -299,7 +320,14 @@ class BotRuntimeOwner:
                     "Bot Runtime отклоняет новые операции во время остановки",
                     owner=owner,
                 )
-            if operation is not RuntimeControlOperation.STOP_RUNTIME and profile not in self._profiles():
+            if (
+                operation
+                not in {
+                    RuntimeControlOperation.START_CONFIGURED_PROFILES,
+                    RuntimeControlOperation.STOP_RUNTIME,
+                }
+                and profile not in self._profiles()
+            ):
                 return self._failure(
                     operation,
                     profile,
@@ -319,6 +347,18 @@ class BotRuntimeOwner:
                     "RUNTIME_CONTROL_EXPIRED",
                     "Срок действия runtime control request истёк до захвата игрового ресурса",
                     owner=owner,
+                )
+            if operation is RuntimeControlOperation.START_CONFIGURED_PROFILES:
+                return self._success(
+                    operation,
+                    profile,
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_AUTOSTART_QUEUED",
+                    "Запрос запуска настроенных профилей принят Bot Runtime",
+                    None,
+                    owner,
+                    {},
                 )
             if operation is RuntimeControlOperation.START_PROFILE:
                 target_operation = self._start

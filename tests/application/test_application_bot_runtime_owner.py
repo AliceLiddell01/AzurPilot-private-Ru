@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -88,6 +90,81 @@ def test_successful_stop_runtime_marks_shutdown_before_releasing_lease(
 
     assert result.ok is True
     assert result.code == "RUNTIME_STOPPED"
+
+
+def test_owner_waits_for_stop_result_write_before_shutdown(tmp_path):
+    owner = BotRuntimeOwner(tmp_path)
+    owner._shutdown_requested.set()
+    returned = threading.Event()
+    waiter = threading.Thread(
+        target=lambda: (owner.wait_for_shutdown(), returned.set()),
+        daemon=True,
+    )
+    waiter.start()
+
+    assert not returned.wait(timeout=0.05)
+
+    owner._after_result_written(
+        SimpleNamespace(operation=RuntimeControlOperation.STOP_RUNTIME, ok=True)
+    )
+
+    assert returned.wait(timeout=1)
+    waiter.join(timeout=1)
+
+
+def test_configured_profile_start_is_queued_after_result_write(tmp_path, monkeypatch):
+    owner = BotRuntimeOwner(tmp_path)
+    started = threading.Event()
+    monkeypatch.setattr(owner, "start_configured_profiles", started.set)
+
+    owner._after_result_written(
+        SimpleNamespace(
+            operation=RuntimeControlOperation.START_CONFIGURED_PROFILES,
+            ok=True,
+        )
+    )
+
+    assert started.wait(timeout=1)
+
+
+@pytest.mark.parametrize("shutdown_timing", ("before", "after"))
+def test_configured_profile_start_preserves_marker_when_shutdown_interrupts(
+    tmp_path, monkeypatch, shutdown_timing
+):
+    from deploy import config as deploy_config
+    from module.config import profile as profile_config
+
+    owner = BotRuntimeOwner(tmp_path)
+    owner._profiles = lambda: ("alpha",)
+    marker = tmp_path / "config" / "reloadalas"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("alpha\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deploy_config,
+        "DeployConfig",
+        lambda: SimpleNamespace(Run=None),
+    )
+    monkeypatch.setattr(
+        profile_config,
+        "profile_identity_from_name",
+        lambda name: SimpleNamespace(mod_name="alas", name=name),
+    )
+    calls = []
+
+    if shutdown_timing == "before":
+        owner._shutdown_requested.set()
+    else:
+        def request_shutdown(*_args, **_kwargs):
+            calls.append(True)
+            owner._shutdown_requested.set()
+            return SimpleNamespace(ok=True, code="RUNTIME_STARTED")
+
+        owner.execute = request_shutdown
+
+    owner.start_configured_profiles()
+
+    assert marker.read_text(encoding="utf-8") == "alpha\n"
+    assert calls == ([] if shutdown_timing == "before" else [True])
 
 
 def test_close_does_not_release_owner_while_workers_remain(tmp_path, monkeypatch):

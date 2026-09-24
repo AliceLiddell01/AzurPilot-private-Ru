@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from rich.text import Text
@@ -13,6 +14,7 @@ from module.application.runtime_control import (
     RuntimeControlClient,
     RuntimeControlError,
     RuntimeControlOperation,
+    RUNTIME_CONTROL_PROFILE,
     RuntimeOwnerIdentity,
 )
 from module.application.runtime_state import RuntimePhase, RuntimeStateStore
@@ -217,6 +219,17 @@ class BotRuntimeClient:
     def remove_manager(cls, config_name: str) -> None:
         with _client_lock:
             _profiles.pop(config_name, None)
+
+    @classmethod
+    def start_configured_profiles(cls) -> None:
+        """Попросить Bot Runtime запустить настроенные профили при явном старте WebUI."""
+        result = _control_client().call(
+            RuntimeControlOperation.START_CONFIGURED_PROFILES,
+            RUNTIME_CONTROL_PROFILE,
+            idempotency_key=f"webui-start-{uuid.uuid4()}",
+        )
+        if not result.ok:
+            raise RuntimeControlError(result.code, result.message)
 
 
 # Совместимость со старыми импортами; этот объект только клиент и не владеет worker.

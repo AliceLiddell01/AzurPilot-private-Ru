@@ -3,6 +3,7 @@
 from module.webui.app_dependencies import (
     RemoteAccess,
     State,
+    BotRuntimeClient,
     close_discord_rpc,
     init_discord_rpc,
     lang,
@@ -69,6 +70,7 @@ def startup() -> None:
         ),
     )
     lang.reload()
+    BotRuntimeClient.start_configured_profiles()
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:
         init_discord_rpc()

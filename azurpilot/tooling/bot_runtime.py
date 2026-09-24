@@ -1,4 +1,4 @@
-"""Typed CLI lifecycle service for the headless Bot Runtime owner."""
+"""Сервис CLI для управления автономным владельцем Bot Runtime."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from .result import OperationState, ResultCode
 
 
 class BotRuntimeService:
-    """Bootstrap, status and graceful stop without consulting the WebUI."""
+    """Запускает, проверяет и останавливает Bot Runtime без зависимости от WebUI."""
 
     def __init__(
         self,
@@ -64,9 +64,17 @@ class BotRuntimeService:
         *,
         timeout_seconds: float = 30,
     ) -> ToolingResult[BotRuntimeDetails, RepositoryRootEvidence]:
-        resolved = self._resolve(repository_root)
         timeout = self._validate_timeout(timeout_seconds)
+        deadline = time.monotonic() + timeout
+        resolved = self._resolve(repository_root)
         root = resolved.path
+        bootstrap_timeout = deadline - time.monotonic()
+        if bootstrap_timeout <= 0:
+            raise ToolingError(
+                ResultCode.TOOLING_TIMEOUT,
+                "Срок запуска Bot Runtime истёк до bootstrap.",
+                state=OperationState.UNKNOWN,
+            )
         try:
             BotRuntimeBootstrapper(
                 root,
@@ -74,7 +82,7 @@ class BotRuntimeService:
                     repository_root=root
                 ),
                 owner_matches=self._owner_matches,
-                timeout=timeout,
+                timeout=bootstrap_timeout,
             ).ensure()
         except RuntimeControlError as exc:
             code = (
@@ -89,7 +97,55 @@ class BotRuntimeService:
                 f"Bot Runtime нельзя безопасно запустить: {type(exc).__name__}",
             ) from exc
 
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ToolingError(
+                ResultCode.TOOLING_TIMEOUT,
+                "Срок запуска Bot Runtime истёк до запроса настроенных профилей.",
+                state=OperationState.UNKNOWN,
+            )
+        client = RuntimeControlClient(
+            root,
+            owner_reader=lambda: get_canonical_owner_record_read_only(
+                repository_root=root
+            ),
+            owner_matches=self._owner_matches,
+            timeout=remaining,
+        )
+        try:
+            start_result = client.call(
+                RuntimeControlOperation.START_CONFIGURED_PROFILES,
+                "runtime",
+                idempotency_key=f"cli-start-{uuid.uuid4()}",
+            )
+        except RuntimeControlError as exc:
+            code = (
+                ResultCode.TOOLING_TIMEOUT
+                if "TIMEOUT" in exc.code
+                else ResultCode.TOOLING_VERIFICATION_UNKNOWN
+            )
+            raise ToolingError(code, str(exc)) from exc
+        if not start_result.ok:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                f"Bot Runtime не принял запрос запуска настроенных профилей: {start_result.message}",
+                state=OperationState.UNKNOWN,
+            )
+        if time.monotonic() >= deadline:
+            raise ToolingError(
+                ResultCode.TOOLING_TIMEOUT,
+                "Срок запуска Bot Runtime истёк после принятия запроса профилей.",
+                state=OperationState.IN_FLIGHT,
+            )
+
         details = self._snapshot(root)
+        if time.monotonic() >= deadline:
+            raise ToolingError(
+                ResultCode.TOOLING_TIMEOUT,
+                "Срок запуска Bot Runtime истёк при проверке владельца.",
+                state=OperationState.IN_FLIGHT,
+                details=details,
+            )
         if not details.owner_running:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
@@ -99,7 +155,7 @@ class BotRuntimeService:
         return self._result(
             resolved.evidence,
             details,
-            message="Bot Runtime запущен и подтверждён; WebUI не запускался.",
+            message="Bot Runtime запущен и подтвердил запрос настроенных профилей; WebUI не запускался.",
         )
 
     def stop(
@@ -108,8 +164,9 @@ class BotRuntimeService:
         *,
         timeout_seconds: float = 120,
     ) -> ToolingResult[BotRuntimeDetails, RepositoryRootEvidence]:
-        resolved = self._resolve(repository_root)
         timeout = self._validate_timeout(timeout_seconds)
+        deadline = time.monotonic() + timeout
+        resolved = self._resolve(repository_root)
         root = resolved.path
         before = self._snapshot(root)
         if not before.owner_running:
@@ -126,13 +183,20 @@ class BotRuntimeService:
                 details=before,
             )
 
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ToolingError(
+                ResultCode.TOOLING_TIMEOUT,
+                "Срок остановки Bot Runtime истёк до отправки control request.",
+                state=OperationState.UNKNOWN,
+            )
         client = RuntimeControlClient(
             root,
             owner_reader=lambda: get_canonical_owner_record_read_only(
                 repository_root=root
             ),
             owner_matches=self._owner_matches,
-            timeout=timeout,
+            timeout=remaining,
         )
         try:
             result = client.call(
@@ -162,8 +226,13 @@ class BotRuntimeService:
                 state=OperationState.UNKNOWN,
             )
         owner = result.owner
-        deadline = time.monotonic() + timeout
         while True:
+            if deadline - time.monotonic() <= 0:
+                raise ToolingError(
+                    ResultCode.TOOLING_CLEANUP_UNKNOWN,
+                    "После Stop не подтверждено завершение Bot Runtime и всех workers.",
+                    state=OperationState.IN_FLIGHT,
+                )
             try:
                 current_owner = get_canonical_owner_record_read_only(
                     repository_root=root
@@ -206,7 +275,7 @@ class BotRuntimeService:
                     )
             if old_owner_running is not True and not live_workers:
                 after = self._snapshot(root)
-                if after.status is OperationState.STOPPED:
+                if after.status is OperationState.STOPPED and time.monotonic() <= deadline:
                     return self._result(
                         resolved.evidence,
                         after,

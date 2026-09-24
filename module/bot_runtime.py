@@ -1,4 +1,4 @@
-"""Canonical headless composition root for Bot Runtime."""
+"""Точка сборки автономного Bot Runtime без зависимости от WebUI."""
 
 from __future__ import annotations
 
@@ -47,7 +47,6 @@ def main() -> int:
             notification_service=notification_runtime,
         )
         server = owner.start_server()
-        owner.start_configured_profiles()
         logger.info("[Bot Runtime] Headless owner запущен")
         owner.wait_for_shutdown()
         return 0

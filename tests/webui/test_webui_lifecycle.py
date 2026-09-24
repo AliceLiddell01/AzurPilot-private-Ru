@@ -60,6 +60,7 @@ class TestWebUILifecycle(unittest.TestCase):
         telemetry = object()
         notification_runtime = object()
         desktop_agent_runtime = object()
+        startup_order = []
         state = SimpleNamespace(
             init=Mock(),
             deploy_config=SimpleNamespace(
@@ -88,7 +89,16 @@ class TestWebUILifecycle(unittest.TestCase):
                 return_value=desktop_agent_runtime,
             ),
             patch.object(app_lifecycle.lang, "reload"),
-            patch.object(app_lifecycle.task_handler, "start"),
+            patch.object(
+                app_lifecycle.BotRuntimeClient,
+                "start_configured_profiles",
+                side_effect=lambda: startup_order.append("bot_runtime"),
+            ) as start_configured_profiles,
+            patch.object(
+                app_lifecycle.task_handler,
+                "start",
+                side_effect=lambda: startup_order.append("task_handler"),
+            ),
         ):
             app_lifecycle.startup()
 
@@ -101,6 +111,8 @@ class TestWebUILifecycle(unittest.TestCase):
             notification_runtime=notification_runtime,
             desktop_agent_runtime=desktop_agent_runtime,
         )
+        start_configured_profiles.assert_called_once_with()
+        self.assertEqual(["bot_runtime", "task_handler"], startup_order)
 
 
 class TestWebUIState(unittest.TestCase):

@@ -14,7 +14,7 @@ T = TypeVar("T")
 
 
 class cached_class_property(Generic[T]):
-    """Read-only class property cached independently for every subclass."""
+    """Свойство класса с отдельным кэшем для каждого подкласса."""
 
     class AliasConflict(ValueError):
         pass

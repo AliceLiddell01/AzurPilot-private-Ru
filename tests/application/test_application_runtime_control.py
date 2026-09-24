@@ -36,6 +36,53 @@ def test_control_plane_accepts_canonical_profile_without_local_length_cap() -> N
     assert runtime_control._profile(profile) == profile
 
 
+def test_configured_profile_operation_requires_runtime_control_profile() -> None:
+    assert (
+        runtime_control._control_profile(
+            "runtime",
+            operation=RuntimeControlOperation.START_CONFIGURED_PROFILES,
+        )
+        == "runtime"
+    )
+    with pytest.raises(RuntimeControlError):
+        runtime_control._control_profile(
+            "ap",
+            operation=RuntimeControlOperation.START_CONFIGURED_PROFILES,
+        )
+
+
+def test_webui_explicit_start_uses_configured_profile_control_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.application import bot_runtime_client
+
+    calls: list[tuple[RuntimeControlOperation, str]] = []
+
+    class FakeClient:
+        def call(
+            self,
+            operation: RuntimeControlOperation,
+            profile: str,
+            **_kwargs: object,
+        ) -> RuntimeControlResult:
+            calls.append((operation, profile))
+            return RuntimeControlResult(
+                ok=True,
+                code="RUNTIME_AUTOSTART_QUEUED",
+                message="Запрос принят",
+                operation=operation,
+                profile=profile,
+                request_id="request",
+                idempotency_key="key",
+            )
+
+    monkeypatch.setattr(bot_runtime_client, "_control_client", lambda: FakeClient())
+
+    bot_runtime_client.BotRuntimeClient.start_configured_profiles()
+
+    assert calls == [(RuntimeControlOperation.START_CONFIGURED_PROFILES, "runtime")]
+
+
 def test_control_client_default_timeout_covers_cooperative_handover_grace(tmp_path: Path) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
 
@@ -376,6 +423,58 @@ def test_control_client_wraps_plane_lock_timeout(
     assert error.value.code == "RUNTIME_CONTROL_TIMEOUT"
 
 
+def test_control_client_lock_wait_uses_remaining_call_deadline(tmp_path: Path) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    lock_path = tmp_path / "config" / "state" / "bot-runtime" / "control" / "plane.lock"
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+    call_finished = threading.Event()
+    outcome: dict[str, object] = {}
+
+    def hold_lock() -> None:
+        with runtime_control.application_host_lock(lock_path):
+            lock_acquired.set()
+            release_lock.wait(timeout=2)
+
+    holder = threading.Thread(target=hold_lock, daemon=True)
+    holder.start()
+    assert lock_acquired.wait(timeout=1)
+
+    client = RuntimeControlClient(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        timeout=0.1,
+    )
+
+    def call() -> None:
+        started_at = time.monotonic()
+        try:
+            client.call(RuntimeControlOperation.START_PROFILE, "ap")
+        except RuntimeControlError as exc:
+            outcome["error"] = exc.code
+        except Exception as exc:  # pragma: no cover - surfaced by the assertion below.
+            outcome["error"] = exc
+        finally:
+            outcome["elapsed"] = time.monotonic() - started_at
+            call_finished.set()
+
+    caller = threading.Thread(target=call, daemon=True)
+    caller.start()
+    try:
+        assert not call_finished.wait(timeout=0.02)
+        assert call_finished.wait(timeout=0.35)
+    finally:
+        release_lock.set()
+        holder.join(timeout=1)
+        caller.join(timeout=1)
+
+    assert not holder.is_alive()
+    assert not caller.is_alive()
+    assert outcome["error"] == "RUNTIME_CONTROL_TIMEOUT"
+    assert outcome["elapsed"] < 0.3
+
+
 def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp_path: Path) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
     with pytest.raises(ValueError):
@@ -453,7 +552,7 @@ def test_control_plane_keeps_timed_out_client_request_until_server_rejects_it(
         tmp_path,
         owner_reader=lambda: owner.as_dict(),
         owner_matches=lambda candidate: candidate == owner,
-        timeout=0.01,
+        timeout=0.1,
         poll_interval=0.001,
     )
 

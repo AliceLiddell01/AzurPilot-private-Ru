@@ -1550,9 +1550,11 @@ lookup для stream state и ACK ограничен profile/channel/event scope
 ### [Факт] Runtime/config и границы Stage 3
 
 Bot Runtime создаёт notification composition поверх уже созданного
-process-local Engine и единолично запускает bounded dispatcher, чтобы handover
-работал при выключенном UI. WebUI создаёт API-facing composition без фонового
-dispatcher: он обслуживает Agent stream/ACK API и поднимает outbound
+process-local Engine и единолично запускает bounded dispatcher, поэтому
+публикация handover-событий и обработка очереди доступны без WebUI. Для перехода
+в `DELIVERED` требуется проверенный durable Agent ACK через WebUI API; пока API
+недоступен, bounded ожидание завершается с отказом закрытого типа. WebUI создаёт
+API-facing composition без фонового dispatcher: он обслуживает Agent stream/ACK API и поднимает outbound
 `DesktopAgentClientRuntime`. Durable PostgreSQL delivery leases сохраняют
 восстановление незавершённых delivery после перезапуска dispatcher. Клиент
 вызывает существующий локальный WebUI presentation callback, сохраняет cursor

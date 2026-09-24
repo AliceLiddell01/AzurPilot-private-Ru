@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -239,6 +240,41 @@ def test_bot_runtime_failure_preserves_handover_details(tmp_path: Path) -> None:
             "cause_type": "ImportError",
             "cause_message": "synthetic import failure",
         },
+    }
+
+
+def test_task_cleanup_preserves_bot_runtime_failure_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, _runtime = _manager(tmp_path)
+    assert manager.start().ok is True
+    session = manager._read_session()
+    assert session is not None
+    cleanup = SimpleNamespace(ok=True, as_dict=lambda: {"confirmed": True})
+    monkeypatch.setattr(
+        manager,
+        "_finalize_evidence_before_cleanup",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        manager,
+        "_cleanup_task_state_locked",
+        lambda **_kwargs: cleanup,
+    )
+
+    failed = manager._bot_runtime_start_failure(
+        session,
+        SimpleNamespace(catalog=object()),
+        process_started=True,
+        worker_stopped=True,
+        code="DEV_BOT_RUNTIME_START_FAILED",
+        message="Bot Runtime не подтвердил запуск",
+        details={"handover": {"code": "RUNTIME_HANDOVER_FAILED"}},
+    )
+
+    assert failed.details == {
+        "handover": {"code": "RUNTIME_HANDOVER_FAILED"},
+        "task_cleanup": {"confirmed": True},
     }
 
 
