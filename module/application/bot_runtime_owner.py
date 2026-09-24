@@ -126,7 +126,14 @@ class BotRuntimeOwner:
                 daemon=True,
             )
             self._autostart_thread = thread
-            thread.start()
+            try:
+                thread.start()
+            except RuntimeError:
+                self._autostart_thread = None
+                logger.exception(
+                    "Не удалось создать поток фонового autostart; выполняем запуск профилей синхронно"
+                )
+                self._run_configured_profile_start_in_background()
 
     def start_configured_profiles(self) -> None:
         """Восстановить только явно настроенные и сохранённые autostart-профили."""

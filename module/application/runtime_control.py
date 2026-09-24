@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
@@ -216,8 +217,13 @@ def _control_profile(value: object, *, operation: RuntimeControlOperation) -> st
             "RUNTIME_CONTROL_FIELD_INVALID",
             "Запуск настроенных профилей должен использовать profile=runtime",
         )
-    if operation is RuntimeControlOperation.STOP_RUNTIME and value == RUNTIME_CONTROL_PROFILE:
-        return RUNTIME_CONTROL_PROFILE
+    if operation is RuntimeControlOperation.STOP_RUNTIME:
+        if value == RUNTIME_CONTROL_PROFILE:
+            return RUNTIME_CONTROL_PROFILE
+        raise RuntimeControlError(
+            "RUNTIME_CONTROL_FIELD_INVALID",
+            "Остановка Bot Runtime должна использовать profile=runtime",
+        )
     return _profile(value)
 
 
@@ -849,10 +855,6 @@ class RuntimeControlServer:
                     continue
                 result = self._execute(request)
                 _write_json(result_path, result.as_dict(), _MAX_RESULT_BYTES)
-                self._remove_request(request_path)
-                processed += 1
-                if self.after_result_written is not None:
-                    self.after_result_written(result)
             except RuntimeControlError as exc:
                 written = self._write_error_result(
                     payload,
@@ -875,6 +877,16 @@ class RuntimeControlServer:
                     processed += 1
                 elif not _error_result_identity_is_valid(payload):
                     self._remove_request(request_path)
+            else:
+                self._remove_request(request_path)
+                processed += 1
+                if self.after_result_written is not None:
+                    try:
+                        self.after_result_written(result)
+                    except Exception:  # noqa: BLE001 - callback не меняет уже записанный durable result.
+                        logging.getLogger(__name__).exception(
+                            "Не удалось выполнить callback после записи результата Bot Runtime control plane"
+                        )
         self._prune_results()
         return processed
 

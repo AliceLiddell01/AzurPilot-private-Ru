@@ -172,6 +172,29 @@ def test_background_profile_start_logs_exception_and_can_be_queued_again(
     assert owner._autostart_thread is not failed_thread
 
 
+def test_configured_profile_start_falls_back_when_thread_cannot_start(
+    tmp_path, monkeypatch
+):
+    owner = BotRuntimeOwner(tmp_path)
+    starts: list[str] = []
+    logged: list[str] = []
+
+    def fail_thread_start(_thread) -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(owner_module.threading.Thread, "start", fail_thread_start)
+    monkeypatch.setattr(owner_module.logger, "exception", logged.append)
+    monkeypatch.setattr(owner, "start_configured_profiles", lambda: starts.append("started"))
+
+    owner._queue_configured_profile_start()
+
+    assert starts == ["started"]
+    assert owner._autostart_thread is None
+    assert logged == [
+        "Не удалось создать поток фонового autostart; выполняем запуск профилей синхронно"
+    ]
+
+
 @pytest.mark.parametrize("shutdown_timing", ("before", "after"))
 def test_configured_profile_start_preserves_marker_when_shutdown_interrupts(
     tmp_path, monkeypatch, shutdown_timing

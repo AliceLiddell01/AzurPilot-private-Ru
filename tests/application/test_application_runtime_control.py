@@ -51,6 +51,43 @@ def test_configured_profile_operation_requires_runtime_control_profile() -> None
         )
 
 
+def test_stop_runtime_requires_runtime_control_profile() -> None:
+    assert (
+        runtime_control._control_profile(
+            "runtime",
+            operation=RuntimeControlOperation.STOP_RUNTIME,
+        )
+        == "runtime"
+    )
+    with pytest.raises(RuntimeControlError):
+        runtime_control._control_profile(
+            "ap",
+            operation=RuntimeControlOperation.STOP_RUNTIME,
+        )
+    assert (
+        runtime_control._control_profile(
+            "ap",
+            operation=RuntimeControlOperation.STOP_PROFILE,
+        )
+        == "ap"
+    )
+
+
+def test_stop_runtime_rejects_profile_before_creating_request(tmp_path: Path) -> None:
+    client = RuntimeControlClient(
+        tmp_path,
+        owner_reader=lambda: pytest.fail("owner не должен читаться при неверном profile"),
+        owner_matches=lambda _candidate: True,
+        timeout=1.0,
+    )
+
+    with pytest.raises(RuntimeControlError) as error:
+        client.call(RuntimeControlOperation.STOP_RUNTIME, "ap")
+
+    assert error.value.code == "RUNTIME_CONTROL_FIELD_INVALID"
+    assert not (tmp_path / "config" / "state" / "bot-runtime" / "control").exists()
+
+
 def test_webui_explicit_start_uses_configured_profile_control_operation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -235,6 +272,93 @@ def test_unknown_operation_does_not_kill_control_server_thread(tmp_path: Path) -
 
     assert result.ok is True
     assert calls == [(RuntimeControlOperation.START_PROFILE, "ap")]
+
+
+def test_after_result_written_failure_does_not_replace_result_or_stop_server(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    calls: list[str] = []
+
+    def executor(
+        operation: RuntimeControlOperation,
+        profile: str,
+        *,
+        request_id: str,
+        idempotency_key: str,
+        session_id: str | None,
+        expires_at: str,
+    ) -> RuntimeControlResult:
+        del expires_at
+        calls.append(idempotency_key)
+        return RuntimeControlResult(
+            ok=True,
+            code="RUNTIME_STARTED",
+            message="Профиль запущен",
+            operation=operation,
+            profile=profile,
+            request_id=request_id,
+            idempotency_key=idempotency_key,
+            details={"session_id": session_id},
+            owner=owner,
+        )
+
+    def fail_after_write(_result: RuntimeControlResult) -> None:
+        raise RuntimeError("synthetic callback failure")
+
+    server = RuntimeControlServer(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        executor=executor,
+        after_result_written=fail_after_write,
+    )
+    requests = tmp_path / "config" / "state" / "bot-runtime" / "control" / "requests"
+    results = tmp_path / "config" / "state" / "bot-runtime" / "control" / "results"
+    requests.mkdir(parents=True)
+    results.mkdir(parents=True)
+
+    def write_request(key: str) -> Path:
+        request_path = requests / f"{key}.json"
+        request_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "request_id": f"request-{key}",
+                    "idempotency_key": key,
+                    "operation": RuntimeControlOperation.START_PROFILE.value,
+                    "profile": "ap",
+                    "session_id": None,
+                    "expected_owner": owner.as_dict(),
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "expires_at": (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
+                }
+            ),
+            encoding="utf-8",
+        )
+        return request_path
+
+    first_request = write_request("callback-failure-1")
+    with caplog.at_level("ERROR", logger=runtime_control.__name__):
+        assert server.serve_once() == 1
+
+    first_result_path = results / "callback-failure-1.json"
+    first_result = json.loads(first_result_path.read_text(encoding="utf-8"))
+    assert first_result["ok"] is True
+    assert first_result["code"] == "RUNTIME_STARTED"
+    assert not first_request.exists()
+    assert "callback после записи результата" in caplog.text
+
+    second_request = write_request("callback-failure-2")
+    with caplog.at_level("ERROR", logger=runtime_control.__name__):
+        assert server.serve_once() == 1
+
+    second_result = json.loads((results / "callback-failure-2.json").read_text(encoding="utf-8"))
+    assert second_result["ok"] is True
+    assert second_result["code"] == "RUNTIME_STARTED"
+    assert not second_request.exists()
+    assert calls == ["callback-failure-1", "callback-failure-2"]
 
 
 def test_control_plane_rejects_changed_owner_and_unsafe_error_key(tmp_path: Path) -> None:
@@ -448,7 +572,7 @@ def test_control_client_lock_wait_uses_remaining_call_deadline(
         owner_matches=lambda candidate: candidate == owner,
         timeout=0.1,
     )
-    monkeypatch.setattr(runtime_control.time, "monotonic", lambda: next(clock_values))
+    monkeypatch.setattr(runtime_control.time, "monotonic", lambda: next(clock_values, 100.07))
     monkeypatch.setattr(runtime_control, "application_host_lock", blocked_lock)
 
     with pytest.raises(RuntimeControlError) as error:

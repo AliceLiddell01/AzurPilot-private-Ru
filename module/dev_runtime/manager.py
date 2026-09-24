@@ -3052,15 +3052,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 code="DEV_OWNERSHIP_LOST",
                 message="Bot Runtime worker не подтвердил принадлежность текущей DevSession",
             )
-        worker_stopped = self._stop_bot_runtime_worker(session)
-        return self._bot_runtime_start_failure(
-            session,
-            task_plan,
-            process_started=True,
-            worker_stopped=worker_stopped,
-            code="DEV_BOT_RUNTIME_START_FAILED",
-            message="Bot Runtime запуск завершился без подтверждённого результата",
-        )
+        raise AssertionError("Bot Runtime readiness завершилась без результата")
 
     def _bot_runtime_start_failure(
         self,
