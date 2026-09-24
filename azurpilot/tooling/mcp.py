@@ -1909,9 +1909,7 @@ class McpService:
         from dev_tools.mcp_acceptance import accept as accept_fresh_mcp_client
 
         result = asyncio.run(
-            accept_fresh_mcp_client(root, allow_dirty=True)
-            if allow_dirty
-            else accept_fresh_mcp_client(root)
+            accept_fresh_mcp_client(root, allow_dirty=allow_dirty)
         )
         state = str(result.state.value)
         details = McpAcceptanceDetails(

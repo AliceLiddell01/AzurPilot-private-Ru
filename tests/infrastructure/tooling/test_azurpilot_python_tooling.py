@@ -767,10 +767,10 @@ def test_cli_routes_mcp_accept_to_canonical_service() -> None:
 def test_mcp_accept_uses_repository_owned_fresh_client(monkeypatch: pytest.MonkeyPatch) -> None:
     from dev_tools import mcp_acceptance
 
-    calls: list[Path] = []
+    calls: list[tuple[Path, bool]] = []
 
-    async def accept(root: Path) -> object:
-        calls.append(root)
+    async def accept(root: Path, *, allow_dirty: bool = False) -> object:
+        calls.append((root, allow_dirty))
         return SimpleNamespace(
             state=IntegrationState.READY,
             reason_code="MCP_FRESH_CLIENT_READY",
@@ -788,15 +788,18 @@ def test_mcp_accept_uses_repository_owned_fresh_client(monkeypatch: pytest.Monke
         )
 
     monkeypatch.setattr(mcp_acceptance, "accept", accept)
-    result = tooling_mcp.McpService().accept(REPOSITORY_ROOT)
+    service = tooling_mcp.McpService()
+    result = service.accept(REPOSITORY_ROOT)
+    dirty_result = service.accept(REPOSITORY_ROOT, allow_dirty=True)
 
     assert result.ok is True
+    assert dirty_result.ok is True
     assert result.details.acceptance_state == "READY"
     assert result.details.called_tools == (
         "dev_get_contract",
         "dev_list_smoke_capabilities",
     )
-    assert calls == [REPOSITORY_ROOT]
+    assert calls == [(REPOSITORY_ROOT, False), (REPOSITORY_ROOT, True)]
 
 
 def test_application_state_query_reads_store_without_webui(

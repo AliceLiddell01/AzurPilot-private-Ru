@@ -229,8 +229,9 @@ server identity. Совместимость плагина задаётся boun
 Для frozen candidate используй один `azur mcp sync --base
 <exact-base-sha>`: `NO_CHANGES` завершает no-op, а `SYNCED` включает
 base-aware source/version reconciliation, generated metadata, owned runtime
-readiness и fresh-client acceptance. `status`, `versions`, `reconcile`, `start`,
-`stop` и `restart` остаются диагностическими или admin-командами. Source
+readiness и fresh-client acceptance. `impact`, `status`, `versions`, `reconcile`,
+`start`, `stop`, `restart` и `accept` остаются диагностическими или
+admin-командами. Source
 reconciliation обновляет только производные metadata; runtime reconciliation не
 редактирует tracked source. Состояние текущей Codex session не является
 postcondition sync, hot reload не предполагается. Успешный

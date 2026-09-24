@@ -318,6 +318,35 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
         StateLayout.for_repository(root).transactions_directory / result.operation_id
     )
     assert not transaction_directory.exists()
+    for operation in (service.status, service.recover):
+        with pytest.raises(ToolingError) as missing_journal:
+            operation(result.operation_id, root)
+        assert missing_journal.value.code is ResultCode.TOOLING_PRECONDITION_FAILED
+        assert "Delivery journal отсутствует" in str(missing_journal.value)
+
+
+def test_delivery_status_keeps_corrupt_journal_error_distinct_from_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, _base_sha, _remote_url, _identity = _fixture_repository(tmp_path)
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    service = DeliveryService(
+        scanner_factory=_NoopScanner,
+        allow_non_hosted_remote=True,
+    )
+    state_path = (
+        StateLayout.for_repository(root).transactions_directory
+        / "delivery-corrupt-state"
+        / "state.json"
+    )
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text("{", encoding="utf-8")
+
+    with pytest.raises(ToolingError) as corrupt_journal:
+        service.status("delivery-corrupt-state", root)
+
+    assert corrupt_journal.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+    assert "повреждено или недоступно" in str(corrupt_journal.value)
 
 
 @pytest.mark.parametrize("flow", ("publish", "ambiguous_push", "recover"))
@@ -2104,6 +2133,24 @@ def test_nested_cli_parser_exposes_delivery_and_pr_actions() -> None:
     assert pr.pr_command == "verify"
     assert pr.number == 42
     assert pr.spec == "spec.json"
+
+
+def test_delivery_publish_help_uses_russian_option_descriptions() -> None:
+    parser = build_parser()
+    delivery_subparsers = next(
+        action
+        for action in parser._actions
+        if "delivery" in (getattr(action, "choices", None) or {})
+    ).choices["delivery"]
+    publish_subparsers = next(
+        action
+        for action in delivery_subparsers._actions
+        if "publish" in (getattr(action, "choices", None) or {})
+    )
+    help_text = publish_subparsers.choices["publish"].format_help()
+
+    assert "сообщение коммита" in help_text
+    assert "путь относительно репозитория" in help_text
 
 
 def test_cli_routes_intent_delivery_to_canonical_service() -> None:

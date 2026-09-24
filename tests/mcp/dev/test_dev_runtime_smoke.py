@@ -821,7 +821,7 @@ def test_smoke_store_reads_v1_legacy_spec_state_result_without_file_log_payload(
 
     assert loaded.schema_version == smoke.SMOKE_STATE_SCHEMA_VERSION == 2
     assert loaded._legacy_schema_version == 1
-    assert specification.schema_version == smoke.SMOKE_SCHEMA_VERSION == 3
+    assert specification.schema_version == smoke.SMOKE_SCHEMA_VERSION == 4
     assert specification._legacy_schema_version == 1
     assert result is not None
     assert result.schema_version == smoke.SMOKE_STATE_SCHEMA_VERSION
@@ -838,6 +838,49 @@ def test_smoke_store_reads_v1_legacy_spec_state_result_without_file_log_payload(
         "source_schema_version": 1,
         "migration": "bounded_legacy_read_adapter",
     }
+
+
+def test_smoke_store_migrates_v3_checkpoints_without_capture_conditions(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    store = smoke.SmokeStateStore(environment, now=lambda: _NOW)
+    spec = _checkpoint_spec()
+    record = store.create(
+        spec,
+        smoke._source_snapshot(_source()),
+        created_at=_STARTED_AT,
+        deadline_at="2026-08-30T09:01:00+00:00",
+        smoke_id="legacy-v3-checkpoint",
+    )
+    payload = spec.canonical_dict()
+    payload["schema_version"] = 3
+    game_observations = payload["game_observations"]
+    assert isinstance(game_observations, dict)
+    checkpoints = game_observations["checkpoints"]
+    assert isinstance(checkpoints, list)
+    triggered = dict(checkpoints[0])
+    triggered["checkpoint_id"] = "triggered"
+    untriggered = dict(checkpoints[0])
+    untriggered["checkpoint_id"] = "untriggered"
+    untriggered.pop("capture_condition")
+    game_observations["checkpoints"] = [untriggered, triggered]
+    store._file(record.smoke_id, "spec.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+    state_path = store._file(record.smoke_id, "state.json")
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    state_payload["spec_hash"] = smoke._canonical_payload_hash(payload)
+    state_path.write_text(json.dumps(state_payload), encoding="utf-8")
+
+    migrated = store.load_spec(record.smoke_id)
+
+    assert migrated.schema_version == smoke.SMOKE_SCHEMA_VERSION == 4
+    assert migrated._legacy_schema_version == 3
+    assert migrated.game_observations is not None
+    assert [item.checkpoint_id for item in migrated.game_observations.checkpoints] == [
+        "triggered"
+    ]
 
 
 def test_smoke_store_legacy_active_run_does_not_block_new_run(tmp_path: Path) -> None:

@@ -146,10 +146,27 @@ class DeliveryJournalStore:
     def load(self, operation_id: str) -> DeliveryJournal:
         state_path = self._directory(operation_id) / _DELIVERY_STATE_NAME
         try:
+            state_path.lstat()
+        except FileNotFoundError as error:
+            raise _error(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Delivery journal отсутствует; операция не подтверждена сохранённой транзакцией.",
+            ) from error
+        except OSError:
+            pass
+        try:
             return DeliveryJournal.model_validate_json(
                 bounded_read_text(state_path, max_bytes=128 * 1024)
             )
-        except ToolingError:
+        except ToolingError as error:
+            cause = error.__cause__
+            while cause is not None and not isinstance(cause, FileNotFoundError):
+                cause = cause.__cause__
+            if isinstance(cause, FileNotFoundError):
+                raise _error(
+                    ResultCode.TOOLING_PRECONDITION_FAILED,
+                    "Delivery journal отсутствует; операция не подтверждена сохранённой транзакцией.",
+                ) from error
             raise
         except (OSError, UnicodeError, ValueError, TypeError) as exc:
             raise _error(

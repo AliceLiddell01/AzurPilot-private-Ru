@@ -112,7 +112,7 @@ async def accept(
     if working_tree == "modified" and "working_tree_modified" not in result.diagnostics:
         return replace(
             result,
-            diagnostics=(*result.diagnostics, "working_tree_modified")[:16],
+            diagnostics=("working_tree_modified", *result.diagnostics)[:16],
         )
     return result
 

@@ -314,12 +314,17 @@ def build_parser() -> argparse.ArgumentParser:
         "publish", help="собрать текущий Git candidate, проверить, commit и ordinary push"
     )
     _add_common_options(delivery_publish, suppress_defaults=True)
-    delivery_publish.add_argument("--message", required=True, help="commit message")
+    delivery_publish.add_argument(
+        "--message", required=True, help="сообщение коммита"
+    )
     delivery_publish.add_argument(
         "--path",
         action="append",
         dest="paths",
-        help="repository-relative path; по умолчанию берутся все изменённые пути candidate",
+        help=(
+            "путь относительно репозитория; по умолчанию используются все "
+            "изменённые пути кандидата"
+        ),
     )
     delivery_publish.add_argument(
         "--base-branch",
