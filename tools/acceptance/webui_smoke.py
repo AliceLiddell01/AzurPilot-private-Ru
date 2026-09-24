@@ -94,7 +94,6 @@ def run(timeout: float = 45) -> dict[str, object]:
         environment.update(
             {
                 "AZURPILOT_NTP_DISABLE": "1",
-                "AZURPILOT_WEBUI_AUTOSTART_CONFIGURED_PROFILES": "0",
                 "AZURPILOT_WORKER_REGISTRY_FILE": str(
                     Path(temporary) / "webui-workers.json"
                 ),
