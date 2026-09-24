@@ -1089,9 +1089,9 @@ def _build_bundle(
                 source_changed=source_changed,
             )
         else:
-            # Schema v1 base has no public contract fingerprints. Preserve its
-            # established conservative policy: backend source changes require a
-            # patch, and repeated reconciliation still starts from exact base.
+            # В базе Schema v1 нет отпечатков публичного контракта. Сохраняем
+            # установленную консервативную политику: изменения исходников backend
+            # требуют patch, а повторная синхронизация снова начинается с exact base.
             kinds[name] = "patch" if name in legacy_changed_servers else "none"
     required_major = tuple(name for name, kind in kinds.items() if kind == "major")
     requested = requested_bump or "auto"
@@ -2001,8 +2001,8 @@ class McpService:
         root = self._root(repository_root)
         impact = _candidate_mcp_impact(root, base_commit=base_commit)
         if not impact.reconciliation_required:
-            # Generated-only edits must not be reported as NO_CHANGES when they
-            # have made the canonical source bundle stale or inconsistent.
+            # Изменения только в generated artifacts нельзя считать NO_CHANGES,
+            # если они нарушили согласованность canonical source bundle.
             self.source.check(root)
             return ToolingResult(
                 ok=True,

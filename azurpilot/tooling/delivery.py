@@ -32,7 +32,9 @@ from .contracts import (
     RemoteIdentity,
     RepositoryIdentity,
     ResultCode,
+    ToolingWarning,
     ToolingResult,
+    WarningCode,
 )
 from .errors import ToolingError
 from .filesystem import (
@@ -162,7 +164,7 @@ class DeliveryJournalStore:
         journal = self.load(operation_id)
         if (
             journal.repository_root_identity != path_identity(self.layout.repository_root)
-            or journal.phase is not DeliveryPhase.PUSH_IN_FLIGHT
+            or journal.phase is not DeliveryPhase.DELIVERED
             or journal.commit_sha != commit_sha
         ):
             raise _error(
@@ -335,7 +337,7 @@ class DeliveryService:
         base_remote_name: str = "origin",
         remote_name: str = "origin",
     ) -> ToolingResult[DeliveryDetails, DeliveryEvidence]:
-        """Build an exact in-memory delivery request from developer intent."""
+        """Построить в памяти точный запрос на публикацию из намерения разработчика."""
 
         resolved = self.resolver.resolve(repository_root)
         manifest = self._intent_manifest(
@@ -512,7 +514,7 @@ class DeliveryService:
         manifest: DeliveryManifest,
         repository_root: str | os.PathLike[str] | None = None,
     ) -> ToolingResult[DeliveryDetails, DeliveryEvidence]:
-        """Run the canonical publication transaction for a typed request."""
+        """Выполнить каноническую публикацию для типизированного запроса."""
 
         if manifest.publication_intent is not PublicationIntent.COMMIT_AND_PUSH:
             raise _error(
@@ -659,14 +661,13 @@ class DeliveryService:
                     "После push exact remote SHA не подтверждён; blind retry запрещён.",
                     state=OperationState.IN_FLIGHT,
                 )
-            store.delete(operation_id, commit_sha=commit_sha)
-            return self._result(
+            return self._finalize_delivered(
                 context,
-                phase=DeliveryPhase.DELIVERED,
+                store,
+                journal,
                 commit=commit,
                 remote_sha=remote_sha,
-                scans=tuple(scans),
-                operation_id=operation_id,
+                scans=scans,
                 message="Изменения опубликованы; exact remote SHA подтверждён.",
             )
         except ToolingError as error:
@@ -720,6 +721,11 @@ class DeliveryService:
                     recovery_required=False,
                 ),
             )
+        cleanup_warnings = (
+            (self._delivery_journal_cleanup_warning(),)
+            if journal.phase is DeliveryPhase.DELIVERED
+            else ()
+        )
         recovery_required = journal.phase in {
             DeliveryPhase.PUSH_IN_FLIGHT,
             DeliveryPhase.UNKNOWN,
@@ -740,12 +746,18 @@ class DeliveryService:
             ),
             message=f"Delivery phase: {journal.phase.value}.",
             operation_id=operation_id,
+            warnings=cleanup_warnings,
             details=DeliveryDetails(
                 phase=journal.phase,
                 target_paths=journal.target_paths,
                 target_count=len(journal.target_paths),
                 changes=journal.changes,
                 commit_sha=journal.commit_sha,
+                remote_sha=(
+                    journal.commit_sha
+                    if journal.phase is DeliveryPhase.DELIVERED
+                    else None
+                ),
                 recovery_required=recovery_required,
             ),
         )
@@ -760,12 +772,33 @@ class DeliveryService:
         store = DeliveryJournalStore(layout)
         journal = store.load(operation_id)
         self._check_journal_root(root, journal)
+        if journal.phase is DeliveryPhase.DELIVERED:
+            warning = self._cleanup_delivered_journal(store, journal)
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="Read-only recovery подтвердил доставленный commit.",
+                operation_id=operation_id,
+                details=DeliveryDetails(
+                    phase=DeliveryPhase.DELIVERED,
+                    target_paths=journal.target_paths,
+                    target_count=len(journal.target_paths),
+                    changes=journal.changes,
+                    commit_sha=journal.commit_sha,
+                    remote_sha=journal.commit_sha,
+                ),
+                warnings=(warning,) if warning is not None else (),
+            )
         if journal.phase is not DeliveryPhase.PUSH_IN_FLIGHT:
             return self.status(operation_id, repository_root)
         git = self.git_factory(root.path, self.runner)
         remote_sha = git.remote_ref(journal.remote_name, journal.remote_branch)
-        if remote_sha == journal.commit_sha:
-            store.delete(journal.operation_id, commit_sha=journal.commit_sha)
+        if journal.commit_sha is not None and remote_sha == journal.commit_sha:
+            delivered_journal = self._persist_delivered_journal(
+                store, journal, commit_sha=journal.commit_sha
+            )
+            warning = self._cleanup_delivered_journal(store, delivered_journal)
             return ToolingResult(
                 ok=True,
                 code=ResultCode.OK,
@@ -780,6 +813,7 @@ class DeliveryService:
                     commit_sha=journal.commit_sha,
                     remote_sha=remote_sha,
                 ),
+                warnings=(warning,) if warning is not None else (),
             )
         if remote_sha == journal.expected_remote_sha:
             self._save_failure(
@@ -1065,6 +1099,7 @@ class DeliveryService:
         scans: tuple[AnalysisScope, ...] = (),
         operation_id: str | None = None,
         message: str = "Manifest и exact repository state подтверждены.",
+        warnings: tuple[ToolingWarning, ...] = (),
     ) -> ToolingResult[DeliveryDetails, DeliveryEvidence]:
         return ToolingResult(
             ok=phase is DeliveryPhase.VALIDATED or phase is DeliveryPhase.DELIVERED,
@@ -1072,6 +1107,7 @@ class DeliveryService:
             state=OperationState.READY,
             message=message,
             operation_id=operation_id,
+            warnings=warnings,
             details=DeliveryDetails(
                 phase=phase,
                 target_paths=context.target_paths,
@@ -1088,6 +1124,77 @@ class DeliveryService:
                 base_remote=context.base_remote,
                 branch=context.branch_identity,
             ),
+        )
+
+    def _finalize_delivered(
+        self,
+        context: _ValidatedDelivery,
+        store: DeliveryJournalStore,
+        journal: DeliveryJournal,
+        *,
+        commit: CommitIdentity,
+        remote_sha: str,
+        scans: list[AnalysisScope],
+        message: str,
+    ) -> ToolingResult[DeliveryDetails, DeliveryEvidence]:
+        delivered_journal = self._persist_delivered_journal(
+            store, journal, commit_sha=commit.sha
+        )
+        warning = self._cleanup_delivered_journal(store, delivered_journal)
+        return self._result(
+            context,
+            phase=DeliveryPhase.DELIVERED,
+            commit=commit,
+            remote_sha=remote_sha,
+            scans=tuple(scans),
+            operation_id=journal.operation_id,
+            message=message,
+            warnings=(warning,) if warning is not None else (),
+        )
+
+    @staticmethod
+    def _persist_delivered_journal(
+        store: DeliveryJournalStore,
+        journal: DeliveryJournal,
+        *,
+        commit_sha: str,
+    ) -> DeliveryJournal:
+        if journal.commit_sha != commit_sha:
+            raise _error(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Подтверждённый commit не совпадает с delivery journal.",
+            )
+        delivered = journal.model_copy(
+            update={
+                "phase": DeliveryPhase.DELIVERED,
+                "updated_at": _now(),
+                "last_error_code": None,
+                "last_error_message": None,
+            }
+        )
+        store.save(delivered)
+        return delivered
+
+    @classmethod
+    def _cleanup_delivered_journal(
+        cls, store: DeliveryJournalStore, journal: DeliveryJournal
+    ) -> ToolingWarning | None:
+        if journal.commit_sha is None:
+            raise _error(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "В доставленном journal отсутствует подтверждённый commit SHA.",
+            )
+        try:
+            store.delete(journal.operation_id, commit_sha=journal.commit_sha)
+        except ToolingError:
+            return cls._delivery_journal_cleanup_warning()
+        return None
+
+    @staticmethod
+    def _delivery_journal_cleanup_warning() -> ToolingWarning:
+        return ToolingWarning(
+            code=WarningCode.TOOLING_DELIVERY_JOURNAL_CLEANUP_FAILED,
+            message="Commit доставлен, но очистка delivery journal завершилась ошибкой.",
         )
 
     def _resolve_push_result(
@@ -1117,14 +1224,13 @@ class DeliveryService:
                 state=OperationState.IN_FLIGHT,
             ) from read_error
         if remote_sha == commit.sha:
-            store.delete(journal.operation_id, commit_sha=commit.sha)
-            return self._result(
+            return self._finalize_delivered(
                 context,
-                phase=DeliveryPhase.DELIVERED,
+                store,
+                journal,
                 commit=commit,
                 remote_sha=remote_sha,
-                scans=tuple(scans),
-                operation_id=journal.operation_id,
+                scans=scans,
                 message="Push завершился неоднозначно, но remote exact SHA подтверждён.",
             )
         if remote_sha == journal.expected_remote_sha:

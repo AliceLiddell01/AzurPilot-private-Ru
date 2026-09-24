@@ -35,8 +35,10 @@ from azurpilot.tooling.contracts import (
     RepositoryIdentity,
     ResultCode,
     ToolingResult,
+    WarningCode,
 )
 from azurpilot.tooling.delivery import (
+    DeliveryJournalStore,
     DeliveryService,
     GitleaksScanner,
     load_delivery_manifest,
@@ -296,6 +298,7 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
     assert result.details.phase is DeliveryPhase.DELIVERED
     assert result.details.commit_sha
     assert result.details.remote_sha == result.details.commit_sha
+    assert result.warnings == ()
     assert result.details.target_paths == ("README.md",)
     assert not (tmp_path / "delivery.json").exists()
     assert _git(root, "status", "--porcelain") == ""
@@ -314,6 +317,128 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
     transaction_directory = (
         StateLayout.for_repository(root).transactions_directory / result.operation_id
     )
+    assert not transaction_directory.exists()
+
+
+@pytest.mark.parametrize("flow", ("publish", "ambiguous_push", "recover"))
+def test_delivery_reports_confirmed_commit_when_journal_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flow: str,
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    (root / "README.md").write_bytes(b"published\n")
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"base\n").hexdigest(),
+                    "size": len(b"base\n"),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"published\n").hexdigest(),
+                    "size": len(b"published\n"),
+                },
+            }
+        ],
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    original_push = GitClient.push
+    original_remote_ref = GitClient.remote_ref
+    original_delete = DeliveryJournalStore.delete
+    push_completed = False
+
+    if flow != "publish":
+
+        def push_then_timeout(client: GitClient, *args, **kwargs) -> None:
+            nonlocal push_completed
+            original_push(client, *args, **kwargs)
+            push_completed = True
+            raise ToolingError(ResultCode.TOOLING_TIMEOUT, "Push response was interrupted.")
+
+        monkeypatch.setattr(GitClient, "push", push_then_timeout)
+
+    if flow == "recover":
+
+        def lose_remote_readback(
+            client: GitClient, remote_name: str, branch: str
+        ) -> str | None:
+            if push_completed and branch == "cli/fixture-delivery":
+                raise ToolingError(ResultCode.TOOLING_TIMEOUT, "Remote readback unavailable.")
+            return original_remote_ref(client, remote_name, branch)
+
+        monkeypatch.setattr(GitClient, "remote_ref", lose_remote_readback)
+
+    def fail_delete(
+        _store: DeliveryJournalStore, _operation_id: str, *, commit_sha: str
+    ) -> None:
+        raise ToolingError(
+            ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+            f"Cannot remove journal for {commit_sha}.",
+        )
+
+    monkeypatch.setattr(DeliveryJournalStore, "delete", fail_delete)
+    service = DeliveryService(
+        scanner_factory=_NoopScanner,
+        allow_non_hosted_remote=True,
+    )
+
+    if flow == "recover":
+        with pytest.raises(ToolingError) as error:
+            service.publish_manifest(load_delivery_manifest(manifest_path), root)
+        assert error.value.code is ResultCode.TOOLING_PUSH_UNKNOWN
+        transaction_directories = tuple(
+            StateLayout.for_repository(root).transactions_directory.glob("delivery-*")
+        )
+        assert len(transaction_directories) == 1
+        operation_id = transaction_directories[0].name
+        monkeypatch.setattr(GitClient, "remote_ref", original_remote_ref)
+        result = service.recover(operation_id, root)
+    elif flow == "publish":
+        result = service.publish("fix(test): подтвердить публикацию", root)
+        operation_id = result.operation_id
+    else:
+        result = service.publish_manifest(load_delivery_manifest(manifest_path), root)
+        operation_id = result.operation_id
+
+    assert result.ok is True
+    assert result.details is not None
+    assert result.details.phase is DeliveryPhase.DELIVERED
+    assert result.details.commit_sha
+    assert result.details.remote_sha == result.details.commit_sha
+    assert result.warnings
+    assert result.warnings[0].code is WarningCode.TOOLING_DELIVERY_JOURNAL_CLEANUP_FAILED
+    assert operation_id
+
+    transaction_directory = (
+        StateLayout.for_repository(root).transactions_directory / operation_id
+    )
+    journal = json.loads(
+        (transaction_directory / "state.json").read_text(encoding="utf-8")
+    )
+    assert journal["phase"] == DeliveryPhase.DELIVERED.value
+
+    status = service.status(operation_id, root)
+    assert status.ok is True
+    assert status.details is not None
+    assert status.details.phase is DeliveryPhase.DELIVERED
+    assert status.details.remote_sha == status.details.commit_sha
+    assert status.warnings
+    assert status.warnings[0].code is WarningCode.TOOLING_DELIVERY_JOURNAL_CLEANUP_FAILED
+
+    monkeypatch.setattr(DeliveryJournalStore, "delete", original_delete)
+    recovered = service.recover(operation_id, root)
+    assert recovered.ok is True
+    assert recovered.details is not None
+    assert recovered.details.phase is DeliveryPhase.DELIVERED
+    assert recovered.warnings == ()
     assert not transaction_directory.exists()
 
 

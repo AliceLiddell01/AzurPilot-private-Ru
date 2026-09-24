@@ -106,6 +106,9 @@ class WarningCode(StrEnum):
     TOOLING_BROWSER_NOT_OPENED = "TOOLING_BROWSER_NOT_OPENED"
     TOOLING_OUTPUT_TRUNCATED = "TOOLING_OUTPUT_TRUNCATED"
     TOOLING_LEGACY_COMPATIBILITY = "TOOLING_LEGACY_COMPATIBILITY"
+    TOOLING_DELIVERY_JOURNAL_CLEANUP_FAILED = (
+        "TOOLING_DELIVERY_JOURNAL_CLEANUP_FAILED"
+    )
 
 
 class ClosedModel(BaseModel):
@@ -1175,7 +1178,7 @@ class McpReconcileDetails(ClosedModel):
 
 
 class McpSyncDetails(ClosedModel):
-    """Terminal result of one base-aware MCP source/runtime/client sync."""
+    """Итог синхронизации MCP-исходников, runtime и клиента с учётом base."""
 
     action: Literal["sync"] = "sync"
     terminal: Literal["NO_CHANGES", "SYNCED", "FAILED"]
