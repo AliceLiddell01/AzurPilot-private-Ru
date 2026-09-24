@@ -18,6 +18,17 @@ from module.webui.app_helpers import (
     is_demo_mode,
 )
 
+_AUTOSTART_CONFIGURED_PROFILES_ENV = "AZURPILOT_WEBUI_AUTOSTART_CONFIGURED_PROFILES"
+
+
+def _autostart_configured_profiles_enabled() -> bool:
+    value = os.environ.get(_AUTOSTART_CONFIGURED_PROFILES_ENV, "1")
+    if value not in {"0", "1"}:
+        raise RuntimeError(
+            f"{_AUTOSTART_CONFIGURED_PROFILES_ENV} должен иметь значение '0' или '1'"
+        )
+    return value == "1"
+
 
 def build_fleet_page_runtime_context(*, clock=None, require_ready: bool = True):
     """Собрать контекст выполнения страницы флотов в разрешённой корневой точке WebUI."""
@@ -70,7 +81,8 @@ def startup() -> None:
         ),
     )
     lang.reload()
-    BotRuntimeClient.start_configured_profiles()
+    if _autostart_configured_profiles_enabled():
+        BotRuntimeClient.start_configured_profiles()
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:
         init_discord_rpc()

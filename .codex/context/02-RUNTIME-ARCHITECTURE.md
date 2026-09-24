@@ -83,6 +83,9 @@ WebUI lifecycle; новый операторский текст использу
 Остановка WebUI освобождает только его UI-ресурсы. Она не останавливает Bot
 Runtime и workers. Game MCP, Dev MCP, Smoke и CLI могут bootstrap-ить Bot Runtime
 и работать без WebUI; их проверки не требуют свободного WebUI-порта.
+Запуск WebUI по умолчанию отправляет Bot Runtime команду запуска настроенных
+профилей. Изолированный UI-only запуск может отключить это поведение значением
+`AZURPILOT_WEBUI_AUTOSTART_CONFIGURED_PROFILES=0`.
 
 При изменении lifecycle проверять:
 

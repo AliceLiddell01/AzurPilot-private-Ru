@@ -89,6 +89,10 @@ class TestWebUILifecycle(unittest.TestCase):
                 return_value=desktop_agent_runtime,
             ),
             patch.object(app_lifecycle.lang, "reload"),
+            patch.dict(
+                app_lifecycle.os.environ,
+                {app_lifecycle._AUTOSTART_CONFIGURED_PROFILES_ENV: "1"},
+            ),
             patch.object(
                 app_lifecycle.BotRuntimeClient,
                 "start_configured_profiles",
@@ -113,6 +117,50 @@ class TestWebUILifecycle(unittest.TestCase):
         )
         start_configured_profiles.assert_called_once_with()
         self.assertEqual(["bot_runtime", "task_handler"], startup_order)
+
+    def test_startup_can_skip_configured_profile_autostart_for_isolated_smoke(self):
+        state = SimpleNamespace(
+            init=Mock(),
+            deploy_config=SimpleNamespace(
+                DiscordRichPresence=False,
+                StartOcrServer=False,
+                EnableRemoteAccess=False,
+            ),
+        )
+        with (
+            patch.object(app_lifecycle, "State", state),
+            patch(
+                "deploy.language_migration.migrate_deploy_language",
+                return_value=SimpleNamespace(changed=False),
+            ),
+            patch("module.persistence.runtime.bootstrap_runtime_storage"),
+            patch(
+                "module.persistence.runtime.build_runtime_notification_telemetry",
+                return_value=object(),
+            ),
+            patch(
+                "module.persistence.runtime.build_runtime_notification_composition",
+                return_value=object(),
+            ),
+            patch(
+                "module.persistence.runtime.build_runtime_desktop_agent_composition",
+                return_value=object(),
+            ),
+            patch.object(app_lifecycle.lang, "reload"),
+            patch.dict(
+                app_lifecycle.os.environ,
+                {app_lifecycle._AUTOSTART_CONFIGURED_PROFILES_ENV: "0"},
+            ),
+            patch.object(
+                app_lifecycle.BotRuntimeClient,
+                "start_configured_profiles",
+            ) as start_configured_profiles,
+            patch.object(app_lifecycle.task_handler, "start") as start_tasks,
+        ):
+            app_lifecycle.startup()
+
+        start_configured_profiles.assert_not_called()
+        start_tasks.assert_called_once_with()
 
 
 class TestWebUIState(unittest.TestCase):

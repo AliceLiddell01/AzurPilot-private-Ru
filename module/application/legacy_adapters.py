@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Protocol
 
@@ -29,6 +30,8 @@ from module.application.models import (
     TaskSummary,
 )
 from module.application.ports import RuntimeSnapshot
+
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 class _LegacyManager(Protocol):
@@ -80,7 +83,10 @@ class LegacyInstanceRuntimeAdapter:
         """Проверить worker registry без вызова lifecycle housekeeping."""
         worker_registry = importlib.import_module("module.application.runtime_worker_registry")
         try:
-            record = worker_registry.get_canonical_worker_read_only(name)
+            record = worker_registry.get_canonical_worker_read_only(
+                name,
+                repository_root=_REPOSITORY_ROOT,
+            )
         except RuntimeError:
             return RuntimeSnapshot(False, int(RuntimeState.WARNING))
         if record is None:

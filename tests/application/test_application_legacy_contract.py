@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from module.application import InstanceQueryService, RuntimeState, TaskCatalogService
+from module.application import (
+    InstanceQueryService,
+    RuntimeState,
+    TaskCatalogService,
+    legacy_adapters,
+)
 from module.application.legacy_adapters import (
     GeneratedTaskCatalogAdapter,
     LegacyInstanceRuntimeAdapter,
@@ -110,8 +115,16 @@ def test_legacy_runtime_adapter_reads_alive_before_state_without_leaking_manager
     assert status.state is RuntimeState.RUNNING
 
 
-def test_default_legacy_runtime_adapter_reads_registry_without_process_housekeeping():
+def test_default_legacy_runtime_adapter_reads_registry_without_process_housekeeping(
+    monkeypatch, tmp_path: Path
+):
     adapter = LegacyInstanceRuntimeAdapter(list_instances=lambda: ("ap",))
+    repository_root = tmp_path / "repository"
+    other_root = tmp_path / "other"
+    repository_root.mkdir()
+    other_root.mkdir()
+    monkeypatch.setattr(legacy_adapters, "_REPOSITORY_ROOT", repository_root)
+    monkeypatch.chdir(other_root)
 
     with (
         patch.object(
@@ -124,7 +137,7 @@ def test_default_legacy_runtime_adapter_reads_registry_without_process_housekeep
     ):
         status = InstanceQueryService(adapter).get_status("ap")
 
-    read_only.assert_called_once_with("ap")
+    read_only.assert_called_once_with("ap", repository_root=repository_root)
     matches.assert_called_once_with({"pid": 123, "created_at": 10.5})
     locked.assert_not_called()
     assert status.running is False

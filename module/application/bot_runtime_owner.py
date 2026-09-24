@@ -96,7 +96,13 @@ class BotRuntimeOwner:
     def _after_result_written(self, result: RuntimeControlResult) -> None:
         if result.operation is RuntimeControlOperation.START_CONFIGURED_PROFILES and result.ok:
             self._queue_configured_profile_start()
-        if result.operation is RuntimeControlOperation.STOP_RUNTIME and result.ok:
+        # После успешной очистки workers сервер ещё может пометить ответ expired,
+        # если срок истёк на финальной проверке. Durable response уже записан;
+        # владелец должен завершить остановку, чтобы не остаться без workers.
+        if (
+            result.operation is RuntimeControlOperation.STOP_RUNTIME
+            and self._shutdown_requested.is_set()
+        ):
             self._shutdown_ready.set()
 
     def wait_for_shutdown(self) -> None:

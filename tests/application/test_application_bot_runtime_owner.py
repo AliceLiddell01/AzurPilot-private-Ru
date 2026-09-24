@@ -92,20 +92,33 @@ def test_successful_stop_runtime_marks_shutdown_before_releasing_lease(
     assert result.code == "RUNTIME_STOPPED"
 
 
-def test_owner_waits_for_stop_result_write_before_shutdown(tmp_path):
+def test_owner_waits_for_stop_result_write_before_shutdown(tmp_path, monkeypatch):
     owner = BotRuntimeOwner(tmp_path)
     owner._shutdown_requested.set()
     returned = threading.Event()
+    wait_entered = threading.Event()
+    shutdown_ready_wait = owner._shutdown_ready.wait
+
+    def wait_for_shutdown_ready(timeout=None):
+        wait_entered.set()
+        return shutdown_ready_wait(timeout)
+
+    monkeypatch.setattr(owner._shutdown_ready, "wait", wait_for_shutdown_ready)
     waiter = threading.Thread(
         target=lambda: (owner.wait_for_shutdown(), returned.set()),
         daemon=True,
     )
     waiter.start()
 
-    assert not returned.wait(timeout=0.05)
+    assert wait_entered.wait(timeout=1)
+    assert not returned.is_set()
 
     owner._after_result_written(
-        SimpleNamespace(operation=RuntimeControlOperation.STOP_RUNTIME, ok=True)
+        SimpleNamespace(
+            operation=RuntimeControlOperation.STOP_RUNTIME,
+            ok=False,
+            code="RUNTIME_CONTROL_EXPIRED",
+        )
     )
 
     assert returned.wait(timeout=1)
