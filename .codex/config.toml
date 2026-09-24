@@ -147,3 +147,11 @@ enabled = true
 required = false
 startup_timeout_sec = 20
 tool_timeout_sec = 120
+
+[agents]
+default_subagent_model = "gpt-6-luna"
+default_subagent_reasoning_effort = "max"
+
+[features.multi_agent_v2]
+enabled = true
+max_concurrent_threads_per_session = 7

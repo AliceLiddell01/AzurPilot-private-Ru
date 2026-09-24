@@ -5,7 +5,6 @@ from pathlib import Path
 
 from tests.support.paths import REPOSITORY_ROOT
 
-
 CONTEXT_ROOT = REPOSITORY_ROOT / ".codex" / "context"
 DURABLE_CONTEXT = tuple(
     path
@@ -68,12 +67,12 @@ def test_final_review_policy_is_model_neutral() -> None:
     workflow = _text(CONTEXT_ROOT / "GIT-WORKFLOW.md")
     verification = _text(CONTEXT_ROOT / "08-VERIFICATION.md")
     sections = {
-        "merge": _normalized(_section(workflow, "### Merge", "## 21.")),
+        "merge": _normalized(_section(workflow, "### Слияние", "## 21.")),
         "ready": _normalized(
             _section(
                 verification,
-                "### Pre-merge `READY_FOR_CHATGPT_REVIEW`",
-                "### После подтверждённого merge",
+                "### До слияния: `READY_FOR_CHATGPT_REVIEW`",
+                "### После подтверждённого слияния",
             )
         ),
     }
@@ -104,7 +103,7 @@ def test_final_review_policy_is_model_neutral() -> None:
         ]
         assert final_review_sentences, name
         assert any("пользоват" in sentence for sentence in final_review_sentences), (
-            f"{name}: ownership финального ревью должен оставаться у пользователя"
+            f"{name}: ответственность за финальную проверку должна оставаться у пользователя"
         )
         assert concrete_model.search(section) is None, name
         for sentence in final_review_sentences:
@@ -162,7 +161,8 @@ def test_cli_live_acceptance_cannot_become_global_gate() -> None:
     verification = _text(CONTEXT_ROOT / "08-VERIFICATION.md")
     policy = _normalized(verification)
     assert "только если diff затрагивает" in policy
-    assert "для несвязанного combat/ocr/documentation-исправления" in policy
+    assert "для несвязанного исправления" in policy
+    assert "документации эта проверка cli не применяется" in policy
 
     global_gate = re.compile(
         r"(?i)(?:cli|--json).{0,100}(?:обязател\w*|требует\w*).{0,100}"
