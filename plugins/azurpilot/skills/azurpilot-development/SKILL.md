@@ -79,8 +79,10 @@ Smoke по умолчанию выполняй только этим поток�
    `dev_run_smoke` один раз; операция сама проверяет spec и preconditions до
    mutation, затем возвращает terminal result после execution и cleanup.
    Long/interactive сценарии и `visual_assertions` отклоняются как
-   `DEV_SMOKE_SPEC_UNSUPPORTED`; отдельной public async surface в normal catalog
-   нет. Остановись при любой ошибке.
+   `DEV_SMOKE_SPEC_UNSUPPORTED` этим bounded вызовом. Для них используй отдельный
+   `dev_start_smoke`, получай ход выполнения через `dev_get_smoke`; для
+   `visual_assertions` используй `dev_get_smoke_evaluation` и
+   `dev_submit_smoke_evaluation`. Остановись при любой ошибке.
 5. `dev_validate_smoke` оставлен для необязательной read-only проверки spec и
    не является prerequisite normal run.
 6. Для уже существующего SmokeRun в состоянии

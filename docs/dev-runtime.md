@@ -589,10 +589,13 @@ Evidence API сохраняет точный PNG по `screenshot_id` и SHA-256
 verdict с provenance.
 
 Smoke Harness расширяет локальный stdio Dev MCP ровно следующими инструментами:
-`dev_list_smoke_capabilities`, `dev_validate_smoke`, `dev_run_smoke`,
+`dev_list_smoke_capabilities`, `dev_validate_smoke`, `dev_start_smoke`,
+`dev_run_smoke`,
 `dev_get_smoke`, `dev_cancel_smoke`, `dev_get_smoke_evaluation` и
 `dev_submit_smoke_evaluation`. Bounded `dev_run_smoke` возвращает terminal result
-после execution и cleanup. `dev_get_smoke` остаётся для async/diagnostic runs.
+после execution и cleanup. Явный `dev_start_smoke` запускает отдельный supervisor
+и возвращает `DEV_SMOKE_STARTED`; состояние читается через `dev_get_smoke`, а
+визуальная оценка завершается через evaluation tools.
 Объявленные triggered game checkpoints фиксируются автоматически; ручного
 checkpoint tool в public catalog нет.
 Сервер остаётся без побочных действий при startup и сохраняет stdout только для

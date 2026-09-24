@@ -297,6 +297,11 @@ def tool_definitions() -> list[Tool]:
         "dev_get_screenshot": "Получить текущий кадр активной DevSession как вложение изображения MCP.",
         "dev_list_smoke_capabilities": "Получить реестр поддерживаемых возможностей SmokeSpec только для чтения.",
         "dev_validate_smoke": "Проверить строгий SmokeSpec и предварительные условия без создания SmokeRun.",
+        "dev_start_smoke": (
+            "Асинхронно запустить SmokeRun и вернуть DEV_SMOKE_STARTED с smoke_id. "
+            "Получайте ход выполнения через dev_get_smoke; для visual_assertions "
+            "используйте dev_get_smoke_evaluation и dev_submit_smoke_evaluation."
+        ),
         "dev_run_smoke": (
             "Выполнить ограниченный Smoke и вернуть terminal typed result после очистки. "
             f"timeout_seconds не может превышать {SMOKE_SYNC_MAX_SECONDS:g} секунд; "
@@ -332,6 +337,7 @@ def tool_definitions() -> list[Tool]:
         "dev_get_evidence": _SESSION_INPUT,
         "dev_get_timeline": _TIMELINE_INPUT,
         "dev_validate_smoke": _SMOKE_INPUT,
+        "dev_start_smoke": _SMOKE_INPUT,
         "dev_run_smoke": _BOUNDED_SMOKE_INPUT,
         "dev_get_smoke": _SMOKE_ID_INPUT,
         "dev_cancel_smoke": _SMOKE_ID_INPUT,
@@ -344,7 +350,7 @@ def tool_definitions() -> list[Tool]:
         "dev_preview_database_repair": _DATABASE_REPAIR_INPUT,
         "dev_get_control_operation": _CONTROL_ID_INPUT,
     }
-    mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover", "dev_cancel_smoke", "dev_run_smoke"}
+    mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover", "dev_cancel_smoke", "dev_start_smoke", "dev_run_smoke"}
     additive = {"dev_get_evidence", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
     control_annotations = {
         "dev_start_game": _CONTROL_START,

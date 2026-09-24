@@ -76,6 +76,7 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_get_screenshot",
         "dev_list_smoke_capabilities",
         "dev_validate_smoke",
+        "dev_start_smoke",
         "dev_run_smoke",
         "dev_get_smoke",
         "dev_cancel_smoke",
@@ -109,6 +110,7 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_cleanup",
         "dev_recover",
         "dev_cancel_smoke",
+        "dev_start_smoke",
         "dev_run_smoke",
     }
     additive = {"dev_get_evidence", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
@@ -123,6 +125,7 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_get_evidence",
         "dev_get_timeline",
         "dev_validate_smoke",
+        "dev_start_smoke",
         "dev_run_smoke",
         "dev_get_smoke",
         "dev_cancel_smoke",
@@ -189,6 +192,11 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
     assert game_schema["properties"]["parameters"]["additionalProperties"] is False
     assert game_schema["properties"]["parameters"]["patternProperties"]
     assert "dev_capture_smoke_game_checkpoint" not in names
+    async_smoke = tools[names.index("dev_start_smoke")]
+    assert "DEV_SMOKE_STARTED" in async_smoke.description
+    assert "dev_get_smoke" in async_smoke.description
+    assert "dev_get_smoke_evaluation" in async_smoke.description
+    assert "allOf" not in async_smoke.input_schema
     smoke_checkpoint = tools[names.index("dev_run_smoke")]
     checkpoint_schema = smoke_checkpoint.input_schema["$defs"]["SmokeGameCheckpoint"]
     assert "capture_condition" in checkpoint_schema["required"]
@@ -387,6 +395,7 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=256 * 1024,
         )
         try:
             initialize = await _raw_request(

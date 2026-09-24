@@ -489,6 +489,21 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
     }
     assert adapter.call("dev_list_smoke_capabilities", {})["ok"] is True
     assert adapter.call("dev_validate_smoke", smoke_spec)["ok"] is True
+    async_smoke_spec = {
+        **smoke_spec,
+        "timeout_seconds": 301,
+        "visual_assertions": [
+            {
+                "assertion_id": "visual",
+                "capability_id": "external_visual",
+                "rubric": "Проверить целевой экран",
+                "capture_condition": {"kind": "event", "event_type": "session_ready"},
+            }
+        ],
+    }
+    started_smoke = adapter.call("dev_start_smoke", async_smoke_spec)
+    assert started_smoke["ok"] is True
+    assert started_smoke["code"] == "DEV_SMOKE_STARTED"
     assert adapter.call("dev_run_smoke", smoke_spec)["ok"] is True
     assert adapter.call("dev_get_smoke", {"smoke_id": "smoke-1"})["ok"] is True
     assert adapter.call("dev_cancel_smoke", {"smoke_id": "smoke-1"})["ok"] is True
@@ -534,6 +549,7 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
         ("get_screenshot", None),
         ("list_smoke_capabilities", None),
         ("validate_smoke", "adapter-smoke"),
+        ("start_smoke", "adapter-smoke"),
         ("run_smoke", "adapter-smoke"),
         ("get_smoke", "smoke-1"),
         ("cancel_smoke", "smoke-1"),

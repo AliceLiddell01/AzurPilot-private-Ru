@@ -421,6 +421,7 @@ def test_developer_workflow_uses_terminal_mcp_sync_smoke_run_and_intent_delivery
             "NO_CHANGES",
             "fresh-client acceptance",
             "dev_run_smoke",
+            "dev_start_smoke",
             "delivery publish --message",
         ),
         "verification owner": (
@@ -446,6 +447,7 @@ def test_developer_workflow_uses_terminal_mcp_sync_smoke_run_and_intent_delivery
             "NO_CHANGES",
             "fresh-client acceptance",
             "dev_run_smoke",
+            "dev_start_smoke",
             "terminal result",
         ),
         "plugin routing reference": ("azur mcp sync --base", "NO_CHANGES", "fresh-client acceptance"),
@@ -455,19 +457,22 @@ def test_developer_workflow_uses_terminal_mcp_sync_smoke_run_and_intent_delivery
         for phrase in contracts[owner]:
             assert phrase.casefold() in content, (owner, path, phrase)
 
-    normal_contract = " | ".join(
-        paths[owner].read_text(encoding="utf-8").casefold()
-        for owner in (
-            "repository skill",
-            "verification owner",
-            "tooling owner",
-            "git owner",
-            "plugin development skill",
+    normal_contract = _normalize_contract(
+        " | ".join(
+            paths[owner].read_text(encoding="utf-8")
+            for owner in (
+                "repository skill",
+                "verification owner",
+                "tooling owner",
+                "git owner",
+                "plugin development skill",
+            )
         )
     )
-    assert "dev_start_smoke" not in normal_contract
+    assert "dev_start_smoke" in normal_contract
     assert "dev_capture_smoke_game_checkpoint" not in normal_contract
-    assert "validate manifest перед публикацией" not in normal_contract
+    assert "не запускай validate manifest перед normal publish" in normal_contract
+    assert "вызови validate manifest перед normal publish" not in normal_contract
     plugin_skill = paths["plugin development skill"].read_text(encoding="utf-8")
     assert "dev_validate_smoke` оставлен для необязательной read-only проверки" in " ".join(
         plugin_skill.split()

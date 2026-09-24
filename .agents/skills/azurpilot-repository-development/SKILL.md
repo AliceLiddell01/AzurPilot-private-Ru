@@ -40,7 +40,9 @@ contracts принадлежат `.codex/context/11-PYTHON-TOOLING.md`.
 - Для обычного Smoke используй `dev_run_smoke`: bounded сценарий возвращает
   terminal result после cleanup. Автоматические checkpoint'ы выполняются по
   declarative triggers; ручной checkpoint tool не является частью catalog.
-  Длинный/interactive/visual сценарий использует отдельный async path.
+  Длинный/interactive/visual сценарий запускай через отдельный публичный
+  `dev_start_smoke`; он возвращает `DEV_SMOKE_STARTED`, ход выполнения читай через
+  `dev_get_smoke`, а визуальную оценку проводи отдельными evaluation tools.
 - `impact`, `status`, `reconcile`, `start`, `stop`, `restart`, `accept`,
   `delivery validate`, `dev_get_smoke` и screenshot/evaluation tools оставлены
   для диагностики или соответствующего async/evaluation path, а не как

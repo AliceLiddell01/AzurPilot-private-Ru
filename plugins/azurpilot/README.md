@@ -130,7 +130,10 @@ base-to-head compatibility.
 preconditions до mutation; `dev_validate_smoke` остаётся необязательной
 read-only проверкой. `dev_run_smoke` принимает `timeout_seconds` не более 300
 секунд и не принимает `visual_assertions`; неподходящий spec завершается
-`DEV_SMOKE_SPEC_UNSUPPORTED` без запуска SmokeRun. Triggered game checkpoints
+`DEV_SMOKE_SPEC_UNSUPPORTED` без запуска SmokeRun. Для long/interactive и visual
+сценариев используй отдельный `dev_start_smoke`, который возвращает
+`DEV_SMOKE_STARTED`; состояние читается через `dev_get_smoke`, а visual evaluation
+выполняется отдельными evaluation tools. Triggered game checkpoints
 фиксируются автоматически; после run при необходимости вызывай
 `dev_get_smoke_game_observations`. Для Codex доступны target-bound
 `dev_list_game_observation_capabilities` или `dev_get_game_observation`, а также

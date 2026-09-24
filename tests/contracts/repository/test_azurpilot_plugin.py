@@ -395,6 +395,7 @@ def test_required_development_skill_has_fail_closed_workflow() -> None:
         "PLUGIN_RUNTIME_INCOMPATIBLE",
         "dev_list_smoke_capabilities",
         "dev_validate_smoke",
+        "dev_start_smoke",
         "dev_run_smoke",
         "dev_get_smoke",
         "dev_get_smoke_evaluation",

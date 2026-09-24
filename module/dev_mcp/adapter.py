@@ -79,6 +79,7 @@ DEV_MCP_TOOL_NAMES = (
     "dev_get_screenshot",
     "dev_list_smoke_capabilities",
     "dev_validate_smoke",
+    "dev_start_smoke",
     "dev_run_smoke",
     "dev_get_smoke",
     "dev_cancel_smoke",
@@ -1893,6 +1894,7 @@ class _ControlIdArguments(BaseModel):
 
 _ARGUMENT_MODELS: dict[str, type[BaseModel]] = {
     "dev_validate_smoke": SmokeSpec,
+    "dev_start_smoke": SmokeSpec,
     "dev_run_smoke": SmokeSpec,
     "dev_get_smoke": _SmokeIdArguments,
     "dev_cancel_smoke": _SmokeIdArguments,
@@ -2355,6 +2357,9 @@ class DevMcpAdapter:
             elif tool_name == "dev_validate_smoke":
                 assert isinstance(parsed, SmokeSpec)
                 result = manager.validate_smoke(parsed)
+            elif tool_name == "dev_start_smoke":
+                assert isinstance(parsed, SmokeSpec)
+                result = manager.start_smoke(parsed)
             elif tool_name == "dev_run_smoke":
                 assert isinstance(parsed, SmokeSpec)
                 result = manager.run_smoke(parsed)
