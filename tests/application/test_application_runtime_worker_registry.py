@@ -81,7 +81,7 @@ class TestWorkerRegistry(unittest.TestCase):
                 LEGACY_WORKER_REGISTRY_FILE=legacy_file,
                 LEGACY_WORKER_REGISTRY_FILES=(legacy_file,),
                 DEFAULT_WORKER_REGISTRY_FILE=current_file,
-            ), patch.object(worker_registry, "process_matches", return_value=False):
+            ), patch.object(worker_registry, "process_matches", return_value=None):
                 self.assertIsNone(worker_registry.get_owner())
 
             self.assertFalse(legacy_file.exists())
@@ -271,7 +271,7 @@ class TestWorkerRegistry(unittest.TestCase):
                     DEFAULT_WORKER_REGISTRY_FILE=current_file,
                 ),
                 patch.object(worker_registry, "_locked_file") as locked_file,
-                patch.object(worker_registry, "process_matches", return_value=True),
+                patch.object(worker_registry, "process_matches", return_value=None),
                 patch.object(
                     worker_registry,
                     "_read_registry",
@@ -642,7 +642,7 @@ class TestWorkerRegistry(unittest.TestCase):
 
                 self.assertEqual(100, worker_registry.get_owner())
 
-    def test_stale_owner_with_workers_cannot_be_overwritten(self):
+    def test_stale_owner_with_exited_workers_can_be_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
             registry_file = Path(directory) / "workers.json"
             with patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file):
@@ -650,13 +650,46 @@ class TestWorkerRegistry(unittest.TestCase):
                     worker_registry.claim_owner(100)
                     worker_registry.register_worker(100, "alas", 200)
                     with patch.object(worker_registry, "process_matches", return_value=None):
-                        with self.assertRaises(
-                            worker_registry.WorkerRegistryOwnershipError
-                        ):
-                            worker_registry.claim_owner(300)
+                        worker_registry.claim_owner(300)
 
-                self.assertEqual(100, worker_registry.get_owner())
-                self.assertEqual({"alas"}, worker_registry.get_workers(100).keys())
+                self.assertEqual(300, worker_registry.get_owner())
+                self.assertEqual({}, worker_registry.get_workers(300))
+
+    def test_legacy_registry_inspection_error_blocks_migration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current_file = Path(directory) / "config" / "state" / "bot-runtime" / "workers.json"
+            legacy_file = Path(directory) / "config" / "webui-workers.json"
+            legacy_file.parent.mkdir(parents=True, exist_ok=True)
+            legacy_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": 10.5,
+                        "owner_pid": 100,
+                        "workers": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.multiple(
+                    worker_registry,
+                    WORKER_REGISTRY_FILE=current_file,
+                    LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                    LEGACY_WORKER_REGISTRY_FILES=(legacy_file,),
+                    DEFAULT_WORKER_REGISTRY_FILE=current_file,
+                ),
+                patch.object(
+                    worker_registry,
+                    "process_matches",
+                    side_effect=RuntimeError("identity unavailable"),
+                ),
+                self.assertRaises(worker_registry.WorkerRegistryOwnershipError),
+            ):
+                worker_registry.get_owner()
+
+            self.assertTrue(legacy_file.exists())
+            self.assertFalse(current_file.exists())
 
     def test_concurrent_owner_claim_has_exactly_one_winner(self):
         with tempfile.TemporaryDirectory() as directory:

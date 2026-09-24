@@ -18,6 +18,7 @@ import pytest
 
 import dev_tools.postgresql_runtime as tooling_postgresql_runtime
 import azurpilot.cli as tooling_cli
+import azurpilot.tooling.bot_runtime as tooling_bot_runtime
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
@@ -548,6 +549,138 @@ def test_bot_runtime_status_returns_typed_headless_state(tmp_path: Path) -> None
     assert result.details.status is OperationState.STOPPED
     assert result.details.owner_running is False
     assert result.details.workers == ()
+
+
+def test_bot_runtime_snapshot_treats_exited_owner_and_worker_as_stopped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path.resolve()
+    owner = {"pid": 321, "created_at": 10.5}
+    worker = {"pid": 654, "created_at": 11.5}
+
+    class EmptyRuntimeState:
+        def __init__(self, _root: Path) -> None:
+            self.legacy_path = root / "missing-legacy-runtime-state.json"
+
+        def read_all(self) -> dict:
+            return {
+                "orphan": SimpleNamespace(
+                    worker_running=True,
+                    worker_pid=987,
+                    worker_created_at=12.5,
+                )
+            }
+
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeStateStore", EmptyRuntimeState)
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_owner_record_read_only",
+        lambda **_kwargs: owner,
+    )
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_workers_read_only",
+        lambda **_kwargs: {"ap": worker},
+    )
+    monkeypatch.setattr(tooling_bot_runtime, "process_matches", lambda _identity: None)
+
+    details = BotRuntimeService._snapshot(root)
+
+    assert details.status is OperationState.STOPPED
+    assert details.owner_running is False
+    assert details.recovery_required is True
+    assert len(details.workers) == 1
+    assert details.workers[0].running is False
+
+
+def test_bot_runtime_snapshot_keeps_process_inspection_errors_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path.resolve()
+    owner = {"pid": 321, "created_at": 10.5}
+
+    class EmptyRuntimeState:
+        def __init__(self, _root: Path) -> None:
+            self.legacy_path = root / "missing-legacy-runtime-state.json"
+
+        def read_all(self) -> dict:
+            return {}
+
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeStateStore", EmptyRuntimeState)
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_owner_record_read_only",
+        lambda **_kwargs: owner,
+    )
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_workers_read_only",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "process_matches",
+        lambda _identity: (_ for _ in ()).throw(RuntimeError("identity unavailable")),
+    )
+
+    with pytest.raises(ToolingError) as error:
+        BotRuntimeService._snapshot(root)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+
+
+def test_bot_runtime_stop_accepts_exited_owner_and_worker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from module.application.runtime_control import RuntimeOwnerIdentity
+
+    root = tmp_path.resolve()
+    resolved = ResolvedRepository(root, _repository_evidence())
+    owner = RuntimeOwnerIdentity(pid=321, created_at=10.5)
+    before = BotRuntimeDetails(
+        status=OperationState.READY,
+        owner_pid=owner.pid,
+        owner_created_at=owner.created_at,
+        owner_running=True,
+    )
+    after = BotRuntimeDetails(
+        status=OperationState.STOPPED,
+        owner_pid=owner.pid,
+        owner_created_at=owner.created_at,
+        recovery_required=True,
+    )
+
+    class FakeControlClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def call(self, *_args: object, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(ok=True, owner=owner)
+
+    service = BotRuntimeService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
+        poll_interval=0.01,
+    )
+    monkeypatch.setattr(tooling_bot_runtime, "RuntimeControlClient", FakeControlClient)
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_owner_record_read_only",
+        lambda **_kwargs: owner.as_dict(),
+    )
+    monkeypatch.setattr(
+        tooling_bot_runtime,
+        "get_canonical_workers_read_only",
+        lambda **_kwargs: {"ap": {"pid": 654, "created_at": 11.5}},
+    )
+    monkeypatch.setattr(tooling_bot_runtime, "process_matches", lambda _identity: None)
+    snapshots = iter((before, after))
+    monkeypatch.setattr(service, "_snapshot", lambda _root: next(snapshots))
+
+    result = service.stop(root, timeout_seconds=0.1)
+
+    assert result.ok is True
+    assert result.state is OperationState.STOPPED
+    assert result.details.recovery_required is True
 
 
 def test_build_generates_update_ready_config_from_production_template(

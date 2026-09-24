@@ -173,7 +173,7 @@ class BotRuntimeService:
                 live_workers = [
                     name
                     for name, record in workers.items()
-                    if process_matches(record) is not False
+                    if self._process_matches(record) is True
                 ]
             except (RuntimeError, OSError) as exc:
                 raise ToolingError(
@@ -190,13 +190,21 @@ class BotRuntimeService:
                         "Registry содержит недействительную identity после Stop.",
                         state=OperationState.UNKNOWN,
                     ) from exc
-                if observed != owner and self._owner_matches(observed):
+                try:
+                    observed_running = self._owner_matches(observed)
+                except (RuntimeError, OSError) as exc:
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "Не удалось проверить identity нового Bot Runtime owner после Stop.",
+                        state=OperationState.UNKNOWN,
+                    ) from exc
+                if observed != owner and observed_running is True:
                     raise ToolingError(
                         ResultCode.TOOLING_OPERATION_CONFLICT,
                         "После Stop зарегистрирован другой Bot Runtime owner.",
                         state=OperationState.CONFLICT,
                     )
-            if old_owner_running is False and not live_workers:
+            if old_owner_running is not True and not live_workers:
                 after = self._snapshot(root)
                 if after.status is OperationState.STOPPED:
                     return self._result(
@@ -234,17 +242,11 @@ class BotRuntimeService:
 
     @staticmethod
     def _owner_matches(owner: RuntimeOwnerIdentity) -> bool | None:
-        try:
-            return process_matches(owner.as_dict())
-        except (OSError, RuntimeError):
-            return None
+        return process_matches(owner.as_dict())
 
     @staticmethod
     def _process_matches(identity: dict[str, object]) -> bool | None:
-        try:
-            return process_matches(identity)
-        except (OSError, RuntimeError):
-            return None
+        return process_matches(identity)
 
     @classmethod
     def _snapshot(cls, root: Path) -> BotRuntimeDetails:
@@ -288,27 +290,29 @@ class BotRuntimeService:
                     "Registry содержит недействительную identity Bot Runtime owner.",
                     state=OperationState.UNKNOWN,
                 ) from exc
-            owner_matches = cls._owner_matches(owner)
-            if owner_matches is None:
+            try:
+                owner_matches = cls._owner_matches(owner)
+            except (OSError, RuntimeError) as exc:
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                     "Нельзя подтвердить identity Bot Runtime owner.",
                     state=OperationState.UNKNOWN,
-                )
-            owner_running = owner_matches
+                ) from exc
+            owner_running = owner_matches is True
             recovery_required = not owner_running
 
         worker_items: list[BotRuntimeWorker] = []
         active_workers: set[str] = set()
         for profile, record in workers.items():
-            matches = cls._process_matches(record)
-            if matches is None:
+            try:
+                matches = cls._process_matches(record)
+            except (OSError, RuntimeError) as exc:
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                     f"Нельзя подтвердить identity worker профиля {profile}.",
                     state=OperationState.UNKNOWN,
-                )
-            if matches:
+                ) from exc
+            if matches is True:
                 active_workers.add(profile)
             else:
                 recovery_required = True
@@ -317,7 +321,7 @@ class BotRuntimeService:
                     profile=profile,
                     pid=record["pid"],
                     created_at=record["created_at"],
-                    running=matches,
+                    running=matches is True,
                 )
             )
 
@@ -342,19 +346,20 @@ class BotRuntimeService:
                     f"Runtime state worker {profile} не содержит полной identity.",
                     state=OperationState.UNKNOWN,
                 )
-            matches = cls._process_matches(
-                {
-                    "pid": snapshot.worker_pid,
-                    "created_at": snapshot.worker_created_at,
-                }
-            )
-            if matches is None:
+            try:
+                matches = cls._process_matches(
+                    {
+                        "pid": snapshot.worker_pid,
+                        "created_at": snapshot.worker_created_at,
+                    }
+                )
+            except (OSError, RuntimeError) as exc:
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                     f"Нельзя проверить orphan worker из runtime state: {profile}.",
                     state=OperationState.UNKNOWN,
-                )
-            if matches:
+                ) from exc
+            if matches is True:
                 raise ToolingError(
                     ResultCode.TOOLING_OPERATION_CONFLICT,
                     f"Runtime state указывает на незарегистрированный живой worker {profile}.",

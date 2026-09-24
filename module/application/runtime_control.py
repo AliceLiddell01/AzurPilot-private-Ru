@@ -975,12 +975,8 @@ class RuntimeControlServer:
             key = _token(payload.get("idempotency_key"), field="idempotency_key")
             operation = RuntimeControlOperation(str(payload.get("operation")))
             profile = _control_profile(payload.get("profile"), operation=operation)
-        except RuntimeControlError:
+        except (RuntimeControlError, ValueError):
             return False
-        try:
-            operation = RuntimeControlOperation(str(payload.get("operation")))
-        except ValueError:
-            operation = RuntimeControlOperation.START_PROFILE
         try:
             safe_code = _text(code, maximum=100, pattern=_SAFE_CODE, field="code")
         except RuntimeControlError:
@@ -1182,11 +1178,8 @@ class BotRuntimeBootstrapper:
         if raw is None:
             return None
         owner = RuntimeOwnerIdentity.from_value(raw)
-        try:
-            if self.owner_matches(owner) is True:
-                return owner
-        except Exception:  # noqa: BLE001 - устаревший owner считается отсутствующим.
-            return None
+        if self.owner_matches(owner) is True:
+            return owner
         return None
 
     def _stop_owned_process(self) -> None:

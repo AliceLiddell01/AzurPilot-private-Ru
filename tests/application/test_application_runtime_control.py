@@ -112,6 +112,84 @@ def test_control_plane_executes_owner_operation_once_and_is_idempotent(tmp_path:
     assert not list((tmp_path / "config" / "state" / "bot-runtime" / "control" / "requests").glob("*.json"))
 
 
+def test_unknown_operation_does_not_kill_control_server_thread(tmp_path: Path) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    calls: list[tuple[RuntimeControlOperation, str]] = []
+
+    def executor(
+        operation: RuntimeControlOperation,
+        profile: str,
+        *,
+        request_id: str,
+        idempotency_key: str,
+        session_id: str | None,
+        expires_at: str,
+    ) -> RuntimeControlResult:
+        calls.append((operation, profile))
+        return RuntimeControlResult(
+            True,
+            "RUNTIME_STARTED",
+            "Профиль запущен",
+            operation,
+            profile,
+            request_id,
+            idempotency_key,
+            details={"session_id": session_id},
+            owner=owner,
+        )
+
+    server = RuntimeControlServer(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        executor=executor,
+        poll_interval=0.005,
+    )
+    server.start()
+    requests = tmp_path / "config" / "state" / "bot-runtime" / "control" / "requests"
+    results = tmp_path / "config" / "state" / "bot-runtime" / "control" / "results"
+    poison_path = requests / "malformed-operation.json"
+    request = {
+        "schema_version": 2,
+        "request_id": "malformed-operation-request",
+        "idempotency_key": "malformed-operation",
+        "operation": "unknown_operation",
+        "profile": "ap",
+        "session_id": None,
+        "expected_owner": owner.as_dict(),
+        "created_at": datetime.now(UTC).isoformat(),
+        "expires_at": (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
+    }
+
+    try:
+        poison_path.write_text(json.dumps(request), encoding="utf-8")
+        deadline = time.monotonic() + 1.0
+        while poison_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.005)
+
+        assert not poison_path.exists()
+        assert not (results / "malformed-operation.json").exists()
+        assert server._thread is not None and server._thread.is_alive()
+
+        client = RuntimeControlClient(
+            tmp_path,
+            owner_reader=lambda: owner.as_dict(),
+            owner_matches=lambda candidate: candidate == owner,
+            timeout=1.0,
+            poll_interval=0.005,
+        )
+        result = client.call(
+            RuntimeControlOperation.START_PROFILE,
+            "ap",
+            idempotency_key="after-malformed-operation",
+        )
+    finally:
+        server.close()
+
+    assert result.ok is True
+    assert calls == [(RuntimeControlOperation.START_PROFILE, "ap")]
+
+
 def test_control_plane_rejects_changed_owner_and_unsafe_error_key(tmp_path: Path) -> None:
     expected = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
     current = RuntimeOwnerIdentity(pid=4322, created_at=1234.5)

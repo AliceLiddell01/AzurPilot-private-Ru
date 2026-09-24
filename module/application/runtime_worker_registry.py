@@ -195,18 +195,12 @@ def _canonical_registry_file(repository_root: Path | str | None = None) -> Path:
 
 
 def _record_is_alive(record: dict | None) -> bool | None:
-    """Консервативно проверить, жив ли зарегистрированный процесс."""
+    """Проверить точную идентичность процесса, сохраняя результат проверки."""
     if record is None:
         return False
     if "created_at" not in record:
         return _pid_exists(record["pid"])
-    try:
-        return process_matches(record)
-    except RuntimeError:
-        # При невозможности подтвердить состояние вернуть неопределённый
-        # результат; вызывающий код должен отклонить перезапись, не выдавая его
-        # за живой процесс.
-        return None
+    return process_matches(record)
 
 
 def _terminate_proven_orphan_worker(record: dict, worker_name: str) -> None:
@@ -214,14 +208,12 @@ def _terminate_proven_orphan_worker(record: dict, worker_name: str) -> None:
     pid = record["pid"]
     try:
         matches = process_matches(record)
-    except RuntimeError as exc:
+    except (OSError, RuntimeError) as exc:
         raise WorkerRegistryOwnershipError(
             f"Нельзя подтвердить orphan worker {worker_name} перед очисткой"
         ) from exc
     if matches is None:
-        raise WorkerRegistryOwnershipError(
-            f"Нельзя подтвердить identity orphan worker {worker_name} перед очисткой"
-        )
+        return
     if matches is False:
         return
     if os.name == "nt":
@@ -277,14 +269,12 @@ def _terminate_proven_orphan_worker(record: dict, worker_name: str) -> None:
     while True:
         try:
             matches = process_matches(record)
-        except RuntimeError as exc:
+        except (OSError, RuntimeError) as exc:
             raise WorkerRegistryOwnershipError(
                 f"Не удалось подтвердить завершение orphan worker {worker_name}"
             ) from exc
         if matches is None:
-            raise WorkerRegistryOwnershipError(
-                f"Нельзя подтвердить завершение orphan worker {worker_name}"
-            )
+            return
         if matches is False:
             return
         if time.monotonic() >= deadline:
@@ -328,14 +318,10 @@ def _migrate_legacy_registry() -> Path:
             return True
         try:
             matches = process_matches(record)
-        except RuntimeError as exc:
+        except (OSError, RuntimeError) as exc:
             raise WorkerRegistryOwnershipError(
                 f"Идентичность {label} PID {pid} невозможно подтвердить"
             ) from exc
-        if matches is None:
-            raise WorkerRegistryOwnershipError(
-                f"Идентичность {label} PID {pid} невозможно подтвердить"
-            )
         if matches is True:
             raise WorkerRegistryOwnershipError(
                 f"{label} PID {pid} ещё работает; передача ownership отклонена"
@@ -350,7 +336,12 @@ def _migrate_legacy_registry() -> Path:
             raise WorkerRegistryOwnershipError(
                 f"Запись прежнего worker {worker_name} имеет неподтверждённый формат"
             )
-        matches = _record_is_alive(worker)
+        try:
+            matches = _record_is_alive(worker)
+        except (OSError, RuntimeError) as exc:
+            raise WorkerRegistryOwnershipError(
+                f"Нельзя подтвердить identity прежнего worker {worker_name}"
+            ) from exc
         if matches is True:
             if not legacy_owner_dead:
                 raise WorkerRegistryOwnershipError(
@@ -382,7 +373,12 @@ def _migrate_legacy_registry() -> Path:
                     raise WorkerRegistryOwnershipError(
                         f"Запись canonical worker {worker_name} имеет неподтверждённый формат"
                     )
-                matches = _record_is_alive(worker)
+                try:
+                    matches = _record_is_alive(worker)
+                except (OSError, RuntimeError) as exc:
+                    raise WorkerRegistryOwnershipError(
+                        f"Нельзя подтвердить identity canonical worker {worker_name}"
+                    ) from exc
                 if matches is True:
                     if not current_owner_dead:
                         raise WorkerRegistryOwnershipError(
@@ -551,14 +547,10 @@ def _remove_proven_dead_workers(
             )
         try:
             worker_matches = process_matches(worker)
-        except RuntimeError as exc:
+        except (OSError, RuntimeError) as exc:
             raise WorkerRegistryOwnershipError(
                 f"Нельзя подтвердить identity orphan worker {worker_name}"
             ) from exc
-        if worker_matches is None:
-            raise WorkerRegistryOwnershipError(
-                f"Нельзя подтвердить identity orphan worker {worker_name}"
-            )
         if worker_matches is True:
             if not allow_orphan_cleanup:
                 raise WorkerRegistryOwnershipError(
@@ -603,7 +595,7 @@ def claim_owner(
             else:
                 try:
                     previous_owner_alive = process_matches(previous_owner)
-                except RuntimeError as exc:
+                except (OSError, RuntimeError) as exc:
                     raise WorkerRegistryOwnershipError(
                         f"Не удалось проверить прежнего владельца Bot Runtime: {exc}"
                     ) from exc
@@ -833,10 +825,8 @@ def _read_only_registry_paths() -> tuple[tuple[Path, ...], dict[Path, dict]]:
             raise RuntimeError("Legacy worker registry не содержит точную identity owner")
         try:
             owner_matches = process_matches(owner)
-        except RuntimeError:
-            owner_matches = None
-        if owner_matches is None:
-            raise RuntimeError("Legacy worker registry owner identity неизвестна")
+        except (OSError, RuntimeError) as exc:
+            raise RuntimeError("Legacy worker registry owner identity неизвестна") from exc
         if owner_matches is True:
             active_legacy.append(legacy_file)
         else:
@@ -936,7 +926,7 @@ def clear_owner(
         else:
             try:
                 owner_matches = process_matches(record)
-            except RuntimeError as exc:
+            except (OSError, RuntimeError) as exc:
                 raise WorkerRegistryOwnershipError(
                     f"Не удалось проверить прежнего владельца Bot Runtime PID {owner_pid}: {exc}"
                 ) from exc
