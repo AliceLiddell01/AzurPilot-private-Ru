@@ -57,7 +57,7 @@ _UNC_ABSOLUTE_PATH_START_RE = re.compile(
     r"(?<![A-Za-z0-9_/:?])\\\\",
 )
 _POSIX_ABSOLUTE_PATH_START_RE = re.compile(
-    r"(?<![/:A-Za-z0-9_<])/",
+    r"(?<![\w/:<])/",
 )
 _ABSOLUTE_PATH_STARTS = (
     ("windows", _WINDOWS_ABSOLUTE_PATH_START_RE),
