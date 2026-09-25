@@ -183,7 +183,7 @@ def test_cli_human_output_renders_mcp_lifecycle_services() -> None:
                 ok=True,
                 code=ResultCode.OK,
                 state=OperationState.READY,
-                message="Надзирающий процесс MCP запущен.",
+                message="MCP supervisor запущен.",
                 details=details,
             )
 
@@ -234,7 +234,7 @@ def test_unknown_capability_has_closed_json_and_human_representation() -> None:
             CapabilityCheck(
                 name="runtime",
                 status=CapabilityStatus.UNKNOWN,
-                message="Владение средой выполнения нельзя подтвердить.",
+                message="Владение runtime нельзя подтвердить.",
             ),
         ),
         healthy=False,
@@ -345,7 +345,7 @@ def test_lifecycle_keeps_state_when_termination_is_not_confirmed(
         tooling_lifecycle.ProcessController,
         "terminate",
         lambda _identity, timeout_seconds=15.0, *, include_children=True: (
-            pytest.fail("Остановка WebUI не должна завершать дерево рабочих процессов")
+            pytest.fail("WebUI Stop не должен завершать дерево worker-процессов")
             if include_children
             else False
         ),
@@ -455,7 +455,7 @@ def test_lifecycle_stop_succeeds_when_cleanup_proves_process_already_exited(
         tooling_lifecycle.ProcessController,
         "terminate",
         lambda _identity, timeout_seconds=15.0, *, include_children=True: (
-            pytest.fail("Остановка WebUI не должна завершать дерево рабочих процессов")
+            pytest.fail("WebUI Stop не должен завершать дерево worker-процессов")
             if include_children
             else False
         ),
@@ -1488,7 +1488,7 @@ def test_state_base_falls_back_when_home_directory_is_unavailable(
         monkeypatch.delenv(variable, raising=False)
 
     def unavailable_home() -> Path:
-        raise RuntimeError("Домашний каталог недоступен")
+        raise RuntimeError("home недоступен")
 
     monkeypatch.setattr(
         tooling_filesystem.Path, "home", staticmethod(unavailable_home)
@@ -1874,7 +1874,7 @@ def test_update_surfaces_post_update_mcp_failure_as_error(tmp_path: Path) -> Non
         def reconcile(self, _root: Path, **_kwargs: object) -> object:
             raise ToolingError(
                 ResultCode.MCP_RUNTIME_STALE,
-                "Среда выполнения MCP не согласована.",
+                "MCP runtime не согласован.",
             )
 
     with pytest.raises(ToolingError) as error:
@@ -1942,7 +1942,7 @@ def test_update_does_not_mask_mcp_postcondition_failures(
 
     class FailingMcp:
         def reconcile(self, _root: Path, **_kwargs: object) -> object:
-            raise ToolingError(code, "Итоговое условие MCP не подтверждено.")
+            raise ToolingError(code, "MCP postcondition не подтверждено.")
 
     with pytest.raises(ToolingError) as error:
         tooling_update.UpdateService(
@@ -1964,7 +1964,7 @@ def test_update_does_not_mask_unknown_mcp_reconcile_result(
             return SimpleNamespace(
                 ok=False,
                 code=ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                message="Итоговое условие MCP неизвестно.",
+                message="MCP postcondition неизвестно.",
                 state=OperationState.UNKNOWN,
                 details=None,
                 evidence=None,
@@ -1991,7 +1991,7 @@ def test_update_keeps_plugin_only_change_as_reload_without_backend_restart(
             return SimpleNamespace(
                 ok=False,
                 code=ResultCode.MCP_RELOAD_REQUIRED,
-                message="Сеанс плагина требует перезагрузки.",
+                message="Plugin session требует reload.",
                 state=OperationState.FAILED,
                 details=SimpleNamespace(
                     restarted_servers=(),
@@ -2232,7 +2232,7 @@ def test_update_rejects_replaced_environment_without_project_console_script(
     assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Требуется символическая ссылка POSIX в venv")
+@pytest.mark.skipif(os.name == "nt", reason="требуется POSIX symlink в venv")
 def test_repair_and_update_allow_only_regular_file_symlink_in_posix_venv(
     tmp_path: Path,
 ) -> None:
