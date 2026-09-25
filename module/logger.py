@@ -22,7 +22,6 @@ from typing import Callable, List
 from rich.console import Console, ConsoleOptions, ConsoleRenderable, NewLine
 from rich.highlighter import RegexHighlighter
 from rich.logging import RichHandler
-from rich.markup import escape as escape_markup
 from rich.pretty import Node
 from rich.rule import Rule
 from rich.style import Style
@@ -349,7 +348,7 @@ def hr(title, level=3):
         logger.rule(title, characters='─')
     if level == 3:
         logger.info(
-            f"[bold]<<< {escape_markup(title)} >>>[/bold]",
+            f"[bold]<<< {title} >>>[/bold]",
             extra={"markup": True, **section_extra},
         )
     if level == 0:
