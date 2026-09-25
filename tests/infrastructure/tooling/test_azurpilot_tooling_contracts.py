@@ -28,7 +28,7 @@ from azurpilot.tooling import shortcut as tooling_shortcut
 from azurpilot.tooling import update as tooling_update
 from azurpilot.tooling.bot_runtime import BotRuntimeService
 from azurpilot.tooling.bootstrap import BuildService
-from azurpilot.tooling.config import DeploySettings, load_deploy_settings
+from azurpilot.tooling.config import DeploySettings, load_deploy_settings, project_python
 from azurpilot.tooling.contracts import (
     BotRuntimeDetails,
     CapabilityCheck,
@@ -1447,8 +1447,11 @@ def _project_module_root(tmp_path: Path) -> Path:
     """Создать минимальный корень репозитория с Python проектного venv."""
 
     root = tmp_path / "repository"
-    (root / ".venv" / "bin").mkdir(parents=True)
-    (root / ".venv" / "bin" / "python").write_bytes(b"")
+    # Путь берётся у владельца раскладки, чтобы фикстура совпадала с проверкой
+    # предпосылки на каждой платформе (POSIX ``bin/python``, Windows ``Scripts/python.exe``).
+    python = project_python(root)
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"")
     return root
 
 
