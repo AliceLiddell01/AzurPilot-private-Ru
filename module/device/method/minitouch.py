@@ -571,11 +571,11 @@ class Minitouch(Connection):
                 raise MinitouchOccupiedError(
                     '[Устройство — minitouch] Истекло время подключения; вероятно, уже установлено другое соединение'
                 )
-            logger.info(out)
+            logger.debug('[Устройство — minitouch] Служебный заголовок протокола: %s', out)
 
             # ^ <max-contacts> <max-x> <max-y> <max-pressure>
             out = socket_out.readline().replace("\n", "").replace("\r", "")
-            logger.info(out)
+            logger.debug('[Устройство — minitouch] Служебный заголовок протокола: %s', out)
             try:
                 _, max_contacts, max_x, max_y, max_pressure, *_ = out.split(" ")
                 break
@@ -600,7 +600,7 @@ class Minitouch(Connection):
 
         # $ <pid>
         out = socket_out.readline().replace("\n", "").replace("\r", "")
-        logger.info(out)
+        logger.debug('[Устройство — minitouch] Служебный заголовок протокола: %s', out)
         _, pid = out.split(" ")
         self._minitouch_pid = int(pid)
 
