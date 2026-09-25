@@ -263,7 +263,10 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
             interval = 0.1
 
         if interval != self._screenshot_interval.limit:
-            logger.info(f'[Устройство — снимок] Интервал снимков экрана установлен на {interval} с')
+            logger.debug(
+                '[Устройство — снимок] Интервал снимков экрана установлен на %s с',
+                interval,
+            )
             self._screenshot_interval.limit = interval
 
     def image_show(self, image=None):
