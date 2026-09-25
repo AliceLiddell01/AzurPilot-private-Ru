@@ -116,6 +116,54 @@ def test_rich_log_put_log_renders_structured_runtime_events() -> None:
     assert len(rendered) == 1
     assert isinstance(rendered[0], Rule)
     log.extend.assert_called_once_with("rendered")
+    log.reset.assert_not_called()
+
+
+def test_refreshable_runtime_source_appends_only_new_events() -> None:
+    first = RuntimeLogEvent(
+        timestamp="2026-09-25T10:00:00.000+07:00",
+        level=20,
+        level_name="INFO",
+        message="Первая строка",
+    )
+    second = RuntimeLogEvent(
+        timestamp="2026-09-25T10:00:00.100+07:00",
+        level=20,
+        level_name="INFO",
+        message="Вторая строка",
+    )
+    source = SimpleNamespace(
+        renderables=[first],
+        renderables_total=1,
+        renderables_generation=0,
+    )
+    refresh_calls = 0
+
+    def refresh() -> bool:
+        nonlocal refresh_calls
+        refresh_calls += 1
+        if refresh_calls == 2:
+            source.renderables.append(second)
+            source.renderables_total += 1
+            return True
+        return False
+
+    source.refresh_renderables = refresh
+    log = _log()
+    rendered: list[object] = []
+    log.render = lambda value: rendered.append(value) or f"<{len(rendered)}>"
+    stream = log.put_log(source)
+    next(stream)
+    next(stream)
+    next(stream)
+
+    assert len(rendered) == 2
+    assert [item.plain for item in rendered if isinstance(item, Text)] == [
+        "2026-09-25 10:00:00.000 │ INFO │ Первая строка",
+        "2026-09-25 10:00:00.100 │ INFO │ Вторая строка",
+    ]
+    assert [call.args[0] for call in log.extend.call_args_list] == ["<1>", "<2>"]
+    log.reset.assert_not_called()
 
 
 def test_runtime_section_level_three_is_bold_and_keeps_traceback() -> None:
