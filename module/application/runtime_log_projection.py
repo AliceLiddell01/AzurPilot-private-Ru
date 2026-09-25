@@ -430,6 +430,13 @@ class RuntimeLogProjectionHandler(RotatingFileHandler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            if (
+                getattr(record, "azurpilot_log_kind", "log") != "section"
+                and not record.exc_info
+                and not record.stack_info
+                and not record.getMessage().strip()
+            ):
+                return
             # За отложенное открытие, блокировку и ротацию отвечает RotatingFileHandler.
             super().emit(record)
         except Exception:
