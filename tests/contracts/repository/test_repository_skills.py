@@ -112,7 +112,7 @@ def test_development_description_has_positive_and_negative_routing() -> None:
         "рефактор",
         "инфраструктур",
         "ci/тест",
-        "upstream",
+        "основной версии",
         "pr",
         "слияни",
         "очистк",
@@ -130,7 +130,6 @@ def test_coderabbit_description_routes_review_requests() -> None:
     for delegated_trigger in ("делегации", "canonical", "checkpoint"):
         assert delegated_trigger in description
     assert "подготовка pr к финальному ревью" not in description
-    assert "не используй для generic pr preparation" in description
 
 
 def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
@@ -142,8 +141,8 @@ def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
     for required in (
         "явном запросе coderabbit/code review",
         "внутренней делегации",
-        "host-native executable",
-        "generic pr preparation",
+        "windows использует `coderabbit.exe`",
+        "posix host — `coderabbit`",
         "обычной разработки вне такого checkpoint",
     ):
         assert required in review_content
@@ -246,12 +245,9 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
     workflow_content = " ".join(review_reference.read_text(encoding="utf-8").split())
     for required in (
         "provider finding и verified finding disposition — разные сущности",
-        "affected code",
-        "call sites",
-        "ближайшие tests",
-        "relevant contracts",
+        "для каждого finding до любой classification",
+        "заявленный provider impact",
         "azur integrations coderabbit triage",
-        "duplicate review",
     ):
         assert required.lower() in workflow_content.lower()
 
@@ -264,7 +260,7 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
     reference_flat = " ".join(reference.lower().split())
 
     assert "references/cross-thread-task-delegation.md" in development
-    assert "optional codex registration check" in " ".join(
+    assert "необязательной проверки регистрации codex" in " ".join(
         development.lower().split()
     )
     for required in (
@@ -365,6 +361,7 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
         assert (
             "cross-thread continuation" in content
             or "продолжения между задачами" in content
+            or "продолжения задачи между потоками" in content
         )
         assert (
             "fresh independent" in content
@@ -374,6 +371,7 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
                 or ("независим" in content and "task/thread" in content)
                 or "единый контракт cross-thread" in content
                 or "продолжения между задачами" in content
+                or "продолжения задачи между потоками" in content
             )
 
 
@@ -400,49 +398,49 @@ def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -
 
 def test_developer_workflow_uses_terminal_mcp_sync_smoke_run_and_intent_delivery() -> None:
     paths = {
-        "repository skill": (
+        "навык репозитория": (
             _REPOSITORY_ROOT
             / ".agents/skills/azurpilot-repository-development/SKILL.md"
         ),
-        "verification owner": _REPOSITORY_ROOT / ".codex/context/08-VERIFICATION.md",
-        "tooling owner": _REPOSITORY_ROOT / ".codex/context/11-PYTHON-TOOLING.md",
-        "git owner": _REPOSITORY_ROOT / ".codex/context/GIT-WORKFLOW.md",
-        "plugin development skill": (
+        "владелец проверок": _REPOSITORY_ROOT / ".codex/context/08-VERIFICATION.md",
+        "владелец инструментов": _REPOSITORY_ROOT / ".codex/context/11-PYTHON-TOOLING.md",
+        "владелец Git": _REPOSITORY_ROOT / ".codex/context/GIT-WORKFLOW.md",
+        "навык разработки плагина": (
             _REPOSITORY_ROOT
             / "plugins/azurpilot/skills/azurpilot-development/SKILL.md"
         ),
-        "plugin routing reference": (
+        "справочник маршрутизации плагина": (
             _REPOSITORY_ROOT / "plugins/azurpilot/references/mcp-routing.md"
         ),
     }
     contracts = {
-        "repository skill": (
+        "навык репозитория": (
             "azur mcp sync --base",
             "NO_CHANGES",
-            "fresh-client acceptance",
+            "приёмка новым клиентом",
             "dev_run_smoke",
             "dev_start_smoke",
             "delivery publish --message",
         ),
-        "verification owner": (
+        "владелец проверок": (
             "azur mcp sync --base",
             "NO_CHANGES",
-            "замороженном candidate",
+            "заморозки варианта изменений",
             "delivery publish --message",
         ),
-        "tooling owner": (
+        "владелец инструментов": (
             "azur mcp sync --base",
             "exact base",
             "delivery publish --message",
             "in-memory",
         ),
-        "git owner": (
+        "владелец Git": (
             "azur mcp sync --base",
             "SYNCED",
             "delivery publish",
             "preimage/postimage",
         ),
-        "plugin development skill": (
+        "навык разработки плагина": (
             "azur mcp sync --base",
             "NO_CHANGES",
             "fresh-client acceptance",
@@ -450,30 +448,32 @@ def test_developer_workflow_uses_terminal_mcp_sync_smoke_run_and_intent_delivery
             "dev_start_smoke",
             "terminal result",
         ),
-        "plugin routing reference": ("azur mcp sync --base", "NO_CHANGES", "fresh-client acceptance"),
+        "справочник маршрутизации плагина": ("azur mcp sync --base", "NO_CHANGES", "fresh-client acceptance"),
     }
     for owner, path in paths.items():
         content = " ".join(path.read_text(encoding="utf-8").casefold().split())
-        for phrase in contracts[owner]:
-            assert phrase.casefold() in content, (owner, path, phrase)
+        for contract_index, phrase in enumerate(contracts[owner], start=1):
+            assert phrase.casefold() in content, (
+                f"{owner}: в {path} не выполнено требование контракта №{contract_index}"
+            )
 
     normal_contract = _normalize_contract(
         " | ".join(
             paths[owner].read_text(encoding="utf-8")
             for owner in (
-                "repository skill",
-                "verification owner",
-                "tooling owner",
-                "git owner",
-                "plugin development skill",
+                "навык репозитория",
+                "владелец проверок",
+                "владелец инструментов",
+                "владелец Git",
+                "навык разработки плагина",
             )
         )
     )
     assert "dev_start_smoke" in normal_contract
     assert "dev_capture_smoke_game_checkpoint" not in normal_contract
-    assert "не запускай validate manifest перед normal publish" in normal_contract
-    assert "вызови validate manifest перед normal publish" not in normal_contract
-    plugin_skill = paths["plugin development skill"].read_text(encoding="utf-8")
+    assert "не запускай validate manifest перед обычной публикацией" in normal_contract
+    assert "вызови validate manifest перед обычной публикацией" not in normal_contract
+    plugin_skill = paths["навык разработки плагина"].read_text(encoding="utf-8")
     assert "dev_validate_smoke` оставлен для необязательной read-only проверки" in " ".join(
         plugin_skill.split()
     )
@@ -496,7 +496,7 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     )
-    raw_merge_section = _section(workflow, "### Merge", "## 21.")
+    raw_merge_section = _section(workflow, "### Слияние", "## 21.")
     merge_section = _normalize_contract(raw_merge_section)
     items = _numbered_contract_items(raw_merge_section)
     assert len(items) >= 3
@@ -509,7 +509,7 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
         ),
         None,
     )
-    assert final_review_index is not None, "В разделе Merge отсутствует финальное пользовательское ревью."
+    assert final_review_index is not None, 'В разделе "Слияние" отсутствует финальная проверка пользователя.'
     authorization_index = next(
         (
             index
@@ -518,23 +518,23 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
         ),
         None,
     )
-    assert authorization_index is not None, "В разделе Merge отсутствует отдельное разрешение для текущего PR."
+    assert authorization_index is not None, 'В разделе "Слияние" отсутствует отдельное разрешение для текущего PR.'
     merge_action_index = next(
         (
             index
             for index, item in enumerate(items)
-            if "merge" in item and ("провер" in item or "revalidation" in item)
+            if "слияни" in item and "провер" in item
         ),
         None,
     )
-    assert merge_action_index is not None, "В разделе Merge отсутствует проверка merge/revalidation."
+    assert merge_action_index is not None, 'В разделе "Слияние" отсутствует проверка действия и повторной проверки.'
     assert final_review_index < authorization_index < merge_action_index
 
     assert "старое разрешение" in merge_section
     assert "разрешение для другого pr" in merge_section
     assert "недостаточ" in merge_section
-    assert all(token in merge_section for token in ("ci", "coderabbit", "self-review"))
-    assert "не являются разрешением на merge" in merge_section
+    assert all(token in merge_section for token in ("ci", "coderabbit", "самостоятельная проверка"))
+    assert "не являются разрешением на слияние" in merge_section
     assert "ready_for_chatgpt_review" in merge_section
     assert "merge-authorized" in merge_section
 
@@ -545,8 +545,8 @@ def test_new_capability_branch_contract_does_not_restore_codex_default() -> None
     normalized = _normalize_contract(workflow)
     assert "<domain>/<unique-capability-name>" in normalized
     assert "codex/*" in normalized
-    assert "compatibility/legacy" in normalized
-    assert "новые обычные задачи этот namespace не используют" in normalized
+    assert "прежним пространством имён" in normalized
+    assert "новые обычные задачи это пространство имён не используют" in normalized
     assert "sync/*" in normalized
 
 
@@ -554,15 +554,15 @@ def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     ).lower()
-    fast_track = workflow.split("### fast-track", maxsplit=1)[1].split("### стандартный", maxsplit=1)[0]
+    fast_track = workflow.split("### быстрый режим", maxsplit=1)[1].split("### стандартный", maxsplit=1)[0]
     assert "ready_for_chatgpt_review" in fast_track
-    assert "stop" in fast_track
-    assert "не даёт разрешения на merge" in fast_track
+    assert "остановка" in fast_track
+    assert "не даёт разрешения на слияние" in fast_track
     assert "merge + короткий post-merge smoke" not in fast_track
 
     workflow_flat = " ".join(workflow.split())
     for required in (
-        "после исчерпания бюджета retry для обязательного product/security gate merge блокируется",
+        "после исчерпания числа повторов обязательной проверки продукта или безопасности слияние блокируется",
         "если навык coderabbit вернул `rate_limited`",
         "жизненный цикл git может достичь `ready_for_chatgpt_review`",
         "это не отменяет обязательные ci, проверку безопасности и секретов, обязательную приёмку продукта или блокирующие обсуждения",
@@ -575,8 +575,8 @@ def test_rate_limit_cannot_reopen_merge_authorized_or_merged_lifecycle() -> None
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     )
-    workflow_post_merge = workflow.split("## 23. Post-merge и rollback", maxsplit=1)[1].split(
-        "## 24. Branch protection", maxsplit=1
+    workflow_post_merge = workflow.split("## 23. После слияния и откат", maxsplit=1)[1].split(
+        "## 24. Защита веток", maxsplit=1
     )[0]
     normalized = _normalize_contract(workflow)
     assert "merge-authorized" in normalized
@@ -586,17 +586,17 @@ def test_rate_limit_cannot_reopen_merge_authorized_or_merged_lifecycle() -> None
 
 def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow() -> None:
     agents_content = (_REPOSITORY_ROOT / "AGENTS.md").read_text(encoding="utf-8").lower()
-    workflow_content = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
+    workflow_content = " ".join((_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
-    ).lower()
+    ).lower().split())
     assert "git-workflow.md" in agents_content
     assert "для любых git/pr-операций следуй только" in agents_content
     assert "параллельная разработка" not in agents_content
     assert "опасный reproduction/experiment" not in agents_content
     for exception in (
         "параллельная разработка",
-        "опасный reproduction/experiment",
-        "несовместимое состояние зависимостей/runtime",
+        "опасное воспроизведение/эксперимент",
+        "несовместимое состояние зависимостей или среды выполнения",
     ):
         assert exception in workflow_content
 

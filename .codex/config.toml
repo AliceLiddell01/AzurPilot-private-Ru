@@ -37,7 +37,7 @@ required = false
 startup_timeout_sec = 10
 tool_timeout_sec = 180
 
-# Прямые read-only registrations. Секреты не хранятся в repository config.
+# Прямые регистрации только для чтения. Секреты не хранятся в конфигурации репозитория.
 [mcp_servers.context7_direct]
 url = "https://mcp.context7.com/mcp"
 enabled = true
@@ -147,3 +147,11 @@ enabled = true
 required = false
 startup_timeout_sec = 20
 tool_timeout_sec = 120
+
+[agents]
+default_subagent_model = "gpt-6-luna"
+default_subagent_reasoning_effort = "max"
+
+[features.multi_agent_v2]
+enabled = true
+max_concurrent_threads_per_session = 7
