@@ -678,7 +678,7 @@ class LifecycleService:
                 if identity is None:
                     raise ToolingError(
                         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                        "Запись жизненного цикла WebUI не удалось преобразовать в identity.",
+                        "Запись жизненного цикла WebUI не удалось преобразовать в идентичность процесса.",
                         operation_id=operation_id,
                     )
                 if not self._recover_stale_lifecycle_record(
