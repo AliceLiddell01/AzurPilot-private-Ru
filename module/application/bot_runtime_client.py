@@ -43,6 +43,8 @@ class _ProfileClient:
         self.renderables_max_length = 2000
         self.renderables_reduce_length = 1000
         self.renderables_total = 0
+        self.renderables_generation = 0
+        self._projected_events: tuple[RuntimeLogEvent, ...] = ()
         self._log_signature: tuple[tuple[str, int, int] | tuple[str, None, None], ...] | None = None
         self._state_override: int | None = None
         self._state_override_deadline: float | None = None
@@ -123,6 +125,26 @@ class _ProfileClient:
         self._state_override = None
         self._state_override_deadline = None
 
+    @staticmethod
+    def _projected_delta(
+        previous: tuple[RuntimeLogEvent, ...],
+        current: tuple[RuntimeLogEvent, ...],
+    ) -> tuple[RuntimeLogEvent, ...] | None:
+        """Вернуть новые события bounded tail или None при потере непрерывности."""
+
+        if not previous:
+            return current
+        if current == previous:
+            return ()
+        anchor = previous[-1]
+        for index in range(len(current) - 1, -1, -1):
+            if current[index] != anchor:
+                continue
+            overlap = min(len(previous), index + 1)
+            if previous[-overlap:] == current[index + 1 - overlap : index + 1]:
+                return current[index + 1 :]
+        return None
+
     def refresh_renderables(self) -> bool:
         try:
             signature = runtime_log_signature(
@@ -137,9 +159,23 @@ class _ProfileClient:
             )
         except (OSError, ValueError):
             return False
+
         self._log_signature = signature
-        self.renderables = list(events)
-        self.renderables_total = len(self.renderables)
+        delta = self._projected_delta(self._projected_events, events)
+        self._projected_events = events
+
+        if delta is None:
+            self.renderables = list(events)
+            self.renderables_total += len(self.renderables)
+            self.renderables_generation += 1
+            return True
+        if not delta:
+            return False
+
+        self.renderables.extend(delta)
+        self.renderables_total += len(delta)
+        if len(self.renderables) > self.renderables_max_length:
+            del self.renderables[: self.renderables_reduce_length]
         return True
 
     def _get_state_override(self) -> int | None:
