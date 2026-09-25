@@ -157,6 +157,8 @@ def test_runtime_warning_and_error_levels_have_distinct_colors() -> None:
 
     assert isinstance(warning_line, Text)
     assert isinstance(error_line, Text)
+    assert warning_line.plain.startswith("2026-09-25 10:00:00.000 │ WARNING │ ")
+    assert error_line.plain.startswith("2026-09-25 10:00:01.000 │ ERROR │ ")
     assert any(span.style == "yellow" for span in warning_line.spans)
     assert any(span.style == "red" for span in error_line.spans)
 
