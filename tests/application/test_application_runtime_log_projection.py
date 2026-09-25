@@ -8,9 +8,20 @@ from module.application import runtime_log_projection as projection
 from module.application.runtime_log_projection import (
     RuntimeLogEvent,
     RuntimeLogProjectionHandler,
+    format_runtime_log_timestamp,
     read_runtime_log_events,
     read_runtime_log_tail,
 )
+
+
+def test_runtime_log_timestamp_format_matches_legacy_text_shape():
+    assert format_runtime_log_timestamp(
+        "2026-09-25T10:00:00.123+07:00"
+    ) == "2026-09-25 10:00:00.123"
+    assert format_runtime_log_timestamp(
+        "2026-09-25 10:00:00.123"
+    ) == "2026-09-25 10:00:00.123"
+    assert format_runtime_log_timestamp("неизвестно") == "неизвестно"
 
 
 def test_runtime_log_projection_is_bounded_and_sanitized(tmp_path, monkeypatch):
