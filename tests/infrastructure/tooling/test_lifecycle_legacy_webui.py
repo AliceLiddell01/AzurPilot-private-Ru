@@ -787,14 +787,17 @@ def test_stop_clears_reused_stale_pid_without_terminating_foreign_process(
             return None
 
     class FakeCoordinator:
+        record = object()
+
         def lock(self, _operation: str) -> FakeLock:
             return FakeLock()
 
         def read_lifecycle(self):
-            return object()
+            return self.record
 
         def clear_lifecycle(self):
             cleared.append("lifecycle")
+            self.record = None
 
         def clear_stop_request(self):
             cleared.append("stop.request")
@@ -810,9 +813,9 @@ def test_stop_clears_reused_stale_pid_without_terminating_foreign_process(
         LifecycleService,
         "_port_state",
         staticmethod(
-            lambda *_args: (
+            lambda _settings, _coordinator, record: (
                 lifecycle._PortState(free, "free", False),
-                identity,
+                identity if record is not None else None,
             )
         ),
     )
@@ -841,6 +844,11 @@ def test_stop_clears_reused_stale_pid_without_terminating_foreign_process(
     assert result.details.cleanup_confirmed
     assert cleared == ["lifecycle", "stop.request"]
     terminate.assert_not_called()
+
+    status = service.inspect(root)
+    assert status.ok
+    assert status.state is OperationState.STOPPED
+    assert status.details.readiness == "not_running"
 
 
 def test_start_clears_reused_stale_pid_before_fresh_webui_launch(
