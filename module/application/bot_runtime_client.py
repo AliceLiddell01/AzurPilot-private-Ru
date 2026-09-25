@@ -1,4 +1,4 @@
-"""Клиент WebUI для независимого Bot Runtime без окна."""
+"""Клиент WebUI к независимому headless Bot Runtime."""
 
 from __future__ import annotations
 
@@ -8,16 +8,12 @@ import uuid
 from pathlib import Path
 
 from module.application.runtime_control import (
-    RUNTIME_CONTROL_PROFILE,
     BotRuntimeBootstrapper,
     RuntimeControlClient,
     RuntimeControlError,
     RuntimeControlOperation,
+    RUNTIME_CONTROL_PROFILE,
     RuntimeOwnerIdentity,
-)
-from module.application.runtime_log_projection import (
-    read_runtime_log_events,
-    runtime_log_signature,
 )
 from module.application.runtime_state import RuntimePhase, RuntimeStateStore
 from module.application.runtime_worker_registry import (
@@ -27,14 +23,19 @@ from module.application.runtime_worker_registry import (
     process_matches,
     read_canonical_worker_read_only,
 )
+from module.application.runtime_log_projection import (
+    read_runtime_log_events,
+    runtime_log_signature,
+)
 from module.config.utils import DEFAULT_CONFIG_NAME
 from module.logger import logger
+
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 class _ProfileClient:
-    """Клиент управления профилем; жизненным циклом рабочего процесса управляет Bot Runtime."""
+    """Клиент управления одним профилем; worker lifecycle исполняет Bot Runtime."""
 
     def __init__(self, config_name: str) -> None:
         self.config_name = config_name
@@ -81,12 +82,12 @@ class _ProfileClient:
                         return 1
                     if matches is False:
                         return 3
-        except Exception:  # noqa: BLE001 - интерфейс показывает неизвестное состояние среды выполнения как ошибку.
+        except Exception:  # noqa: BLE001 - UI показывает неизвестный runtime как ошибку.
             return 3
         return 2
 
     def start(self, func: str | None, ev: object | None = None) -> None:
-        del ev  # Event старого локального менеджера не пересекает типизированную границу среды выполнения.
+        del ev  # Event старого локального менеджера не пересекает typed runtime boundary.
         try:
             result = _control_client().call(
                 RuntimeControlOperation.START_PROFILE,
@@ -95,7 +96,7 @@ class _ProfileClient:
             )
             if not result.ok:
                 raise RuntimeControlError(result.code, result.message)
-        except Exception as exc:  # noqa: BLE001 - WebUI должен показать отказ без локального обходного пути.
+        except Exception as exc:  # noqa: BLE001 - WebUI callback должен отобразить отказ без local fallback.
             logger.error("[%s] Bot Runtime отклонил запуск профиля: %s", self.config_name, exc)
 
     def stop(self) -> bool:
@@ -108,7 +109,7 @@ class _ProfileClient:
                 logger.error("[%s] Bot Runtime отклонил остановку профиля: %s", self.config_name, result.message)
                 return False
             return not self.alive
-        except Exception as exc:  # noqa: BLE001 - обратный вызов интерфейса не должен напрямую завершать рабочий процесс.
+        except Exception as exc:  # noqa: BLE001 - UI callback не должен напрямую завершать worker.
             logger.error("[%s] Не удалось остановить профиль через Bot Runtime: %s", self.config_name, exc)
             return False
 
@@ -187,7 +188,7 @@ def _control_client() -> RuntimeControlClient:
 
 
 class BotRuntimeClient:
-    """Набор статусов только для чтения и типизированных вызовов управления для WebUI."""
+    """Набор read-only статусов и typed lifecycle calls для WebUI."""
 
     @classmethod
     def get_manager(cls, config_name: str = DEFAULT_CONFIG_NAME) -> _ProfileClient:
@@ -209,9 +210,7 @@ class BotRuntimeClient:
             if matches is True:
                 names.append(name)
             elif matches is False:
-                raise RuntimeError(
-                    f"Идентичность рабочего процесса профиля {name} не совпадает с текущим PID"
-                )
+                raise RuntimeError(f"Identity worker профиля {name} не совпадает с текущим PID")
         return [cls.get_manager(name) for name in names]
 
     @classmethod
@@ -231,7 +230,7 @@ class BotRuntimeClient:
             raise RuntimeControlError(result.code, result.message)
 
 
-# Совместимость со старыми импортами; этот объект только клиент и не владеет рабочим процессом.
+# Совместимость со старыми импортами; этот объект только клиент и не владеет worker.
 ProcessManager = BotRuntimeClient
 
 __all__ = ["BotRuntimeClient", "ProcessManager"]
