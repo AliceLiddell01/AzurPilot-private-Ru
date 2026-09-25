@@ -629,7 +629,7 @@ class Connection(ConnectionAttr):
         for forward in self.adb.forward_list():
             if forward.serial == self.serial and forward.remote == remote and forward.local.startswith('tcp:'):
                 if not port:
-                    logger.info(f'[Устройство — соединение] Повторное использование перенаправления порта: {forward}')
+                    logger.debug('[Устройство — соединение] Повторное использование перенаправления порта: %s', forward)
                     port = int(forward.local[4:])
                 else:
                     logger.info(f'[Устройство — соединение] Удаление лишнего перенаправления порта: {forward}')
