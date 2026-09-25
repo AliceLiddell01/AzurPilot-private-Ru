@@ -1,34 +1,36 @@
-"""Пользовательские компоненты WebUI: журнал RichLog, переключатели и формы."""
+"""WebUI 自定义交互组件库，定义各种高度定制化的可视化控件。
+包括彩色实时日志渲染器（RichLog）、状态感知切换按钮、
+图标按钮组和任务队列编辑器等组件。"""
 
 import copy
-
 # В этом файле определены различные пользовательские интерактивные графические компоненты (widgets), используемые в WebUI.
 # В их числе цветной рендерер журнала реального времени RichLog, переключатели с учётом состояния и группы кнопок с иконками.
 import html
 import io
 import json
+import pywebio.pin
 import random
 import string
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generator, List, Optional, Union
+from typing import Any, Callable, Dict, Generator, List, Optional, TYPE_CHECKING, Union
 
-import pywebio.pin
 from pywebio.exceptions import SessionException
-from pywebio.io_ctrl import Output, output_register_callback
+from pywebio.io_ctrl import output_register_callback
+from pywebio.io_ctrl import Output
 from pywebio.output import *
 from pywebio.session import eval_js, local, run_js
 from rich.console import ConsoleRenderable, Group
 from rich.rule import Rule
 from rich.text import Text
 
-from module.application.bot_runtime_client import BotRuntimeClient
-from module.application.runtime_log_projection import RuntimeLogEvent
 from module.config.deep import deep_get
 from module.config.task_priority import (
     get_scheduler_tasks,
     merge_task_priority,
     parse_task_priority,
 )
-from module.logger import WEB_THEME, Highlighter, HTMLConsole
+from module.application.bot_runtime_client import BotRuntimeClient
+from module.application.runtime_log_projection import RuntimeLogEvent
+from module.logger import HTMLConsole, Highlighter, WEB_THEME
 from module.webui.lang import t
 from module.webui.pin import put_checkbox, put_input, put_select, put_textarea
 from module.webui.setting import State
@@ -36,8 +38,8 @@ from module.webui.utils import (
     DARK_TERMINAL_THEME,
     LIGHT_TERMINAL_THEME,
     LOG_CODE_FORMAT,
-    Icon,
     Switch,
+    Icon
 )
 
 if TYPE_CHECKING:
@@ -46,10 +48,10 @@ if TYPE_CHECKING:
 
 class ScrollableCode:
     """
-    Прокручиваемый компонент для отображения кода.
+    可滚动的代码显示组件。
 
-    См. https://github.com/pywebio/PyWebIO/discussions/21.
-    Устарел; вместо него рекомендуется использовать RichLog.
+    参考 https://github.com/pywebio/PyWebIO/discussions/21
+    已废弃，建议使用 RichLog 替代。
     """
 
     def __init__(self, keep_bottom: bool = True) -> None:
@@ -91,7 +93,7 @@ class ScrollableCode:
     last_display_time: dict
 
     def set_scroll(self, b: bool) -> None:
-        # Используется в lambda-функции обратного вызова для прокрутки вниз.
+        # Используется в lambda-callback для настройки удержания прокрутки внизу
         self.keep_bottom = b
 
 
@@ -113,7 +115,7 @@ class RichLog:
             highlighter=Highlighter(),
             theme=WEB_THEME,
         )
-        # Ниже оставлен для справки устаревший код обратного вызова изменения ширины.
+        # Ниже оставлен для справки устаревший код callback-а ширины
         # self.callback_id = output_register_callback(
         #     self._callback_set_width, serial_mode=True)
         # self._callback_thread = None
@@ -161,7 +163,13 @@ class RichLog:
             line.append(" │ ")
             line.append(
                 event.level_name,
-                style="red" if event.level >= 40 else "yellow" if event.level >= 30 else "green",
+                style=(
+                    "red"
+                    if event.level >= 40
+                    else "yellow"
+                    if event.level >= 30
+                    else "green"
+                ),
             )
             line.append(" │ ")
         line.append(
@@ -190,7 +198,7 @@ class RichLog:
                 self.scroll()
 
     def set_dashboard_display(self, b: bool) -> None:
-        # Используется для функции обратного вызова lambda. Скопировано.
+        # use for lambda callback function. Copied.
         self.display_dashboard = b
         self.first_display = True
 
@@ -206,11 +214,11 @@ class RichLog:
         )
 
     def set_scroll(self, b: bool) -> None:
-        # Используется в lambda-функции обратного вызова для прокрутки вниз.
+        # Используется в lambda-callback для настройки удержания прокрутки внизу
         self.keep_bottom = b
 
     def set_dashboard_display(self, b: bool) -> None:
-        # Используется в lambda-функции обратного вызова для отображения панели мониторинга.
+        # Используется в lambda-callback для настройки отображения панели мониторинга
         self.display_dashboard = b
         self.first_display = True
 
@@ -233,7 +241,7 @@ class RichLog:
         width = eval_js(js)
         return 80 if width is None else 128 if width > 128 else int(width)
 
-    # Ниже оставлен для справки устаревший код обратного вызова для адаптации к ширине окна.
+    # Ниже оставлен для справки устаревший callback-код адаптации к ширине окна
     # def _register_resize_callback(self):
     #     js = """
     #     WebIO.pushData(
@@ -315,18 +323,19 @@ class BinarySwitchButton(Switch):
             color_off="secondary",
     ):
         """
-        Создать переключатель между двумя состояниями.
+        初始化二态切换按钮。
 
-        Аргументы:
-            get_state: Функция обратного вызова, возвращающая True для включённого состояния и False для выключенного.
-                Generator принимает True для включения и False для выключения.
-            label_on: Текст кнопки во включённом состоянии.
-            label_off: Текст кнопки в выключенном состоянии.
-            onclick_on: Функция обратного вызова при включении.
-            onclick_off: Функция обратного вызова при выключении.
-            color_on: Цвет кнопки во включённом состоянии.
-            color_off: Цвет кнопки в выключенном состоянии.
-            scope: Область PyWebIO только для этой кнопки.
+        Args:
+            get_state: 获取当前状态。
+                (Callable): 返回 True 表示开启状态，返回 False 表示关闭状态。
+                (Generator): yield True 切换到开启状态，yield False 切换到关闭状态。
+            label_on: 开启状态时显示的按钮文本。
+            label_off: 关闭状态时显示的按钮文本。
+            onclick_on: 开启状态时的点击回调函数。
+            onclick_off: 关闭状态时的点击回调函数。
+            color_on: 开启状态时的按钮颜色。
+            color_off: 关闭状态时的按钮颜色。
+            scope: 按钮的 PyWebIO 作用域，仅用于此按钮。
         """
         self.scope = scope
         status = {
@@ -942,10 +951,10 @@ def put_arg_storage(kwargs: T_Output_Kwargs) -> Optional[Output]:
 
 
 def put_arg_multiselect(kwargs: T_Output_Kwargs) -> Output:
-    """Компонент выбора нескольких значений на основе вертикального списка флажков.
+    """多选组件：使用竖向复选框组实现多选，交互直观。
 
-    Поддерживает options и options_label; value содержит список выбранных значений,
-    например [1, 3, 5]. Для каждого значения отображается отдельный флажок.
+    支持 options 和 options_label，value 为选中值的列表（如 [1, 3, 5]）。
+    每个选项渲染为一个独立的 checkbox，竖向排列避免横向布局的点击区域冲突。
     """
     name: str = kwargs["name"]
     value: list = kwargs.get("value", [])
