@@ -214,41 +214,6 @@ def test_legacy_stop_rechecks_listener_owner_immediately_before_terminate(
 
 
 @pytest.mark.parametrize(
-    "capture_result,expected",
-    [
-        ("absent", "absent"),
-        ("access_denied", "unknown"),
-        ("mismatch", "absent"),
-        ("same", "alive"),
-    ],
-)
-def test_process_identity_state_separates_absent_from_unknown(
-    monkeypatch, tmp_path, capture_result, expected
-):
-    root = _root(tmp_path)
-    identity = _candidate(root)
-
-    def capture(_cls, _pid):
-        if capture_result == "absent":
-            raise psutil.NoSuchProcess(pid=identity.pid)
-        if capture_result == "access_denied":
-            raise psutil.AccessDenied(pid=identity.pid)
-        if capture_result == "mismatch":
-            return ProcessIdentity(
-                pid=identity.pid,
-                start_time=identity.start_time + 1,
-                executable=identity.executable,
-                argv=identity.argv,
-                cwd=identity.cwd,
-            )
-        return identity
-
-    monkeypatch.setattr(ProcessIdentity, "capture", classmethod(capture))
-
-    assert LifecycleService._process_identity_state(identity) == expected
-
-
-@pytest.mark.parametrize(
     "identity_state,expected", [("absent", True), ("alive", False), ("unknown", False)]
 )
 def test_wait_stop_cleanup_requires_absent_identity_and_free_port(
@@ -260,8 +225,8 @@ def test_wait_stop_cleanup_requires_absent_identity_and_free_port(
     free = PortObservation(_TEST_WEBUI_PORT, (), listener_present=False)
     monkeypatch.setattr(lifecycle, "observe_tcp_port", lambda _port: free)
     monkeypatch.setattr(
-        LifecycleService,
-        "_process_identity_state",
+        lifecycle.ProcessController,
+        "inspect_state",
         staticmethod(lambda _identity: identity_state),
     )
 
@@ -501,7 +466,7 @@ def test_windows_legacy_webui_identity_terminates_only_proven_listener(tmp_path)
         assert not observation.inspection_failed
         assert observation.listener_present is False
         assert not observation.pids
-        assert LifecycleService._process_identity_state(identity) == "absent"
+        assert lifecycle.ProcessController.inspect_state(identity) == "absent"
     finally:
         if running.poll() is None:
             lifecycle.ProcessController.terminate(
@@ -741,8 +706,8 @@ def test_inspect_reports_stopped_for_reused_stale_pid_without_mutating_state(
         ),
     )
     monkeypatch.setattr(
-        LifecycleService,
-        "_process_identity_state",
+        lifecycle.ProcessController,
+        "inspect_state",
         staticmethod(lambda _identity: "absent"),
     )
     monkeypatch.setattr(ProcessIdentity, "matches", lambda _identity: False)
@@ -820,8 +785,8 @@ def test_stop_clears_reused_stale_pid_without_terminating_foreign_process(
         ),
     )
     monkeypatch.setattr(
-        LifecycleService,
-        "_process_identity_state",
+        lifecycle.ProcessController,
+        "inspect_state",
         staticmethod(lambda _identity: "absent"),
     )
     monkeypatch.setattr(lifecycle, "observe_tcp_port", lambda _port: free)
@@ -930,8 +895,8 @@ def test_start_clears_reused_stale_pid_before_fresh_webui_launch(
         ),
     )
     monkeypatch.setattr(
-        LifecycleService,
-        "_process_identity_state",
+        lifecycle.ProcessController,
+        "inspect_state",
         staticmethod(lambda _identity: "absent"),
     )
     monkeypatch.setattr(lifecycle, "observe_tcp_port", lambda _port: free)
@@ -978,8 +943,8 @@ def test_stale_record_recovery_keeps_state_when_process_inspection_is_unknown(
             cleared.append("stop.request")
 
     monkeypatch.setattr(
-        LifecycleService,
-        "_process_identity_state",
+        lifecycle.ProcessController,
+        "inspect_state",
         staticmethod(lambda _identity: "unknown"),
     )
     service = LifecycleService(require_infrastructure=False)
