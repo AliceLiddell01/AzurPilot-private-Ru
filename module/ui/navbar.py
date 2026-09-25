@@ -197,7 +197,12 @@ class Navbar:
                 continue
 
             active, minimum, maximum = self.get_info(main=main)
-            logger.info(f'[UI — Навигация] Активный элемент: {active}, диапазон ({minimum}, {maximum})')
+            logger.debug(
+                '[UI — Навигация] Активный элемент: %s, диапазон (%s, %s)',
+                active,
+                minimum,
+                maximum,
+            )
             # При полностью чёрном снимке возвращается None
             # Active может быть None, если анимация ещё не успела загрузиться
             if active is None or minimum is None or maximum is None:
