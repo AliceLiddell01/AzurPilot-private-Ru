@@ -1,11 +1,11 @@
 """Система журналирования AzurPilot.
 
 Модуль построен на Rich и поддерживает вывод в консоль, потоковую отрисовку
-в WebUI и ограниченный контекст инцидентов в памяти. Глобальный экземпляр
+в WebUI и bounded in-memory контекст для incident-ов. Глобальный экземпляр
 ``logger`` с именем ``alas`` используется всем приложением.
 
 Основные компоненты:
-    - ``RichRenderableHandler`` — передаёт отрисованные объекты функции обратного вызова WebUI.
+    - ``RichRenderableHandler`` — передаёт отрисованные объекты callback-функции WebUI.
     - ``HTMLConsole`` — Rich Console для HTML/WebUI.
     - ``Highlighter`` — подсветка путей, времени и технических значений.
 
@@ -30,32 +30,27 @@ from rich.theme import Theme
 from rich.traceback import Traceback
 
 from module.logging_core import (
-    _SENSITIVE_NAME_RE,
     DiagnosticContextHandler,
     RepeatedEventSuppressor,
+    _SENSITIVE_NAME_RE,
     sanitize_traceback_text,
 )
 
-for _stream in (sys.stdout, sys.stderr):
-    if _stream is not None and callable(getattr(_stream, "reconfigure", None)):
-        try:
-            _stream.reconfigure(encoding='utf-8')
-        except (OSError, ValueError):
-            pass
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
 
 
 def empty_function(*args, **kwargs):
     pass
 
 
-# cnocr настраивает корневой журнал внутри cnocr.utils. Отключаем
+# cnocr настраивает root logger внутри cnocr.utils. Отключаем
 # logging.basicConfig, чтобы сообщения не выводились дважды.
 logging.basicConfig = empty_function
 logging.raiseExceptions = True  # Позволяет увидеть ошибки кодировки в консоли.
 
 # Убираем HTTP-ключевые слова (GET, POST и т. п.), чтобы не подсвечивать их ошибочно.
 RichHandler.KEYWORDS = []
-
 
 def _redact_rich_node(node: Node) -> None:
     node.key_repr = sanitize_traceback_text(node.key_repr)
@@ -66,7 +61,7 @@ def _redact_rich_node(node: Node) -> None:
 
 
 def sanitize_rich_traceback(renderable: Traceback) -> Traceback:
-    """Очистить Rich-трассировку перед передачей в WebUI или HTML-экспортёр."""
+    """Очистить Rich traceback до передачи в WebUI или HTML exporter."""
     for stack in renderable.trace.stacks:
         stack.exc_value = sanitize_traceback_text(stack.exc_value)
         for frame in stack.frames:
@@ -87,7 +82,7 @@ def sanitize_rich_traceback(renderable: Traceback) -> Traceback:
 
 
 class RichRenderableHandler(RichHandler):
-    """Передавать отрисованный объект журнала функции обратного вызова."""
+    """Передавать отрисованный объект журнала в callback-функцию."""
 
     def __init__(self, *args, func: Callable[[ConsoleRenderable], None] = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -131,7 +126,7 @@ class RichRenderableHandler(RichHandler):
             record=record, traceback=traceback, message_renderable=message_renderable
         )
 
-        # Передаём готовый Rich-объект непосредственно функции обратного вызова.
+        # Передаём готовый Rich-объект непосредственно callback-функции.
         self._func(log_renderable)
 
     def handle(self, record: logging.LogRecord) -> bool:
@@ -141,7 +136,7 @@ class RichRenderableHandler(RichHandler):
 
 
 class _SuppressStructuredSectionInRichOutput(logging.Filter):
-    """Оставить уровни hr 0–2 в Rich как Rule и сохранить запись в журнале."""
+    """Оставить уровни hr 0–2 в Rich как Rule и сохранить запись в проекции."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         return not (
@@ -151,7 +146,7 @@ class _SuppressStructuredSectionInRichOutput(logging.Filter):
 
 
 class HTMLConsole(Console):
-    """Rich Console с принудительно включёнными возможностями для веб-вывода.
+    """Rich Console с принудительно включёнными возможностями для Web-вывода.
 
     Часть возможностей пока не используется.
     """
@@ -225,12 +220,12 @@ logger.addHandler(console_hdlr)
 # Гарантируем запуск из корня AzurPilot.
 os.chdir(os.path.join(os.path.dirname(__file__), '../'))
 
-# Имя процесса используется как значение по умолчанию для наблюдаемости приложения.
+# Имя процесса используется только как default для application observability.
 pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 
 
 def _configure_application_observability(profile, *, component=None):
-    """Явно подключить удалённый журнал после настройки журнала среды выполнения."""
+    """Явно подключить удалённое логирование после настройки runtime logger."""
     try:
         from module.observability import configure_application_observability
 
@@ -244,7 +239,7 @@ def _configure_application_observability(profile, *, component=None):
         try:
             sys.stderr.write(
                 '[AzurPilot] Не удалось подключить удалённый журнал; '
-                'работа WebUI/консоли продолжится, ограниченный контекст инцидентов '
+                'работа WebUI/консоли продолжится, bounded incident-контекст '
                 f'останется доступен ({type(exc).__name__}).\n'
             )
         except Exception:
@@ -259,8 +254,8 @@ def configure_runtime_logging(
 ):
     if observability_profile is None and observability_component is None:
         observability_profile = name
-    # Среда выполнения не создаёт локальный файл: консоль/WebUI и ограниченный
-    # контекст инцидентов в памяти остаются доступны независимо от OTLP.
+    # Обычный runtime не создаёт локальный файл: console/WebUI и bounded
+    # in-memory incident context остаются доступными независимо от OTLP.
     _configure_application_observability(
         observability_profile,
         component=observability_component,
@@ -393,7 +388,7 @@ def _emit_suppression_summary(decision):
 
 
 def log_suppressed(level, message, *, key=None, payload=_SUPPRESSION_PAYLOAD_DEFAULT, window=None):
-    """Записать событие с ограниченным подавлением повторов."""
+    """Записать событие через bounded suppression-контракт."""
     message = str(message)
     if key is None:
         key = message
@@ -413,7 +408,7 @@ def log_suppressed(level, message, *, key=None, payload=_SUPPRESSION_PAYLOAD_DEF
 
 
 def finish_suppressed(key):
-    """Завершить серию повторов и при необходимости вывести сводку."""
+    """Завершить серию повторов и при необходимости вывести summary."""
     decision = _event_suppressor.finish(key)
     _emit_suppression_summary(decision)
     return decision.summary_count
@@ -424,7 +419,7 @@ def reset_suppression(key=None):
 
 
 def get_diagnostic_context(*, last_failure=False):
-    """Вернуть безопасные сообщения текущего или последнего контекста сбоя."""
+    """Вернуть безопасные сообщения текущего или последнего failure-контекста."""
     return tuple(
         record.getMessage()
         for record in diagnostic_hdlr.snapshot(last_failure=last_failure)
@@ -448,7 +443,7 @@ def show():
     logger.info(r'Скобки { [ ( ) ] }')
     logger.info(r'True, False, None')
     logger.info(r'E:/path\\to/alas/alas.exe, /root/alas/, ./relative/path/log.txt')
-    local_var1 = 'Локальная переменная'
+    local_var1 = 'This is local variable'
     # Строка перед тестовым исключением.
     raise Exception("Exception")
 
