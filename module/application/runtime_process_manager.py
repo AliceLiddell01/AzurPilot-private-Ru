@@ -1,13 +1,10 @@
 """Управление рабочими процессами, принадлежащими владельцу Bot Runtime."""
 
-import multiprocessing
 import os
 import subprocess
-import sys
 import threading
 import time
-from multiprocessing import Event
-from multiprocessing import Process as _MultiprocessingProcess
+from multiprocessing import Event, Process
 from pathlib import Path
 
 import inflection
@@ -33,122 +30,6 @@ from module.submodule.utils import (
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _RUNTIME_STATE_HEARTBEAT_SECONDS = 15.0
 _RUNTIME_STATE_HEARTBEAT_JOIN_SECONDS = 2.0
-
-
-def _headless_worker_executable() -> Path:
-    """Вернуть интерпретатор базовой установки с графической подсистемой."""
-    if sys.platform != "win32":
-        raise RuntimeError("Запуск рабочего процесса без окна доступен только в Windows")
-    if sys.implementation.name != "cpython" or sys.version_info[:2] != (3, 14):
-        raise RuntimeError(
-            "Запуск рабочего процесса без окна поддерживает только CPython 3.14.x"
-        )
-    base_executable = getattr(sys, "_base_executable", None)
-    if not isinstance(base_executable, str) or not base_executable:
-        raise RuntimeError("Не удалось определить базовый Python для рабочего процесса Windows")
-    executable = Path(base_executable).with_name("pythonw.exe")
-    if not executable.is_file():
-        raise RuntimeError(
-            "Не найден базовый pythonw.exe; запуск рабочего процесса без окна не подтверждён"
-        )
-    return executable.absolute()
-
-
-def _headless_worker_spawn_popen(process_obj):
-    """Создать процесс Windows через Popen с отдельным окружением.
-
-    Конструктор повторяет часть запуска из CPython 3.14
-    ``multiprocessing.popen_spawn_win32.Popen``. Стандартная реализация сама
-    передаёт ``__PYVENV_LAUNCHER__`` только когда исполняемый файл совпадает с
-    ``sys.executable``; здесь запускается другой исполняемый файл — базовый
-    ``pythonw.exe``. Окружение передаётся только этому вызову ``CreateProcess``;
-    ``os.environ`` и общий исполняемый файл multiprocessing не меняются.
-    """
-    if sys.platform != "win32":
-        raise RuntimeError("Запуск процесса Windows без окна вызван вне Windows")
-
-    import _winapi
-    import msvcrt
-    from multiprocessing import popen_spawn_win32, spawn, util
-    from multiprocessing.context import reduction, set_spawning_popen
-    from subprocess import STARTF_FORCEOFFFEEDBACK, STARTUPINFO
-
-    executable = _headless_worker_executable()
-    python_executable = os.fspath(executable)
-
-    class HeadlessSpawnPopen(popen_spawn_win32.Popen):
-        def __init__(self, process_obj):
-            prep_data = spawn.get_preparation_data(process_obj._name)
-            rhandle, whandle = _winapi.CreatePipe(None, 0)
-            wfd = msvcrt.open_osfhandle(whandle, 0)
-            cmd = spawn.get_command_line(
-                parent_pid=os.getpid(),
-                pipe_handle=rhandle,
-            )
-            cmd[0] = python_executable
-            command_line = " ".join(f'"{argument}"' for argument in cmd)
-
-            environment = os.environ.copy()
-            launcher_variable = "__PYVENV_LAUNCHER__"
-            for variable in tuple(environment):
-                if variable.casefold() == launcher_variable.casefold():
-                    environment.pop(variable)
-            base_executable = os.path.normcase(
-                os.path.abspath(sys._base_executable)
-            )
-            current_executable = os.path.normcase(os.path.abspath(sys.executable))
-            if current_executable != base_executable:
-                environment[launcher_variable] = sys.executable
-
-            with open(wfd, "wb", closefd=True) as to_child:
-                try:
-                    hp, ht, pid, _tid = _winapi.CreateProcess(
-                        python_executable,
-                        command_line,
-                        None,
-                        None,
-                        False,
-                        0,
-                        environment,
-                        None,
-                        STARTUPINFO(dwFlags=STARTF_FORCEOFFFEEDBACK),
-                    )
-                    _winapi.CloseHandle(ht)
-                except Exception:
-                    _winapi.CloseHandle(rhandle)
-                    raise
-
-                self.pid = pid
-                self.returncode = None
-                self._handle = hp
-                self.sentinel = int(hp)
-                self.finalizer = util.Finalize(
-                    self,
-                    popen_spawn_win32._close_handles,
-                    (self.sentinel, int(rhandle)),
-                )
-
-                set_spawning_popen(self)
-                try:
-                    reduction.dump(prep_data, to_child)
-                    reduction.dump(process_obj, to_child)
-                finally:
-                    set_spawning_popen(None)
-
-    return HeadlessSpawnPopen(process_obj)
-
-
-if sys.platform == "win32":
-
-    class _HeadlessWorkerProcess(multiprocessing.context.SpawnProcess):
-        @staticmethod
-        def _Popen(process_obj):
-            return _headless_worker_spawn_popen(process_obj)
-
-    Process = _HeadlessWorkerProcess
-else:
-    # Сохраняем штатный метод запуска и реализацию на POSIX.
-    Process = _MultiprocessingProcess
 
 
 class BotRuntimeWorkerManager:
