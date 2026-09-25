@@ -615,6 +615,24 @@ def test_default_project_python_keeps_venv_script_directory() -> None:
     )
 
 
+@pytest.mark.skipif(os.name == "nt", reason="контракт POSIX venv symlink")
+def test_configured_project_python_keeps_logical_venv_path(tmp_path: Path) -> None:
+    """Регрессия: configured venv path не канонизируется до process layer."""
+
+    root = tmp_path.resolve() / "repository"
+    script_directory = root / ".venv" / "bin"
+    script_directory.mkdir(parents=True)
+    python = script_directory / "python"
+    python.symlink_to(Path(sys.executable).resolve())
+    settings = DeploySettings(source_path=None, python_executable="./.venv/bin/python")
+
+    resolved = project_python(root, settings)
+
+    assert resolved == python
+    assert resolved.parent == script_directory
+    assert resolved != python.resolve()
+
+
 def test_cli_json_is_single_report_on_invocation_error() -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()

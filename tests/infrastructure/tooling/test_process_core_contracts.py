@@ -6,13 +6,16 @@ import shutil
 import signal
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import psutil
 import pytest
+import yaml
 
 import azurpilot.tooling.process_core as tooling_process
+from azurpilot.tooling.config import load_deploy_settings, project_python
 from azurpilot.tooling.contracts import ResultCode
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.process import (
@@ -969,10 +972,10 @@ _POSIX_VENV_REQUIRED = pytest.mark.skipif(
 )
 
 
-def _create_posix_venv(tmp_path: Path) -> Path:
+def _create_posix_venv(tmp_path: Path, *, name: str = "venv") -> Path:
     """Создать герметичный POSIX venv с venv-only модулем в site-packages."""
 
-    venv = tmp_path.resolve() / "venv"
+    venv = tmp_path.resolve() / name
     subprocess.run(
         [sys.executable, "-m", "venv", "--without-pip", str(venv)],
         check=True,
@@ -1074,6 +1077,129 @@ def test_posix_venv_start_keeps_canonical_identity_and_ownership(
         assert ProcessController.inspect_state(running.identity) == "alive"
     finally:
         assert ProcessController.terminate(running.identity, timeout_seconds=15.0) is True
+
+
+def _configured_linux_checkout(tmp_path: Path) -> tuple[Path, Path]:
+    """Создать checkout с настоящим ``.venv`` и штатным ``config/deploy.yaml`` Linux."""
+
+    root = tmp_path.resolve() / "repository"
+    (root / "config").mkdir(parents=True)
+    python = _create_posix_venv(root, name=".venv")
+    shutil.copy2(
+        REPOSITORY_ROOT / "config" / "deploy.template-linux.yaml",
+        root / "config" / "deploy.yaml",
+    )
+    return root, python
+
+
+@_POSIX_VENV_REQUIRED
+def test_configured_linux_template_python_keeps_venv_semantics(tmp_path: Path) -> None:
+    """Регрессия: configured ``./.venv/bin/python`` доходит до process layer логически."""
+
+    root, expected = _configured_linux_checkout(tmp_path)
+    settings = load_deploy_settings(root)
+    template = yaml.safe_load(
+        (REPOSITORY_ROOT / "config" / "deploy.template-linux.yaml").read_text(
+            encoding="utf-8"
+        )
+    )["Deploy"]
+
+    # Configured значение обязано быть штатным значением Linux template, иначе
+    # регрессия проверяла бы не тот путь, который ломается у оператора.
+    assert settings.python_executable == template["Python"]["PythonExecutable"]
+
+    python = project_python(root, settings)
+
+    assert python == expected
+    assert python.parent == root / ".venv" / "bin"
+    assert python != python.resolve()
+
+    spec = ProcessSpec(
+        executable=python,
+        argv=_venv_probe_argv(),
+        cwd=root,
+        timeout_seconds=60.0,
+    )
+
+    assert spec.launch_executable == python
+    assert spec.identity_executable == python.resolve()
+    assert spec.identity_executable != spec.launch_executable
+
+    result = StructuredProcessRunner().run(spec)
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert "module_error" not in report
+    assert report["module_marker"] == "venv-only"
+    assert report["prefix"] == str(root / ".venv")
+    assert report["base_prefix"] != report["prefix"]
+    assert report["executable"] == str(python)
+
+
+@_POSIX_VENV_REQUIRED
+@pytest.mark.parametrize("absolute", [False, True])
+def test_configured_non_venv_python_keeps_canonical_launch(
+    tmp_path: Path, absolute: bool
+) -> None:
+    """Configured custom Python вне venv-разметки не получает ложную venv-семантику."""
+
+    root, _ = _configured_linux_checkout(tmp_path)
+    tools = root / "tools"
+    tools.mkdir()
+    custom = tools / "python"
+    custom.symlink_to(Path(sys.executable).resolve())
+    settings = replace(
+        load_deploy_settings(root),
+        python_executable=str(custom) if absolute else "./tools/python",
+    )
+
+    python = project_python(root, settings)
+
+    assert python == custom
+    spec = ProcessSpec(
+        executable=python,
+        argv=_venv_probe_argv(),
+        cwd=root,
+        timeout_seconds=60.0,
+    )
+
+    assert spec.launch_executable == spec.resolved_executable == custom.resolve()
+
+    result = StructuredProcessRunner().run(spec)
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    module_error = report.get("module_error", "")
+    assert "ModuleNotFoundError" in module_error
+    assert "azurpilot_venv_probe" in module_error
+    assert report["prefix"] == report["base_prefix"]
+
+
+@_POSIX_VENV_REQUIRED
+def test_configured_missing_python_falls_back_to_project_venv(tmp_path: Path) -> None:
+    """Несуществующий configured путь оставляет fallback на venv проекта."""
+
+    root, expected = _configured_linux_checkout(tmp_path)
+    settings = replace(
+        load_deploy_settings(root), python_executable="./tools/absent-python"
+    )
+
+    python = project_python(root, settings)
+
+    assert python == expected
+    spec = ProcessSpec(
+        executable=python,
+        argv=_venv_probe_argv(),
+        cwd=root,
+        timeout_seconds=60.0,
+    )
+
+    result = StructuredProcessRunner().run(spec)
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["module_marker"] == "venv-only"
+    assert report["prefix"] == str(root / ".venv")
 
 
 @_POSIX_VENV_REQUIRED
