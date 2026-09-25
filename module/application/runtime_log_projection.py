@@ -271,16 +271,19 @@ def read_runtime_log_events(
     return _read_event_lines(profile, limit, repository_root=repository_root)
 
 
+def format_runtime_log_timestamp(value: str) -> str:
+    """Привести timestamp события к каноническому виду runtime-журнала."""
+
+    try:
+        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    except ValueError:
+        return value
+
+
 def _plain_event_line(event: RuntimeLogEvent) -> str:
     prefix = ""
     if event.timestamp or event.level_name:
-        timestamp = event.timestamp
-        try:
-            timestamp = datetime.fromisoformat(timestamp).strftime(
-                "%Y-%m-%d %H:%M:%S.%f"
-            )[:-3]
-        except ValueError:
-            pass
+        timestamp = format_runtime_log_timestamp(event.timestamp)
         prefix = f"{timestamp} │ {event.level_name} │ "
     text = prefix + event.message
     if event.traceback:
@@ -437,6 +440,7 @@ class RuntimeLogProjectionHandler(RotatingFileHandler):
 __all__ = [
     "RuntimeLogEvent",
     "RuntimeLogProjectionHandler",
+    "format_runtime_log_timestamp",
     "read_runtime_log_events",
     "read_runtime_log_tail",
     "runtime_log_signature",
