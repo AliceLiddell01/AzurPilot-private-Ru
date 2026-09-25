@@ -116,6 +116,16 @@ def _observability_handlers(target: logging.Logger):
     ]
 
 
+def test_log_sanitizer_does_not_treat_unicode_word_separator_as_posix_path():
+    text = "[Командир/заместитель гильдии] False /opt/private/value"
+
+    sanitized = sanitize_log_text(text)
+
+    assert "[Командир/заместитель гильдии] False" in sanitized
+    assert "/opt/private/value" not in sanitized
+    assert "<ABSOLUTE_PATH>" in sanitized
+
+
 def test_application_logging_is_disabled_without_explicit_endpoint(monkeypatch):
     for key in _OTEL_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
