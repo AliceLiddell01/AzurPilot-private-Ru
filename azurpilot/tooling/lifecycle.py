@@ -342,7 +342,7 @@ class LifecycleService:
             if identity is None:
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Запись жизненного цикла WebUI не удалось преобразовать в identity.",
+                    "Запись жизненного цикла WebUI не удалось преобразовать в идентичность процесса.",
                 )
             identity_state = ProcessController.inspect_state(identity)
             if identity_state == "unknown":
@@ -543,7 +543,7 @@ class LifecycleService:
         identity: ProcessIdentity,
         operation_id: str,
     ) -> bool:
-        """Очистить stale lifecycle record, не завершая процесс с переиспользованным PID."""
+        """Очистить устаревшую запись жизненного цикла, не завершая процесс с переиспользованным PID."""
 
         identity_state = ProcessController.inspect_state(identity)
         if identity_state == "unknown":
@@ -689,7 +689,7 @@ class LifecycleService:
                 ):
                     raise ToolingError(
                         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                        "Запись WebUI указывает на живой процесс без подтверждённого listener.",
+                        "Запись WebUI указывает на живой процесс без подтверждённого слушателя порта.",
                         operation_id=operation_id,
                     )
 
@@ -1032,6 +1032,22 @@ class LifecycleService:
                     root, settings, port_state.observation
                 )
                 if legacy_identity is not None:
+                    if record is not None and identity is not None and identity != legacy_identity:
+                        recorded_state = ProcessController.inspect_state(identity)
+                        if recorded_state == "unknown":
+                            raise ToolingError(
+                                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                                "Записанный процесс WebUI не удалось безопасно проверить; "
+                                "прежний слушатель порта не будет остановлен.",
+                                operation_id=operation_id,
+                            )
+                        if recorded_state == "alive":
+                            raise ToolingError(
+                                ResultCode.TOOLING_OPERATION_CONFLICT,
+                                "Запись жизненного цикла указывает на другой живой процесс WebUI; "
+                                "прежний слушатель порта не будет остановлен.",
+                                operation_id=operation_id,
+                            )
                     return self._stop_legacy_webui(
                         resolved,
                         settings,
