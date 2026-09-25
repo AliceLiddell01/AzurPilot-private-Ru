@@ -218,7 +218,7 @@ def test_legacy_stop_rechecks_listener_owner_immediately_before_terminate(
     [
         ("absent", "absent"),
         ("access_denied", "unknown"),
-        ("mismatch", "unknown"),
+        ("mismatch", "absent"),
         ("same", "alive"),
     ],
 )
@@ -693,3 +693,296 @@ def test_stop_does_not_recover_legacy_process_when_ownership_is_ambiguous(
 
     assert error.value.code is ResultCode.TOOLING_PORT_CONFLICT
     recover.assert_called_once()
+
+
+def test_inspect_reports_stopped_for_reused_stale_pid_without_mutating_state(
+    monkeypatch, tmp_path
+):
+    root = _root(tmp_path)
+    identity = _candidate(root)
+    resolved = ResolvedRepository(
+        root,
+        RepositoryRootEvidence(
+            source=RootSource.EXPLICIT,
+            candidate_count=1,
+            validation_checks=("test",),
+            root_identity="c" * 24,
+        ),
+    )
+    settings = DeploySettings(source_path=None, webui_port=_TEST_WEBUI_PORT)
+    free = PortObservation(_TEST_WEBUI_PORT, (), listener_present=False)
+    cleared: list[str] = []
+
+    class FakeCoordinator:
+        def read_lifecycle(self):
+            return object()
+
+        def clear_lifecycle(self):
+            cleared.append("lifecycle")
+
+        def clear_stop_request(self):
+            cleared.append("stop.request")
+
+    coordinator = FakeCoordinator()
+    monkeypatch.setattr(
+        lifecycle.RepositoryCoordinator,
+        "for_root",
+        lambda _root: coordinator,
+    )
+    monkeypatch.setattr(lifecycle, "load_deploy_settings", lambda _root: settings)
+    monkeypatch.setattr(
+        LifecycleService,
+        "_port_state",
+        staticmethod(
+            lambda *_args: (
+                lifecycle._PortState(free, "free", False),
+                identity,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        LifecycleService,
+        "_process_identity_state",
+        staticmethod(lambda _identity: "absent"),
+    )
+    monkeypatch.setattr(ProcessIdentity, "matches", lambda _identity: False)
+
+    service = LifecycleService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
+        runner=SimpleNamespace(),
+        require_infrastructure=False,
+    )
+    result = service.inspect(root)
+
+    assert result.ok
+    assert result.state is OperationState.STOPPED
+    assert result.details.readiness == "stale_record"
+    assert result.details.cleanup_confirmed is False
+    assert cleared == []
+
+
+def test_stop_clears_reused_stale_pid_without_terminating_foreign_process(
+    monkeypatch, tmp_path
+):
+    root = _root(tmp_path)
+    identity = _candidate(root)
+    resolved = ResolvedRepository(
+        root,
+        RepositoryRootEvidence(
+            source=RootSource.EXPLICIT,
+            candidate_count=1,
+            validation_checks=("test",),
+            root_identity="d" * 24,
+        ),
+    )
+    settings = DeploySettings(source_path=None, webui_port=_TEST_WEBUI_PORT)
+    free = PortObservation(_TEST_WEBUI_PORT, (), listener_present=False)
+    cleared: list[str] = []
+
+    class FakeLock:
+        def acquire(self, timeout_seconds: float = 0.0) -> bool:
+            return True
+
+        def release(self) -> None:
+            return None
+
+    class FakeCoordinator:
+        def lock(self, _operation: str) -> FakeLock:
+            return FakeLock()
+
+        def read_lifecycle(self):
+            return object()
+
+        def clear_lifecycle(self):
+            cleared.append("lifecycle")
+
+        def clear_stop_request(self):
+            cleared.append("stop.request")
+
+    coordinator = FakeCoordinator()
+    monkeypatch.setattr(
+        lifecycle.RepositoryCoordinator,
+        "for_root",
+        lambda _root: coordinator,
+    )
+    monkeypatch.setattr(lifecycle, "load_deploy_settings", lambda _root: settings)
+    monkeypatch.setattr(
+        LifecycleService,
+        "_port_state",
+        staticmethod(
+            lambda *_args: (
+                lifecycle._PortState(free, "free", False),
+                identity,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        LifecycleService,
+        "_process_identity_state",
+        staticmethod(lambda _identity: "absent"),
+    )
+    monkeypatch.setattr(lifecycle, "observe_tcp_port", lambda _port: free)
+    monkeypatch.setattr(ProcessIdentity, "matches", lambda _identity: False)
+    terminate = Mock(
+        side_effect=AssertionError("Переиспользованный PID нельзя завершать")
+    )
+    monkeypatch.setattr(lifecycle.ProcessController, "terminate", terminate)
+
+    service = LifecycleService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
+        runner=SimpleNamespace(),
+        require_infrastructure=False,
+    )
+    result = service.stop(root, timeout_seconds=1)
+
+    assert result.ok
+    assert result.state is OperationState.STOPPED
+    assert result.details.readiness == "stale_record_cleared"
+    assert result.details.cleanup_confirmed
+    assert cleared == ["lifecycle", "stop.request"]
+    terminate.assert_not_called()
+
+
+def test_start_clears_reused_stale_pid_before_fresh_webui_launch(
+    monkeypatch, tmp_path
+):
+    root = _root(tmp_path)
+    stale_identity = _candidate(root)
+    fresh_identity = ProcessIdentity(
+        pid=54321,
+        start_time=2000.0,
+        executable=stale_identity.executable,
+        argv=stale_identity.argv,
+        cwd=stale_identity.cwd,
+    )
+    resolved = ResolvedRepository(
+        root,
+        RepositoryRootEvidence(
+            source=RootSource.EXPLICIT,
+            candidate_count=1,
+            validation_checks=("test",),
+            root_identity="e" * 24,
+        ),
+    )
+    settings = DeploySettings(source_path=None, webui_port=_TEST_WEBUI_PORT)
+    free = PortObservation(_TEST_WEBUI_PORT, (), listener_present=False)
+    cleared: list[str] = []
+
+    class FakeLock:
+        def acquire(self, timeout_seconds: float = 0.0) -> bool:
+            return True
+
+        def release(self) -> None:
+            return None
+
+    class FakeCoordinator:
+        record = object()
+
+        def lock(self, _operation: str) -> FakeLock:
+            return FakeLock()
+
+        def read_lifecycle(self):
+            return self.record
+
+        def clear_lifecycle(self):
+            cleared.append("lifecycle")
+            self.record = None
+
+        def clear_stop_request(self):
+            cleared.append("stop.request")
+
+        def record_from_identity(self, identity, _root, port):
+            return {"pid": identity.pid, "port": port}
+
+        def write_lifecycle(self, record):
+            self.record = record
+
+    coordinator = FakeCoordinator()
+    running = SimpleNamespace(
+        identity=fresh_identity,
+        pid=fresh_identity.pid,
+        poll=lambda: None,
+    )
+    runner = SimpleNamespace(start=Mock(return_value=running))
+
+    monkeypatch.setattr(
+        lifecycle.RepositoryCoordinator,
+        "for_root",
+        lambda _root: coordinator,
+    )
+    monkeypatch.setattr(lifecycle, "load_deploy_settings", lambda _root: settings)
+    monkeypatch.setattr(
+        LifecycleService,
+        "_port_state",
+        staticmethod(
+            lambda *_args: (
+                lifecycle._PortState(free, "free", False),
+                stale_identity,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        LifecycleService,
+        "_process_identity_state",
+        staticmethod(lambda _identity: "absent"),
+    )
+    monkeypatch.setattr(lifecycle, "observe_tcp_port", lambda _port: free)
+
+    def identity_matches(identity):
+        return identity.pid == fresh_identity.pid
+
+    monkeypatch.setattr(ProcessIdentity, "matches", identity_matches)
+    service = LifecycleService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
+        runner=runner,
+        require_infrastructure=False,
+    )
+    monkeypatch.setattr(service, "_check_start_prerequisites", lambda *_args: None)
+    monkeypatch.setattr(service, "_ensure_infrastructure", lambda *_args: ())
+    monkeypatch.setattr(service, "_wait_readiness", lambda *_args: (True, "http_200"))
+
+    result = service.start(root, timeout_seconds=1)
+
+    assert result.ok
+    assert result.state is OperationState.READY
+    assert result.details.pid == fresh_identity.pid
+    assert cleared == ["lifecycle", "stop.request"]
+    assert coordinator.record == {
+        "pid": fresh_identity.pid,
+        "port": _TEST_WEBUI_PORT,
+    }
+    runner.start.assert_called_once()
+
+
+def test_stale_record_recovery_keeps_state_when_process_inspection_is_unknown(
+    monkeypatch, tmp_path
+):
+    root = _root(tmp_path)
+    identity = _candidate(root)
+    settings = DeploySettings(source_path=None, webui_port=_TEST_WEBUI_PORT)
+    cleared: list[str] = []
+
+    class FakeCoordinator:
+        def clear_lifecycle(self):
+            cleared.append("lifecycle")
+
+        def clear_stop_request(self):
+            cleared.append("stop.request")
+
+    monkeypatch.setattr(
+        LifecycleService,
+        "_process_identity_state",
+        staticmethod(lambda _identity: "unknown"),
+    )
+    service = LifecycleService(require_infrastructure=False)
+
+    with pytest.raises(ToolingError) as error:
+        service._recover_stale_lifecycle_record(
+            FakeCoordinator(),
+            settings,
+            identity,
+            "stale-test",
+        )
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+    assert cleared == []
