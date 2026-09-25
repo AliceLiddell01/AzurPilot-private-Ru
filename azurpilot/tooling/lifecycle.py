@@ -198,34 +198,6 @@ class LifecycleService:
             return None
         return matches[0]
 
-    @staticmethod
-    def _process_identity_state(
-        identity: ProcessIdentity,
-    ) -> Literal["alive", "absent", "unknown"]:
-        """Различить exact live process, stale identity и ошибку проверки.
-
-        "absent" означает, что зарегистрированная exact identity больше не
-        существует. PID при этом может быть уже переиспользован другим
-        процессом: такой процесс нельзя завершать, но stale lifecycle record
-        текущего checkout можно очистить после независимого подтверждения, что
-        canonical WebUI port свободен.
-        """
-
-        try:
-            current = ProcessIdentity.capture(identity.pid)
-        except psutil.NoSuchProcess:
-            return "absent"
-        except psutil.Error, OSError, RuntimeError, ValueError:
-            return "unknown"
-        if (
-            abs(current.start_time - identity.start_time) <= 0.05
-            and current.executable == identity.executable
-            and current.argv == identity.argv
-            and current.cwd == identity.cwd
-        ):
-            return "alive"
-        return "absent"
-
     def _stop_legacy_webui(
         self,
         resolved: object,
@@ -261,7 +233,7 @@ class LifecycleService:
             settings,
             max(0.0, deadline - time.monotonic()),
         )
-        identity_state = self._process_identity_state(identity)
+        identity_state = ProcessController.inspect_state(identity)
         if not cleanup_confirmed or identity_state != "absent":
             code = (
                 ResultCode.TOOLING_TIMEOUT
@@ -372,7 +344,7 @@ class LifecycleService:
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                     "Запись жизненного цикла WebUI не удалось преобразовать в identity.",
                 )
-            identity_state = self._process_identity_state(identity)
+            identity_state = ProcessController.inspect_state(identity)
             if identity_state == "unknown":
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
@@ -468,7 +440,7 @@ class LifecycleService:
         deadline = time.monotonic() + max(0.0, timeout_seconds)
         observation = observe_tcp_port(settings.webui_port)
         while True:
-            identity_state = LifecycleService._process_identity_state(identity)
+            identity_state = ProcessController.inspect_state(identity)
             confirmed = (
                 not observation.inspection_failed
                 and observation.listener_present is False
@@ -573,7 +545,7 @@ class LifecycleService:
     ) -> bool:
         """Очистить stale lifecycle record, не завершая процесс с переиспользованным PID."""
 
-        identity_state = self._process_identity_state(identity)
+        identity_state = ProcessController.inspect_state(identity)
         if identity_state == "unknown":
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
@@ -1147,7 +1119,7 @@ class LifecycleService:
                 settings,
                 max(0.0, deadline - time.monotonic()),
             )
-            identity_state = self._process_identity_state(identity)
+            identity_state = ProcessController.inspect_state(identity)
             if not cleanup_confirmed or identity_state != "absent":
                 code = (
                     ResultCode.TOOLING_TIMEOUT
