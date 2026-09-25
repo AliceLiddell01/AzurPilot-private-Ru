@@ -27,7 +27,7 @@ class GuildOperations(GuildBase):
         Returns:
             bool: True при успешном входе в операцию, False при нехватке средств гильдии.
         """
-        logger.attr('Командир/офицер гильдии', self.config.GuildOperation_SelectNewOperation)
+        logger.attr('Выбор новой операции гильдии', self.config.GuildOperation_SelectNewOperation)
         confirm_timer = Timer(1.5, count=3).start()
         click_count = 0
         while 1:
