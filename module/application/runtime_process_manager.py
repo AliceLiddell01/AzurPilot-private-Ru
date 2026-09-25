@@ -1,21 +1,14 @@
-"""Управление рабочими процессами, принадлежащими владельцу Bot Runtime."""
+"""Управление worker-процессами, принадлежащими Bot Runtime owner."""
 
 import os
 import subprocess
 import threading
 import time
+
 from multiprocessing import Event, Process
 from pathlib import Path
 
 import inflection
-
-from module.application.runtime_worker_registry import (
-    get_workers,
-    is_current_owner,
-    process_matches,
-    register_worker,
-    unregister_worker,
-)
 from module.config.utils import DEFAULT_CONFIG_NAME
 from module.logger import configure_runtime_logging, logger
 from module.submodule.submodule import load_mod
@@ -25,6 +18,13 @@ from module.submodule.utils import (
     get_available_mod_func,
     get_config_mod,
     get_func_mod,
+)
+from module.application.runtime_worker_registry import (
+    get_workers,
+    is_current_owner,
+    process_matches,
+    register_worker,
+    unregister_worker,
 )
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -71,11 +71,11 @@ class BotRuntimeWorkerManager:
             self._reconcile_runtime_state_before_start()
             if self.alive:
                 return
-            # Повторная проверка реестра блокирует запуск при несогласованной записи.
+            # Повторная проверка registry блокирует запуск при несогласованной записи.
             pid, _, verified = self._registered_worker()
             if not verified and pid is not None:
                 logger.warning(
-                    f"[{self.config_name}] Запись рабочего процесса не согласована; запуск отклонён во избежание дублирования"
+                    f"[{self.config_name}] Запись worker не согласована; запуск отклонён во избежание дублирования"
                 )
                 return
             if func is None:
@@ -109,7 +109,7 @@ class BotRuntimeWorkerManager:
                 raise
 
     def stop(self) -> bool:
-        """Остановить дерево рабочих процессов и вернуть признак подтверждения."""
+        """Остановить дерево worker и вернуть признак подтверждённого завершения."""
         with self._get_lifecycle_lock(self.config_name):
             self._registry_cleanup_confirmed = False
             process = self._process
@@ -120,16 +120,16 @@ class BotRuntimeWorkerManager:
             else:
                 pid, record, pid_verified = self._registered_worker()
 
-            # _registered_worker мог вернуть дескриптор процесса-зомби через join(0),
-            # либо рабочий процесс мог завершиться за это время. Обновляем признак жизни,
-            # чтобы устаревший local_process_alive не дал ложную ошибку остановки.
+            # _registered_worker мог вернуть zombie-дескриптор через join(0),
+            # либо worker мог завершиться за это время. Обновляем локальный признак жизни,
+            # чтобы устаревший local_process_alive не дал ложную ошибку stop.
             if local_process_alive and not self._is_process_alive(self._process):
                 local_process_alive = False
 
             stopped = pid is None and not local_process_alive
             if pid is not None and not pid_verified:
-                # _registered_worker мог вернуть дескриптор процесса-зомби через join(0);
-                # очищенный дескриптор подтверждает завершение рабочего процесса.
+                # _registered_worker мог вернуть zombie-дескриптор через join(0);
+                # очищенный дескриптор подтверждает завершение worker.
                 if self._is_process_alive(self._process):
                     logger.error(
                         f"[{self.config_name}] Не удалось подтвердить рабочий процесс PID {pid}; завершение неизвестного процесса отклонено"
@@ -143,10 +143,10 @@ class BotRuntimeWorkerManager:
             elif pid is not None:
                 if local_process_alive and process is not None:
                     # Сначала используем terminate/kill локального Process:
-                    # это надёжнее, чем системную команду taskkill.
+                    # это надёжнее, чем taskkill.
                     stopped = BotRuntimeWorkerManager._stop_local_process(process)
                     if not stopped:
-                        # При ошибке локального дескриптора применяем taskkill к дереву процессов.
+                        # При ошибке локального дескриптора переходим к taskkill для дерева процессов.
                         stopped = self._kill_registered_process_tree(pid, record)
                         if stopped:
                             process.join(timeout=3)
@@ -163,8 +163,8 @@ class BotRuntimeWorkerManager:
                     self._runtime_operation_id = None
                     self._runtime_session_id = None
                 elif record is None and pid is not None and not pid_verified:
-                    # Реестр уже содержит другой рабочий процесс или не подтверждает
-                    # прежнюю идентичность; повторная проверка не должна удалить
+                    # Реестр уже содержит другой worker или не подтверждает
+                    # прежнюю identity; повторная проверка не должна удалить
                     # чужую запись или сообщить об успешной остановке.
                     stopped = self._unregister_process(expected_worker=None)
                 else:
@@ -184,7 +184,7 @@ class BotRuntimeWorkerManager:
         operation_id: str | None = None,
         session_id: str | None = None,
     ) -> bool:
-        """Попросить рабочий процесс завершить текущую задачу без terminate/kill."""
+        """Попросить worker завершить текущий task без terminate/kill."""
 
         with self._get_lifecycle_lock(self.config_name):
             if not self.alive:
@@ -192,7 +192,7 @@ class BotRuntimeWorkerManager:
             event = self._stop_event
             if event is None or not callable(getattr(event, "set", None)):
                 logger.error(
-                    f"[{self.config_name}] Для рабочего процесса нет локального события штатной остановки"
+                    f"[{self.config_name}] У worker нет локального cooperative stop event"
                 )
                 return False
             try:
@@ -203,22 +203,22 @@ class BotRuntimeWorkerManager:
                     operation_id=operation_id or self._runtime_operation_id or "runtime",
                     session_id=session_id or self._runtime_session_id,
                 )
-            except Exception as exc:  # noqa: BLE001 - граница владельца отклоняет действие при неясности.
+            except Exception as exc:  # noqa: BLE001 - граница owner работает fail-closed.
                 logger.error(
-                    f"[{self.config_name}] Не удалось записать состояние штатной остановки: {exc}"
+                    f"[{self.config_name}] Не удалось записать cooperative stop state: {exc}"
                 )
                 return False
             try:
                 event.set()
-            except Exception as exc:  # noqa: BLE001 - сигнал остановки отклоняет действие при неясности.
+            except Exception as exc:  # noqa: BLE001 - сигнал остановки работает в fail-closed режиме.
                 logger.error(
-                    f"[{self.config_name}] Не удалось передать запрос на штатную остановку: {exc}"
+                    f"[{self.config_name}] Не удалось передать cooperative stop request: {exc}"
                 )
                 return False
             return True
 
     def wait_for_exit(self, timeout: float) -> bool:
-        """Дождаться естественного завершения рабочего процесса без принуждения."""
+        """Дождаться естественного выхода worker без принудительной эскалации."""
 
         if type(timeout) not in (int, float) or timeout < 0:
             raise ValueError("timeout должен быть неотрицательным числом")
@@ -233,12 +233,12 @@ class BotRuntimeWorkerManager:
 
     @staticmethod
     def _is_process_alive(process: Process | None) -> bool:
-        """Проверить локальное состояние процесса и собрать дескриптор процесса-зомби.
+        """Прочитать локальное состояние процесса, собрать zombie-дескриптор и считать недействительный дескриптор завершённым.
 
-        Завершённый дескриптор ``multiprocessing.Process``, для которого ещё не
-        вызывался ``join``, сообщает ``is_alive() == True``. Метод вызывает
-        ``join(timeout=0)``, чтобы сборка дескриптора не искажала проверку
-        активности при остановке. Такой вызов не блокирует работающий процесс.
+        Завершённый, но ещё не переданный в join дескриптор
+        multiprocessing.Process сообщает is_alive() == True (состояние zombie).
+        Метод вызывает join(timeout=0), чтобы сборка дескриптора не искажала
+        проверки жизни во время stop. join(timeout=0) не блокирует работающий процесс.
         """
         try:
             if process is None:
@@ -253,13 +253,12 @@ class BotRuntimeWorkerManager:
 
     @staticmethod
     def _stop_local_process(process: Process) -> bool:
-        """Пошагово завершить рабочий процесс через локальный дескриптор Process.
+        """Пошагово завершить worker локальным Process, предпочитая его taskkill.
 
-        Сначала вызвать ``terminate()`` и ждать 5 секунд, затем при тайм-ауте
-        вызвать ``kill()`` и ждать 3 секунды. ``taskkill`` может завершиться без
-        результата из-за прав или состояния процесса; локальный дескриптор
-        надёжнее. Метод завершает только корневой процесс, после ошибки вызывающая
-        сторона должна перейти к ``_kill_process_tree``.
+        Сначала вызвать terminate() и ждать 5 секунд, затем при тайм-ауте вызвать kill()
+        и ждать 3 секунды. taskkill может молча завершиться из-за прав или состояния
+        процесса; локальный дескриптор надёжнее. Метод завершает только корневой процесс,
+        а вызывающая сторона при ошибке должна перейти к _kill_process_tree.
         """
         try:
             process.terminate()
@@ -276,7 +275,7 @@ class BotRuntimeWorkerManager:
 
     @classmethod
     def _terminate_unregistered_process(cls, process: Process) -> None:
-        """Остановить незарегистрированный рабочий процесс после ошибки запуска через локальный Process."""
+        """Откатить незарегистрированный worker после ошибки запуска через локальный Process."""
         if not cls._is_process_alive(process):
             try:
                 process.join(timeout=0)
@@ -296,7 +295,7 @@ class BotRuntimeWorkerManager:
             pass
 
     def _kill_registered_process_tree(self, pid: int, record: dict | None) -> bool:
-        """Повторно проверить идентичность перед taskkill и уменьшить риск повторного использования PID."""
+        """Повторно проверить identity перед taskkill и уменьшить окно повторного использования PID."""
         if record is None:
             logger.error(f"[{self.config_name}] Для рабочего процесса PID {pid} нет постоянной записи идентичности")
             return False
@@ -319,7 +318,7 @@ class BotRuntimeWorkerManager:
 
     @staticmethod
     def _kill_process_tree(pid: int) -> bool:
-        """В пределах срока завершить рабочий процесс и его дочерние процессы."""
+        """Ограниченно завершить worker и его производные процессы."""
         if os.name == "nt":
             try:
                 result = subprocess.run(
@@ -379,31 +378,31 @@ class BotRuntimeWorkerManager:
     def _registered_worker(
         self, expected_pid: int | None = None
     ) -> tuple[int | None, dict | None, bool]:
-        """Вернуть подтверждённую идентичность рабочего процесса; вызывающая сторона держит блокировку жизненного цикла."""
+        """Вернуть подтверждённую identity worker; вызывающая сторона должна держать lifecycle lock."""
         cached_pid = None
         try:
             workers = get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT)
             if not isinstance(workers, dict):
                 logger.error(
-                    f"[{self.config_name}] Не удалось прочитать основной реестр рабочих процессов"
+                    f"[{self.config_name}] Не удалось прочитать authoritative registry worker"
                 )
                 return expected_pid, None, False
             authoritative_record = workers.get(self.config_name)
             if authoritative_record is not None:
                 if not isinstance(authoritative_record, dict):
                     logger.error(
-                        f"[{self.config_name}] Основной реестр содержит некорректную запись рабочего процесса"
+                        f"[{self.config_name}] Authoritative registry содержит некорректную запись worker"
                     )
                     return expected_pid, None, False
                 cached_pid = int(authoritative_record["pid"])
         except (KeyError, OverflowError, TypeError, ValueError):
             logger.error(
-                f"[{self.config_name}] Основной реестр содержит недопустимый PID рабочего процесса"
+                f"[{self.config_name}] Authoritative registry содержит недопустимый PID worker"
             )
             return expected_pid, None, False
         except RuntimeError as exc:
             logger.error(
-                f"[{self.config_name}] Не удалось проверить основной реестр: {type(exc).__name__}"
+                f"[{self.config_name}] Не удалось проверить authoritative registry: {type(exc).__name__}"
             )
             return expected_pid, None, False
 
@@ -426,7 +425,7 @@ class BotRuntimeWorkerManager:
         try:
             if not is_current_owner(os.getpid(), repository_root=_REPOSITORY_ROOT):
                 logger.error(
-                    f"[{self.config_name}] Текущий Bot Runtime не владеет записью рабочего процесса; операция с PID {pid} отклонена"
+                    f"[{self.config_name}] Текущий Bot Runtime не владеет записью worker; операция с PID {pid} отклонена"
                 )
                 return pid, None, False
             record = get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT).get(self.config_name)
@@ -458,8 +457,8 @@ class BotRuntimeWorkerManager:
         if unregistered:
             self._registry_cleanup_confirmed = True
         if expected_pid is not None:
-            # process_matches подтвердил завершение процесса (None) или повторное использование PID
-            # (False), но локальный дескриптор может оставаться процессом-зомби до join.
+            # process_matches подтвердил смерть процесса (None) или повторное использование PID
+            # (False), но локальный дескриптор может оставаться zombie до join.
             # Собираем его, чтобы не считать завершённый процесс живым.
             try:
                 process = self._process
@@ -467,7 +466,7 @@ class BotRuntimeWorkerManager:
                     process.join(timeout=0)
             except (OSError, ValueError, AssertionError):
                 pass
-            # Если после join дескриптор больше не сообщает об активности, процесс-зомби собран.
+            # Если после join дескриптор больше не сообщает о жизни, zombie собран.
             if not self._is_process_alive(self._process):
                 self._process = None
                 if unregistered:
@@ -478,12 +477,12 @@ class BotRuntimeWorkerManager:
         return pid, None, False
 
     def _registered_pid(self) -> tuple[int | None, bool]:
-        """Вернуть зарегистрированный PID и признак подтверждённой идентичности."""
+        """Вернуть зарегистрированный PID и признак подтверждённой identity."""
         pid, _, verified = self._registered_worker()
         return pid, verified
 
     def _reconcile_runtime_state_before_start(self) -> None:
-        """Перед новым рабочим процессом очистить только доказанно устаревшее состояние среды выполнения."""
+        """Перед новым worker списать только доказанно мёртвый runtime state."""
         from module.application.runtime_state import (
             RuntimeStateError,
             RuntimeStateStore,
@@ -503,16 +502,16 @@ class BotRuntimeWorkerManager:
             )
         except RuntimeStateError as exc:
             logger.error(
-                f"[{self.config_name}] Запуск рабочего процесса отклонён: состояние среды выполнения не подтверждено ({exc.code})"
+                f"[{self.config_name}] Запуск worker отклонён: runtime state не подтверждён ({exc.code})"
             )
             raise
         except RuntimeError:
             logger.error(
-                f"[{self.config_name}] Запуск рабочего процесса отклонён: основной реестр не подтверждён"
+                f"[{self.config_name}] Запуск worker отклонён: authoritative registry не подтверждён"
             )
             raise RuntimeStateError(
                 "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                f"Нельзя запустить профиль {self.config_name!r}: основной реестр недоступен.",
+                f"Нельзя запустить профиль {self.config_name!r}: authoritative registry недоступен.",
                 details={
                     "profile": self.config_name,
                     "reason": "authoritative_registry_unavailable",
@@ -520,7 +519,7 @@ class BotRuntimeWorkerManager:
             ) from None
         if reconciled:
             logger.warning(
-                f"[{self.config_name}] Перед запуском восстановлены остановленные профили среды выполнения: "
+                f"[{self.config_name}] Перед запуском восстановлены остановленные runtime-профили: "
                 f"{', '.join(reconciled)}"
             )
 
@@ -540,7 +539,7 @@ class BotRuntimeWorkerManager:
             state_store = RuntimeStateStore(_REPOSITORY_ROOT)
             record = get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT).get(self.config_name)
             if not isinstance(record, dict):
-                raise RuntimeError("После регистрации отсутствует запись рабочего процесса")
+                raise RuntimeError("После регистрации отсутствует запись worker")
             worker_pid = int(record["pid"])
             worker_created_at = float(record["created_at"])
             phase = RuntimePhase.USER_PROFILE_IDLE
@@ -560,9 +559,9 @@ class BotRuntimeWorkerManager:
                 session_id=self._runtime_session_id,
                 phase=phase,
             )
-        except Exception as exc:  # noqa: BLE001 - после ошибки рабочий процесс не должен остаться без учёта.
+        except Exception as exc:  # noqa: BLE001 - при ошибке worker не должен остаться без учёта.
             logger.warning(
-                f"[{self.config_name}] Не удалось обновить общее состояние среды выполнения: {exc}"
+                f"[{self.config_name}] Не удалось обновить process-shared runtime state: {exc}"
             )
             try:
                 rollback_record = (
@@ -575,26 +574,26 @@ class BotRuntimeWorkerManager:
                 self._unregister_process(expected_worker=rollback_record)
             except Exception as rollback_exc:  # noqa: BLE001 - исходная ошибка остаётся причиной отказа.
                 logger.error(
-                    f"[{self.config_name}] Не удалось отменить регистрацию рабочего процесса после ошибки состояния среды выполнения: {rollback_exc}"
+                    f"[{self.config_name}] Не удалось откатить регистрацию worker после ошибки runtime state: {rollback_exc}"
                 )
             raise
 
     def _unregister_process(self, *, expected_worker: dict | None = None) -> bool:
         if expected_worker is None:
-            # Если ожидаемая идентичность отсутствует, этот менеджер больше
-            # не вправе очищать запись: она уже могла перейти к новому
-            # рабочему процессу того же профиля.
+            # Отсутствие ожидаемой identity означает, что этот manager больше
+            # не имеет права очищать запись, которая могла уже принадлежать
+            # новому worker того же профиля.
             if not is_current_owner(os.getpid(), repository_root=_REPOSITORY_ROOT):
                 return False
             try:
                 if get_workers(os.getpid(), repository_root=_REPOSITORY_ROOT).get(self.config_name) is not None:
                     logger.error(
-                        f"[{self.config_name}] Запись рабочего процесса существует без подтверждённой идентичности; очистка отклонена"
+                        f"[{self.config_name}] Запись worker существует без подтверждённой identity; очистка отклонена"
                     )
                     return False
-            except Exception as exc:  # noqa: BLE001 - без подтверждённого реестра очистка запрещена.
+            except Exception as exc:  # noqa: BLE001 - отсутствие подтверждённого registry блокирует очистку.
                 logger.error(
-                    f"[{self.config_name}] Не удалось подтвердить отсутствие записи рабочего процесса: {exc}"
+                    f"[{self.config_name}] Не удалось подтвердить отсутствие записи worker: {exc}"
                 )
                 return False
             self._stop_event = None
@@ -631,9 +630,9 @@ class BotRuntimeWorkerManager:
                 operation_id=self._runtime_operation_id,
                 session_id=self._runtime_session_id,
             )
-        except Exception as exc:  # noqa: BLE001 - реестр остаётся источником истины.
+        except Exception as exc:  # noqa: BLE001 - registry остаётся источником истины.
             logger.warning(
-                f"[{self.config_name}] Не удалось обновить состояние остановленной среды выполнения: {exc}"
+                f"[{self.config_name}] Не удалось обновить остановленное runtime state: {exc}"
             )
         self._stop_event = None
         self._runtime_operation_id = None
@@ -647,7 +646,7 @@ class BotRuntimeWorkerManager:
                 return True
             pid, pid_verified = self._registered_pid()
             if not pid_verified:
-                # Повторный запуск отдельно проверяет запись, чтобы не создать дубликат.
+                # Повторный start отдельно проверяет запись, чтобы не запустить дубликат.
                 return False
             return pid is not None
 
@@ -668,11 +667,11 @@ class BotRuntimeWorkerManager:
         """
         Получить менеджер процессов указанного экземпляра конфигурации и создать его при отсутствии.
 
-        Аргументы:
+        Args:
             config_name: имя экземпляра конфигурации (например, 'alas')
 
-        Возвращает:
-            соответствующий менеджер рабочего процесса.
+        Returns:
+            соответствующий менеджер worker-процесса.
         """
         with cls._managers_lock:
             if config_name not in cls._processes:
@@ -697,7 +696,7 @@ class BotRuntimeWorkerManager:
         config_name: str,
         repository_root: str | None,
     ) -> bool:
-        """Не запускать задачу до ограниченной регистрации точной идентичности процесса."""
+        """Не запускать тело worker до bounded регистрации exact process identity."""
         try:
             import psutil
 
@@ -711,15 +710,15 @@ class BotRuntimeWorkerManager:
                 worker_pid=os.getpid(),
                 worker_created_at=worker_created_at,
             )
-        except Exception as exc:  # noqa: BLE001 - допуск к запуску отклоняется при неясности.
+        except Exception as exc:  # noqa: BLE001 - startup gate работает в режиме fail-closed.
             logger.error(
-                f"[{config_name}] Не удалось подтвердить регистрацию рабочего процесса перед запуском: "
+                f"[{config_name}] Не удалось подтвердить регистрацию worker перед запуском: "
                 f"{type(exc).__name__}"
             )
             return False
         if not ready:
             logger.error(
-                f"[{config_name}] Регистрация рабочего процесса не подтверждена за отведённое время; задача не запущена"
+                f"[{config_name}] Регистрация worker не подтверждена за ограниченное время; тело задачи не запущено"
             )
         return ready
 
@@ -731,7 +730,7 @@ class BotRuntimeWorkerManager:
         session_id: str | None,
         stop_event: threading.Event,
     ) -> None:
-        """Обновлять состояние среды выполнения только для текущего рабочего процесса."""
+        """Поддерживать свежесть runtime state только для текущего worker."""
 
         try:
             import psutil
@@ -744,9 +743,9 @@ class BotRuntimeWorkerManager:
             process = psutil.Process(os.getpid())
             worker_created_at = float(process.create_time())
             state_store = RuntimeStateStore(repository_root or _REPOSITORY_ROOT)
-        except Exception as exc:  # noqa: BLE001 - сигнал активности не меняет жизненный цикл рабочего процесса.
+        except Exception as exc:  # noqa: BLE001 - heartbeat не должен менять worker lifecycle.
             logger.warning(
-                f"[{config_name}] Не удалось подготовить сигнал активности состояния среды выполнения: {type(exc).__name__}"
+                f"[{config_name}] Не удалось подготовить heartbeat runtime state: {type(exc).__name__}"
             )
             return
 
@@ -763,12 +762,12 @@ class BotRuntimeWorkerManager:
                 if exc.code == "RUNTIME_STATE_STALE_WRITE":
                     return
                 logger.warning(
-                    f"[{config_name}] Сигнал активности состояния среды выполнения остановлен: {exc.code}"
+                    f"[{config_name}] Heartbeat runtime state остановлен: {exc.code}"
                 )
                 return
-            except Exception as exc:  # noqa: BLE001 - неизвестное состояние требует отказа при проверке.
+            except Exception as exc:  # noqa: BLE001 - неизвестное состояние требует fail-closed read.
                 logger.warning(
-                    f"[{config_name}] Сигнал активности состояния среды выполнения не подтверждён: {type(exc).__name__}"
+                    f"[{config_name}] Heartbeat runtime state не подтверждён: {type(exc).__name__}"
                 )
                 continue
             if snapshot is None or snapshot.worker_running is not True:
@@ -821,7 +820,7 @@ class BotRuntimeWorkerManager:
         policy_path = BotRuntimeWorkerManager._resolve_task_policy_path(repository_root_path)
         if session_id and policy_path is None:
             logger.error(
-                f"[{config_name}] Политика dev-runtime не подтверждена; запуск задачи отклонён"
+                f"[{config_name}] Политика dev-runtime не подтверждена; запуск task отклонён"
             )
             return
         if session_id:
@@ -870,8 +869,8 @@ class BotRuntimeWorkerManager:
                     session_id=session_id,
                 )
             except Exception:
-                # Реестр и владелец остаются источником истины; дочерняя очистка
-                # не может самостоятельно изменить владельца.
+                # Registry/owner остаётся источником истины; дочерний cleanup
+                # не может самостоятельно изменить ownership.
                 pass
 
     @staticmethod
@@ -881,11 +880,10 @@ class BotRuntimeWorkerManager:
         e: object | None = None,
     ) -> None:
         import sys
-
         from module.config.profile import profile_identity_from_name
 
         if profile_identity_from_name(config_name) is None:
-            raise ValueError("Имя профиля среды выполнения имеет неверный формат")
+            raise ValueError("Имя runtime-профиля имеет неверный формат")
 
         if sys.platform != "win32":
             import resource
@@ -899,19 +897,17 @@ class BotRuntimeWorkerManager:
                     resource.setrlimit(resource.RLIMIT_NOFILE, (_target, _hard))
             except Exception:
                 pass
-        # Настроить журнал среды выполнения и необязательную телеметрию.
+        # Настроить журнал runtime и необязательную телеметрию.
         configure_runtime_logging(name=config_name)
-        from module.application.runtime_log_projection import (
-            RuntimeLogProjectionHandler,
-        )
+        from module.application.runtime_log_projection import RuntimeLogProjectionHandler
 
         projection = None
         try:
             projection = RuntimeLogProjectionHandler(config_name)
         except (OSError, ValueError) as exc:
             logger.warning(
-                f"[{config_name}] Не удалось включить проекцию журнала среды выполнения "
-                f"({type(exc).__name__}); рабочий процесс продолжит работу без неё"
+                f"[{config_name}] Не удалось включить проекцию runtime-журнала "
+                f"({type(exc).__name__}); worker продолжит работу без неё"
             )
         if projection is not None:
             logger.addHandler(projection)
