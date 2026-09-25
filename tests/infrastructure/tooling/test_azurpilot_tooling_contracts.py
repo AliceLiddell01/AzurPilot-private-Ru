@@ -50,7 +50,10 @@ from azurpilot.tooling.coordination import PortObservation
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.filesystem import JournalStore, StateLayout, path_identity
 from azurpilot.tooling.git import canonical_remote_identity
-from azurpilot.tooling.infrastructure import InfrastructureService
+from azurpilot.tooling.infrastructure import (
+    _PROJECT_MODULE_CAUSE_LIMIT,
+    InfrastructureService,
+)
 from azurpilot.tooling.lifecycle import LifecycleService
 from azurpilot.tooling.operator import validate_direct_azur_invocation
 from azurpilot.tooling.postgres import BackupOutcome, PostgreSqlBackupService
@@ -1438,6 +1441,172 @@ def test_docker_records_accept_object_array_and_ndjson_without_silent_parse_loss
     with pytest.raises(ToolingError) as error:
         InfrastructureService._records('{"Service":"postgres"}\nnot-json\n')
     assert error.value.code is ResultCode.TOOLING_INFRASTRUCTURE_FAILED
+
+
+def _project_module_root(tmp_path: Path) -> Path:
+    """Создать минимальный корень репозитория с Python проектного venv."""
+
+    root = tmp_path / "repository"
+    (root / ".venv" / "bin").mkdir(parents=True)
+    (root / ".venv" / "bin" / "python").write_bytes(b"")
+    return root
+
+
+def _project_module_runner(result: SimpleNamespace) -> object:
+    class FakeRunner:
+        def run(self, _spec: ProcessSpec) -> SimpleNamespace:
+            return result
+
+    return FakeRunner()
+
+
+def _run_failing_project_module(root: Path, result: SimpleNamespace) -> ToolingError:
+    with pytest.raises(ToolingError) as error:
+        InfrastructureService(_project_module_runner(result))._run_project_module(
+            root,
+            DeploySettings(source_path=None),
+            "dev_tools.postgresql_runtime",
+            "prepare",
+            timeout_seconds=5.0,
+        )
+    return error.value
+
+
+def test_project_module_failure_reports_bounded_sanitized_cause(tmp_path: Path) -> None:
+    root = _project_module_root(tmp_path)
+    secret = "s3cret-password-value"
+    personal_path = str(tmp_path / "operator-home" / "project")
+
+    failure = _run_failing_project_module(
+        root,
+        SimpleNamespace(
+            ok=False,
+            timed_out=False,
+            returncode=1,
+            stdout="",
+            stderr=(
+                "Traceback (most recent call last):\n"
+                f'  File "{personal_path}/dev_tools/postgresql_runtime.py", line 7\n'
+                "    import alembic\n"
+                "ModuleNotFoundError: No module named 'alembic'\n"
+                f"DATABASE_URL=postgresql://azurpilot:{secret}@127.0.0.1:5432/azurpilot\n"
+            ),
+        ),
+    )
+
+    assert failure.code is ResultCode.TOOLING_INFRASTRUCTURE_FAILED
+    assert "dev_tools.postgresql_runtime" in failure.message
+    assert "код возврата 1" in failure.message
+    assert "ModuleNotFoundError: No module named 'alembic'" in failure.message
+    assert secret not in failure.message
+    assert personal_path not in failure.message
+    assert "Traceback" not in failure.message
+    assert "\n" not in failure.message
+    assert len(failure.message) <= 300
+
+
+def test_project_module_failure_masks_credentials_and_paths_inside_cause(
+    tmp_path: Path,
+) -> None:
+    """Секрет и локальный путь внутри выбранной строки-причины не публикуются."""
+
+    root = _project_module_root(tmp_path)
+    personal_path = str(tmp_path / "operator-home" / "project")
+    # DSN собирается из частей: литерал вида ``scheme://user:pass@host`` мешает
+    # инструментам, которые сканируют тестовые файлы на секреты.
+    credential = "syn" + "thetic-credential"
+    dsn = "postgresql://operator:" + credential + "@127.0.0.1:5432/azurpilot"
+
+    failure = _run_failing_project_module(
+        root,
+        SimpleNamespace(
+            ok=False,
+            timed_out=False,
+            returncode=1,
+            stdout="",
+            stderr=(
+                "Traceback (most recent call last):\n"
+                f'  File "{personal_path}/dev_tools/postgresql_runtime.py", line 7\n'
+                f"sqlalchemy.exc.OperationalError: DSN {dsn} отклонён,"
+                f" конфигурация {personal_path}/postgresql.toml\n"
+            ),
+        ),
+    )
+
+    assert failure.code is ResultCode.TOOLING_INFRASTRUCTURE_FAILED
+    assert "sqlalchemy.exc.OperationalError" in failure.message
+    assert credential not in failure.message
+    assert dsn not in failure.message
+    assert "postgresql://***@" in failure.message
+    assert personal_path not in failure.message
+    assert "[путь скрыт]" in failure.message
+    assert len(failure.message) <= 300
+
+
+def test_project_module_failure_without_output_keeps_generic_message(tmp_path: Path) -> None:
+    root = _project_module_root(tmp_path)
+
+    failure = _run_failing_project_module(
+        root,
+        SimpleNamespace(
+            ok=False,
+            timed_out=False,
+            returncode=1,
+            stdout="",
+            stderr="",
+        ),
+    )
+
+    assert failure.code is ResultCode.TOOLING_INFRASTRUCTURE_FAILED
+    assert failure.message == (
+        "dev_tools.postgresql_runtime не подтвердил инфраструктурное постусловие"
+        " (код возврата 1)."
+    )
+
+
+def test_project_module_failure_cause_stays_bounded_for_large_output(tmp_path: Path) -> None:
+    root = _project_module_root(tmp_path)
+
+    failure = _run_failing_project_module(
+        root,
+        SimpleNamespace(
+            ok=False,
+            timed_out=False,
+            returncode=2,
+            stdout="",
+            stderr="RuntimeError: " + "x" * 4096 + "\n",
+        ),
+    )
+
+    assert failure.code is ResultCode.TOOLING_INFRASTRUCTURE_FAILED
+    assert failure.message.startswith(
+        "dev_tools.postgresql_runtime не подтвердил инфраструктурное постусловие"
+    )
+    assert "RuntimeError" in failure.message
+    assert len(failure.message) <= 300
+    assert "x" * 200 not in failure.message
+    cause = failure.message.split("причина: ", 1)[1][:-2]
+    assert len(cause) == _PROJECT_MODULE_CAUSE_LIMIT + 1
+    assert cause.endswith("…")
+
+
+def test_project_module_failure_uses_stdout_cause_when_stderr_is_empty(
+    tmp_path: Path,
+) -> None:
+    root = _project_module_root(tmp_path)
+
+    failure = _run_failing_project_module(
+        root,
+        SimpleNamespace(
+            ok=False,
+            timed_out=False,
+            returncode=1,
+            stdout="Traceback (most recent call last):\nValueError: synthetic\n",
+            stderr="",
+        ),
+    )
+
+    assert "ValueError: synthetic" in failure.message
 
 
 def test_journal_removal_quarantines_transaction_outside_transaction_tree(

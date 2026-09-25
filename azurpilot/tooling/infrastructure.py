@@ -3,11 +3,16 @@
 Операции Docker выполняются только через явные аргументы Compose и ограниченный
 ``StructuredProcessRunner``. Учётные данные PostgreSQL остаются в ``.env``/
 Docker secrets и не передаются в argv или evidence результата.
+
+При сбое project module оператору сообщается ограниченная очищенная причина: она
+позволяет отличить сбой импорта или выполнения от отказа инфраструктуры, не
+публикуя сырой вывод процесса и не раскрывая секреты.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -18,6 +23,64 @@ from .contracts import CapabilityStatus, ResultCode
 from .errors import ToolingError
 from .filesystem import bounded_read_text, path_has_link
 from .process import ProcessSpec, StructuredProcessRunner, docker_environment
+
+_PROJECT_MODULE_CAUSE_LIMIT = 160
+_PROJECT_MODULE_CAUSE_UNAVAILABLE = "причина недоступна"
+_PROJECT_MODULE_FAILURE_SUMMARY = re.compile(
+    r"^[A-Za-z_][\w.]*(?:Error|Exception|Warning|Interrupt)\b"
+)
+
+
+def _project_module_failure_line(value: object) -> str:
+    """Выбрать информативную строку ограниченного вывода процесса.
+
+    Для сбоя project module важнее строка-итог интерпретатора
+    (``ModuleNotFoundError: ...``), чем произвольный последующий лог. Если такой
+    строки нет, используется последняя непустая строка.
+    """
+
+    if not isinstance(value, str):
+        return ""
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if _PROJECT_MODULE_FAILURE_SUMMARY.match(line):
+            return line
+    return lines[-1] if lines else ""
+
+
+def _project_module_failure_cause(result: object) -> str:
+    """Вернуть ограниченную очищенную причину сбоя project module.
+
+    Сырой stderr/stdout не публикуется: причина проходит через общий очиститель
+    диагностики, который скрывает учётные данные и локальные пути и ограничивает
+    размер. Если очиститель недоступен, сообщается только о недоступности причины.
+    """
+
+    cause = _project_module_failure_line(
+        getattr(result, "stderr", "")
+    ) or _project_module_failure_line(getattr(result, "stdout", ""))
+    if not cause:
+        return ""
+    try:
+        from module.dev_runtime.sanitizer import redact_text
+    except Exception:  # pragma: no cover - очиститель есть в любой установке проекта
+        return _PROJECT_MODULE_CAUSE_UNAVAILABLE
+    return redact_text(cause, max_length=_PROJECT_MODULE_CAUSE_LIMIT).strip()
+
+
+def _project_module_failure_suffix(result: object) -> str:
+    """Собрать безопасный диагностический суффикс для сообщения о сбое модуля."""
+
+    details: list[str] = []
+    returncode = getattr(result, "returncode", None)
+    if isinstance(returncode, int):
+        details.append(f"код возврата {returncode}")
+    cause = _project_module_failure_cause(result)
+    if cause:
+        details.append(f"причина: {cause}")
+    if not details:
+        return ""
+    return f" ({'; '.join(details)})"
 
 
 @dataclass(frozen=True)
@@ -186,7 +249,8 @@ class InfrastructureService:
                 )
             raise ToolingError(
                 ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
-                f"{module} не подтвердил инфраструктурное постусловие.",
+                f"{module} не подтвердил инфраструктурное постусловие"
+                f"{_project_module_failure_suffix(result)}.",
             )
         return result.stdout
 
