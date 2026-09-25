@@ -1116,6 +1116,22 @@ def _parse_request(payload: object) -> dict[str, object]:
     }
 
 
+def _bot_runtime_windows_creationflags() -> int:
+    """Вернуть Win32 flags для действительно headless Bot Runtime owner.
+
+    CREATE_NO_WINDOW нельзя сочетать с DETACHED_PROCESS: по Win32 contract
+    CREATE_NO_WINDOW в этой комбинации игнорируется. В результате console
+    descendants могут получить отдельный terminal host. Bot Runtime остаётся
+    отдельной process group и может выйти из inherited Job, но запускается
+    именно без консольного окна.
+    """
+    return (
+        getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    )
+
+
 class BotRuntimeBootstrapper:
     """Безопасно поднять ровно один headless Bot Runtime owner при его отсутствии."""
 
@@ -1194,12 +1210,7 @@ class BotRuntimeBootstrapper:
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
                             shell=False,
-                            creationflags=(
-                                getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                                | getattr(subprocess, "DETACHED_PROCESS", 0)
-                                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                                | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
-                            ),
+                            creationflags=_bot_runtime_windows_creationflags(),
                             start_new_session=os.name != "nt",
                         )
                     except OSError as exc:
