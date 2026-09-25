@@ -476,7 +476,7 @@ class GuildLogistics(GuildBase):
             out: GUILD_LOGISTICS
         """
         logger.hr('Логистика гильдии')
-        logger.attr('Командир/заместитель гильдии', self.config.GuildLogistics_SelectNewMission)
+        logger.attr('Выбор нового задания гильдии', self.config.GuildLogistics_SelectNewMission)
         confirm_timer = Timer(1.5, count=3).start()
         exchange_interval = Timer(1.5, count=3)
         click_interval = Timer(0.5, count=1)
@@ -519,8 +519,14 @@ class GuildLogistics(GuildBase):
             else:
                 confirm_timer.reset()
 
-        logger.info(f"снабжение_проверено: {supply_state['checked']}, задание_проверено: {mission_checked}, "
-                    f'обмен_проверен: {exchange_checked}, задание_завершено: {self._guild_logistics_mission_finished}')
+        logger.debug(
+            "Состояние логистики гильдии: снабжение_проверено=%s, "
+            "задание_проверено=%s, обмен_проверен=%s, задание_завершено=%s",
+            supply_state["checked"],
+            mission_checked,
+            exchange_checked,
+            self._guild_logistics_mission_finished,
+        )
         # Azur Lane receives new guild missions now
         # No longer consider `self._guild_logistics_mission_finished` as a check
         return all([supply_state['checked'], mission_checked, exchange_checked])
