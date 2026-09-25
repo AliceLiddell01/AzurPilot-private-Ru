@@ -244,7 +244,7 @@ class MaaTouch(Connection):
 
             # ^ <max-contacts> <max-x> <max-y> <max-pressure>
             out = socket_out.readline().replace("\n", "").replace("\r", "")
-            logger.info(out)
+            logger.debug('[Устройство — MaaTouch] Служебный заголовок протокола: %s', out)
             if out.strip() == 'Aborted':
                 stream.close()
                 raise MaaTouchNotInstalledError(
@@ -271,7 +271,7 @@ class MaaTouch(Connection):
 
         # $ <pid>
         out = socket_out.readline().replace("\n", "").replace("\r", "")
-        logger.info(out)
+        logger.debug('[Устройство — MaaTouch] Служебный заголовок протокола: %s', out)
         # _, pid = out.split(" ")
         # self._maatouch_pid = pid
 
@@ -323,7 +323,7 @@ class MaaTouch(Connection):
             except socket.timeout as e:
                 raise MaaTouchSyncTimeout(str(e))
             out = out.strip()
-            # logger.info(out)
+            # logger.debug('[Устройство — MaaTouch] Служебный заголовок протокола: %s', out)
 
             if out == timestamp:
                 break
