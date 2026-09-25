@@ -899,6 +899,31 @@ def test_control_plane_rejects_executor_result_from_different_owner(tmp_path: Pa
     assert result.code == "RUNTIME_EXECUTION_INVALID"
 
 
+def test_bot_runtime_windows_creationflags_keep_no_window_without_detached_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_control.subprocess, "CREATE_NO_WINDOW", 0x01, raising=False)
+    monkeypatch.setattr(runtime_control.subprocess, "DETACHED_PROCESS", 0x02, raising=False)
+    monkeypatch.setattr(
+        runtime_control.subprocess,
+        "CREATE_NEW_PROCESS_GROUP",
+        0x04,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        runtime_control.subprocess,
+        "CREATE_BREAKAWAY_FROM_JOB",
+        0x08,
+        raising=False,
+    )
+
+    flags = runtime_control._bot_runtime_windows_creationflags()
+
+    assert flags == 0x01 | 0x04 | 0x08
+    assert flags & runtime_control.subprocess.CREATE_NO_WINDOW
+    assert not flags & runtime_control.subprocess.DETACHED_PROCESS
+
+
 def test_bootstrap_replaces_stale_owner_only_through_canonical_bot_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -911,10 +936,12 @@ def test_bootstrap_replaces_stale_owner_only_through_canonical_bot_runtime(
     current = {"owner": stale.as_dict()}
 
     launches: list[tuple[object, ...]] = []
+    launch_kwargs: list[dict[str, object]] = []
 
     class FakeProcess:
-        def __init__(self, args: object, **_kwargs: object) -> None:
+        def __init__(self, args: object, **kwargs: object) -> None:
             launches.append(tuple(args))  # type: ignore[arg-type]
+            launch_kwargs.append(dict(kwargs))
             current["owner"] = fresh.as_dict()
 
         @staticmethod
@@ -935,6 +962,11 @@ def test_bootstrap_replaces_stale_owner_only_through_canonical_bot_runtime(
     assert launches == [
         (str(python_executable), "-m", "module.bot_runtime")
     ]
+    assert len(launch_kwargs) == 1
+    assert (
+        launch_kwargs[0]["creationflags"]
+        == runtime_control._bot_runtime_windows_creationflags()
+    )
 
 
 def test_bootstrap_stops_owned_process_when_owner_read_fails(
