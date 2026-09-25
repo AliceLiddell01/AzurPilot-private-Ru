@@ -131,6 +131,9 @@ SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
         Path("module/config/constants.py"),
         Path("deploy/atomic.py"),
         Path("module/observability/identity.py"),
+        Path("module/observability/bootstrap.py"),
+        Path("module/observability/__init__.py"),
+        Path("module/logger.py"),
     ),
     "GAME_MCP_SOURCE_SET": (
         Path("module/game_mcp"),
@@ -181,6 +184,9 @@ SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
         Path("module/config/utils.py"),
         Path("module/config/task_priority.py"),
         Path("module/observability/incident.py"),
+        Path("module/observability/bootstrap.py"),
+        Path("module/observability/__init__.py"),
+        Path("module/logger.py"),
     ),
     "SHARED_MCP_SOURCE_SET": (
         Path("module/mcp_shared"),

@@ -1,7 +1,7 @@
 {
   "name": "azurpilot",
-  "version": "0.1.0+codex.44774146384457",
-  "description": "Единый workflow для project-scoped Development Runtime и Game MCP AzurPilot.",
+  "version": "0.1.0+codex.50639619622621",
+  "description": "Единый порядок работы с проектной средой Development Runtime и Game MCP AzurPilot.",
   "author": {
     "name": "AzurPilot",
     "url": "https://github.com/AliceLiddell01/AzurPilot-private-Ru"
@@ -21,9 +21,9 @@
   "interface": {
     "displayName": "AzurPilot",
     "shortDescription": "Безопасная работа с Dev Runtime и Game MCP.",
-    "longDescription": "AzurPilot объединяет три workflow: Development Runtime, Game MCP и evidence-first диагностику. В Codex оба MCP используют project-scoped local stdio из .codex/config.toml; пакет поставляет skills и metadata, но не регистрирует MCP и не загружает Connected Apps. ChatGPT/public HTTPS остаётся отдельной authenticated remote surface той же backend family.",
+    "longDescription": "AzurPilot объединяет три направления: среду разработки, Game MCP и диагностику на основе свидетельств. В Codex оба MCP используют локальный транспорт stdio, настроенный для проекта в .codex/config.toml; пакет содержит навыки и метаданные, но не регистрирует MCP и не загружает подключённые приложения. Подключение через ChatGPT и общедоступный HTTPS остаётся отдельным аутентифицированным удалённым интерфейсом той же серверной системы.",
     "developerName": "AzurPilot",
-    "category": "Developer tools",
+    "category": "Инструменты разработчика",
     "capabilities": [
       "Development",
       "Game",
@@ -32,7 +32,7 @@
     "defaultPrompt": [
       "Проверь контракт AzurPilot Dev MCP без запуска Smoke.",
       "Проверь состояние профиля и доступные Game MCP задачи.",
-      "Разбери mismatch каталога MCP без автоматического retry."
+      "Разбери расхождение каталога MCP без автоматического повтора."
     ]
   }
 }

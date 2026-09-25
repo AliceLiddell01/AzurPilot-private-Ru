@@ -1,5 +1,3 @@
-from tests.support.paths import REPOSITORY_ROOT
-
 import asyncio
 import logging
 import os
@@ -25,14 +23,15 @@ from module.observability.bootstrap import (
     _bounded_exception_stacktrace,
     _read_config,
     _Runtime,
-    _SanitizedOTelHandler,
     _safe_exception_message,
     _safe_record,
+    _SanitizedOTelHandler,
     _shutdown_runtime,
     configure_application_observability,
     shutdown_application_observability,
 )
 from module.observability.identity import resolve_observability_identity
+from tests.support.paths import REPOSITORY_ROOT
 
 pytestmark = pytest.mark.usefixtures("isolate_repository_environment")
 
@@ -260,7 +259,12 @@ def test_resource_identity_is_shared_by_bootstrap_and_evidence_sources(
 
     monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
     (repository_root / ".env").unlink()
-    assert resolve_observability_identity(repository_root=repository_root).deployment_environment == "local"
+    assert (
+        resolve_observability_identity(
+            repository_root=repository_root
+        ).deployment_environment
+        == "local"
+    )
     for key in _OTEL_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
 
@@ -277,9 +281,14 @@ def test_resource_identity_ignores_reparse_point_dotenv(tmp_path):
     try:
         (repository_root / ".env").symlink_to(external_env)
     except (OSError, NotImplementedError) as exc:
-        pytest.skip(f"symlink недоступен: {exc}")
+        pytest.skip(f"Символическая ссылка недоступна: {exc}")
 
-    assert resolve_observability_identity(repository_root=repository_root).deployment_environment == "local"
+    assert (
+        resolve_observability_identity(
+            repository_root=repository_root
+        ).deployment_environment
+        == "local"
+    )
 
 
 def test_application_logging_disabled_flag_wins_over_endpoint(monkeypatch):
@@ -410,6 +419,71 @@ def test_application_logging_is_idempotent_and_preserves_context_and_redaction(
         shutdown_application_observability(target)
 
 
+def test_section_events_project_and_export_once_with_plain_markup_and_context(
+    monkeypatch, tmp_path
+):
+    import module.logger as logger_module
+    from module.application.runtime_log_projection import (
+        RuntimeLogProjectionHandler,
+        read_runtime_log_events,
+        read_runtime_log_tail,
+    )
+
+    _configure_test_environment(monkeypatch)
+    target = logger_module.logger
+    handlers_before = target.handlers[:]
+    level_before = target.level
+    projection = RuntimeLogProjectionHandler("alpha", repository_root=tmp_path)
+    target.handlers[:] = [projection]
+    target.setLevel(logging.DEBUG)
+    exporter = InMemoryLogRecordExporter()
+    try:
+        assert configure_application_observability(
+            target,
+            default_profile="alpha",
+            default_component="bot_runtime",
+            _exporter_factory=lambda _timeout: exporter,
+        )
+
+        with logging_context(
+            profile="profile-a",
+            component="worker-a",
+            run_id="run-a",
+        ):
+            with task_context("SchedulerTask"):
+                for section_level in range(4):
+                    logger_module.hr(f"Секция {section_level}", level=section_level)
+
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        records = [item.log_record for item in exporter.get_finished_logs()]
+        events = read_runtime_log_events("alpha", repository_root=tmp_path)
+        tail = read_runtime_log_tail("alpha", repository_root=tmp_path)
+
+        assert len(records) == 4
+        assert len(events) == 4
+        assert len(tail) == 4
+        assert [event.section_level for event in events] == [0, 1, 2, 3]
+        assert all(event.kind == "section" for event in events)
+        assert "[bold]" not in "".join(tail)
+        for section_level, record in enumerate(records):
+            body = str(record.body)
+            assert record.severity_text == "INFO"
+            assert record.attributes["azurpilot.log.kind"] == "section"
+            assert record.attributes["azurpilot.log.section_level"] == section_level
+            assert record.attributes["azurpilot.profile"] == "profile-a"
+            assert record.attributes["azurpilot.task"] == "SchedulerTask"
+            assert record.attributes["azurpilot.component"] == "worker-a"
+            assert "[bold]" not in body
+            assert "[/bold]" not in body
+            assert f"СЕКЦИЯ {section_level}" in body
+            assert not any("title" in key for key in record.attributes)
+    finally:
+        shutdown_application_observability(target)
+        projection.close()
+        target.handlers[:] = handlers_before
+        target.setLevel(level_before)
+
+
 def test_mapping_and_quoted_redaction_covers_body_and_exception_metadata(monkeypatch):
     _configure_test_environment(monkeypatch)
     target = _new_logger("observability-mapping-redaction")
@@ -506,12 +580,9 @@ def test_exported_log_payload_redacts_paths_and_credentials(monkeypatch):
         r"/home/other user/private",
         r"file:///C:/Program%20Files/AzurPilot/log.txt",
     )
-    path_text = " ".join(
-        f"path-{index}={path}" for index, path in enumerate(paths)
-    )
+    path_text = " ".join(f"path-{index}={path}" for index, path in enumerate(paths))
     exception_text = (
-        f"password=raw-secret {path_text} "
-        "url=https://example.test/path/to/resource"
+        f"password=raw-secret {path_text} url=https://example.test/path/to/resource"
     )
 
     try:
@@ -523,7 +594,7 @@ def test_exported_log_payload_redacts_paths_and_credentials(monkeypatch):
         try:
             raise RuntimeError(exception_text)
         except RuntimeError:
-            target.exception("Ошибка с path и credential")
+            target.exception("Ошибка: путь и учётные данные")
 
         assert shutdown_application_observability(target, timeout_millis=3000)
         records = [item.log_record for item in exporter.get_finished_logs()]
@@ -669,13 +740,79 @@ def test_process_role_component_does_not_create_fake_profile(monkeypatch):
         shutdown_application_observability(target)
 
 
-def test_runtime_logging_keeps_canonical_profile_without_file_sink():
-    from module import observability
+def test_section_metadata_is_whitelisted_for_otlp_without_title_attribute():
+    record = logging.LogRecord(
+        name="observability",
+        level=logging.INFO,
+        pathname="test.py",
+        lineno=1,
+        msg="<<< SECTION >>>",
+        args=(),
+        exc_info=None,
+        func="test",
+        sinfo=None,
+    )
+    record.azurpilot_log_kind = "section"
+    record.azurpilot_section_level = 2
+
+    attributes = bootstrap_module._attributes_for_record(record, None, None)
+
+    assert attributes["azurpilot.log.kind"] == "section"
+    assert attributes["azurpilot.log.section_level"] == 2
+    assert not any("title" in key for key in attributes)
+
+
+def test_hr_section_emits_one_otlp_record_with_context_and_event_attributes(
+    monkeypatch,
+):
     import module.logger as logger_module
+
+    _configure_test_environment(monkeypatch)
+    target = logger_module.logger
+    handlers_before = list(target.handlers)
+    exporter = InMemoryLogRecordExporter()
+    for handler in handlers_before:
+        target.removeHandler(handler)
+    try:
+        assert configure_application_observability(
+            target,
+            default_profile="default-profile",
+            default_component="default-component",
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        with logging_context(profile="profile-a", component="component-a"):
+            with task_context("SectionTask"):
+                logger_module.hr("section", level=3)
+
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        records = exporter.get_finished_logs()
+        assert len(records) == 1
+        event = records[0].log_record
+        assert event.body == "<<< SECTION >>>"
+        assert event.attributes["azurpilot.profile"] == "profile-a"
+        assert event.attributes["azurpilot.task"] == "SectionTask"
+        assert event.attributes["azurpilot.component"] == "component-a"
+        assert event.attributes["azurpilot.log.kind"] == "section"
+        assert event.attributes["azurpilot.log.section_level"] == 3
+        assert not any("title" in key for key in event.attributes)
+    finally:
+        shutdown_application_observability(target)
+        for handler in list(target.handlers):
+            if handler not in handlers_before:
+                target.removeHandler(handler)
+                handler.close()
+        target.handlers[:] = handlers_before
+
+
+def test_runtime_logging_keeps_canonical_profile_without_file_sink():
+    import module.logger as logger_module
+    from module import observability
 
     handlers_before = list(logger_module.logger.handlers)
     try:
-        with patch.object(observability, "configure_application_observability") as configure:
+        with patch.object(
+            observability, "configure_application_observability"
+        ) as configure:
             logger_module.configure_runtime_logging(name="farm_main")
 
         configure.assert_called_once_with(

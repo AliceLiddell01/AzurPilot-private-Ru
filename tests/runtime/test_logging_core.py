@@ -49,7 +49,7 @@ class TestLoggingRouting(unittest.TestCase):
             ]
             self.assertEqual(1, len(web_handlers))
             self.assertEqual(logging.INFO, web_handlers[0].level)
-            logger_module.logger.debug("webui debug must stay hidden")
+            logger_module.logger.debug("Отладочная запись WebUI не должна отображаться")
             self.assertEqual([], callback_records)
         finally:
             for handler in logger_module.logger.handlers:
@@ -58,7 +58,7 @@ class TestLoggingRouting(unittest.TestCase):
             logger_module.logger.handlers[:] = handlers_before
             logger_module.reset_diagnostic_context()
 
-    def test_hr_level_one_and_two_do_not_emit_duplicate_info_record(self):
+    def test_hr_level_one_and_two_project_once_and_render_one_rule(self):
         for level in (1, 2):
             with (
                 patch.object(logger_module.logger, "rule") as rule,
@@ -66,7 +66,57 @@ class TestLoggingRouting(unittest.TestCase):
             ):
                 logger_module.hr("section", level=level)
             rule.assert_called_once()
-            info.assert_not_called()
+            info.assert_called_once_with(
+                "SECTION",
+                extra={
+                    "azurpilot_log_kind": "section",
+                    "azurpilot_section_level": level,
+                    "azurpilot_section_title": "SECTION",
+                },
+            )
+
+    def test_hr_levels_zero_and_three_emit_one_structured_record(self):
+        for level in (0, 3):
+            with (
+                patch.object(logger_module.logger, "rule") as rule,
+                patch.object(logger_module.logger, "info") as info,
+            ):
+                logger_module.hr("section", level=level)
+            info.assert_called_once()
+            args, kwargs = info.call_args
+            self.assertEqual(
+                {
+                    "azurpilot_log_kind": "section",
+                    "azurpilot_section_level": level,
+                    "azurpilot_section_title": "SECTION",
+                    **({"markup": True} if level == 3 else {}),
+                },
+                kwargs["extra"],
+            )
+            self.assertEqual(3 if level == 0 else 0, rule.call_count)
+            if level == 3:
+                self.assertIn("[bold]", args[0])
+                self.assertIn("[/bold]", args[0])
+
+    def test_structured_section_metadata_is_hidden_only_from_rich_handlers(self):
+        record = logging.LogRecord(
+            name="alas",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg="SECTION",
+            args=(),
+            exc_info=None,
+            func="test",
+            sinfo=None,
+        )
+        record.azurpilot_log_kind = "section"
+        record.azurpilot_section_level = 2
+        section_filter = logger_module._SuppressStructuredSectionInRichOutput()
+
+        self.assertFalse(section_filter.filter(record))
+        record.azurpilot_section_level = 3
+        self.assertTrue(section_filter.filter(record))
 
     def test_public_suppression_api_emits_first_summary_and_changed_state(self):
         logger_module.reset_suppression()
@@ -74,17 +124,26 @@ class TestLoggingRouting(unittest.TestCase):
             with patch.object(logger_module.logger, "log") as log:
                 self.assertTrue(
                     logger_module.log_suppressed(
-                        logging.INFO, "state unknown", key="state", payload="unknown"
+                        logging.INFO,
+                        "Состояние неизвестно",
+                        key="state",
+                        payload="unknown",
                     )
                 )
                 self.assertFalse(
                     logger_module.log_suppressed(
-                        logging.INFO, "state unknown", key="state", payload="unknown"
+                        logging.INFO,
+                        "Состояние неизвестно",
+                        key="state",
+                        payload="unknown",
                     )
                 )
                 self.assertTrue(
                     logger_module.log_suppressed(
-                        logging.INFO, "state ready", key="state", payload="ready"
+                        logging.INFO,
+                        "Состояние готово",
+                        key="state",
+                        payload="ready",
                     )
                 )
                 self.assertEqual(3, log.call_count)
@@ -96,10 +155,18 @@ class TestLoggingRouting(unittest.TestCase):
 class TestRepeatedEventSuppressor(unittest.TestCase):
     def test_first_repeat_summary_and_payload_change(self):
         suppressor = RepeatedEventSuppressor(max_keys=4, default_window=10)
-        first = suppressor.observe("state", payload="unknown", level=20, message="state=unknown", now=1)
-        repeat1 = suppressor.observe("state", payload="unknown", level=20, message="state=unknown", now=2)
-        repeat2 = suppressor.observe("state", payload="unknown", level=20, message="state=unknown", now=3)
-        changed = suppressor.observe("state", payload="ready", level=20, message="state=ready", now=4)
+        first = suppressor.observe(
+            "state", payload="unknown", level=20, message="state=unknown", now=1
+        )
+        repeat1 = suppressor.observe(
+            "state", payload="unknown", level=20, message="state=unknown", now=2
+        )
+        repeat2 = suppressor.observe(
+            "state", payload="unknown", level=20, message="state=unknown", now=3
+        )
+        changed = suppressor.observe(
+            "state", payload="ready", level=20, message="state=ready", now=4
+        )
         self.assertTrue(first.emit)
         self.assertFalse(repeat1.emit)
         self.assertFalse(repeat2.emit)
@@ -116,23 +183,61 @@ class TestRepeatedEventSuppressor(unittest.TestCase):
                 raise ValueError("ambiguous truth value")
 
         suppressor = RepeatedEventSuppressor(default_window=60)
-        self.assertTrue(suppressor.observe("array-like", payload=AmbiguousEquality(), level=20, message="first", now=1).emit)
-        self.assertTrue(suppressor.observe("array-like", payload=AmbiguousEquality(), level=20, message="second", now=2).emit)
+        self.assertTrue(
+            suppressor.observe(
+                "array-like",
+                payload=AmbiguousEquality(),
+                level=20,
+                message="first",
+                now=1,
+            ).emit
+        )
+        self.assertTrue(
+            suppressor.observe(
+                "array-like",
+                payload=AmbiguousEquality(),
+                level=20,
+                message="second",
+                now=2,
+            ).emit
+        )
 
     def test_severity_escalation_and_error_are_never_suppressed(self):
         suppressor = RepeatedEventSuppressor(default_window=60)
-        self.assertTrue(suppressor.observe("x", payload=1, level=20, message="x", now=1).emit)
-        self.assertFalse(suppressor.observe("x", payload=1, level=20, message="x", now=2).emit)
-        warning = suppressor.observe("x", payload=1, level=logging.WARNING, message="x warning", now=3)
+        self.assertTrue(
+            suppressor.observe("x", payload=1, level=20, message="x", now=1).emit
+        )
+        self.assertFalse(
+            suppressor.observe("x", payload=1, level=20, message="x", now=2).emit
+        )
+        warning = suppressor.observe(
+            "x", payload=1, level=logging.WARNING, message="x warning", now=3
+        )
         self.assertTrue(warning.emit)
         self.assertEqual(1, warning.summary_count)
-        self.assertTrue(suppressor.observe("x", payload=1, level=logging.ERROR, message="x error", now=4).emit)
-        self.assertTrue(suppressor.observe("x", payload=1, level=logging.CRITICAL, message="x critical", now=5).emit)
+        self.assertTrue(
+            suppressor.observe(
+                "x", payload=1, level=logging.ERROR, message="x error", now=4
+            ).emit
+        )
+        self.assertTrue(
+            suppressor.observe(
+                "x", payload=1, level=logging.CRITICAL, message="x critical", now=5
+            ).emit
+        )
 
     def test_repeated_error_without_escalation_is_never_suppressed(self):
         suppressor = RepeatedEventSuppressor(default_window=60)
-        self.assertTrue(suppressor.observe("y", payload=1, level=logging.ERROR, message="y", now=1).emit)
-        self.assertTrue(suppressor.observe("y", payload=1, level=logging.ERROR, message="y", now=2).emit)
+        self.assertTrue(
+            suppressor.observe(
+                "y", payload=1, level=logging.ERROR, message="y", now=1
+            ).emit
+        )
+        self.assertTrue(
+            suppressor.observe(
+                "y", payload=1, level=logging.ERROR, message="y", now=2
+            ).emit
+        )
 
     def test_window_expiry_emits_and_summarizes(self):
         suppressor = RepeatedEventSuppressor(default_window=5)
@@ -170,7 +275,12 @@ class TestRepeatedEventSuppressor(unittest.TestCase):
         def worker(offset):
             try:
                 for index in range(100):
-                    suppressor.observe((offset + index) % 16, payload=index % 3, level=20, message="value")
+                    suppressor.observe(
+                        (offset + index) % 16,
+                        payload=index % 3,
+                        level=20,
+                        message="value",
+                    )
             except Exception as exc:
                 errors.append(exc)
 
@@ -215,8 +325,16 @@ class TestDiagnosticContextHandler(unittest.TestCase):
                 [record.getMessage() for record in handler.snapshot(last_failure=True)],
             )
             self.assertEqual((), handler.snapshot())
-            self.assertNotIn("secret", " ".join(record.getMessage() for record in handler.snapshot(last_failure=True)))
-            self.assertFalse(any(isinstance(h, logging.FileHandler) for h in test_logger.handlers))
+            self.assertNotIn(
+                "secret",
+                " ".join(
+                    record.getMessage()
+                    for record in handler.snapshot(last_failure=True)
+                ),
+            )
+            self.assertFalse(
+                any(isinstance(h, logging.FileHandler) for h in test_logger.handlers)
+            )
         finally:
             handler.close()
 
