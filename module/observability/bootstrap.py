@@ -1,9 +1,9 @@
-"""Явное подключение журналирования приложения через OTLP с продолжением работы при сбое.
+"""Явный fail-open bootstrap application logging через OTLP.
 
-API журналов OTel остаётся изолированным в этом модуле. Центральный журнал
-AzurPilot передаёт сюда обычные ``LogRecord`` без изменения существующих мест
-вызова, а локальные консоль/WebUI и ограниченный контекст инцидентов продолжают
-работать независимо.
+OTel Logs API остаётся изолированным в этом модуле. Центральный AzurPilot
+logger передаёт сюда обычные ``LogRecord`` без изменений существующих call
+sites, а локальные console/WebUI и bounded incident context продолжают работать
+отдельно.
 """
 
 from __future__ import annotations
@@ -51,7 +51,6 @@ from module.observability.metrics import (
     deactivate_metrics_runtime,
     reset_metrics_runtime_after_fork,
 )
-from module.observability.scheduler import reset_scheduler_state_after_fork
 from module.observability.tracing import (
     TracingConfig,
     TracingRuntime,
@@ -60,14 +59,10 @@ from module.observability.tracing import (
     deactivate_tracing_runtime,
     reset_tracing_runtime_after_fork,
 )
+from module.observability.scheduler import reset_scheduler_state_after_fork
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _SUPPORTED_PROTOCOL = "http/protobuf"
-_SIGNAL_LABELS = {
-    "logs": "журналы",
-    "metrics": "метрики",
-    "traces": "трассировки",
-}
 _DEFAULT_HANDLER_LEVEL = logging.INFO
 _DEFAULT_EXPORT_TIMEOUT_MILLIS = 1_000
 _MAX_EXPORT_TIMEOUT_MILLIS = 5_000
@@ -123,7 +118,7 @@ _STANDARD_RECORD_FIELDS = frozenset(
 
 @dataclass(frozen=True)
 class _ObservabilityConfig:
-    """Проверенный ограниченный контракт сигналов OTLP приложения."""
+    """Проверенный bounded contract OTLP signal-ов приложения."""
 
     signal_endpoint: str | None
     handler_level: int
@@ -149,7 +144,7 @@ class _Runtime:
 
 
 class _FailureReporter:
-    """Диагностика с ограничением частоты в stderr, обходящая журнал AzurPilot."""
+    """Rate-limited stderr diagnostics, не проходящие через AzurPilot logger."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -179,7 +174,7 @@ def _is_true(value: str | None) -> bool:
 
 
 def _safe_message_mapping(args: Mapping[object, object]) -> dict[object, object]:
-    """Ограниченно скопировать аргументы в виде отображения и скрыть секретные поля."""
+    """Ограниченно скопировать mapping-аргументы с маскированием секретных полей."""
     safe_args: dict[object, object] = {}
     for index, (key, value) in enumerate(args.items()):
         if index >= _MAX_MESSAGE_MAPPING_ITEMS:
@@ -300,7 +295,7 @@ def _safe_record(
 
 
 class _FailOpenExporter:
-    """Изолировать сбои официального экспортёра от основного потока журнала."""
+    """Изолировать ошибки официального exporter от основного logging-потока."""
 
     def __init__(self, exporter: Any, reporter: _FailureReporter) -> None:
         self._exporter = exporter
@@ -312,7 +307,7 @@ class _FailOpenExporter:
             result = self._exporter.export(records)
         except Exception as exc:
             self._reporter.report(
-                "Экспортёр OTLP недоступен; среда выполнения/WebUI/консоль продолжат работу, ограниченный контекст инцидентов доступен",
+                "OTLP exporter недоступен; работа runtime/WebUI/консоли продолжится, bounded incident context доступен",
                 exc,
             )
             return None
@@ -320,7 +315,7 @@ class _FailOpenExporter:
             _EXPORTER_INTERNAL.reset(token)
         if getattr(result, "name", "") == "FAILURE":
             self._reporter.report(
-                "Экспортёр OTLP отклонил пакет; после применения ограниченной политики удалённая запись может быть потеряна"
+                "OTLP exporter отклонил пакет; после bounded policy удалённая запись может быть потеряна"
             )
         return result
 
@@ -334,11 +329,11 @@ class _FailOpenExporter:
                 except TypeError:
                     self._exporter.shutdown()
         except Exception as exc:
-            self._reporter.report("Не удалось завершить экспортёр OTLP", exc)
+            self._reporter.report("Не удалось завершить OTLP exporter", exc)
 
 
 class _SanitizedOTelHandler(logging.Handler):
-    """Адаптер записи стандартного журнала к официальному обработчику OTel."""
+    """Адаптер stdlib record к текущему официальному OTel logging handler."""
 
     def __init__(
         self,
@@ -381,12 +376,12 @@ class _SanitizedOTelHandler(logging.Handler):
             )
         except Exception as exc:
             self._reporter.report(
-                "Не удалось подготовить запись для OTLP; среда выполнения/WebUI/консоль продолжат работу, ограниченный контекст инцидентов доступен",
+                "Ошибка подготовки записи для OTLP; runtime/WebUI/консоль продолжат работу, bounded incident context доступен",
                 exc,
             )
 
     def flush(self) -> None:
-        # Сброс Provider выполняется по отдельному ограниченному контракту завершения.
+        # Provider flush выполняется отдельным bounded shutdown-контрактом.
         return None
 
 
@@ -400,7 +395,7 @@ class _OTelComponents:
 
 
 def _load_otel_components() -> _OTelComponents:
-    """Загрузить экспериментальный API журналов OTel только при явном включении."""
+    """Загрузить нестабильные OTel Logs API только при явном opt-in."""
     from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
     from opentelemetry.instrumentation.logging.handler import LoggingHandler
     from opentelemetry.sdk._logs import LoggerProvider
@@ -417,7 +412,7 @@ def _load_otel_components() -> _OTelComponents:
 
 
 def _silence_otel_transport_loggers() -> None:
-    """Не дублировать диагностику транспорта в консоли и журнале приложения."""
+    """Не дублировать transport diagnostics в игровом console/logger потоке."""
     for name in _OTEL_INTERNAL_LOGGERS:
         internal_logger = logging.getLogger(name)
         internal_logger.setLevel(logging.CRITICAL + 1)
@@ -440,12 +435,12 @@ def _bounded_int(
         value = int(raw)
     except ValueError:
         _failure_reporter.report(
-            f"Параметр {name} имеет неверное значение; используется значение по умолчанию"
+            f"Параметр {name} имеет неверное значение; используется default"
         )
         return default
     if value <= 0:
         _failure_reporter.report(
-            f"Параметр {name} должен быть положительным; используется значение по умолчанию"
+            f"Параметр {name} должен быть положительным; используется default"
         )
         return default
     return min(value, maximum)
@@ -474,12 +469,11 @@ def _read_signal_config(
 ) -> tuple[bool, str | None]:
     signal_endpoint = os.environ.get(endpoint_name, "").strip()
     endpoint = signal_endpoint or generic_endpoint
-    signal_label = _SIGNAL_LABELS.get(signal_name, signal_name)
     if not endpoint:
         return False, None
     if not endpoint.lower().startswith(("http://", "https://")):
         _failure_reporter.report(
-            f"Конечная точка OTLP для сигнала «{signal_label}» содержит неподдерживаемый URL; сигнал отключён"
+            f"OTLP {signal_name} endpoint имеет неподдержанный URL; сигнал отключён"
         )
         return False, None
 
@@ -488,14 +482,14 @@ def _read_signal_config(
     ).strip().lower()
     if protocol != _SUPPORTED_PROTOCOL:
         _failure_reporter.report(
-            f"Для сигнала приложения «{signal_label}» поддерживается только OTLP/HTTP protobuf; сигнал отключён"
+            f"Для application {signal_name} поддерживается только OTLP/HTTP protobuf; сигнал отключён"
         )
         return False, None
     return True, signal_endpoint or None
 
 
 def _application_repository_root() -> Path | None:
-    """Найти корень репозитория, переданный рабочему процессу."""
+    """Найти repository root, переданный runtime worker-у."""
 
     configured = os.environ.get(OBSERVABILITY_REPOSITORY_ROOT_ENV, "").strip()
     if configured:
@@ -515,8 +509,8 @@ def _application_repository_root() -> Path | None:
 def _load_local_otlp_environment() -> dict[str, str]:
     """Загрузить только OTEL-настройки из канонического корневого ``.env``.
 
-    Корневой ``.env`` уже является источником настроек развёртывания Compose.
-    Секретные заголовки OTLP возвращаются вызывающему коду отдельно и не
+    Корневой ``.env`` уже является источником deployment-настроек Compose.
+    Секретные OTLP headers возвращаются вызывающему коду отдельно и не
     записываются в глобальное окружение процесса. Секреты и остальные
     переменные намеренно не читаются. Явное окружение процесса имеет приоритет.
     """
@@ -559,7 +553,7 @@ def _read_otlp_headers(
     specific_name: str,
     local_values: Mapping[str, str],
 ) -> dict[str, str] | None:
-    """Прочитать специальные для сигнала или общие заголовки OTLP без утечки в окружение."""
+    """Прочитать signal-specific или общий OTLP headers без утечки в env."""
 
     def value_for(name: str) -> str:
         if name in os.environ:
@@ -575,7 +569,7 @@ def _read_otlp_headers(
         headers = dict(parse_env_headers(raw, liberal=True))
     except Exception as exc:
         _failure_reporter.report(
-            "Не удалось разобрать заголовки OTLP; заголовки этого сигнала отключены",
+            "Не удалось разобрать OTLP headers; заголовки этого signal отключены",
             exc,
         )
         return None
@@ -623,7 +617,7 @@ def _read_config() -> _ObservabilityConfig | None:
         ).strip().lower()
         if temporality and temporality != "cumulative":
             _failure_reporter.report(
-                "Для текущего пути метрик Alloy поддерживается только накопительная временная модель cumulative; метрики отключены"
+                "Для текущего Alloy metrics path поддерживается только cumulative temporality; metrics отключены"
             )
             metrics_enabled = False
 
@@ -636,7 +630,7 @@ def _read_config() -> _ObservabilityConfig | None:
     )
 
     if not logs_enabled and not metrics_enabled and not traces_enabled:
-        # Явная конечная точка означает явное включение и сохраняет запуск без сети по умолчанию.
+        # Явный endpoint является opt-in и сохраняет обычный запуск offline.
         return None
 
     max_queue_size = (
@@ -682,9 +676,9 @@ def _read_config() -> _ObservabilityConfig | None:
         else _DEFAULT_MAX_EXPORT_BATCH_SIZE
     )
     return _ObservabilityConfig(
-        # Для отдельной конечной точки сигнала путь /v1/logs задаётся пользователем.
-        # Для общей конечной точки передаём None официальному экспортёру, чтобы он
-        # сам добавил стандартный путь /v1/logs.
+        # Для signal-specific endpoint путь /v1/logs задаётся пользователем.
+        # При общем endpoint передаём None в официальный exporter, чтобы он
+        # сам применил стандартное добавление /v1/logs.
         signal_endpoint=logs_endpoint,
         handler_level=_handler_level() if logs_enabled else _DEFAULT_HANDLER_LEVEL,
         timeout_millis=_bounded_int(
@@ -855,7 +849,7 @@ def _build_runtime(
             provider = None
             handler = None
             _failure_reporter.report(
-                "Не удалось инициализировать журналы приложения; сбор метрик продолжится",
+                "Не удалось инициализировать application logs; metrics продолжат работу",
                 exc,
             )
 
@@ -872,7 +866,7 @@ def _build_runtime(
             activate_metrics_runtime(metrics_runtime)
         except Exception as exc:
             _failure_reporter.report(
-                "Не удалось инициализировать метрики приложения; сбор журналов продолжится",
+                "Не удалось инициализировать application metrics; logs продолжат работу",
                 exc,
             )
 
@@ -888,12 +882,12 @@ def _build_runtime(
             activate_tracing_runtime(traces_runtime)
         except Exception as exc:
             _failure_reporter.report(
-                "Не удалось инициализировать трассировки приложения; остальные сигналы продолжат работу",
+                "Не удалось инициализировать application traces; остальные сигналы продолжат работу",
                 exc,
             )
 
     if provider is None and metrics_runtime is None and traces_runtime is None:
-        raise RuntimeError("Не удалось создать ни одного сигнала наблюдаемости приложения")
+        raise RuntimeError("Не удалось создать ни одного application observability signal")
     return _Runtime(
         target=target,
         provider=provider,
@@ -912,8 +906,8 @@ def _after_fork() -> None:
     reset_tracing_runtime_after_fork()
     inherited = list(_runtimes.values())
     _runtimes.clear()
-    # Не оставлять в дочернем процессе обработчик/Provider с потоком рабочего процесса
-    # родителя: дочерний процесс должен выполнить явную собственную настройку.
+    # Не оставлять в дочернем процессе handler/provider с worker thread
+    # родителя: новый process должен выполнить собственный explicit bootstrap.
     for runtime in inherited:
         deactivate_metrics_runtime(runtime.metrics)
         if runtime.metrics is not None:
@@ -950,7 +944,7 @@ def configure_application_observability(
     _metrics_reader_factory: Callable[[Any, int, int], Any] | None = None,
     _traces_exporter_factory: Callable[[int], Any] | None = None,
 ) -> bool:
-    """Идемпотентно включить независимые сигналы OTLP: журналы, метрики и трассировки."""
+    """Идемпотентно включить независимые OTLP logs, metrics и traces."""
     if not isinstance(target, logging.Logger):
         return False
     process_id = os.getpid()
@@ -1002,7 +996,7 @@ def configure_application_observability(
                 target.removeHandler(runtime.handler)
             _shutdown_runtime(runtime, _SHUTDOWN_TIMEOUT_MILLIS)
 
-        # Удалить оставшийся маркер без известной среды выполнения, чтобы не создавать дублирующий обработчик.
+        # Удалить оставшийся marker без известного runtime, чтобы не создавать duplicate handler.
         for handler in list(target.handlers):
             if getattr(handler, _HANDLER_MARKER, False):
                 target.removeHandler(handler)
@@ -1019,7 +1013,7 @@ def configure_application_observability(
             )
         except Exception as exc:
             _failure_reporter.report(
-                "Не удалось инициализировать наблюдаемость приложения; среда выполнения/WebUI/консоль продолжат работу, ограниченный контекст инцидентов доступен",
+                "Не удалось инициализировать application observability; runtime/WebUI/консоль продолжат работу, bounded incident context доступен",
                 exc,
             )
             return False
@@ -1045,7 +1039,7 @@ def _shutdown_runtime(runtime: _Runtime, timeout_millis: int) -> bool:
                         timeout_millis=remaining_timeout_millis()
                     )
                 except Exception as exc:
-                    _failure_reporter.report("Не удалось сбросить буфер журналов OTLP", exc)
+                    _failure_reporter.report("Не удалось сбросить буфер OTLP logging", exc)
                 try:
                     try:
                         runtime.provider.shutdown(
@@ -1054,7 +1048,7 @@ def _shutdown_runtime(runtime: _Runtime, timeout_millis: int) -> bool:
                     except TypeError:
                         runtime.provider.shutdown()
                 except Exception as exc:
-                    _failure_reporter.report("Не удалось завершить провайдер журналов OTLP", exc)
+                    _failure_reporter.report("Не удалось завершить OTLP logging provider", exc)
             if runtime.metrics is not None:
                 runtime.metrics.shutdown(remaining_timeout_millis())
             if runtime.traces is not None:
@@ -1071,7 +1065,7 @@ def _shutdown_runtime(runtime: _Runtime, timeout_millis: int) -> bool:
     completed = finished.wait(max(0, deadline - time.monotonic()))
     if not completed:
         _failure_reporter.report(
-            "Завершение наблюдаемости приложения остановлено по ограниченному тайм-ауту"
+            "Завершение application observability остановлено по bounded timeout"
         )
     try:
         if runtime.handler is not None:
@@ -1086,7 +1080,7 @@ def shutdown_application_observability(
     *,
     timeout_millis: int = _SHUTDOWN_TIMEOUT_MILLIS,
 ) -> bool:
-    """Отключить обработчик OTLP и выполнить ограниченный сброс без сбоев игрового процесса."""
+    """Отключить OTLP handler и выполнить bounded flush без ошибки gameplay."""
     with _state_lock:
         if target is None:
             runtimes = list(_runtimes.values())
