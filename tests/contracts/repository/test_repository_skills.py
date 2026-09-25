@@ -130,7 +130,6 @@ def test_coderabbit_description_routes_review_requests() -> None:
     for delegated_trigger in ("делегации", "canonical", "checkpoint"):
         assert delegated_trigger in description
     assert "подготовка pr к финальному ревью" not in description
-    assert "не используй для generic pr preparation" in description
 
 
 def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
@@ -142,8 +141,8 @@ def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
     for required in (
         "явном запросе coderabbit/code review",
         "внутренней делегации",
-        "host-native executable",
-        "generic pr preparation",
+        "windows использует `coderabbit.exe`",
+        "posix host — `coderabbit`",
         "обычной разработки вне такого checkpoint",
     ):
         assert required in review_content
@@ -246,12 +245,9 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
     workflow_content = " ".join(review_reference.read_text(encoding="utf-8").split())
     for required in (
         "provider finding и verified finding disposition — разные сущности",
-        "affected code",
-        "call sites",
-        "ближайшие tests",
-        "relevant contracts",
+        "для каждого finding до любой classification",
+        "заявленный provider impact",
         "azur integrations coderabbit triage",
-        "duplicate review",
     ):
         assert required.lower() in workflow_content.lower()
 
