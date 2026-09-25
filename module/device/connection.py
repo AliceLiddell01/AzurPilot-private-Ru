@@ -372,7 +372,10 @@ class Connection(ConnectionAttr):
     def nemud_player_version(self) -> str:
         # [nemud.player_product_version]: [3.8.27.2950], номер версии эмулятора MuMu
         res = self.adb_getprop('nemud.player_version')
-        logger.attr('Версия MuMu Player', res)
+        if res:
+            logger.attr('Версия MuMu Player', res)
+        else:
+            logger.debug('[Устройство — MuMu] Версия через nemud.player_version недоступна')
         return res
 
     @cached_property
