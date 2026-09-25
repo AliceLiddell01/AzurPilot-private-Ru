@@ -112,7 +112,7 @@ def test_development_description_has_positive_and_negative_routing() -> None:
         "рефактор",
         "инфраструктур",
         "ci/тест",
-        "upstream",
+        "основной версии",
         "pr",
         "слияни",
         "очистк",

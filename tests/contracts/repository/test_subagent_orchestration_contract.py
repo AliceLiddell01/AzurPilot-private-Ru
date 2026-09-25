@@ -31,6 +31,7 @@ def test_project_config_selects_multi_agent_v2_and_keeps_shared_defaults() -> No
     agents = config["agents"]
     features = config["features"]
 
+    assert config["sandbox_mode"] == "danger-full-access"
     assert isinstance(agents, dict)
     assert isinstance(features, dict)
     assert agents["default_subagent_model"] == "gpt-6-luna"
@@ -50,8 +51,10 @@ def test_project_roles_are_unique_read_only_and_inherit_shared_model_defaults() 
     names = [role.get("name") for role in roles]
 
     assert len(role_files) == 6
+    assert {path.stem for path in role_files} == ROLE_NAMES
     assert set(names) == ROLE_NAMES
     assert len(names) == len(set(names))
+    assert all(path.stem == role.get("name") for path, role in zip(role_files, roles, strict=True))
 
     required = {"name", "description", "developer_instructions", "sandbox_mode"}
     common_markers = (
@@ -62,6 +65,8 @@ def test_project_roles_are_unique_read_only_and_inherit_shared_model_defaults() 
         "pr",
         "жизненного цикла",
         "не создавай субагентов",
+        "политику проекта",
+        "не являются технической границей доступа",
     )
     for role in roles:
         assert required <= role.keys()
@@ -124,6 +129,21 @@ def test_orchestration_policy_preserves_root_ownership_and_independent_review() 
     assert "не участвовавшие в первоначальном исследовании или реализации" in review_rules
     assert "обязательно подключай `localization_reviewer`" in review_rules
     assert "всего текста изменённых pr-файлов" in review_rules
+
+
+def test_orchestration_policy_states_runtime_permission_and_flat_delegation_limits() -> None:
+    owner = " ".join(_text(CONTEXT_ROOT / "12-SUBAGENT-ORCHESTRATION.md").casefold().split())
+
+    assert 'sandbox_mode = "read-only"' in owner
+    assert "не гарантирует изоляцию дочернего потока" in owner
+    assert "эффективный профиль разрешений" in owner
+    assert "поле выбора `agent_type`" in owner
+    assert "`agent_roles`" in owner
+    assert "`hide_spawn_agent_metadata` на выбор роли не влияет" in owner
+    assert "структура делегации в проекте плоская" in owner
+    assert "а не техническая гарантия v2" in owner
+    assert "agents.max_depth" in owner
+    assert "не ограничивает v2" in owner
 
 
 def test_localization_role_distinguishes_prose_from_machine_identifiers() -> None:

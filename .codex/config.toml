@@ -37,7 +37,7 @@ required = false
 startup_timeout_sec = 10
 tool_timeout_sec = 180
 
-# Прямые read-only registrations. Секреты не хранятся в repository config.
+# Прямые регистрации только для чтения. Секреты не хранятся в конфигурации репозитория.
 [mcp_servers.context7_direct]
 url = "https://mcp.context7.com/mcp"
 enabled = true

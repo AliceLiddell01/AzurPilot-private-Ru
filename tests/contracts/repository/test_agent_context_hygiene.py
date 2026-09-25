@@ -114,16 +114,16 @@ def test_final_review_policy_is_model_neutral() -> None:
 
 def test_task_residue_patterns_are_contextual() -> None:
     residue_examples = (
-        "В текущей итерации добавим ещё один gate.",
-        "В этом follow-up PR обновим policy.",
+        "В текущей итерации добавим ещё одно обязательное условие.",
+        "В этом follow-up PR обновим правила.",
         "Исходный prompt требовал временный обход.",
-        "Stage 12 оставляет старый route.",
+        "Stage 12 оставляет старый маршрут.",
     )
     allowed_examples = (
-        "Prompt injection обрабатывается отдельной security boundary.",
-        "API prompt contract является частью внешнего протокола.",
-        "Increment используется как имя технического счётчика.",
-        "Follow-up является названием внешнего события.",
+        "Prompt injection обрабатывается отдельной границей безопасности.",
+        "Фраза API prompt входит в контракт внешнего протокола.",
+        "Слово Increment используется как имя технического счётчика.",
+        "Follow-up — название внешнего события.",
     )
     for example in residue_examples:
         assert any(pattern.search(example) for pattern in _TASK_RESIDUE_PATTERNS)
@@ -160,7 +160,7 @@ def test_python_tooling_context_uses_canonical_integration_inventory() -> None:
 def test_cli_live_acceptance_cannot_become_global_gate() -> None:
     verification = _text(CONTEXT_ROOT / "08-VERIFICATION.md")
     policy = _normalized(verification)
-    assert "только если diff затрагивает" in policy
+    assert "только если набор изменений затрагивает" in policy
     assert "для несвязанного исправления" in policy
     assert "документации эта проверка cli не применяется" in policy
 
