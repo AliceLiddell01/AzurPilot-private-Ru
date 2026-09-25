@@ -29,7 +29,10 @@ from module.config.task_priority import (
     parse_task_priority,
 )
 from module.application.bot_runtime_client import BotRuntimeClient
-from module.application.runtime_log_projection import RuntimeLogEvent
+from module.application.runtime_log_projection import (
+    RuntimeLogEvent,
+    format_runtime_log_timestamp,
+)
 from module.logger import HTMLConsole, Highlighter, WEB_THEME
 from module.webui.lang import t
 from module.webui.pin import put_checkbox, put_input, put_select, put_textarea
@@ -159,7 +162,10 @@ class RichLog:
         line = Text()
         if event.timestamp or event.level_name:
             if event.timestamp:
-                line.append(event.timestamp, style="dim cyan")
+                line.append(
+                    format_runtime_log_timestamp(event.timestamp),
+                    style="dim cyan",
+                )
             line.append(" │ ")
             line.append(
                 event.level_name,
