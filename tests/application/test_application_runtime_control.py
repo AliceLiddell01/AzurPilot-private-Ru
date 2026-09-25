@@ -902,7 +902,12 @@ def test_control_plane_rejects_executor_result_from_different_owner(tmp_path: Pa
 def test_bot_runtime_windows_creationflags_keep_no_window_without_detached_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(runtime_control.subprocess, "CREATE_NO_WINDOW", 0x01, raising=False)
+    monkeypatch.setattr(
+        runtime_control.subprocess,
+        "CREATE_NO_WINDOW",
+        0x01,
+        raising=False,
+    )
     monkeypatch.setattr(runtime_control.subprocess, "DETACHED_PROCESS", 0x02, raising=False)
     monkeypatch.setattr(
         runtime_control.subprocess,
