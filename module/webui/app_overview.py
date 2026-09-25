@@ -263,7 +263,7 @@ class OverviewMixin(WebUIMixinBase):
             self.task_handler.add(self.alas_update_dashboard, 10, True)
             self.alas_update_dashboard(True)
         if hasattr(self, "alas") and self.alas is not None:
-            self.task_handler.add(log.put_log(self.alas), 0.25, True)
+            self.task_handler.add(log.put_log(self.alas), 0.1, True)
 
     def set_dashboard_display(self, b):
         self._log.set_dashboard_display(b)
@@ -391,4 +391,4 @@ class OverviewMixin(WebUIMixinBase):
         self.task_handler.add(switch_scheduler.g(), 1, True)
         self.task_handler.add(switch_log_scroll.g(), 1, True)
         if hasattr(self, "alas") and self.alas is not None:
-            self.task_handler.add(log.put_log(self.alas), 0.25, True)
+            self.task_handler.add(log.put_log(self.alas), 0.1, True)
