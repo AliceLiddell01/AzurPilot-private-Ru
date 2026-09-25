@@ -50,6 +50,24 @@ def test_runtime_log_projection_is_bounded_and_sanitized(tmp_path, monkeypatch):
     ).stat().st_size <= 240
 
 
+def test_runtime_log_projection_skips_blank_info_records(tmp_path):
+    handler = RuntimeLogProjectionHandler("alpha", repository_root=tmp_path)
+    logger = logging.getLogger("tests.runtime.log_projection.blank")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        logger.info("")
+        logger.info("   ")
+        logger.info("Полезная строка")
+    finally:
+        logger.removeHandler(handler)
+        handler.close()
+
+    events = read_runtime_log_events("alpha", repository_root=tmp_path)
+
+    assert [event.message for event in events] == ["Полезная строка"]
+
+
 def test_runtime_log_projection_keeps_rich_and_exception_metadata(tmp_path):
     handler = RuntimeLogProjectionHandler("alpha", repository_root=tmp_path)
     logger = logging.getLogger("tests.runtime.log_projection.events")
