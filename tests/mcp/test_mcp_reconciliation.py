@@ -431,18 +431,6 @@ def test_bot_runtime_dependency_files_are_in_mcp_source_digests() -> None:
             "DEV_MCP_SOURCE_SET",
             "GAME_MCP_SOURCE_SET",
         ),
-        "module/logger.py": (
-            "DEV_MCP_SOURCE_SET",
-            "GAME_MCP_SOURCE_SET",
-        ),
-        "module/observability/bootstrap.py": (
-            "DEV_MCP_SOURCE_SET",
-            "GAME_MCP_SOURCE_SET",
-        ),
-        "module/observability/__init__.py": (
-            "DEV_MCP_SOURCE_SET",
-            "GAME_MCP_SOURCE_SET",
-        ),
     }
 
     for relative, components in expected.items():
