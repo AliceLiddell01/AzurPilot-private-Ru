@@ -373,6 +373,11 @@ def test_stop_recovers_one_owned_legacy_listener_and_clears_only_lifecycle_state
     monkeypatch.setattr(ProcessIdentity, "matches", lambda _identity: next(matches))
     terminate = Mock(return_value=True)
     monkeypatch.setattr(lifecycle.ProcessController, "terminate", terminate)
+    monkeypatch.setattr(
+        lifecycle.ProcessController,
+        "inspect_state",
+        staticmethod(lambda _identity: "absent"),
+    )
     service = LifecycleService(
         resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
         runner=SimpleNamespace(),
@@ -399,6 +404,112 @@ def test_stop_recovers_one_owned_legacy_listener_and_clears_only_lifecycle_state
         include_children=False,
     )
     assert cleared == ["lifecycle", "stop.request"]
+
+
+def test_stop_rejects_legacy_recovery_when_recorded_webui_is_still_alive(
+    monkeypatch, tmp_path
+):
+    root = _root(tmp_path)
+    legacy_identity = _candidate(root)
+    recorded_identity = ProcessIdentity(
+        pid=54321,
+        start_time=legacy_identity.start_time + 100,
+        executable=legacy_identity.executable,
+        argv=legacy_identity.argv,
+        cwd=legacy_identity.cwd,
+    )
+    resolved = ResolvedRepository(
+        root,
+        RepositoryRootEvidence(
+            source=RootSource.EXPLICIT,
+            candidate_count=1,
+            validation_checks=("test",),
+            root_identity="a" * 24,
+        ),
+    )
+    settings = DeploySettings(source_path=None, webui_port=_TEST_WEBUI_PORT)
+    observation = PortObservation(
+        _TEST_WEBUI_PORT,
+        (legacy_identity.pid,),
+        listener_present=True,
+    )
+    record = LifecycleRecord(
+        root_identity="a" * 24,
+        pid=recorded_identity.pid,
+        started_at=recorded_identity.start_time,
+        executable=str(recorded_identity.executable),
+        argv=recorded_identity.argv,
+        working_directory=str(recorded_identity.cwd),
+        port=_TEST_WEBUI_PORT,
+        updated_at="2026-09-25T00:00:00Z",
+    )
+    cleared: list[str] = []
+
+    class FakeLock:
+        def acquire(self, timeout_seconds: float = 0.0) -> bool:
+            return True
+
+        def release(self) -> None:
+            return None
+
+    class FakeCoordinator:
+        def lock(self, _operation: str) -> FakeLock:
+            return FakeLock()
+
+        def read_lifecycle(self):
+            return record
+
+        def clear_lifecycle(self):
+            cleared.append("lifecycle")
+
+        def clear_stop_request(self):
+            cleared.append("stop.request")
+
+    monkeypatch.setattr(
+        lifecycle.RepositoryCoordinator,
+        "for_root",
+        lambda _root: FakeCoordinator(),
+    )
+    monkeypatch.setattr(lifecycle, "load_deploy_settings", lambda _root: settings)
+    monkeypatch.setattr(
+        LifecycleService,
+        "_port_state",
+        staticmethod(
+            lambda *_args: (
+                lifecycle._PortState(observation, "foreign", False),
+                recorded_identity,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        LifecycleService,
+        "_legacy_webui_identity",
+        staticmethod(lambda *_args: legacy_identity),
+    )
+    monkeypatch.setattr(
+        lifecycle.ProcessController,
+        "inspect_state",
+        staticmethod(
+            lambda identity: "alive"
+            if identity == recorded_identity
+            else "absent"
+        ),
+    )
+    terminate = Mock()
+    monkeypatch.setattr(lifecycle.ProcessController, "terminate", terminate)
+
+    service = LifecycleService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
+        runner=SimpleNamespace(),
+        require_infrastructure=False,
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service.stop(root, timeout_seconds=1)
+
+    assert error.value.code is ResultCode.TOOLING_OPERATION_CONFLICT
+    terminate.assert_not_called()
+    assert cleared == []
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Проверка идентичности процесса Windows")
@@ -575,6 +686,11 @@ def test_legacy_recovery_allows_a_normal_fresh_start(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ProcessIdentity, "matches", identity_matches)
     monkeypatch.setattr(lifecycle.ProcessController, "terminate", terminate_legacy)
+    monkeypatch.setattr(
+        lifecycle.ProcessController,
+        "inspect_state",
+        staticmethod(lambda _identity: "absent"),
+    )
     service = LifecycleService(
         resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
         runner=runner,
