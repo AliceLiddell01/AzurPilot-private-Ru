@@ -278,39 +278,50 @@ class RichLog:
     #     self.console.width = int(_width)
 
     def put_log(self, pm: Any) -> Generator:
+        rendered_total = 0
+        rendered_length = 0
+        rendered_generation = getattr(pm, "renderables_generation", 0)
         yield
         try:
             while True:
                 refresh = getattr(pm, "refresh_renderables", None)
                 if callable(refresh):
-                    if refresh():
-                        html = "".join(
-                            self.render(
-                                self._runtime_log_renderable(item)
-                                if isinstance(item, RuntimeLogEvent)
-                                else item
-                            )
-                            for item in pm.renderables
-                        )
-                        self.reset()
-                        self.extend(html)
-                else:
-                    total = getattr(pm, "renderables_total", None)
-                    renderables = getattr(pm, "renderables", None)
-                    if type(total) is int and total >= 0 and isinstance(renderables, list):
-                        rendered_total = getattr(self, "_rendered_total", 0)
-                        rendered_length = getattr(self, "_rendered_source_length", 0)
-                        appended = max(0, total - rendered_total)
-                        truncated = len(renderables) < rendered_length + appended
-                        if total < rendered_total or truncated:
+                    refresh()
+
+                renderables = getattr(pm, "renderables", None)
+                total = getattr(pm, "renderables_total", None)
+                if isinstance(renderables, list):
+                    if type(total) is not int or total < 0:
+                        total = len(renderables)
+                    generation = getattr(pm, "renderables_generation", 0)
+                    if generation != rendered_generation:
+                        if rendered_total or rendered_length:
                             self.reset()
-                            rendered_total = 0
-                        missed = total - rendered_total
-                        start = max(0, len(renderables) - missed)
-                        if missed > 0:
-                            self.extend("".join(map(self.render, renderables[start:])))
-                        self._rendered_total = total
-                        self._rendered_source_length = len(renderables)
+                        rendered_generation = generation
+                        rendered_total = max(0, total - len(renderables))
+                        rendered_length = 0
+
+                    appended = max(0, total - rendered_total)
+                    truncated = len(renderables) < rendered_length + appended
+                    if total < rendered_total or truncated:
+                        self.reset()
+                        rendered_total = max(0, total - len(renderables))
+
+                    missed = total - rendered_total
+                    start = max(0, len(renderables) - missed)
+                    if missed > 0:
+                        self.extend(
+                            "".join(
+                                self.render(
+                                    self._runtime_log_renderable(item)
+                                    if isinstance(item, RuntimeLogEvent)
+                                    else item
+                                )
+                                for item in renderables[start:]
+                            )
+                        )
+                    rendered_total = total
+                    rendered_length = len(renderables)
                 yield
         except SessionException:
             pass
