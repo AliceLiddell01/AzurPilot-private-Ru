@@ -10,7 +10,7 @@ from module.webui.widgets import RichLog
 
 
 def test_profile_client_refreshes_structured_logs_for_rich_log(monkeypatch) -> None:
-    event = RuntimeLogEvent(
+    section = RuntimeLogEvent(
         timestamp="2026-09-25T10:00:00.000+07:00",
         level=20,
         level_name="INFO",
@@ -18,11 +18,31 @@ def test_profile_client_refreshes_structured_logs_for_rich_log(monkeypatch) -> N
         kind="section",
         section_level=3,
     )
+    second = RuntimeLogEvent(
+        timestamp="2026-09-25T10:00:00.100+07:00",
+        level=20,
+        level_name="INFO",
+        message="Вторая строка",
+    )
+    third = RuntimeLogEvent(
+        timestamp="2026-09-25T10:00:00.200+07:00",
+        level=20,
+        level_name="INFO",
+        message="Третья строка",
+    )
     signatures = iter(
         (
             (("alpha.log", 1, 100),),
             (("alpha.log", 1, 100),),
             (("alpha.log", 2, 200),),
+            (("alpha.log", 3, 300),),
+        )
+    )
+    event_snapshots = iter(
+        (
+            (section,),
+            (section, second),
+            (section, second, third),
         )
     )
     read_calls: list[str] = []
@@ -33,7 +53,7 @@ def test_profile_client_refreshes_structured_logs_for_rich_log(monkeypatch) -> N
 
     def read_events(profile: str, **_kwargs: object):
         read_calls.append(profile)
-        return (event,)
+        return next(event_snapshots)
 
     monkeypatch.setattr(bot_runtime_client, "runtime_log_signature", read_signature)
     monkeypatch.setattr(bot_runtime_client, "read_runtime_log_events", read_events)
@@ -41,7 +61,7 @@ def test_profile_client_refreshes_structured_logs_for_rich_log(monkeypatch) -> N
     client = bot_runtime_client._ProfileClient("alpha")
 
     assert client.refresh_renderables() is True
-    assert client.renderables == [event]
+    assert client.renderables == [section]
     assert client.renderables_total == 1
     assert client.refresh_renderables() is False
 
@@ -53,10 +73,52 @@ def test_profile_client_refreshes_structured_logs_for_rich_log(monkeypatch) -> N
     stream = log.put_log(client)
     next(stream)
     next(stream)
+    next(stream)
 
-    assert read_calls == ["alpha", "alpha"]
-    assert len(rendered) == 1
+    assert read_calls == ["alpha", "alpha", "alpha"]
+    assert client.renderables == [section, second, third]
+    assert client.renderables_total == 3
+    assert len(rendered) == 3
     assert isinstance(rendered[0], Text)
     assert rendered[0].plain.endswith("<<< СЕКЦИЯ >>>")
+    assert isinstance(rendered[1], Text)
+    assert rendered[1].plain.endswith("Вторая строка")
+    assert isinstance(rendered[2], Text)
+    assert rendered[2].plain.endswith("Третья строка")
     assert "[bold]" not in rendered[0].plain
     assert any("bold" in str(span.style) for span in rendered[0].spans)
+    assert [call.args[0] for call in log.extend.call_args_list] == [
+        "renderedrendered",
+        "rendered",
+    ]
+    log.reset.assert_not_called()
+
+
+def test_profile_client_rebases_when_runtime_log_continuity_is_lost(monkeypatch) -> None:
+    first = RuntimeLogEvent("", 20, "INFO", "Первая")
+    replacement = RuntimeLogEvent("", 20, "INFO", "Новая история")
+    signatures = iter(
+        (
+            (("alpha.log", 1, 100),),
+            (("alpha.log", 2, 50),),
+        )
+    )
+    snapshots = iter(((first,), (replacement,)))
+    monkeypatch.setattr(
+        bot_runtime_client,
+        "runtime_log_signature",
+        lambda *_args, **_kwargs: next(signatures),
+    )
+    monkeypatch.setattr(
+        bot_runtime_client,
+        "read_runtime_log_events",
+        lambda *_args, **_kwargs: next(snapshots),
+    )
+
+    client = bot_runtime_client._ProfileClient("alpha")
+
+    assert client.refresh_renderables() is True
+    assert client.renderables_generation == 0
+    assert client.refresh_renderables() is True
+    assert client.renderables == [replacement]
+    assert client.renderables_generation == 1
