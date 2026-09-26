@@ -131,7 +131,9 @@ def load_deploy_settings(root: Path, *, allow_template: bool = False) -> DeployS
     )
 
 
-def _relative_or_absolute(root: Path, value: str | None, default_name: str) -> Path:
+def _joined_path(root: Path, value: str | None, default_name: str) -> Path:
+    """Собрать путь без разрешения symlink, сохраняя разбор relative/absolute."""
+
     if value:
         normalized = value.replace("\\", os.sep).replace("/", os.sep)
         candidate = Path(normalized)
@@ -139,21 +141,30 @@ def _relative_or_absolute(root: Path, value: str | None, default_name: str) -> P
             candidate = root / candidate
     else:
         candidate = root / default_name
-    return canonical_path(candidate)
+    return candidate
+
+
+def _relative_or_absolute(root: Path, value: str | None, default_name: str) -> Path:
+    """Вернуть канонический путь исполняемого файла, не владеющего venv-границей."""
+
+    return canonical_path(_joined_path(root, value, default_name))
 
 
 def project_python(root: Path, settings: DeploySettings | None = None) -> Path:
+    """Вернуть путь запуска project Python без потери логической venv-границы.
+
+    Configured значение (например ``./.venv/bin/python``) не канонизируется:
+    разрешение symlink уничтожило бы venv-семантику дочернего интерпретатора до
+    того, как её увидит process layer. Логический путь запуска и каноническую
+    identity фактического runtime (symlink POSIX и перенаправитель Windows)
+    разрешает ``StructuredProcessRunner`` из одного и того же пути.
+    """
+
     settings = settings or load_deploy_settings(root)
-    configured = _relative_or_absolute(root, settings.python_executable, "")
-    platform_default = (
-        root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    )
+    configured = _joined_path(root, settings.python_executable, "")
     if settings.python_executable and configured.is_file():
         return configured
-    # На POSIX `.venv/bin/python` обычно является symlink на базовый runtime.
-    # Для project console script нужен логический путь внутри venv; фактический
-    # executable разрешается и проверяется в StructuredProcessRunner.
-    return platform_default
+    return root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
 def project_uv(root: Path, settings: DeploySettings | None = None) -> Path:
