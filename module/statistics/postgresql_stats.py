@@ -201,7 +201,7 @@ def get_meow_stats(
 def get_commission_entries(
     instance: str, year: int, month: int
 ) -> list[dict[str, Any]]:
-    """Вернуть записи комиссии за настроенный календарный месяц runtime."""
+    """Вернуть записи о наградах за заказы за выбранный календарный месяц."""
 
     entries = get_runtime_storage().commission_entries_for_month(instance, year, month)
     return [_commission_dict(entry) for entry in entries]
@@ -216,7 +216,7 @@ def _commission_dict(entry: CommissionEntry) -> dict[str, Any]:
 
 
 def get_commission_reward_stats(instance: str) -> dict[str, dict[str, int]]:
-    """Суммировать награды комиссии за текущие день, неделю и месяц."""
+    """Суммировать награды за заказы за текущий день, неделю и месяц."""
 
     storage = get_runtime_storage()
     now = storage.current_datetime()

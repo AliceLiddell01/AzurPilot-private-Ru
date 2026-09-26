@@ -529,7 +529,7 @@ class PostgresRuntimeStatisticsRepository:
             or end.tzinfo is None
             or start >= end
         ):
-            raise StorageInvalidDataError("Границы запроса комиссий некорректны.")
+            raise StorageInvalidDataError("Границы запроса заказов некорректны.")
         try:
             event_ids = (
                 select(commission_income_event.c.id)

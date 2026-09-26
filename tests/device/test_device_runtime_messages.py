@@ -20,7 +20,7 @@ class DeviceRuntimeMessageLocalizationTests(unittest.TestCase):
                 "Истекло время ожидания подключения к reverse-серверу ADB",
             ],
             "module/device/device.py": [
-                "[Устройство — комиссии] Появилась ночная комиссия",
+                "[Устройство — заказы] Появился ночной заказ",
             ],
             "module/device/method/adb.py": [
                 "Пустые или неполные данные screencap",

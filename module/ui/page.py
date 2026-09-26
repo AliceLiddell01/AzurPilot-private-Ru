@@ -227,8 +227,8 @@ page_guild.link(button=GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_GUILD, destination=page_guild)
 page_main_white.link(button=MAIN_GOTO_GUILD_WHITE, destination=page_guild)
 
-# Поручения
-# Не переходить из кампании на страницу поручений
+# Заказы
+# Не переходить из кампании на страницу заказов
 page_commission = Page(COMMISSION_CHECK)
 page_commission.link(button=GOTO_MAIN, destination=page_main)
 page_commission.link(button=BACK_ARROW, destination=page_reward)

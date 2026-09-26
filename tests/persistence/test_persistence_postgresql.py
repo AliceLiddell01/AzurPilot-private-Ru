@@ -196,7 +196,7 @@ def test_runtime_retry_and_empty_commission_event_are_preserved(
 def test_commission_query_rejects_naive_boundaries(database: LazyEngine):
     service = RuntimeStorageService(lambda: PostgresUnitOfWork(database))
 
-    with pytest.raises(StorageInvalidDataError, match="Границы запроса комиссий"):
+    with pytest.raises(StorageInvalidDataError, match="Границы запроса заказов"):
         service.commission_entries(
             f"commission-boundary-{uuid4()}",
             start=datetime(2026, 8, 1),

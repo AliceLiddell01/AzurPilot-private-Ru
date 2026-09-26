@@ -444,7 +444,7 @@ class FleetScanner(Scanner):
 class StatusScanner(Scanner):
     """Сканер статуса, распознающий статус использования корабля с помощью сопоставления шаблонов.
 
-    Типы статусов: free (свободен), battle (в вылазке/бою), commission (на комиссии),
+    Типы статусов: free (свободен), battle (в вылазке/бою), commission (выполняет заказ),
     in_hard_fleet (в сложном флоте), in_event_fleet (во флоте события).
     """
     def __init__(self) -> None:

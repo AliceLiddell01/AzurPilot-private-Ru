@@ -13,10 +13,6 @@ from enum import StrEnum
 from numbers import Integral
 
 import module.config.server as server
-from module.os.action_point_policy import (
-    ACTION_POINT_GAIN_PER_PURCHASE,
-    ACTION_POINTS_BUY,
-)
 from module.base.button import ButtonGrid
 from module.base.timer import Timer
 from module.base.utils import *
@@ -25,6 +21,9 @@ from module.config.utils import get_server_next_update, server_time_offset
 from module.log_res import LogRes
 from module.logger import logger
 from module.ocr.ocr import Digit, DigitCounter
+from module.os.action_point_policy import (
+    get_action_point_purchase_policy,
+)
 from module.os_handler.assets import *
 from module.os_handler.map_event import MapEventHandler
 from module.statistics.item import Item, ItemGrid
@@ -106,7 +105,6 @@ ACTION_POINTS_COST_ABYSSAL = {
     5: 100,
     6: 100,
 }
-ACTION_POINT_BUY_GAIN = ACTION_POINT_GAIN_PER_PURCHASE
 
 
 class EmergencyActionPointPurchaseStatus(StrEnum):
@@ -421,7 +419,7 @@ class ActionPointHandler(UI, MapEventHandler):
         Метод намеренно не вызывает ``action_point_buy``: месячный блок,
         пользовательский лимит и резерв нефти относятся к обычной политике
         Operation Siren и не должны скрыто влиять на аварийное восстановление
-        комиссии. После клика новый экран только распознаётся; повторного
+        при получении награды за заказ. После клика новый экран только распознаётся; повторного
         клика в этом методе нет.
         """
 
@@ -463,13 +461,14 @@ class ActionPointHandler(UI, MapEventHandler):
                 remaining_before=remaining,
                 ap_before=ap_before,
             )
-        cost = ACTION_POINTS_BUY.get(remaining)
-        if cost is None:
+        purchase_policy = get_action_point_purchase_policy(remaining)
+        if purchase_policy is None:
             return EmergencyActionPointPurchase(
                 status=EmergencyActionPointPurchaseStatus.UNKNOWN,
                 remaining_before=remaining,
                 ap_before=ap_before,
             )
+        cost = purchase_policy.oil_cost
 
         oil = self._action_point_box[0]
         if not isinstance(oil, Integral) or isinstance(oil, bool) or oil < 0:
@@ -526,7 +525,7 @@ class ActionPointHandler(UI, MapEventHandler):
             ap_gain = ap_after - ap_before
             if (
                 after == remaining - 1
-                and ap_gain == ACTION_POINT_BUY_GAIN
+                and ap_gain == purchase_policy.ap_gain
                 and oil_after == oil - cost
             ):
                 return EmergencyActionPointPurchase(
@@ -547,7 +546,7 @@ class ActionPointHandler(UI, MapEventHandler):
                 and oil_after == oil
             ):
                 continue
-            if ap_gain > ACTION_POINT_BUY_GAIN or oil_after > oil:
+            if ap_gain > purchase_policy.ap_gain or oil_after > oil:
                 return EmergencyActionPointPurchase(
                     status=EmergencyActionPointPurchaseStatus.FAILED,
                     remaining_before=remaining,
@@ -598,7 +597,11 @@ class ActionPointHandler(UI, MapEventHandler):
         if buy_count >= buy_limit:
             logger.info('[Операция «Сирена» — очки действия] Достигнут недельный предел покупки очков действия')
             return False
-        cost = ACTION_POINTS_BUY[current]
+        purchase_policy = get_action_point_purchase_policy(current)
+        if purchase_policy is None:
+            logger.info('[Операция «Сирена» — очки действия] Лимит недельных покупок очков действия исчерпан или неизвестен')
+            return False
+        cost = purchase_policy.oil_cost
         oil = self._action_point_box[0]
         logger.info(f'[Операция «Сирена» — очки действия] Покупка очков действия потребует {cost} нефти; текущая нефть: {oil}, резерв: {preserve}')
         if oil >= cost + preserve:

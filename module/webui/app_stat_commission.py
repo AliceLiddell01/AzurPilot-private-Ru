@@ -36,7 +36,7 @@ class CommissionIncomeStatisticsMixin(WebUIMixinBase):
         except Exception as e:
             with use_scope("commission_income", clear=True):
                 put_text(t("Gui.Stat.CommissionIncomeNoData"))
-                logger.warning(f"[WebUI — Статистика] Не удалось отобразить доход от комиссий: {e}")
+                logger.warning(f"[WebUI — Статистика] Не удалось отобразить доход от заказов: {e}")
 
     def _load_commission_income_data(self):
         from datetime import datetime

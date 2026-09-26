@@ -250,14 +250,14 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def handle_night_commission(self, daily_trigger='21:00', threshold=30):
         """
-        Обнаружить и обработать всплывающее окно обновления ночных поручений.
+        Обнаружить и обработать всплывающее окно обновления ночных заказов.
 
         Args:
-            daily_trigger: Время обновления поручений.
+            daily_trigger: Время обновления заказов.
             threshold: Интервал в секундах до и после обновления для срабатывания проверки.
 
         Returns:
-            Было ли нажато окно поручений.
+            Было ли нажато окно уведомления о заказах.
         """
         update = get_server_next_update(daily_trigger=daily_trigger)
         now = current_time()
@@ -266,7 +266,7 @@ class Device(Screenshot, Control, AppControl, Input):
             return False
 
         if GET_MISSION.match(self.image, offset=True):
-            logger.info('[Устройство — комиссии] Появилась ночная комиссия')
+            logger.info('[Устройство — заказы] Появился ночной заказ')
             self.click(GET_MISSION)
             return True
 
@@ -274,7 +274,7 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def screenshot(self):
         """
-        Сделать снимок экрана с проверкой зависания и ночной комиссией.
+        Сделать снимок экрана с проверкой зависания и уведомления о ночных заказах.
 
         Returns:
             Изображение экрана в формате массива numpy.
