@@ -21,10 +21,7 @@ from module.application.runtime_cache import (
 )
 from module.config.profile import profile_identity_from_name
 from module.config.time_source import now as current_time
-from module.os.action_point_policy import (
-    ACTION_POINT_GAIN_PER_PURCHASE,
-    ACTION_POINTS_BUY,
-)
+from module.os.action_point_policy import get_action_point_purchase_policy
 
 EN_SERVER_TIMEZONE = timedelta(hours=-7)
 COMMISSION_RECOVERY_SCHEMA_VERSION = 2
@@ -88,9 +85,13 @@ def _cache_status_value(status: RuntimeCacheStatus | str) -> str:
 
 
 def _purchase_cost(remaining: int | None) -> int | None:
-    if remaining is None or remaining <= 0:
-        return None
-    return ACTION_POINTS_BUY.get(remaining)
+    policy = get_action_point_purchase_policy(remaining)
+    return policy.oil_cost if policy is not None else None
+
+
+def _purchase_gain(remaining: int | None) -> int | None:
+    policy = get_action_point_purchase_policy(remaining)
+    return policy.ap_gain if policy is not None else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,7 +193,7 @@ class CommissionRecoveryStore:
             if observed_remaining is not None
             else None,
             next_oil_cost=_purchase_cost(observed_remaining),
-            next_ap_gain=(ACTION_POINT_GAIN_PER_PURCHASE if observed_remaining else None),
+            next_ap_gain=_purchase_gain(observed_remaining),
             confirmed_at=None,
             reset_at=next_en_weekly_reset(now),
             source=source,
@@ -269,7 +270,7 @@ class CommissionRecoveryStore:
             remaining=remaining,
             used=MAX_WEEKLY_ACTION_POINT_PURCHASES - remaining,
             next_oil_cost=_purchase_cost(remaining),
-            next_ap_gain=ACTION_POINT_GAIN_PER_PURCHASE if remaining else None,
+            next_ap_gain=_purchase_gain(remaining),
             confirmed_at=confirmed_at,
             reset_at=reset_at,
             source=source,
@@ -337,7 +338,7 @@ class CommissionRecoveryStore:
             remaining=remaining,
             used=MAX_WEEKLY_ACTION_POINT_PURCHASES - remaining,
             next_oil_cost=_purchase_cost(remaining),
-            next_ap_gain=ACTION_POINT_GAIN_PER_PURCHASE if remaining else None,
+            next_ap_gain=_purchase_gain(remaining),
             confirmed_at=now,
             reset_at=reset_at,
             source=source,
@@ -351,7 +352,7 @@ class CommissionRecoveryStore:
                 remaining=remaining,
                 used=MAX_WEEKLY_ACTION_POINT_PURCHASES - remaining,
                 next_oil_cost=_purchase_cost(remaining),
-                next_ap_gain=ACTION_POINT_GAIN_PER_PURCHASE if remaining else None,
+                next_ap_gain=_purchase_gain(remaining),
                 source=source,
                 last_result=last_result,
             )
@@ -456,7 +457,6 @@ class CommissionRecoveryStore:
 
 
 __all__ = (
-    "ACTION_POINT_GAIN_PER_PURCHASE",
     "COMMISSION_RECOVERY_PREFIX",
     "COMMISSION_RECOVERY_SCHEMA_VERSION",
     "EN_SERVER_TIMEZONE",

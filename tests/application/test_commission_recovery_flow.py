@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 from contextlib import nullcontext
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
 
+from module.application.commission_recovery import CommissionRecoveryStore
+from module.application.runtime_cache import RuntimeCacheHealth, RuntimeCacheStatus
 from module.commission import commission
 from module.exception import OilMaxed, RequestHumanTakeover
 from module.os_handler.action_point import (
@@ -28,6 +32,27 @@ def _state(
         source=source,
         last_result=last_result,
     )
+
+
+class _MemoryCache:
+    def __init__(self):
+        self.values: dict[str, bytes] = {}
+        self.closed = False
+
+    def health(self):
+        return RuntimeCacheHealth(RuntimeCacheStatus.READY)
+
+    def get(self, key):
+        return self.values.get(key)
+
+    def set(self, key, value, *, expires_at=None):
+        self.values[key] = value
+
+    def delete(self, key):
+        return self.values.pop(key, None) is not None
+
+    def close(self):
+        self.closed = True
 
 
 class _Store:
@@ -180,7 +205,15 @@ class _ActionPoint:
         return True
 
 
-def _commission(monkeypatch, store, action_point_handler, dorm_run, *, events=None):
+def _commission(
+    monkeypatch,
+    store,
+    action_point_handler,
+    dorm_run,
+    *,
+    events=None,
+    profile="ap",
+):
     monkeypatch.setattr(commission, "ActionPointHandler", lambda *_args: action_point_handler)
     monkeypatch.setattr(
         commission,
@@ -188,7 +221,7 @@ def _commission(monkeypatch, store, action_point_handler, dorm_run, *, events=No
         lambda *_args: SimpleNamespace(dorm_food_run=lambda **kwargs: dorm_run(kwargs["amount"])),
     )
     handler = commission.RewardCommission.__new__(commission.RewardCommission)
-    handler.config = SimpleNamespace(config_name="ap")
+    handler.config = SimpleNamespace(config_name=profile)
     handler.device = object()
     handler.ui_ensure = (
         lambda page: events.append(
@@ -212,12 +245,13 @@ def _purchase(
     ap_gain: int | None = 100,
     oil_before: int | None = 25000,
     oil_after: int | None = 24000,
+    oil_cost: int = 1000,
 ) -> EmergencyActionPointPurchase:
     return EmergencyActionPointPurchase(
         status=status,
         remaining_before=before,
         remaining_after=after,
-        oil_cost=1000,
+        oil_cost=oil_cost,
         oil_before=oil_before,
         oil_after=oil_after,
         ap_before=ap_before,
@@ -283,6 +317,45 @@ def test_unknown_state_uses_one_fresh_mutation_owner_boundary(monkeypatch):
     assert events.index("enter") < events.index("select_oil") < events.index("ocr")
     assert events.index("ocr") < events.index("purchase:None") < events.index("record_observation")
     assert store.read_calls == 1
+    assert dorm_calls == []
+
+
+def test_live_tier_purchase_persists_confirmed_profile_recovery_state(monkeypatch):
+    now = datetime(2026, 9, 26, 16, 13, tzinfo=UTC)
+    cache = _MemoryCache()
+    store = CommissionRecoveryStore(cache, now=lambda: now)
+    assert store.read("alas").status == "unknown"
+    purchase = _purchase(
+        EmergencyActionPointPurchaseStatus.PURCHASED,
+        before=3,
+        after=2,
+        ap_before=200,
+        ap_after=400,
+        ap_gain=200,
+        oil_before=25000,
+        oil_after=23000,
+        oil_cost=2000,
+    )
+    ap = _ActionPoint(purchase)
+    dorm_calls: list[int] = []
+    handler = _commission(monkeypatch, store, ap, dorm_calls.append, profile="alas")
+
+    outcome = handler._recover_commission_oil_overflow()
+
+    assert outcome is commission.CommissionRecoveryOutcome.AP_RECOVERED
+    assert ap.purchase_calls == 1
+    assert store.key("alas") == "commission/recovery/alas"
+    assert store.key("ap") not in cache.values
+    stored = json.loads(cache.values[store.key("alas")])
+    assert stored["profile"] == "alas"
+    assert stored["remaining"] == 2
+    assert stored["source"] == "emergency_ap_purchase"
+    assert stored["last_result"] == "ap_purchase"
+    confirmed = store.read("alas")
+    assert confirmed.status == "confirmed"
+    assert confirmed.remaining == 2
+    assert confirmed.next_oil_cost == 2000
+    assert confirmed.next_ap_gain == 200
     assert dorm_calls == []
 
 
@@ -566,8 +639,20 @@ def test_commission_receive_routes_oil_popup_to_recovery_before_background_click
 
 
 def test_commission_receive_retries_once_after_successful_ap_recovery(monkeypatch):
-    store = _Store(status="confirmed", remaining=4)
-    ap = _ActionPoint(_purchase(EmergencyActionPointPurchaseStatus.PURCHASED, after=3))
+    store = _Store(status="confirmed", remaining=3)
+    ap = _ActionPoint(
+        _purchase(
+            EmergencyActionPointPurchaseStatus.PURCHASED,
+            before=3,
+            after=2,
+            ap_before=200,
+            ap_after=400,
+            ap_gain=200,
+            oil_before=25000,
+            oil_after=23000,
+            oil_cost=2000,
+        )
+    )
     handler = _commission(monkeypatch, store, ap, lambda _amount: None)
     calls = 0
 
@@ -583,6 +668,9 @@ def test_commission_receive_retries_once_after_successful_ap_recovery(monkeypatc
     assert handler.commission_receive() is True
     assert calls == 2
     assert ap.purchase_calls == 1
+    assert store.state.remaining == 2
+    assert store.state.source == "emergency_ap_purchase"
+    assert store.state.last_result == "ap_purchase"
 
 
 def test_commission_receive_fails_closed_on_second_oil_maxed_after_ap_recovery(monkeypatch):

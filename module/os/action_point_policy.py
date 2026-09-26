@@ -1,13 +1,40 @@
 """Общая политика покупки очков действия в Операции «Сирена»."""
 
-ACTION_POINT_GAIN_PER_PURCHASE = 100
+from dataclasses import dataclass
+from types import MappingProxyType
 
-ACTION_POINTS_BUY = {
-    1: 4000,
-    2: 2000,
-    3: 2000,
-    4: 1000,
-    5: 1000,
-}
 
-__all__ = ("ACTION_POINT_GAIN_PER_PURCHASE", "ACTION_POINTS_BUY")
+@dataclass(frozen=True, slots=True)
+class ActionPointPurchasePolicy:
+    """Стоимость и прирост AP для следующей недельной покупки."""
+
+    oil_cost: int
+    ap_gain: int
+
+
+ACTION_POINT_PURCHASE_POLICY_BY_REMAINING = MappingProxyType(
+    {
+        1: ActionPointPurchasePolicy(oil_cost=4000, ap_gain=400),
+        2: ActionPointPurchasePolicy(oil_cost=2000, ap_gain=200),
+        3: ActionPointPurchasePolicy(oil_cost=2000, ap_gain=200),
+        4: ActionPointPurchasePolicy(oil_cost=1000, ap_gain=100),
+        5: ActionPointPurchasePolicy(oil_cost=1000, ap_gain=100),
+    }
+)
+
+
+def get_action_point_purchase_policy(
+    remaining: int | None,
+) -> ActionPointPurchasePolicy | None:
+    """Вернуть условия покупки по числу оставшихся недельных покупок."""
+
+    if isinstance(remaining, bool) or not isinstance(remaining, int):
+        return None
+    return ACTION_POINT_PURCHASE_POLICY_BY_REMAINING.get(remaining)
+
+
+__all__ = (
+    "ACTION_POINT_PURCHASE_POLICY_BY_REMAINING",
+    "ActionPointPurchasePolicy",
+    "get_action_point_purchase_policy",
+)

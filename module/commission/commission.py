@@ -39,7 +39,6 @@ from module.commission.preset import DICT_FILTER_PRESET, SHORTEST_FILTER
 from module.commission.project import COMMISSION_FILTER, Commission
 from module.config.config_generated import GeneratedConfig
 from module.config.time_source import now as current_time
-from module.os.action_point_policy import ACTION_POINT_GAIN_PER_PURCHASE
 from module.config.utils import (
     get_server_last_update,
     get_server_next_update,
@@ -51,6 +50,7 @@ from module.handler.info_handler import InfoHandler
 from module.logger import logger
 from module.map.map_grids import SelectedGrids
 from module.notify.notify import handle_notify, notify_webui
+from module.os.action_point_policy import get_action_point_purchase_policy
 from module.os_handler.action_point import (
     ActionPointHandler,
     EmergencyActionPointPurchaseStatus,
@@ -1049,8 +1049,12 @@ class RewardCommission(UI, InfoHandler):
             purchase = ap_handler.action_point_buy_emergency_once(
                 expected_remaining=expected_remaining,
             )
+            purchase_policy = get_action_point_purchase_policy(
+                purchase.remaining_before,
+            )
             if (
                 purchase.status is EmergencyActionPointPurchaseStatus.PURCHASED
+                and purchase_policy is not None
                 and purchase.click_count == 1
                 and isinstance(purchase.remaining_before, int)
                 and not isinstance(purchase.remaining_before, bool)
@@ -1060,12 +1064,14 @@ class RewardCommission(UI, InfoHandler):
                 and valid_ap(purchase.ap_before)
                 and valid_ap(purchase.ap_after)
                 and valid_ap(purchase.ap_gain)
-                and purchase.ap_after == purchase.ap_before + ACTION_POINT_GAIN_PER_PURCHASE
+                and purchase.ap_after == purchase.ap_before + purchase_policy.ap_gain
+                and purchase.ap_gain == purchase_policy.ap_gain
                 and purchase.ap_gain == purchase.ap_after - purchase.ap_before
                 and valid_ap(purchase.oil_cost)
+                and purchase.oil_cost == purchase_policy.oil_cost
                 and valid_ap(purchase.oil_before)
                 and valid_ap(purchase.oil_after)
-                and purchase.oil_after == purchase.oil_before - purchase.oil_cost
+                and purchase.oil_after == purchase.oil_before - purchase_policy.oil_cost
             ):
                 from module.dev_runtime.hooks import record_product_evidence
 

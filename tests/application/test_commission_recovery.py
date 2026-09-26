@@ -49,9 +49,9 @@ def test_en_weekly_reset_uses_server_boundary_not_local_midnight():
     [
         (5, 1000, 100),
         (4, 1000, 100),
-        (3, 2000, 100),
-        (2, 2000, 100),
-        (1, 4000, 100),
+        (3, 2000, 200),
+        (2, 2000, 200),
+        (1, 4000, 400),
         (0, None, None),
     ],
 )
@@ -102,7 +102,7 @@ def test_schema_v1_record_is_read_and_derived_fields_are_rebuilt():
     assert state.remaining == 3
     assert state.used == 2
     assert state.next_oil_cost == 2000
-    assert state.next_ap_gain == 100
+    assert state.next_ap_gain == 200
 
 
 def test_cache_miss_is_unknown_and_never_false_zero():
@@ -148,6 +148,8 @@ def test_unavailable_cache_is_explicit_and_does_not_write():
 
     assert state.status == "unavailable"
     assert state.remaining == 3
+    assert state.next_oil_cost == 2000
+    assert state.next_ap_gain == 200
     assert state.error == RuntimeCacheStatus.UNAVAILABLE.value
     assert cache.set_calls == []
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from module.application import commission_recovery
 from module.os import action_point_policy
 from module.os_handler import action_point
@@ -60,9 +62,86 @@ def _handler(
 
 
 def test_action_point_purchase_policy_has_one_neutral_domain_owner() -> None:
-    assert action_point.ACTION_POINTS_BUY is action_point_policy.ACTION_POINTS_BUY
-    assert commission_recovery.ACTION_POINTS_BUY is action_point_policy.ACTION_POINTS_BUY
-    assert action_point.ACTION_POINT_BUY_GAIN == action_point_policy.ACTION_POINT_GAIN_PER_PURCHASE
+    assert (
+        action_point.get_action_point_purchase_policy
+        is action_point_policy.get_action_point_purchase_policy
+    )
+    assert (
+        commission_recovery.get_action_point_purchase_policy
+        is action_point_policy.get_action_point_purchase_policy
+    )
+    assert {
+        remaining: (policy.oil_cost, policy.ap_gain)
+        for remaining in range(1, 6)
+        if (
+            policy := action_point_policy.get_action_point_purchase_policy(remaining)
+        )
+        is not None
+    } == {
+        5: (1000, 100),
+        4: (1000, 100),
+        3: (2000, 200),
+        2: (2000, 200),
+        1: (4000, 400),
+    }
+    assert action_point_policy.get_action_point_purchase_policy(0) is None
+    assert action_point_policy.get_action_point_purchase_policy(6) is None
+    assert action_point_policy.get_action_point_purchase_policy(None) is None
+    assert action_point_policy.get_action_point_purchase_policy(True) is None
+
+
+@pytest.mark.parametrize(
+    ("remaining", "oil_cost", "ap_gain"),
+    [
+        (5, 1000, 100),
+        (4, 1000, 100),
+        (3, 2000, 200),
+        (2, 2000, 200),
+        (1, 4000, 400),
+    ],
+)
+def test_emergency_purchase_uses_the_matching_weekly_tier(
+    monkeypatch, remaining, oil_cost, ap_gain
+):
+    handler, clicks, _events = _handler(
+        monkeypatch,
+        [remaining, remaining - 1],
+        ap_observations=(200, 200 + ap_gain),
+        oil_observations=(25000, 25000 - oil_cost),
+    )
+
+    result = handler.action_point_buy_emergency_once(expected_remaining=remaining)
+
+    assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
+    assert result.remaining_before == remaining
+    assert result.remaining_after == remaining - 1
+    assert result.oil_cost == oil_cost
+    assert result.ap_gain == ap_gain
+    assert result.click_count == 1
+    assert len(clicks) == 1
+
+
+def test_emergency_purchase_accepts_live_remaining_three_tier(monkeypatch):
+    handler, clicks, _events = _handler(
+        monkeypatch,
+        [3, 2],
+        ap_observations=(200, 400),
+        oil_observations=(25000, 23000),
+    )
+
+    result = handler.action_point_buy_emergency_once(expected_remaining=3)
+
+    assert result.status is action_point.EmergencyActionPointPurchaseStatus.PURCHASED
+    assert result.remaining_before == 3
+    assert result.remaining_after == 2
+    assert result.oil_cost == 2000
+    assert result.oil_before == 25000
+    assert result.oil_after == 23000
+    assert result.ap_before == 200
+    assert result.ap_after == 400
+    assert result.ap_gain == 200
+    assert result.click_count == 1
+    assert len(clicks) == 1
 
 
 def test_emergency_purchase_200_to_300_is_purchased_with_one_click(monkeypatch):
