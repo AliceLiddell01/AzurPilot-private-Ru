@@ -92,6 +92,24 @@ class InfrastructureOutcome:
     redisinsight: CapabilityStatus = CapabilityStatus.NOT_CONFIGURED
 
 
+SHARED_MCP_PROFILE = "external-mcp"
+SHARED_MCP_SERVICES: tuple[str, ...] = ("grafana-mcp", "dockerhub-mcp")
+SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS: tuple[str, ...] = (
+    "AZURPILOT_GRAFANA_MCP_CALLER_TOKEN",
+    "AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN",
+)
+
+
+@dataclass(frozen=True)
+class SharedMcpOutcome:
+    """Состояние общих внешних MCP HTTP services одной машины."""
+
+    state: CapabilityStatus
+    message: str
+    services: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class InfrastructureInspection:
     postgres: CapabilityStatus
@@ -435,6 +453,139 @@ class InfrastructureService:
             redisinsight=redisinsight_status,
         )
 
+    @staticmethod
+    def _missing_caller_tokens(env_file: Path) -> tuple[str, ...]:
+        """Вернуть имена незаданных caller tokens общих MCP services.
+
+        Значения не читаются и не публикуются: проверяется только наличие, чтобы
+        общий HTTP endpoint никогда не открывался без caller auth.
+        """
+
+        configured = {key: False for key in SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS}
+        try:
+            for raw_line in bounded_read_text(
+                env_file, max_bytes=256 * 1024
+            ).splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                if key in configured and value.strip().strip("'\""):
+                    configured[key] = True
+        except (OSError, UnicodeError, ToolingError) as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
+                "Не удалось прочитать локальную конфигурацию общих MCP services.",
+            ) from exc
+        # Docker CLI получает ограниченный набор переменных окружения, поэтому
+        # env-файл — единственный источник, из которого Compose соберёт caller token.
+        return tuple(sorted(key for key, present in configured.items() if not present))
+
+    def shared_mcp_status(
+        self, root: Path, *, timeout_seconds: float = 60.0
+    ) -> SharedMcpOutcome:
+        """Прочитать состояние общих MCP services, ничего не запуская."""
+
+        compose, env_file = self._paths(root)
+        missing = self._missing_caller_tokens(env_file)
+        raw = self._run_docker(
+            root,
+            compose,
+            env_file,
+            "ps",
+            "--all",
+            "--format",
+            "json",
+            timeout_seconds=timeout_seconds,
+            profiles=(SHARED_MCP_PROFILE,),
+        )
+        records = {
+            str(item.get("Service", "")): item for item in self._records(raw)
+        }
+        running: list[str] = []
+        for service in SHARED_MCP_SERVICES:
+            if self._record_ready(records.get(service), require_health=True):
+                running.append(service)
+        diagnostics = (
+            (f"caller token не задан: {', '.join(missing)}",) if missing else ()
+        )
+        if len(running) == len(SHARED_MCP_SERVICES):
+            return SharedMcpOutcome(
+                CapabilityStatus.READY,
+                "Общие внешние MCP HTTP services запущены и healthy.",
+                tuple(running),
+                diagnostics,
+            )
+        if not running:
+            return SharedMcpOutcome(
+                CapabilityStatus.NOT_CONFIGURED,
+                "Общие внешние MCP HTTP services не запущены.",
+                (),
+                diagnostics,
+            )
+        return SharedMcpOutcome(
+            CapabilityStatus.FAILED,
+            "Запущена только часть общих MCP services: "
+            + ", ".join(running)
+            + ".",
+            tuple(running),
+            diagnostics,
+        )
+
+    def ensure_shared_mcp_started(
+        self, root: Path, *, timeout_seconds: float = 600.0
+    ) -> SharedMcpOutcome:
+        """Запустить общие MCP services после проверки caller auth."""
+
+        compose, env_file = self._paths(root)
+        missing = self._missing_caller_tokens(env_file)
+        if missing:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Caller tokens общих MCP HTTP services не заданы: "
+                + ", ".join(missing)
+                + ".",
+            )
+        self._run_docker(
+            root,
+            compose,
+            env_file,
+            "config",
+            "--quiet",
+            timeout_seconds=min(60.0, timeout_seconds),
+            profiles=(SHARED_MCP_PROFILE,),
+        )
+        self._run_docker(
+            root,
+            compose,
+            env_file,
+            "up",
+            "--detach",
+            "--wait",
+            *SHARED_MCP_SERVICES,
+            timeout_seconds=timeout_seconds,
+            profiles=(SHARED_MCP_PROFILE,),
+        )
+        return self.shared_mcp_status(root)
+
+    def stop_shared_mcp(
+        self, root: Path, *, timeout_seconds: float = 180.0
+    ) -> SharedMcpOutcome:
+        """Остановить общие MCP services, сохранив их состояние."""
+
+        compose, env_file = self._paths(root)
+        self._run_docker(
+            root,
+            compose,
+            env_file,
+            "stop",
+            *SHARED_MCP_SERVICES,
+            timeout_seconds=timeout_seconds,
+            profiles=(SHARED_MCP_PROFILE,),
+        )
+        return self.shared_mcp_status(root)
+
     def inspect(
         self, root: Path, settings: DeploySettings
     ) -> InfrastructureInspection:
@@ -518,7 +669,10 @@ class InfrastructureService:
 
 
 __all__ = [
+    "SHARED_MCP_PROFILE",
+    "SHARED_MCP_SERVICES",
     "InfrastructureInspection",
     "InfrastructureOutcome",
     "InfrastructureService",
+    "SharedMcpOutcome",
 ]

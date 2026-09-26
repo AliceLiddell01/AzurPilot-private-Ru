@@ -16,7 +16,10 @@ from azurpilot.tooling.filesystem import (
     canonical_path,
     path_has_link,
 )
-from azurpilot.tooling.process import INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS
+from azurpilot.tooling.process import (
+    INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS,
+    INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS,
+)
 
 MAX_CONFIG_BYTES = 256 * 1024
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
@@ -26,6 +29,25 @@ _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS: dict[str, str] = {
     "context7": "CONTEXT7_API_KEY",
     "grafana": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
     "docker-hub": "DOCKERHUB_PAT",
+}
+# Caller auth общих MCP HTTP services. Отдельный путь от provider credentials:
+# этот токен подтверждает вызывающую сторону перед общим сервисом машины и
+# никогда не передаётся провайдеру.
+_SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS: dict[str, str] = {
+    "grafana": "AZURPILOT_GRAFANA_MCP_CALLER_TOKEN",
+    "docker-hub": "AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN",
+}
+# Compose service, который владеет долгоживущим HTTP process-ом. Публикацию,
+# immutable ссылку на образ и runtime-команду владеет infrastructure/observability/compose.yaml;
+# здесь хранится только клиентский контракт, а совпадение проверяет contract gate.
+_SHARED_MCP_COMPOSE_SERVICES: dict[str, str] = {
+    "grafana": "grafana-mcp",
+    "docker-hub": "dockerhub-mcp",
+}
+SHARED_MCP_ROUTE = "shared_streamable_http"
+SHARED_MCP_ENDPOINTS: dict[str, str] = {
+    "grafana": "http://127.0.0.1:8777/mcp",
+    "docker-hub": "http://127.0.0.1:8778/mcp",
 }
 def _native_coderabbit_name(host_os: str | None = None) -> str | None:
     """Вернуть допустимое имя host-native provider для указанной host OS."""
@@ -56,21 +78,17 @@ DEFAULTS: dict[str, dict[str, object]] = {
         "route": "direct_streamable_http",
     },
     "grafana": {
-        "command": "docker",
-        "image": (
-            "mcp/grafana@sha256:"
-            "9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014"
-        ),
-        "route": "direct_container_stdio",
+        "route": SHARED_MCP_ROUTE,
+        "endpoint": SHARED_MCP_ENDPOINTS["grafana"],
+        "compose_service": _SHARED_MCP_COMPOSE_SERVICES["grafana"],
+        "caller_token_env": _SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS["grafana"],
         "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["grafana"],
     },
     "docker-hub": {
-        "command": "docker",
-        "image": (
-            "mcp/dockerhub@sha256:"
-            "76454af4edfd21571d9740113104d0d9f707220453d1c8f7c9971b21848d4248"
-        ),
-        "route": "direct_container_stdio",
+        "route": SHARED_MCP_ROUTE,
+        "endpoint": SHARED_MCP_ENDPOINTS["docker-hub"],
+        "compose_service": _SHARED_MCP_COMPOSE_SERVICES["docker-hub"],
+        "caller_token_env": _SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS["docker-hub"],
         "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["docker-hub"],
         "username_env": "DOCKERHUB_USERNAME",
     },
@@ -86,16 +104,7 @@ REPOSITORY_MCP_ALIASES = {
     "grafana_direct": "grafana",
 }
 
-GRAFANA_STDIO_LAUNCHER_COMMAND = "uv"
-GRAFANA_STDIO_LAUNCHER_ARGS = (
-    "run",
-    "--locked",
-    "--no-sync",
-    "python",
-    "-m",
-    "azurpilot.integrations.grafana_stdio",
-)
-GRAFANA_STDIO_LAUNCHER_CWD = "."
+GRAFANA_URL_ENVIRONMENT_KEY = "GRAFANA_URL"
 
 _REPOSITORY_FIXED_VALUES: dict[str, dict[str, str]] = {
     "semgrep": {"command": "semgrep"},
@@ -104,11 +113,6 @@ _REPOSITORY_FIXED_VALUES: dict[str, dict[str, str]] = {
         "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["context7"],
     },
     "docker-docs": {"endpoint": "https://mcp-docs.docker.com/mcp"},
-    "docker-hub": {
-        "command": "docker",
-        "image": str(DEFAULTS["docker-hub"]["image"]),
-        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["docker-hub"],
-    },
 }
 
 _ENV_OVERRIDES = {
@@ -119,7 +123,6 @@ _ENV_OVERRIDES = {
         "endpoint": "AZURPILOT_GRAFANA_URL",
         "credential_env": "AZURPILOT_GRAFANA_CREDENTIAL_ENV",
         "credential_file": "GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE",
-        "image": "AZURPILOT_GRAFANA_IMAGE",
     },
     "context7": {
         "endpoint": "AZURPILOT_CONTEXT7_ENDPOINT",
@@ -127,7 +130,6 @@ _ENV_OVERRIDES = {
     },
     "docker-docs": {"endpoint": "AZURPILOT_DOCKER_DOCS_ENDPOINT"},
     "docker-hub": {
-        "image": "AZURPILOT_DOCKER_HUB_IMAGE",
         "credential_env": "AZURPILOT_DOCKER_HUB_CREDENTIAL_ENV",
         "username_env": "AZURPILOT_DOCKER_HUB_USERNAME_ENV",
     },
@@ -260,29 +262,31 @@ def _repo_mcp_table(root: Path) -> dict[str, dict[str, object]]:
         name = REPOSITORY_MCP_ALIASES.get(str(raw_name))
         if name is None or not isinstance(raw_values, dict):
             continue
-        if name == "grafana":
-            launcher_args = raw_values.get("args")
+        if name in _SHARED_MCP_COMPOSE_SERVICES:
+            # Registration клиента только подключается к общему HTTP service:
+            # provider command, image, endpoint, port и read-only flags
+            # принадлежат Compose и adapter, а не клиентской регистрации.
+            expected_caller = _SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS[name]
             if (
-                raw_values.get("command") != GRAFANA_STDIO_LAUNCHER_COMMAND
-                or not isinstance(launcher_args, list)
-                or tuple(launcher_args) != GRAFANA_STDIO_LAUNCHER_ARGS
-                or raw_values.get("cwd") != GRAFANA_STDIO_LAUNCHER_CWD
-                or any(
+                any(
                     key in raw_values
                     for key in (
-                        "url",
+                        "command",
+                        "args",
+                        "cwd",
                         "image",
                         "credential_env_var",
-                        "bearer_token_env_var",
                     )
                 )
+                or raw_values.get("url") != SHARED_MCP_ENDPOINTS[name]
+                or raw_values.get("bearer_token_env_var") != expected_caller
             ):
                 _raise(
-                    "Регистрация grafana в repository config должна использовать "
-                    "штатный repository-owned stdio launcher без route overrides."
+                    f"Регистрация {name} в repository config должна указывать общий "
+                    f"streamable HTTP service {_SHARED_MCP_COMPOSE_SERVICES[name]} "
+                    f"по {SHARED_MCP_ENDPOINTS[name]} с caller token env "
+                    f"{expected_caller} и без container overrides."
                 )
-            # Registration запускает только launcher. Provider command, immutable
-            # image, endpoint, network и read-only flags принадлежат adapter.
             result[name] = {}
             continue
         values: dict[str, object] = {}
@@ -340,6 +344,8 @@ def _validate_value(
         "route",
         "transport",
         "credential_env",
+        "caller_token_env",
+        "compose_service",
         "username_env",
         "executable",
     }:
@@ -347,11 +353,11 @@ def _validate_value(
             _raise(f"Параметр {name}.{key} имеет неверное значение.")
         value = value.strip()
     if key == "endpoint":
-        from .mcp_client import validate_endpoint
+        from .mcp_client import HttpEndpointError, validate_http_endpoint
 
         try:
-            validate_endpoint(value, allow_http=name == "grafana")
-        except ValueError as exc:
+            validate_http_endpoint(value)
+        except HttpEndpointError as exc:
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 f"Параметр {name}.endpoint имеет неверный формат.",
@@ -416,6 +422,17 @@ def _validate_value(
         or _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS.get(name) != value
     ):
         _raise(f"Параметр {name}.credential_env имеет неверное имя переменной.")
+    if key == "caller_token_env" and (
+        not isinstance(value, str)
+        or _ENV_NAME_RE.fullmatch(value) is None
+        or value not in INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS
+        or _SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS.get(name) != value
+    ):
+        _raise(f"Параметр {name}.caller_token_env имеет неверное имя переменной.")
+    if key == "compose_service" and (
+        _SHARED_MCP_COMPOSE_SERVICES.get(name) != value
+    ):
+        _raise(f"Параметр {name}.compose_service имеет неверное значение.")
     if key == "username_env" and (
         not isinstance(value, str) or _ENV_NAME_RE.fullmatch(value) is None
     ):
@@ -466,9 +483,8 @@ def load_integration_config(root: Path) -> IntegrationConfig:
 
 __all__ = [
     "DEFAULTS",
-    "GRAFANA_STDIO_LAUNCHER_ARGS",
-    "GRAFANA_STDIO_LAUNCHER_COMMAND",
-    "GRAFANA_STDIO_LAUNCHER_CWD",
+    "SHARED_MCP_ENDPOINTS",
+    "SHARED_MCP_ROUTE",
     "IntegrationConfig",
     "load_integration_config",
 ]

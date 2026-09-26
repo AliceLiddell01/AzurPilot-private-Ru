@@ -7,6 +7,7 @@ import pytest
 
 import dev_tools.integration_contract_gate as gate
 from azurpilot.integrations.adapters import DOCKER_HUB_BLOCKED_TOOLS
+from azurpilot.integrations.config import DEFAULTS, SHARED_MCP_ENDPOINTS
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -53,19 +54,13 @@ def test_contract_rejects_empty_docker_hub_denylist(tmp_path: Path):
     )
 
 
-def test_contract_rejects_raw_grafana_container_registration(tmp_path: Path):
+def test_contract_rejects_registration_that_owns_provider_process(tmp_path: Path):
+    """Регистрация обязана подключаться к общему HTTP service, а не запускать provider."""
+
     source = (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8")
-    launcher = """command = \"uv\"
-args = [
-    \"run\",
-    \"--locked\",
-    \"--no-sync\",
-    \"python\",
-    \"-m\",
-    \"azurpilot.integrations.grafana_stdio\",
-]"""
+    endpoint = SHARED_MCP_ENDPOINTS["grafana"]
     mutated, replacements = re.subn(
-        re.escape(launcher),
+        rf'(?m)^url = "{re.escape(endpoint)}"$',
         'command = "docker"\nargs = ["run", "mcp/grafana"]',
         source,
         count=1,
@@ -80,8 +75,37 @@ args = [
 
     assert payload["checks"]["codex_config"] == "drift"
     assert (
-        ".codex/config.toml: grafana_direct обязан указывать "
-        "repository-owned stdio launcher"
+        ".codex/config.toml: grafana_direct не должен владеть provider "
+        "process-ом (command)"
+    ) in payload["errors"]
+    assert (
+        ".codex/config.toml: grafana_direct не должен владеть provider "
+        "process-ом (args)"
+    ) in payload["errors"]
+    assert (
+        ".codex/config.toml: grafana_direct расходится с общим HTTP endpoint"
+    ) in payload["errors"]
+
+
+def test_contract_rejects_registration_without_caller_token(tmp_path: Path):
+    """Регистрация обязана предъявлять caller token общего HTTP service."""
+
+    source = (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8")
+    caller_env = str(DEFAULTS["grafana"]["caller_token_env"])
+    declaration = f'bearer_token_env_var = "{caller_env}"\n'
+    assert source.count(declaration) == 1
+    mutated = source.replace(declaration, "", 1)
+
+    codex_dir = tmp_path / ".codex"
+    codex_dir.mkdir()
+    (codex_dir / "config.toml").write_text(mutated, encoding="utf-8")
+
+    payload = gate.check(tmp_path)
+
+    assert payload["checks"]["codex_config"] == "drift"
+    assert (
+        ".codex/config.toml: grafana_direct обязан предъявлять caller token "
+        "общего сервиса"
     ) in payload["errors"]
 
 

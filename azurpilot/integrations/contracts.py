@@ -14,6 +14,7 @@ from pydantic import Field, model_validator
 
 from azurpilot.tooling.contracts import (
     AnalysisScope,
+    CapabilityStatus,
     ClosedModel,
     CodeRabbitDeferredBacklog,
 )
@@ -169,6 +170,15 @@ class IntegrationDetails(ClosedModel):
     coderabbit_backlog: CodeRabbitDeferredBacklog | None = None
 
 
+class SharedMcpDetails(ClosedModel):
+    """Состояние общих долговременных MCP HTTP services одной машины."""
+
+    action: Literal["start", "stop", "status"]
+    state: CapabilityStatus
+    services: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+    diagnostics: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+
+
 class IntegrationEvidenceBundle(ClosedModel):
     """Общая bounded provenance сводки без пути и secret payload."""
 
@@ -193,4 +203,5 @@ __all__ = [
     "IntegrationName",
     "IntegrationRecord",
     "IntegrationState",
+    "SharedMcpDetails",
 ]

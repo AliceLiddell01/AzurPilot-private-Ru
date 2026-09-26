@@ -14,18 +14,19 @@ from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
     DOCKER_HUB_READ_ONLY_TOOLS,
     GRAFANA_BLOCKED_TOOLS,
-    GRAFANA_ENABLED_TOOL_CATEGORIES,
     GRAFANA_EXPECTED_TOOL_NAMES,
     GRAFANA_READ_ONLY_TOOLS,
     GRAFANA_REQUIRED_READ_ONLY_TOOLS,
     GRAFANA_TEMPO_READ_ONLY_TOOLS,
     Context7Adapter,
+    DockerHubAdapter,
     GrafanaAdapter,
     SemgrepAdapter,
     _credential,
-    _discover_grafana_settings,
 )
 from azurpilot.integrations.config import (
+    SHARED_MCP_ENDPOINTS,
+    SHARED_MCP_ROUTE,
     IntegrationConfig,
     _validate_value,
     load_integration_config,
@@ -52,19 +53,33 @@ from azurpilot.tooling.contracts import (
 )
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.process import (
+    INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS,
     INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS,
     INTEGRATION_CREDENTIAL_FILE_ENVIRONMENT_KEYS,
 )
 from tests.support.paths import REPOSITORY_ROOT
 
+GRAFANA_CALLER_TOKEN_ENV = "AZURPILOT_GRAFANA_MCP_CALLER_TOKEN"
+DOCKER_HUB_CALLER_TOKEN_ENV = "AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN"
+
+
+def _caller_auth_header(value: str) -> dict[str, str]:
+    """Собрать ожидаемый заголовок caller auth общего MCP HTTP service."""
+
+    return {"Authorization": f"Bearer {value}"}
+
 
 @pytest.fixture(autouse=True)
 def isolate_integration_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Не позволять реальным credentials машины влиять на integration tests."""
+    """Не позволять реальным credentials и host config машины влиять на integration tests."""
 
     for variable in (
         *INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS,
         *INTEGRATION_CREDENTIAL_FILE_ENVIRONMENT_KEYS,
+        *INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS,
+        "AZURPILOT_MACHINE_CONFIG",
+        "AZURPILOT_USER_CONFIG",
+        "AZURPILOT_CONFIG_FILE",
     ):
         monkeypatch.delenv(variable, raising=False)
 
@@ -90,13 +105,36 @@ def test_grafana_defaults_use_only_direct_credential_boundaries():
     assert "credential_ref" not in settings
 
 
-def test_grafana_repository_launcher_does_not_override_adapter_defaults():
-    settings = load_integration_config(REPOSITORY_ROOT).provider("grafana")
+def test_shared_families_use_repository_owned_http_service_registration():
+    """Регистрация подключается к общему HTTP service и не владеет provider process-ом."""
 
-    assert settings["command"] == "docker"
-    assert str(settings["image"]).startswith("mcp/grafana@sha256:")
-    assert "endpoint" not in settings
-    assert "network" not in settings
+    config = load_integration_config(REPOSITORY_ROOT)
+
+    for family, service in (
+        ("grafana", "grafana-mcp"),
+        ("docker-hub", "dockerhub-mcp"),
+    ):
+        settings = config.provider(family)
+        assert settings["route"] == SHARED_MCP_ROUTE
+        assert settings["endpoint"] == SHARED_MCP_ENDPOINTS[family]
+        assert settings["compose_service"] == service
+        assert "command" not in settings
+        assert "image" not in settings
+        assert "args" not in settings
+
+
+def test_shared_families_expose_caller_token_boundary_per_provider():
+    config = load_integration_config(REPOSITORY_ROOT)
+
+    assert config.provider("grafana")["caller_token_env"] == GRAFANA_CALLER_TOKEN_ENV
+    assert (
+        config.provider("docker-hub")["caller_token_env"]
+        == DOCKER_HUB_CALLER_TOKEN_ENV
+    )
+    assert config.provider("grafana")["credential_env"] == (
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN"
+    )
+    assert config.provider("docker-hub")["credential_env"] == "DOCKERHUB_PAT"
 
 
 def test_coderabbit_defaults_use_only_native_host_route():
@@ -423,57 +461,247 @@ def test_grafana_file_credential_is_bounded_and_not_serialized(
     assert token not in credential.model_dump_json()
 
 
-def test_grafana_file_credential_uses_direct_container_env(
-    tmp_path: Path,
+def test_shared_probe_asserts_caller_token_and_keeps_provider_secret_on_service(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-    token = "fixture-grafana-token"
-    credential_file = tmp_path / "grafana-token"
-    credential_file.write_text(token + "\n", encoding="utf-8")
-    settings = {
-        "endpoint": "http://grafana:3000",
-        "command": "docker",
-        "image": "mcp/grafana@sha256:" + "a" * 64,
-        "network": "observability_default",
-        "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
-        "credential_file": str(credential_file),
-    }
+    """Клиент предъявляет только caller token; provider credential не покидает сервис."""
 
-    adapter = GrafanaAdapter()
-    command = adapter.build_command(
-        tmp_path,
-        IntegrationConfig(values={"grafana": settings}),
+    caller_token = "fixture-caller-token"
+    provider_token = "fixture-provider-token"
+    monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, caller_token)
+    monkeypatch.setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", provider_token)
+    observed: dict[str, object] = {}
+
+    async def fake_probe_http(**kwargs: object) -> McpProbeResult:
+        observed.update(kwargs)
+        return McpProbeResult(
+            IntegrationState.READY,
+            "MCP_READ_ONLY_PROBE_READY",
+            authenticated=True,
+        )
+
+    monkeypatch.setattr("azurpilot.integrations.adapters.probe_http", fake_probe_http)
+
+    outcome = asyncio.run(GrafanaAdapter().probe(tmp_path, IntegrationConfig()))
+
+    assert observed["endpoint"] == SHARED_MCP_ENDPOINTS["grafana"]
+    assert observed["headers"] == _caller_auth_header(caller_token)
+    assert observed["credential_configured"] is True
+    assert observed["credential_required"] is True
+    assert provider_token not in json.dumps(observed["headers"])
+    assert outcome.record.state is IntegrationState.READY
+
+
+def test_shared_probe_for_docker_hub_uses_its_own_caller_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    caller_token = "fixture-dockerhub-caller"
+    monkeypatch.setenv(DOCKER_HUB_CALLER_TOKEN_ENV, caller_token)
+    observed: dict[str, object] = {}
+
+    async def fake_probe_http(**kwargs: object) -> McpProbeResult:
+        observed.update(kwargs)
+        return McpProbeResult(
+            IntegrationState.READY,
+            "MCP_READ_ONLY_PROBE_READY",
+            authenticated=True,
+        )
+
+    monkeypatch.setattr("azurpilot.integrations.adapters.probe_http", fake_probe_http)
+
+    outcome = asyncio.run(DockerHubAdapter().probe(tmp_path, IntegrationConfig()))
+
+    assert observed["endpoint"] == SHARED_MCP_ENDPOINTS["docker-hub"]
+    assert observed["headers"] == _caller_auth_header(caller_token)
+    assert outcome.record.state is IntegrationState.READY
+
+
+@pytest.mark.parametrize(
+    "adapter",
+    [GrafanaAdapter, DockerHubAdapter],
+    ids=["grafana", "docker-hub"],
+)
+def test_shared_probe_never_reaches_service_without_caller_token(
+    adapter: type, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    def fail_if_called(**_kwargs: object) -> object:
+        raise AssertionError("probe_http не должен вызываться без caller token")
+
+    monkeypatch.setattr("azurpilot.integrations.adapters.probe_http", fail_if_called)
+
+    outcome = asyncio.run(adapter().probe(tmp_path, IntegrationConfig()))
+
+    assert outcome.record.state is IntegrationState.UNAUTHENTICATED
+    assert outcome.record.reason_code == "INTEGRATION_CALLER_TOKEN_NOT_CONFIGURED"
+
+
+def test_shared_status_ready_requires_only_caller_credential(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Готовность общего сервиса определяется caller auth, а не секретом провайдера."""
+
+    caller_token = "fixture-caller-token"
+    provider_token = "fixture-provider-token"
+    monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, caller_token)
+    monkeypatch.delenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", raising=False)
+
+    record = GrafanaAdapter().status(tmp_path, IntegrationConfig())
+    serialized = record.model_dump_json()
+
+    assert record.state is IntegrationState.READY
+    assert record.reason_code == "INTEGRATION_SHARED_SERVICE_CONFIGURED"
+    assert record.evidence.route == SHARED_MCP_ROUTE
+    assert record.evidence.endpoint == SHARED_MCP_ENDPOINTS["grafana"]
+    assert caller_token not in serialized
+    assert provider_token not in serialized
+
+
+def test_shared_status_reports_missing_caller_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "fixture-provider-token")
+
+    record = GrafanaAdapter().status(tmp_path, IntegrationConfig())
+
+    assert record.state is IntegrationState.UNAUTHENTICATED
+    assert record.reason_code == "INTEGRATION_CALLER_TOKEN_NOT_CONFIGURED"
+    assert GRAFANA_CALLER_TOKEN_ENV in record.message
+
+
+def test_shared_status_does_not_require_provider_credential_of_caller(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Provider credential принадлежит общему сервису, а не окружению клиента."""
+
+    monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, "fixture-caller-token")
+
+    record = GrafanaAdapter().status(tmp_path, IntegrationConfig())
+
+    assert record.state is IntegrationState.READY
+    assert record.reason_code == "INTEGRATION_SHARED_SERVICE_CONFIGURED"
+    assert "provider_credential_configured=false" in record.evidence.diagnostics
+    assert "read_only_enforced=server" in record.evidence.diagnostics
+
+
+def test_docker_hub_status_reports_missing_caller_token(tmp_path: Path):
+    """Docker Hub caller auth подтверждается общим сервисом без provider credential клиента."""
+
+    record = DockerHubAdapter().status(tmp_path, IntegrationConfig())
+
+    assert record.state is IntegrationState.UNAUTHENTICATED
+    assert record.reason_code == "INTEGRATION_CALLER_TOKEN_NOT_CONFIGURED"
+
+
+def test_shared_status_rejects_non_loopback_endpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, "fixture-caller-token")
+    monkeypatch.setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "fixture-provider-token")
+    config = IntegrationConfig(
+        values={"grafana": {"endpoint": "http://192.0.2.10:8777/mcp"}}
     )
 
-    assert command is not None
-    _executable, args, environment = command
-    assert args[:3] == ("run", "--rm", "-i")
-    assert "pass" not in args
-    assert "docker pass" not in " ".join(args)
-    assert "GRAFANA_SERVICE_ACCOUNT_TOKEN" in args
-    assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN"] == token
-    assert token not in " ".join(args)
-    network_index = args.index("--network")
-    assert args[network_index + 1] == "observability_default"
-    assert environment["GRAFANA_URL"] == "http://grafana:3000"
-    assert "-disable-write" in args
-    assert "-disable-api" in args
-    assert "-disable-query" not in args
-    assert "-disable-proxied" not in args
-    enabled_tools_index = args.index("-enabled-tools")
-    assert args[enabled_tools_index + 1] == GRAFANA_ENABLED_TOOL_CATEGORIES
-    assert GRAFANA_REQUIRED_READ_ONLY_TOOLS <= GRAFANA_READ_ONLY_TOOLS
-    assert GRAFANA_TEMPO_READ_ONLY_TOOLS <= GRAFANA_READ_ONLY_TOOLS
+    record = GrafanaAdapter().status(tmp_path, config)
+
+    assert record.state is IntegrationState.NOT_CONFIGURED
+    assert record.reason_code == "INTEGRATION_SHARED_ENDPOINT_NOT_LOOPBACK"
+
+
+def test_shared_probe_does_not_start_transport_for_non_loopback_endpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, "fixture-caller-token")
+    monkeypatch.setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "fixture-provider-token")
+
+    def fail_if_called(**_kwargs: object) -> object:
+        raise AssertionError("probe_http не должен вызываться для внешнего endpoint-а")
+
+    monkeypatch.setattr("azurpilot.integrations.adapters.probe_http", fail_if_called)
+    config = IntegrationConfig(
+        values={"grafana": {"endpoint": "http://192.0.2.10:8777/mcp"}}
+    )
+
+    outcome = asyncio.run(GrafanaAdapter().probe(tmp_path, config))
+
+    assert outcome.record.state is IntegrationState.NOT_CONFIGURED
+    assert outcome.record.reason_code == "INTEGRATION_SHARED_ENDPOINT_NOT_LOOPBACK"
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://127.0.0.1:8777/mcp",
+        "http://localhost:8777/mcp",
+        "http://[::1]:8777/mcp",
+        "https://localhost:8777/mcp",
+    ],
+)
+def test_shared_status_accepts_loopback_endpoints(
+    endpoint: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, "fixture-caller-token")
+    monkeypatch.setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "fixture-provider-token")
+    config = IntegrationConfig(values={"grafana": {"endpoint": endpoint}})
+
+    record = GrafanaAdapter().status(tmp_path, config)
+
+    assert record.state is IntegrationState.READY
+    assert record.reason_code == "INTEGRATION_SHARED_SERVICE_CONFIGURED"
+    assert record.evidence.endpoint == endpoint
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected_code"),
+    [
+        ("http://192.0.2.10:8777/mcp", "INTEGRATION_SHARED_ENDPOINT_NOT_LOOPBACK"),
+        ("http://grafana.example.test/mcp", "INTEGRATION_SHARED_ENDPOINT_NOT_LOOPBACK"),
+        ("ftp://127.0.0.1:8777/mcp", "INTEGRATION_ENDPOINT_INVALID"),
+        ("", "INTEGRATION_ENDPOINT_NOT_CONFIGURED"),
+        (None, "INTEGRATION_ENDPOINT_NOT_CONFIGURED"),
+    ],
+)
+def test_shared_status_fails_closed_outside_loopback(
+    endpoint: object,
+    expected_code: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, "fixture-caller-token")
+    monkeypatch.setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "fixture-provider-token")
+    config = IntegrationConfig(values={"grafana": {"endpoint": endpoint}})
+
+    record = GrafanaAdapter().status(tmp_path, config)
+
+    assert record.state is IntegrationState.NOT_CONFIGURED
+    assert record.reason_code == expected_code
+
+
+def test_caller_token_and_compose_service_are_validated_per_family():
+    assert (
+        _validate_value("grafana", "caller_token_env", GRAFANA_CALLER_TOKEN_ENV)
+        == GRAFANA_CALLER_TOKEN_ENV
+    )
+    assert (
+        _validate_value("docker-hub", "caller_token_env", DOCKER_HUB_CALLER_TOKEN_ENV)
+        == DOCKER_HUB_CALLER_TOKEN_ENV
+    )
+    assert _validate_value("grafana", "compose_service", "grafana-mcp") == "grafana-mcp"
+    with pytest.raises(ToolingError, match="caller_token_env"):
+        _validate_value("grafana", "caller_token_env", DOCKER_HUB_CALLER_TOKEN_ENV)
+    with pytest.raises(ToolingError, match="caller_token_env"):
+        _validate_value("grafana", "caller_token_env", "UNAPPROVED_TOKEN")
+    with pytest.raises(ToolingError, match="compose_service"):
+        _validate_value("docker-hub", "compose_service", "grafana-mcp")
 
 
 def test_grafana_tool_catalog_is_exact_and_fail_closed():
     plan = GrafanaAdapter.plan
     expected = tuple(sorted(GRAFANA_EXPECTED_TOOL_NAMES))
 
+    assert GRAFANA_REQUIRED_READ_ONLY_TOOLS <= GRAFANA_EXPECTED_TOOL_NAMES
     assert validate_tool_catalog(plan, expected) is None
 
-    missing_tempo = tuple(
-        name for name in expected if name != "tempo_traceql-search"
-    )
+    missing_tempo = tuple(name for name in expected if name != "get_tempo_trace")
     assert validate_tool_catalog(plan, missing_tempo) == (
         "GRAFANA_TEMPO_TOOL_UNAVAILABLE",
         "tempo_tools_missing",
@@ -567,83 +795,35 @@ def test_http_probe_uses_file_credential_value(monkeypatch, tmp_path: Path):
     assert token not in outcome.record.model_dump_json()
 
 
-def test_grafana_discovery_prefers_confirmed_compose_network_route(monkeypatch):
-    monkeypatch.setattr(
-        "azurpilot.integrations.adapters._executable", lambda _command: "docker"
-    )
-    inspect_payload = (
-        '{"com.docker.compose.project.config_files":"C:/repo/infrastructure/observability/compose.yaml",'
-        '"com.docker.compose.project.working_dir":"C:/repo/infrastructure/observability"}\t'
-        '{"3000/tcp":[{"HostPort":"4310"}]}\t'
-        '{"observability_default":{}}\n'
-    )
+def test_shared_registration_does_not_discover_provider_process(
+    monkeypatch, tmp_path: Path
+):
+    """Общий сервис владеет process-ом: адаптер не выполняет docker discovery."""
 
-    def fake_docker(_root, _executable, arguments):
-        if arguments[0] == "ps":
-            return "grafana-id\n"
-        assert arguments[0:2] == ("inspect", "--format")
-        return inspect_payload
+    def fail_if_called(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("Общий HTTP route не выполняет provider discovery")
 
-    monkeypatch.setattr("azurpilot.integrations.adapters._docker_readonly", fake_docker)
-    settings, code = _discover_grafana_settings(Path("C:/repo"), {})
+    monkeypatch.setattr("azurpilot.integrations.adapters._executable", fail_if_called)
+    monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, "fixture-caller-token")
+    monkeypatch.setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "fixture-provider-token")
+    observed: dict[str, object] = {}
 
-    assert code == "GRAFANA_ENDPOINT_DISCOVERED"
-    assert settings["endpoint"] == "http://grafana:3000"
-    assert settings["network"] == "observability_default"
+    async def fake_probe_http(**kwargs: object) -> McpProbeResult:
+        observed.update(kwargs)
+        return McpProbeResult(
+            IntegrationState.READY,
+            "MCP_READ_ONLY_PROBE_READY",
+            authenticated=True,
+        )
 
+    monkeypatch.setattr("azurpilot.integrations.adapters.probe_http", fake_probe_http)
 
-def test_grafana_discovery_rejects_ambiguous_published_routes(monkeypatch):
-    monkeypatch.setattr(
-        "azurpilot.integrations.adapters._executable", lambda _command: "docker"
-    )
-    inspect_payload = (
-        '{"com.docker.compose.project.config_files":"C:/repo/compose.yaml"}\t'
-        '{"3000/tcp":[{"HostPort":"4310"},{"HostPort":"4311"}]}\t{}\n'
-    )
+    outcome = asyncio.run(GrafanaAdapter().probe(tmp_path, IntegrationConfig()))
 
-    def fake_docker(_root, _executable, arguments):
-        return "grafana-id\n" if arguments[0] == "ps" else inspect_payload
-
-    monkeypatch.setattr("azurpilot.integrations.adapters._docker_readonly", fake_docker)
-    settings, code = _discover_grafana_settings(Path("C:/repo"), {})
-
-    assert settings == {}
-    assert code == "GRAFANA_ENDPOINT_AMBIGUOUS"
-
-
-def test_grafana_discovery_rejects_ambiguous_compose_networks(monkeypatch):
-    monkeypatch.setattr(
-        "azurpilot.integrations.adapters._executable", lambda _command: "docker"
-    )
-    inspect_payload = (
-        '{"com.docker.compose.project.config_files":"C:/repo/compose.yaml"}\t'
-        '{"3000/tcp":[{"HostPort":"3000"}]}\t'
-        '{"observability_default":{},"other_default":{}}\n'
-    )
-
-    def fake_docker(_root, _executable, arguments):
-        return "grafana-id\n" if arguments[0] == "ps" else inspect_payload
-
-    monkeypatch.setattr("azurpilot.integrations.adapters._docker_readonly", fake_docker)
-    settings, code = _discover_grafana_settings(Path("C:/repo"), {})
-
-    assert settings == {}
-    assert code == "GRAFANA_ENDPOINT_AMBIGUOUS"
-
-
-def test_grafana_discovery_fails_closed_when_service_is_missing(monkeypatch):
-    monkeypatch.setattr(
-        "azurpilot.integrations.adapters._executable", lambda _command: "docker"
-    )
-    monkeypatch.setattr(
-        "azurpilot.integrations.adapters._docker_readonly",
-        lambda _root, _executable, _arguments: "",
-    )
-
-    settings, code = _discover_grafana_settings(Path("C:/repo"), {})
-
-    assert settings == {}
-    assert code == "GRAFANA_ENDPOINT_NOT_CONFIGURED"
+    assert observed["endpoint"] == SHARED_MCP_ENDPOINTS["grafana"]
+    assert outcome.record.evidence.route == SHARED_MCP_ROUTE
+    assert outcome.record.evidence.image is None
+    assert outcome.record.evidence.executable is None
 
 
 @pytest.mark.parametrize(

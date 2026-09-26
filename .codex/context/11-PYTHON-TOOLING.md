@@ -153,21 +153,29 @@ Semgrep запускается только с явным scoped input: staged/c
 по контракту команды. Scan всего repository не используется как скрытый default.
 Findings нормализуются, path обязан оставаться внутри validated root.
 
-### Grafana
+### Grafana и Docker Hub
 
-Маршрут Grafana принимается только из подтверждённой текущей topology/config.
-Нельзя возвращать unconditional `host.docker.internal` или угадывать endpoint.
-Tool allowlist остаётся read-only; mutating Grafana tools блокируются.
+Обе поверхности используют общие долговременные Streamable HTTP services,
+владелец которых — Compose-проект `azurpilot-infrastructure` (профиль
+`external-mcp`): `grafana-mcp` только на `127.0.0.1:8777`, `dockerhub-mcp` только
+на `127.0.0.1:8778`. Endpoint принимается только из подтверждённого
+typed-контракта; нельзя возвращать unconditional `host.docker.internal` или
+угадывать endpoint, а не-loopback публикация отклоняется.
+
+Caller auth и provider credentials — разные контуры. Клиент предъявляет caller
+token из `AZURPILOT_GRAFANA_MCP_CALLER_TOKEN` / `AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN`
+(Compose читает её из `.env`, а MCP-клиент — из окружения своего процесса),
+provider credentials остаются внутри Compose.
+Tool allowlist остаётся read-only, mutating tools блокируются; Grafana
+дополнительно ограничена серверно (`--disable-write`, `--disable-api`, bounded
+categories), а для Docker Hub read-only обеспечивается read-only PAT вместе с
+typed allowlist. Жизненным циклом владеет Compose, операторская граница —
+буквальная команда `azur integrations shared-mcp status|start|stop`.
 
 ### Context7 и Docker Docs
 
 Используют прямой HTTP/MCP adapter с bounded discovery/calls. Наличие anonymous
 или credentialed режима определяется adapter/config, а не hardcoded секретом.
-
-### Docker Hub
-
-Поверхность Docker Hub остаётся read-only через allowlist/denylist. Mutation tools
-не разрешаются как fallback ради удобства диагностики.
 
 ### CodeRabbit
 
