@@ -428,14 +428,27 @@ class RuntimeLogProjectionHandler(RotatingFileHandler):
         self.setLevel(logging.INFO)
         self.setFormatter(_SanitizedFormatter())
 
+    @staticmethod
+    def _is_blank_projection_record(record: logging.LogRecord) -> bool:
+        """Отфильтровать только корректно сформированную пустую запись.
+
+        Сбой формирования сообщения не означает пустоту: такая запись должна
+        дойти до ``_event_for_record()`` и получить безопасный fallback вместо
+        молчаливой потери в этой optional-проекции.
+        """
+        if getattr(record, "azurpilot_log_kind", "log") == "section":
+            return False
+        if record.exc_info or record.stack_info:
+            return False
+        try:
+            message = record.getMessage()
+        except Exception:
+            return False
+        return not message.strip()
+
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            if (
-                getattr(record, "azurpilot_log_kind", "log") != "section"
-                and not record.exc_info
-                and not record.stack_info
-                and not record.getMessage().strip()
-            ):
+            if self._is_blank_projection_record(record):
                 return
             # За отложенное открытие, блокировку и ротацию отвечает RotatingFileHandler.
             super().emit(record)

@@ -122,3 +122,38 @@ def test_profile_client_rebases_when_runtime_log_continuity_is_lost(monkeypatch)
     assert client.refresh_renderables() is True
     assert client.renderables == [replacement]
     assert client.renderables_generation == 1
+
+
+def _runtime_event(message: str) -> RuntimeLogEvent:
+    return RuntimeLogEvent("", 20, "INFO", message)
+
+
+def test_projected_delta_keeps_repeated_neighbour_events():
+    first = _runtime_event("Одинаковое событие")
+    second = _runtime_event("Одинаковое событие")
+    project = bot_runtime_client._ProfileClient._projected_delta
+
+    assert project((first,), (first, second)) == (second,)
+    assert project((first, first), (first, first, second)) == (second,)
+    assert project((first,), (first, first, first)) == (first, first)
+
+
+def test_projected_delta_contract_covers_append_rotation_and_lost_continuity():
+    first = _runtime_event("Первое")
+    second = _runtime_event("Второе")
+    third = _runtime_event("Третье")
+    fourth = _runtime_event("Четвёртое")
+    replacement = _runtime_event("Новая история")
+    project = bot_runtime_client._ProfileClient._projected_delta
+
+    assert project((), (first, second)) == (first, second)
+    assert project((first, second), (first, second)) == ()
+    assert project((first, second), (first, second, third)) == (third,)
+    # Ротация/compaction обрезает старые события, но новое не теряется.
+    assert project((first, second, third, fourth), (third, fourth, replacement)) == (
+        replacement,
+    )
+    assert project((first, second, third), (second, third, fourth)) == (fourth,)
+    # Непрерывность доказать нельзя: вызывающая сторона выполняет controlled rebuild.
+    assert project((first,), (replacement,)) is None
+    assert project((first, second), (first, replacement, second, third)) is None

@@ -57,7 +57,7 @@ _UNC_ABSOLUTE_PATH_START_RE = re.compile(
     r"(?<![A-Za-z0-9_/:?])\\\\",
 )
 _POSIX_ABSOLUTE_PATH_START_RE = re.compile(
-    r"(?<![\w/:<])/",
+    r"(?<![A-Za-z0-9_/<])/",
 )
 _ABSOLUTE_PATH_STARTS = (
     ("windows", _WINDOWS_ABSOLUTE_PATH_START_RE),
@@ -104,6 +104,36 @@ def _path_continuation_is_boundary(text: str, index: int) -> bool:
     )
 
 
+def _posix_candidate_is_path(text: str, body_start: int, end: int) -> bool:
+    """Проверить, что ``/`` перед ``text[body_start:end]`` — абсолютный путь.
+
+    Критерий абсолютности — сам ведущий ``/``, поэтому путь из одного сегмента
+    остаётся путём: ``/etc``, ``/tmp``, ``/a``. Отсекаются только кандидаты без
+    признаков pathname:
+
+    - ``://`` из URL-scheme; обычное ``:`` перед путём (``путь:/opt/private``)
+      редактированию не мешает;
+    - пустое тело и тело, начинающееся с пробела (``1/2 / счётчик не прочитан``);
+    - числовой фрагмент диагностики без букв и второго сегмента (``/2``);
+    - разделитель внутри слова после Unicode-буквы
+      (``Командир/заместитель``): путь в таком окружении доказывает только
+      второй сегмент, как в ``текст/opt/private/value``.
+    """
+    slash_index = body_start - 1
+    if (
+        text[slash_index - 1 : slash_index] == ":"
+        and text[body_start : body_start + 1] == "/"
+    ):
+        return False
+    body = text[body_start:end]
+    if not body or body[0] in " \t":
+        return False
+    preceding = text[slash_index - 1 : slash_index]
+    if preceding and not preceding.isascii() and preceding.isalnum():
+        return "/" in body
+    return "/" in body or any(character.isalpha() for character in body)
+
+
 def _consume_absolute_path(text: str, start: int, kind: str) -> int | None:
     index = start
     while index < len(text):
@@ -121,6 +151,8 @@ def _consume_absolute_path(text: str, start: int, kind: str) -> int | None:
         components = text[start:end].split("\\")
         if len(components) < 2 or not all(component.strip() for component in components[:2]):
             return None
+    if kind == "posix" and not _posix_candidate_is_path(text, start, end):
+        return None
     return end
 
 
@@ -334,11 +366,11 @@ class RepeatedEventSuppressor:
 
 
 class DiagnosticContextHandler(logging.Handler):
-    """Потокобезопасный bounded ring для контекста реального incident-а.
+    """Потокобезопасное ограниченное кольцо для контекста реального инцидента.
 
     Обработчик никогда не создаёт и не открывает файл. Текущий контекст
     хранится в памяти до ошибки, после которой атомарно становится
-    ``last_failure`` для единственного incident producer-а.
+    ``last_failure`` для единственного источника инцидентов.
     """
 
     def __init__(

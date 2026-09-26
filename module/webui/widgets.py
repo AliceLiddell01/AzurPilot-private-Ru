@@ -204,7 +204,7 @@ class RichLog:
                 self.scroll()
 
     def set_dashboard_display(self, b: bool) -> None:
-        # use for lambda callback function. Copied.
+        # Используется для lambda callback-функции. Скопировано.
         self.display_dashboard = b
         self.first_display = True
 

@@ -130,20 +130,30 @@ class _ProfileClient:
         previous: tuple[RuntimeLogEvent, ...],
         current: tuple[RuntimeLogEvent, ...],
     ) -> tuple[RuntimeLogEvent, ...] | None:
-        """Вернуть новые события bounded tail или None при потере непрерывности."""
+        """Вернуть новые события bounded tail или None при потере непрерывности.
+
+        Оба снимка — хвосты одного журнала, который только дописывается и может
+        обрезаться ротацией. Непрерывность подтверждает максимальное перекрытие
+        ``previous[-overlap:] == current[:overlap]``: полное перекрытие — обычный
+        append, неполное — ротация/compaction, а его отсутствие означает, что
+        общий контекст доказать нельзя, и вызывающая сторона выполняет
+        controlled rebuild вместо молчаливой потери событий.
+
+        Перекрытие считается по префиксу нового снимка, поэтому повторяющиеся
+        соседние события не теряются: ``(A,)`` против ``(A, A)`` даёт ровно один
+        новый ``A``, а не пустую дельту.
+        """
 
         if not previous:
             return current
         if current == previous:
             return ()
-        anchor = previous[-1]
-        for index in range(len(current) - 1, -1, -1):
-            if current[index] != anchor:
-                continue
-            overlap = min(len(previous), index + 1)
-            if previous[-overlap:] == current[index + 1 - overlap : index + 1]:
-                return current[index + 1 :]
-        return None
+        overlap = min(len(previous), len(current))
+        while overlap >= 1 and previous[-overlap:] != current[:overlap]:
+            overlap -= 1
+        if overlap < 1:
+            return None
+        return current[overlap:]
 
     def refresh_renderables(self) -> bool:
         try:

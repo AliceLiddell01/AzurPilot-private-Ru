@@ -43,10 +43,10 @@ class ExchangeLimitOcr(Digit):
     def pre_process(self, image):
         """
         Args:
-            image (np.ndarray): Shape (height, width, channel)
+            image (np.ndarray): Форма (высота, ширина, каналы)
 
         Returns:
-            np.ndarray: Shape (width, height)
+            np.ndarray: Форма (ширина, высота)
         """
         return 255 - color_mapping(rgb2gray(image), max_multiply=2.5)
 
@@ -87,15 +87,15 @@ class GuildLogistics(GuildBase):
 
     def _is_in_guild_logistics(self):
         """
-        Color sample the GUILD_LOGISTICS_ENSURE_CHECK
-        to determine whether is currently
-        visible or not
+        Цветовая выборка GUILD_LOGISTICS_ENSURE_CHECK
+        для определения, отображается ли он
+        в данный момент
 
         Pages:
             in: GUILD_LOGISTICS
             out: GUILD_LOGISTICS
         """
-        # Axis (181, 97, 99) and Azur (148, 178, 255)
+        # Цвета Axis (181, 97, 99) и Azur (148, 178, 255)
         return bool(
             self.image_color_count(
                 GUILD_LOGISTICS_ENSURE_CHECK,
@@ -113,8 +113,8 @@ class GuildLogistics(GuildBase):
 
     def _guild_logistics_ensure(self, skip_first_screenshot=True):
         """
-        Ensure guild logistics is loaded
-        After entering guild logistics, background loaded first, then St.Louis / Leipzig, then guild logistics
+        Ожидание загрузки логистики гильдии
+        После входа в логистику гильдии сначала загружается фон, затем St.Louis / Leipzig, затем логистика гильдии
 
         Args:
             skip_first_screenshot (bool):
@@ -131,14 +131,14 @@ class GuildLogistics(GuildBase):
     @Config.when(SERVER='en')
     def _guild_logistics_mission_available(self):
         """
-        Color sample the GUILD_MISSION area to determine
-        whether the button is enabled, mission already
-        in progress, or no more missions can be accepted
+        Цветовая выборка области GUILD_MISSION для определения,
+        активна ли кнопка, задание уже
+        выполняется или новые задания принять нельзя
 
-        Used at least twice, 'Collect' and 'Accept'
+        Используется как минимум дважды: «Collect» и «Accept»
 
         Returns:
-            bool: If button active
+            bool: Активна ли кнопка
 
         Pages:
             in: GUILD_LOGISTICS
@@ -146,25 +146,26 @@ class GuildLogistics(GuildBase):
         """
         r, g, b = get_color(self.device.image, GUILD_MISSION.area)
         if g > max(r, b) - 10:
-            # Green tick at the bottom right corner if guild mission finished
+            # Зелёная галочка в правом нижнем углу, если задание гильдии завершено
             logger.info('[Гильдия — логистика] Задание гильдии на эту неделю завершено')
             self._guild_logistics_mission_finished = True
             return False
-        # 0/300 in EN is bold and pure white, and Collect rewards is blue white, so reverse the if condition
+        # На EN «0/300» выделено жирным и чисто белое, а «Collect rewards» —
+        # синевато-белое, поэтому условие if инвертировано
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=235, count=100):
 
             logger.info('[Гильдия — логистика] Кнопка задания гильдии неактивна')
             return False
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=50):
-            # white pixels less than 50, but has blue-white pixels
+            # белых пикселей меньше 50, но есть синевато-белые пиксели
             logger.info('[Гильдия — логистика] Кнопка задания гильдии активна')
             return True
         else:
-            # No guild mission counter
+            # Счётчик задания гильдии отсутствует
             logger.info('[Гильдия — логистика] Задание гильдии не найдено; возможно, задание этой недели ещё не началось')
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
-            #     # Guild mission choose available if user is guild master
+            #     # Выбор задания гильдии доступен, если пользователь — мастер гильдии
             #     logger.info('Guild mission choose found')
             #     return True
             # else:
@@ -174,14 +175,14 @@ class GuildLogistics(GuildBase):
     @Config.when(SERVER='jp')
     def _guild_logistics_mission_available(self):
         """
-        Color sample the GUILD_MISSION area to determine
-        whether the button is enabled, mission already
-        in progress, or no more missions can be accepted
+        Цветовая выборка области GUILD_MISSION для определения,
+        активна ли кнопка, задание уже
+        выполняется или новые задания принять нельзя
 
-        Used at least twice, 'Collect' and 'Accept'
+        Используется как минимум дважды: «Collect» и «Accept»
 
         Returns:
-            bool: If button active
+            bool: Активна ли кнопка
 
         Pages:
             in: GUILD_LOGISTICS
@@ -189,25 +190,25 @@ class GuildLogistics(GuildBase):
         """
         r, g, b = get_color(self.device.image, GUILD_MISSION.area)
         if g > max(r, b) - 10:
-            # Green tick at the bottom right corner if guild mission finished
+            # Зелёная галочка в правом нижнем углу, если задание гильдии завершено
             logger.info('[Гильдия — логистика] Задание гильдии на эту неделю завершено')
             self._guild_logistics_mission_finished = True
             return False
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=254, count=50):
-            # 0/300 in JP is (255, 255, 255)
+            # 0/300 на JP имеет цвет (255, 255, 255)
             logger.info('[Гильдия — логистика] Кнопка задания гильдии неактивна')
             return False
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=400):
-            # (255, 255, 255) less than 50, but has many blue-white pixels
+            # (255, 255, 255) меньше 50, но есть много синевато-белых пикселей
             logger.info('[Гильдия — логистика] Кнопка задания гильдии активна')
             return True
         elif not self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=50):
-            # No guild mission counter
+            # Счётчик задания гильдии отсутствует
             logger.info('[Гильдия — логистика] Задание гильдии не найдено; возможно, задание этой недели ещё не началось')
-            # Guild mission choose in JP server disabled until we get the screenshot.
+            # Выбор задания гильдии на сервере JP отключён, пока не получим снимок экрана.
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
-            #     # Guild mission choose available if user is guild master
+            #     # Выбор задания гильдии доступен, если пользователь — мастер гильдии
             #     logger.info('Guild mission choose found')
             #     return True
             # else:
@@ -220,14 +221,14 @@ class GuildLogistics(GuildBase):
     @Config.when(SERVER=None)
     def _guild_logistics_mission_available(self):
         """
-        Color sample the GUILD_MISSION area to determine
-        whether the button is enabled, mission already
-        in progress, or no more missions can be accepted
+        Цветовая выборка области GUILD_MISSION для определения,
+        активна ли кнопка, задание уже
+        выполняется или новые задания принять нельзя
 
-        Used at least twice, 'Collect' and 'Accept'
+        Используется как минимум дважды: «Collect» и «Accept»
 
         Returns:
-            bool: If button active
+            bool: Активна ли кнопка
 
         Pages:
             in: GUILD_LOGISTICS
@@ -235,20 +236,20 @@ class GuildLogistics(GuildBase):
         """
         r, g, b = get_color(self.device.image, GUILD_MISSION.area)
         if g > max(r, b) - 10:
-            # Green tick at the bottom right corner if guild mission finished
+            # Зелёная галочка в правом нижнем углу, если задание гильдии завершено
             logger.info('[Гильдия — логистика] Задание гильдии на эту неделю завершено')
             self._guild_logistics_mission_finished = True
             return False
         elif self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=400):
-            # Unfinished mission accept/collect range from about 240 to 322
+            # Диапазон приёма/сбора незавершённого задания примерно от 240 до 322
             logger.info('[Гильдия — логистика] Кнопка задания гильдии активна')
             return True
         elif not self.image_color_count(GUILD_MISSION, color=(255, 255, 255), threshold=180, count=50):
-            # No guild mission counter
+            # Счётчик задания гильдии отсутствует
             logger.info('[Гильдия — логистика] Задание гильдии не найдено; возможно, задание этой недели ещё не началось')
             return False
             # if self.image_color_count(GUILD_MISSION_CHOOSE, color=(255, 255, 255), threshold=221, count=100):
-            #     # Guild mission choose available if user is guild master
+            #     # Выбор задания гильдии доступен, если пользователь — мастер гильдии
             #     logger.info('Guild mission choose found')
             #     return True
             # else:
@@ -260,23 +261,23 @@ class GuildLogistics(GuildBase):
 
     def _guild_logistics_supply_available(self):
         """
-        Color sample the GUILD_SUPPLY area to determine
-        whether the button is enabled or disabled
+        Цветовая выборка области GUILD_SUPPLY для определения,
+        активна кнопка или отключена
 
-        mode determines
+        режим определяет
 
         Returns:
-            bool: If button active
+            bool: Активна ли кнопка
 
         Pages:
             in: GUILD_LOGISTICS
             out: GUILD_LOGISTICS
         """
         color = get_color(self.device.image, GUILD_SUPPLY.area)
-        # Active button has white letters, inactive button have gray letters
+        # У активной кнопки белые буквы, у неактивной — серые
         if np.max(color) > np.mean(color) + 25:
-            # For members, click to receive supply
-            # For leaders, click to buy supply and receive supply
+            # Для участников — клик для получения снабжения
+            # Для лидеров — клик для покупки и получения снабжения
             logger.debug('[Гильдия — логистика] Кнопка снабжения гильдии активна')
             return True
         else:
@@ -285,11 +286,11 @@ class GuildLogistics(GuildBase):
 
     def _handle_guild_fleet_mission_start(self):
         """
-        Select new weekly fleet mission.
-        Current account must be a guild master or officer.
+        Выбор нового еженедельного задания флота.
+        Текущий аккаунт должен быть мастером или офицером гильдии.
 
         Returns:
-            bool: If clicked
+            bool: Был ли выполнен клик
         """
         if not self.config.GuildLogistics_SelectNewMission:
             return False
@@ -304,25 +305,25 @@ class GuildLogistics(GuildBase):
 
     def _guild_logistics_supply_check_finished(self, state):
         """
-        Mark guild supply as checked and clear pending click state.
+        Отметить снабжение гильдии как проверенное и сбросить ожидающее состояние клика.
 
         Args:
-            state (dict): Supply check state.
+            state (dict): Состояние проверки снабжения.
         """
         state['checked'] = True
         state['clicked'] = False
 
     def _guild_logistics_supply_handle(self, state, click_interval, result_timer):
         """
-        Handle guild supply receive retry flow.
+        Обработка цикла повторных попыток получения снабжения гильдии.
 
         Args:
-            state (dict): Supply check state.
-            click_interval (Timer): Click interval control.
-            result_timer (Timer): Result wait control.
+            state (dict): Состояние проверки снабжения.
+            click_interval (Timer): Управление интервалом кликов.
+            result_timer (Timer): Управление ожиданием результата.
 
         Returns:
-            bool: If handled and loop should continue.
+            bool: Обработано ли действие и должен ли цикл продолжаться.
         """
         if state['checked']:
             return False
@@ -360,30 +361,30 @@ class GuildLogistics(GuildBase):
 
     def _guild_logistics_exchange_bug_check(self, exchange_count):
         """
-        Check in-game refresh bug after repeated exchange attempts.
+        Проверка игровой ошибки обновления после повторных попыток обмена.
 
         Args:
-            exchange_count (int): Exchange click count in current run.
+            exchange_count (int): Число кликов обмена в текущем запуске.
         """
         if exchange_count < GUILD_EXCHANGE_BUG_RETRY:
             return
 
-        # If you run AL across days, then do guild exchange.
-        # There will show an error, said time is not up.
-        # Restart the game can't fix the problem.
-        # To fix this, you have to enter guild logistics once, then restart.
-        # If exchange for 5 times, this bug is considered to be triggered.
+        # Если запускать Azur Lane несколько дней подряд и затем делать обмен гильдии,
+        # появится ошибка о том, что время ещё не пришло.
+        # Перезапуск игры проблему не исправляет.
+        # Чтобы исправить, нужно один раз войти в логистику гильдии, затем перезапустить.
+        # Если обмен выполняется 5 раз, считается, что эта ошибка сработала.
         logger.warning(
             'Не удалось выполнить обмен гильдии; вероятно, таймер в игре работает некорректно')
         raise GameBugError('Обнаружена ошибка обновления логистики гильдии')
 
     def _guild_logistics_timer_reset(self, confirm_timer, exchange_interval=None):
         """
-        Reset logistics stable and exchange timers.
+        Сброс таймеров стабильного состояния логистики и обмена.
 
         Args:
-            confirm_timer (Timer): Stable state timer.
-            exchange_interval (Timer): Exchange retry timer.
+            confirm_timer (Timer): Таймер стабильного состояния.
+            exchange_interval (Timer): Таймер повторных попыток обмена.
         """
         confirm_timer.reset()
         if exchange_interval is not None:
@@ -391,15 +392,15 @@ class GuildLogistics(GuildBase):
 
     def _guild_logistics_popup_handle(self, supply_state, confirm_timer, exchange_interval):
         """
-        Handle logistics popups and reward receive pages.
+        Обработка всплывающих окон логистики и экранов получения наград.
 
         Args:
-            supply_state (dict): Supply check state.
-            confirm_timer (Timer): Stable state timer.
-            exchange_interval (Timer): Exchange retry timer.
+            supply_state (dict): Состояние проверки снабжения.
+            confirm_timer (Timer): Таймер стабильного состояния.
+            exchange_interval (Timer): Таймер повторных попыток обмена.
 
         Returns:
-            bool: If handled and loop should continue.
+            bool: Обработано ли действие и должен ли цикл продолжаться.
         """
         if self.handle_popup_confirm('GUILD_LOGISTICS'):
             self._guild_logistics_timer_reset(confirm_timer, exchange_interval)
@@ -419,14 +420,14 @@ class GuildLogistics(GuildBase):
 
     def _guild_logistics_mission_handle(self, mission_checked, click_interval):
         """
-        Handle guild mission collect or accept action.
+        Обработка действия сбора или принятия задания гильдии.
 
         Args:
-            mission_checked (bool): If mission has been checked.
-            click_interval (Timer): Click interval control.
+            mission_checked (bool): Проверено ли задание.
+            click_interval (Timer): Управление интервалом кликов.
 
         Returns:
-            tuple[bool, bool]: New checked state and whether loop should continue.
+            tuple[bool, bool]: Новое состояние проверки и должен ли цикл продолжаться.
         """
         if mission_checked:
             return True, False
@@ -441,15 +442,15 @@ class GuildLogistics(GuildBase):
 
     def _guild_logistics_exchange_handle(self, exchange_checked, exchange_count, exchange_interval):
         """
-        Handle guild exchange action.
+        Обработка действия обмена гильдии.
 
         Args:
-            exchange_checked (bool): If exchange has been checked.
-            exchange_count (int): Exchange click count in current run.
-            exchange_interval (Timer): Exchange retry timer.
+            exchange_checked (bool): Проверен ли обмен.
+            exchange_count (int): Число кликов обмена в текущем запуске.
+            exchange_interval (Timer): Таймер повторных попыток обмена.
 
         Returns:
-            tuple[bool, int, bool]: New checked state, exchange count, and whether loop should continue.
+            tuple[bool, int, bool]: Новое состояние проверки, число обменов и должен ли цикл продолжаться.
         """
         if exchange_checked or not exchange_interval.reached():
             return exchange_checked, exchange_count, False
@@ -462,14 +463,14 @@ class GuildLogistics(GuildBase):
 
     def _guild_logistics_collect(self, skip_first_screenshot=True):
         """
-        Execute collect/accept screen transitions within
-        logistics
+        Выполнение переходов экрана сбора/принятия внутри
+        логистики
 
         Args:
             skip_first_screenshot (bool):
 
         Returns:
-            bool: If all guild logistics are check, no need to check them today.
+            bool: Проверена ли вся логистика гильдии; повторная проверка сегодня не нужна.
 
         Pages:
             in: GUILD_LOGISTICS
@@ -527,14 +528,14 @@ class GuildLogistics(GuildBase):
             exchange_checked,
             self._guild_logistics_mission_finished,
         )
-        # Azur Lane receives new guild missions now
-        # No longer consider `self._guild_logistics_mission_finished` as a check
+        # Azur Lane теперь выдаёт новые задания гильдии
+        # Больше не считаем `self._guild_logistics_mission_finished` условием проверки
         return all([supply_state['checked'], mission_checked, exchange_checked])
 
     def _guild_exchange_scan(self):
         """
-        Image scan of available options.
-        Not exchangeable items are tagged enough=False.
+        Сканирование изображения доступных вариантов.
+        Предметы, недоступные для обмена, помечаются enough=False.
 
         Returns:
             list[Item]:
@@ -543,11 +544,11 @@ class GuildLogistics(GuildBase):
             in: GUILD_LOGISTICS
             out: GUILD_LOGISTICS
         """
-        # Scan the available exchange items that are selectable
+        # Сканируем доступные для выбора предметы обмена
         items = self.exchange_items.predict(self.device.image, name=True, amount=False)
 
-        # Loop EXCHANGE_GRIDS to detect for red text in bottom right area
-        # indicating player lacks inventory for that item
+        # Перебираем EXCHANGE_GRIDS в поиске красного текста в правом нижнем углу,
+        # означающего нехватку этого предмета в инвентаре игрока
         for item, button in zip(items, EXCHANGE_GRIDS.buttons):
             area = area_offset((35, 64, 83, 83), button.area[:2])
             item.enough = not self.image_color_count(area, color=(255, 93, 90), threshold=221, count=20)
@@ -558,13 +559,13 @@ class GuildLogistics(GuildBase):
 
     def _guild_exchange(self):
         """
-        Performs sift check and executes the applicable
-        exchanges, number performed based on limit
-        If unable to exchange at all, loop terminates
-        prematurely
+        Выполняет проверку по фильтру и выполняет подходящие
+        обмены, их число ограничено лимитом
+        Если обмен вообще невозможен, цикл завершается
+        досрочно
 
         Returns:
-            bool: If clicked.
+            bool: Был ли выполнен клик.
 
         Pages:
             in: GUILD_LOGISTICS
@@ -580,7 +581,7 @@ class GuildLogistics(GuildBase):
 
         if len(selected):
             button = EXCHANGE_BUTTONS.buttons[items.index(selected[0])]
-            # Just bored click, will retry in self._guild_logistics_collect
+            # Просто клик без разбора, повторная попытка в self._guild_logistics_collect
             self.device.click(button)
             return True
         else:
@@ -589,10 +590,10 @@ class GuildLogistics(GuildBase):
 
     def guild_logistics(self):
         """
-        Execute all actions in logistics
+        Выполнение всех действий в логистике
 
         Returns:
-            bool: If all guild logistics are check, no need to check them today.
+            bool: Проверена ли вся логистика гильдии; повторная проверка сегодня не нужна.
 
         Pages:
             in: page_guild

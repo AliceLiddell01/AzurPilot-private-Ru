@@ -323,7 +323,6 @@ class MaaTouch(Connection):
             except socket.timeout as e:
                 raise MaaTouchSyncTimeout(str(e))
             out = out.strip()
-            # logger.debug('[Устройство — MaaTouch] Служебный заголовок протокола: %s', out)
 
             if out == timestamp:
                 break

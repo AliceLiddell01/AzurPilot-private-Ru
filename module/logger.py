@@ -1,7 +1,7 @@
 """Система журналирования AzurPilot.
 
 Модуль построен на Rich и поддерживает вывод в консоль, потоковую отрисовку
-в WebUI и bounded in-memory контекст для incident-ов. Глобальный экземпляр
+в WebUI и ограниченный контекст инцидентов в памяти. Глобальный экземпляр
 ``logger`` с именем ``alas`` используется всем приложением.
 
 Основные компоненты:
@@ -219,7 +219,7 @@ logger.addHandler(console_hdlr)
 # Гарантируем запуск из корня AzurPilot.
 os.chdir(os.path.join(os.path.dirname(__file__), '../'))
 
-# Имя процесса используется только как default для application observability.
+# Имя процесса используется только как значение по умолчанию для application observability.
 pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 
 
@@ -253,8 +253,8 @@ def configure_runtime_logging(
 ):
     if observability_profile is None and observability_component is None:
         observability_profile = name
-    # Обычный runtime не создаёт локальный файл: console/WebUI и bounded
-    # in-memory incident context остаются доступными независимо от OTLP.
+    # Обычный runtime не создаёт локальный файл: console/WebUI и ограниченный
+    # контекст инцидентов в памяти остаются доступными независимо от OTLP.
     _configure_application_observability(
         observability_profile,
         component=observability_component,

@@ -68,6 +68,45 @@ def test_runtime_log_projection_skips_blank_info_records(tmp_path):
     assert [event.message for event in events] == ["Полезная строка"]
 
 
+def test_runtime_log_projection_keeps_malformed_record_via_safe_fallback(tmp_path):
+    holder = RuntimeLogProjectionHandler("alpha", repository_root=tmp_path)
+    try:
+        malformed = logging.LogRecord(
+            name="tests.runtime.log_projection.malformed",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="Счётчик: %d",
+            args=("не число",),
+            exc_info=None,
+        )
+        blank = logging.LogRecord(
+            name="tests.runtime.log_projection.malformed",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=2,
+            msg="   ",
+            args=(),
+            exc_info=None,
+        )
+        # Сбой формирования сообщения не должен подменяться пустотой: это
+        # настоящий malformed record, а не mock исключения вокруг handler.
+        with pytest.raises(TypeError):
+            malformed.getMessage()
+
+        holder.handle(blank)
+        holder.handle(malformed)
+    finally:
+        holder.close()
+
+    events = read_runtime_log_events("alpha", repository_root=tmp_path)
+
+    assert [event.message for event in events] == [
+        "<сообщение не удалось безопасно сформировать>"
+    ]
+    assert len(read_runtime_log_tail("alpha", 20, repository_root=tmp_path)) == 1
+
+
 def test_runtime_log_projection_keeps_rich_and_exception_metadata(tmp_path):
     handler = RuntimeLogProjectionHandler("alpha", repository_root=tmp_path)
     logger = logging.getLogger("tests.runtime.log_projection.events")
