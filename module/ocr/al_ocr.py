@@ -678,8 +678,11 @@ class AlOcr:
         self._model_loaded = False
         self._det_model = None
         self._det_loaded = False
-        logger.info(
-            f"Создан экземпляр AlOcr: name='{self.name}', kwargs={kwargs}, PID={os.getpid()}"
+        logger.debug(
+            "Создан экземпляр AlOcr: name=%r, kwargs=%r, PID=%s",
+            self.name,
+            kwargs,
+            os.getpid(),
         )
 
     def init(self):

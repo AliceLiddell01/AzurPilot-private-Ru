@@ -568,7 +568,7 @@ class NemuIpc(Platform):
             logger.warning(f'[Устройство — NemuIpc] Не удалось выполнить check_mumu_app_keep_alive: файл {file} не существует')
             return False
         value = deep_get(data, keys='customer.app_keptlive', default=None)
-        logger.attr('customer.app_keptlive', value)
+        logger.debug('[Устройство — NemuIpc] customer.app_keptlive=%r', value)
         if str(value).lower() == 'true':
             # https://mumu.163.com/help/20230802/35047_1102450.html
             logger.critical('[Устройство — NemuIpc] Отключите «Сохранять работу в фоне» в настройках эмулятора MuMu')

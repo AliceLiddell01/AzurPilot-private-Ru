@@ -6,7 +6,11 @@ from io import StringIO
 from unittest.mock import patch
 
 import module.logger as logger_module
-from module.logging_core import DiagnosticContextHandler, RepeatedEventSuppressor
+from module.logging_core import (
+    DiagnosticContextHandler,
+    RepeatedEventSuppressor,
+    sanitize_log_text,
+)
 
 
 class TestLoggingRouting(unittest.TestCase):
@@ -58,7 +62,7 @@ class TestLoggingRouting(unittest.TestCase):
             logger_module.logger.handlers[:] = handlers_before
             logger_module.reset_diagnostic_context()
 
-    def test_hr_level_one_and_two_do_not_emit_duplicate_info_record(self):
+    def test_hr_level_one_and_two_project_once_and_render_one_rule(self):
         for level in (1, 2):
             with (
                 patch.object(logger_module.logger, "rule") as rule,
@@ -66,7 +70,57 @@ class TestLoggingRouting(unittest.TestCase):
             ):
                 logger_module.hr("section", level=level)
             rule.assert_called_once()
-            info.assert_not_called()
+            info.assert_called_once_with(
+                "SECTION",
+                extra={
+                    "azurpilot_log_kind": "section",
+                    "azurpilot_section_level": level,
+                    "azurpilot_section_title": "SECTION",
+                },
+            )
+
+    def test_hr_levels_zero_and_three_emit_one_structured_record(self):
+        for level in (0, 3):
+            with (
+                patch.object(logger_module.logger, "rule") as rule,
+                patch.object(logger_module.logger, "info") as info,
+            ):
+                logger_module.hr("section", level=level)
+            info.assert_called_once()
+            args, kwargs = info.call_args
+            self.assertEqual(
+                {
+                    "azurpilot_log_kind": "section",
+                    "azurpilot_section_level": level,
+                    "azurpilot_section_title": "SECTION",
+                    **({"markup": True} if level == 3 else {}),
+                },
+                kwargs["extra"],
+            )
+            self.assertEqual(3 if level == 0 else 0, rule.call_count)
+            if level == 3:
+                self.assertIn("[bold]", args[0])
+                self.assertIn("[/bold]", args[0])
+
+    def test_structured_section_metadata_is_hidden_only_from_rich_handlers(self):
+        record = logging.LogRecord(
+            name="alas",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg="SECTION",
+            args=(),
+            exc_info=None,
+            func="test",
+            sinfo=None,
+        )
+        record.azurpilot_log_kind = "section"
+        record.azurpilot_section_level = 2
+        section_filter = logger_module._SuppressStructuredSectionInRichOutput()
+
+        self.assertFalse(section_filter.filter(record))
+        record.azurpilot_section_level = 3
+        self.assertTrue(section_filter.filter(record))
 
     def test_public_suppression_api_emits_first_summary_and_changed_state(self):
         logger_module.reset_suppression()
@@ -309,6 +363,81 @@ class TestDiagnosticContextHandler(unittest.TestCase):
             self.assertEqual((), handler.snapshot(last_failure=True))
         finally:
             handler.close()
+
+
+class TestAbsolutePathSanitizerContract(unittest.TestCase):
+    """Общий контракт границы и path-likeness при очистке абсолютных путей."""
+
+    def test_real_absolute_paths_are_still_redacted(self):
+        for text in (
+            "/opt/private/value",
+            "/etc",
+            "/tmp",
+            "/a",
+            r"C:\private\value",
+            r"\\server\share\private\value",
+            "file:///private/value",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual("<ABSOLUTE_PATH>", sanitize_log_text(text))
+
+    def test_plain_colon_before_path_is_redacted_while_url_scheme_is_kept(self):
+        self.assertEqual(
+            "путь:<ABSOLUTE_PATH>",
+            sanitize_log_text("путь:/opt/private/value"),
+        )
+        self.assertEqual(
+            "https://example.test/path",
+            sanitize_log_text("https://example.test/path"),
+        )
+        mixed = "см. https://example.test/path и путь:/opt/private/value"
+        sanitized = sanitize_log_text(mixed)
+        self.assertIn("https://example.test/path", sanitized)
+        self.assertIn("путь:<ABSOLUTE_PATH>", sanitized)
+
+    def test_urls_and_relative_paths_are_not_damaged(self):
+        text = "url=https://example.test/path/to/resource relative=foo/bar"
+        self.assertEqual(text, sanitize_log_text(text))
+
+    def test_diagnostic_slash_payloads_are_kept(self):
+        for text in (
+            "1/2",
+            "1/2 / счётчик не прочитан",
+            "[' /1 2']",
+            "[OCR] Неожиданный результат счётчика: /2",
+            "[OCR] Неожиданный результат счётчика: 1 /2",
+            "Командир/заместитель",
+            "заместитель/отряд",
+            "и / или",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(text, sanitize_log_text(text))
+
+    def test_numeric_stem_filename_is_absolute_path_while_numeric_fragment_is_kept(self):
+        """Числовое OCR-исключение действует только для чисто числового payload.
+
+        Расширение с буквами делает кандидат обычным абсолютным filename:
+        ``/2.txt``, ``/123.log``, ``/2.tar.gz`` — пути. Чисто числовой кандидат
+        без буквенного расширения остаётся диагностическим фрагментом счётчика:
+        ``/2``, ``1/2`` и ``/2.0`` (десятичный фрагмент неотличим от числа).
+        """
+        for text in ("/2.txt", "/123.log", "/2.tar.gz"):
+            with self.subTest(text=text):
+                self.assertEqual("<ABSOLUTE_PATH>", sanitize_log_text(text))
+        for text in ("/2", "1/2", "/2.0"):
+            with self.subTest(text=text):
+                self.assertEqual(text, sanitize_log_text(text))
+
+    def test_real_path_next_to_unicode_text_is_still_redacted(self):
+        self.assertEqual(
+            "текст<ABSOLUTE_PATH>",
+            sanitize_log_text("текст/opt/private/value"),
+        )
+        sanitized = sanitize_log_text(
+            "[Командир/заместитель гильдии] False /opt/private/value"
+        )
+        self.assertIn("[Командир/заместитель гильдии] False", sanitized)
+        self.assertNotIn("/opt/private/value", sanitized)
 
 
 if __name__ == "__main__":

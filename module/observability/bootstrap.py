@@ -262,6 +262,12 @@ def _attributes_for_record(
         if safe_value is not None:
             attributes[key] = safe_value
 
+    if getattr(record, "azurpilot_log_kind", None) == "section":
+        attributes["azurpilot.log.kind"] = "section"
+        section_level = getattr(record, "azurpilot_section_level", None)
+        if type(section_level) is int and section_level in range(4):
+            attributes["azurpilot.log.section_level"] = section_level
+
     if isinstance(record.process, int):
         attributes["process.pid"] = record.process
     attributes["process.command"] = _safe_process_command(record)

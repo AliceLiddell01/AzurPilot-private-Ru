@@ -30,7 +30,7 @@ from module.webui.app_types import WebUIMixinBase
 
 
 def _get_local_version() -> str:
-    """Read the current local Git revision without update machinery."""
+    """Прочитать текущую локальную ревизию Git без механизма обновления."""
     project_root = Path(__file__).resolve().parents[2]
     try:
         result = subprocess.run(
@@ -116,7 +116,7 @@ class OverviewMixin(WebUIMixinBase):
             scope="scheduler_btn",
         )
 
-        # April Fools: runaway start button
+        # Первоапрельская шутка: убегающая кнопка запуска
         if getattr(self, "af_flag", False):
             run_js("""
 (function(){
@@ -263,7 +263,7 @@ class OverviewMixin(WebUIMixinBase):
             self.task_handler.add(self.alas_update_dashboard, 10, True)
             self.alas_update_dashboard(True)
         if hasattr(self, "alas") and self.alas is not None:
-            self.task_handler.add(log.put_log(self.alas), 0.25, True)
+            self.task_handler.add(log.put_log(self.alas), 0.1, True)
 
     def set_dashboard_display(self, b):
         self._log.set_dashboard_display(b)
@@ -391,4 +391,4 @@ class OverviewMixin(WebUIMixinBase):
         self.task_handler.add(switch_scheduler.g(), 1, True)
         self.task_handler.add(switch_log_scroll.g(), 1, True)
         if hasattr(self, "alas") and self.alas is not None:
-            self.task_handler.add(log.put_log(self.alas), 0.25, True)
+            self.task_handler.add(log.put_log(self.alas), 0.1, True)

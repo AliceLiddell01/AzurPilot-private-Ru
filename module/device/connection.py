@@ -372,7 +372,10 @@ class Connection(ConnectionAttr):
     def nemud_player_version(self) -> str:
         # [nemud.player_product_version]: [3.8.27.2950], номер версии эмулятора MuMu
         res = self.adb_getprop('nemud.player_version')
-        logger.attr('Версия MuMu Player', res)
+        if res:
+            logger.attr('Версия MuMu Player', res)
+        else:
+            logger.debug('[Устройство — MuMu] Версия через nemud.player_version недоступна')
         return res
 
     @cached_property
@@ -626,7 +629,7 @@ class Connection(ConnectionAttr):
         for forward in self.adb.forward_list():
             if forward.serial == self.serial and forward.remote == remote and forward.local.startswith('tcp:'):
                 if not port:
-                    logger.info(f'[Устройство — соединение] Повторное использование перенаправления порта: {forward}')
+                    logger.debug('[Устройство — соединение] Повторное использование перенаправления порта: %s', forward)
                     port = int(forward.local[4:])
                 else:
                     logger.info(f'[Устройство — соединение] Удаление лишнего перенаправления порта: {forward}')

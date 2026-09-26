@@ -146,4 +146,4 @@ class EventToolsMixin(WebUIMixinBase):
                     pass
 
         self.task_handler.add(update_simulator_figure, 0.5, True)
-        self.task_handler.add(log.put_log(pm), 0.25, True)
+        self.task_handler.add(log.put_log(pm), 0.1, True)

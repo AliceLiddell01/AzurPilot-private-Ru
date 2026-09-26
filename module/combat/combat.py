@@ -665,7 +665,10 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
                 либо пользовательская функция обратного вызова.
         """
         logger.info('[Бой — результаты] Подведение итогов боя')
-        logger.attr('Ожидаемое состояние завершения', expected_end.__name__ if callable(expected_end) else expected_end)
+        logger.debug(
+            '[Бой — результаты] Ожидаемое состояние завершения: %s',
+            expected_end.__name__ if callable(expected_end) else expected_end,
+        )
         self.device.screenshot_interval_set()
         self.device.stuck_record_clear()
         self.device.click_record_clear()

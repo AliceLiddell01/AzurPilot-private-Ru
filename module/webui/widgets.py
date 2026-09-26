@@ -18,7 +18,9 @@ from pywebio.io_ctrl import output_register_callback
 from pywebio.io_ctrl import Output
 from pywebio.output import *
 from pywebio.session import eval_js, local, run_js
-from rich.console import ConsoleRenderable
+from rich.console import ConsoleRenderable, Group
+from rich.rule import Rule
+from rich.text import Text
 
 from module.config.deep import deep_get
 from module.config.task_priority import (
@@ -27,6 +29,10 @@ from module.config.task_priority import (
     parse_task_priority,
 )
 from module.application.bot_runtime_client import BotRuntimeClient
+from module.application.runtime_log_projection import (
+    RuntimeLogEvent,
+    format_runtime_log_timestamp,
+)
 from module.logger import HTMLConsole, Highlighter, WEB_THEME
 from module.webui.lang import t
 from module.webui.pin import put_checkbox, put_input, put_select, put_textarea
@@ -139,6 +145,52 @@ class RichLog:
         # Отладка: вывод сгенерированного HTML
         return html
 
+    @staticmethod
+    def _runtime_log_renderable(event: RuntimeLogEvent) -> ConsoleRenderable:
+        if event.kind == "section" and event.section_level in (0, 1, 2):
+            if event.section_level == 0:
+                return Group(
+                    Rule(characters="═"),
+                    Rule(event.message, characters=" "),
+                    Rule(characters="═"),
+                )
+            return Rule(
+                event.message,
+                characters="═" if event.section_level == 1 else "─",
+            )
+
+        line = Text()
+        if event.timestamp or event.level_name:
+            if event.timestamp:
+                line.append(
+                    format_runtime_log_timestamp(event.timestamp),
+                    style="dim cyan",
+                )
+            line.append(" │ ")
+            line.append(
+                event.level_name,
+                style=(
+                    "red"
+                    if event.level >= 40
+                    else "yellow"
+                    if event.level >= 30
+                    else "green"
+                ),
+            )
+            line.append(" │ ")
+        line.append(
+            event.message,
+            style=(
+                "bold"
+                if event.kind == "section" and event.section_level == 3
+                else None
+            ),
+        )
+        if event.traceback:
+            line.append("\n")
+            line.append(event.traceback, style="dim")
+        return line
+
     def extend(self, text):
         if text:
             run_js(
@@ -152,7 +204,7 @@ class RichLog:
                 self.scroll()
 
     def set_dashboard_display(self, b: bool) -> None:
-        # use for lambda callback function. Copied.
+        # Используется для lambda callback-функции. Скопировано.
         self.display_dashboard = b
         self.first_display = True
 
@@ -226,32 +278,50 @@ class RichLog:
     #     self.console.width = int(_width)
 
     def put_log(self, pm: Any) -> Generator:
+        rendered_total = 0
+        rendered_length = 0
+        rendered_generation = getattr(pm, "renderables_generation", 0)
         yield
         try:
             while True:
                 refresh = getattr(pm, "refresh_renderables", None)
                 if callable(refresh):
-                    if refresh():
-                        html = "".join(map(self.render, pm.renderables))
-                        self.reset()
-                        self.extend(html)
-                else:
-                    total = getattr(pm, "renderables_total", None)
-                    renderables = getattr(pm, "renderables", None)
-                    if type(total) is int and total >= 0 and isinstance(renderables, list):
-                        rendered_total = getattr(self, "_rendered_total", 0)
-                        rendered_length = getattr(self, "_rendered_source_length", 0)
-                        appended = max(0, total - rendered_total)
-                        truncated = len(renderables) < rendered_length + appended
-                        if total < rendered_total or truncated:
+                    refresh()
+
+                renderables = getattr(pm, "renderables", None)
+                total = getattr(pm, "renderables_total", None)
+                if isinstance(renderables, list):
+                    if type(total) is not int or total < 0:
+                        total = len(renderables)
+                    generation = getattr(pm, "renderables_generation", 0)
+                    if generation != rendered_generation:
+                        if rendered_total or rendered_length:
                             self.reset()
-                            rendered_total = 0
-                        missed = total - rendered_total
-                        start = max(0, len(renderables) - missed)
-                        if missed > 0:
-                            self.extend("".join(map(self.render, renderables[start:])))
-                        self._rendered_total = total
-                        self._rendered_source_length = len(renderables)
+                        rendered_generation = generation
+                        rendered_total = max(0, total - len(renderables))
+                        rendered_length = 0
+
+                    appended = max(0, total - rendered_total)
+                    truncated = len(renderables) < rendered_length + appended
+                    if total < rendered_total or truncated:
+                        self.reset()
+                        rendered_total = max(0, total - len(renderables))
+
+                    missed = total - rendered_total
+                    start = max(0, len(renderables) - missed)
+                    if missed > 0:
+                        self.extend(
+                            "".join(
+                                self.render(
+                                    self._runtime_log_renderable(item)
+                                    if isinstance(item, RuntimeLogEvent)
+                                    else item
+                                )
+                                for item in renderables[start:]
+                            )
+                        )
+                    rendered_total = total
+                    rendered_length = len(renderables)
                 yield
         except SessionException:
             pass

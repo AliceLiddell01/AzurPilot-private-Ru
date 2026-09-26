@@ -27,7 +27,7 @@ class GuildOperations(GuildBase):
         Returns:
             bool: True при успешном входе в операцию, False при нехватке средств гильдии.
         """
-        logger.attr('Командир/офицер гильдии', self.config.GuildOperation_SelectNewOperation)
+        logger.attr('Выбор новой операции гильдии', self.config.GuildOperation_SelectNewOperation)
         confirm_timer = Timer(1.5, count=3).start()
         click_count = 0
         while 1:
@@ -271,8 +271,8 @@ class GuildOperations(GuildBase):
                     continue
                 if timer_2.reached():
                     for button in entrance_2:
-                        # Enter button has a black area around Easy/Normal/Hard on the upper right
-                        # If operation not expanded, enter button is a background with Gaussian Blur
+                        # У кнопки входа справа вверху есть чёрная область вокруг Easy/Normal/Hard
+                        # Если операция не раскрыта, кнопка входа — это фон с Gaussian Blur
                         if self.image_color_count(button, color=(0, 0, 0), threshold=235, count=50):
                             self.device.click(button)
                             timer_1.reset()

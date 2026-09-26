@@ -310,7 +310,7 @@ class PlatformBase(Connection, EmulatorManagerBase):
 
         instances = SelectedGrids(self.all_emulator_instances)
         for instance in instances:
-            logger.info(instance)
+            logger.debug('[Устройство — платформа] Кандидат экземпляра эмулятора: %s', instance)
         search_args = dict(serial=serial)
 
         # Ищем по серийному номеру

@@ -7,8 +7,6 @@ import time
 import uuid
 from pathlib import Path
 
-from rich.text import Text
-
 from module.application.runtime_control import (
     BotRuntimeBootstrapper,
     RuntimeControlClient,
@@ -26,7 +24,7 @@ from module.application.runtime_worker_registry import (
     read_canonical_worker_read_only,
 )
 from module.application.runtime_log_projection import (
-    read_runtime_log_tail,
+    read_runtime_log_events,
     runtime_log_signature,
 )
 from module.config.utils import DEFAULT_CONFIG_NAME
@@ -45,6 +43,8 @@ class _ProfileClient:
         self.renderables_max_length = 2000
         self.renderables_reduce_length = 1000
         self.renderables_total = 0
+        self.renderables_generation = 0
+        self._projected_events: tuple[RuntimeLogEvent, ...] = ()
         self._log_signature: tuple[tuple[str, int, int] | tuple[str, None, None], ...] | None = None
         self._state_override: int | None = None
         self._state_override_deadline: float | None = None
@@ -125,6 +125,36 @@ class _ProfileClient:
         self._state_override = None
         self._state_override_deadline = None
 
+    @staticmethod
+    def _projected_delta(
+        previous: tuple[RuntimeLogEvent, ...],
+        current: tuple[RuntimeLogEvent, ...],
+    ) -> tuple[RuntimeLogEvent, ...] | None:
+        """Вернуть новые события bounded tail или None при потере непрерывности.
+
+        Оба снимка — хвосты одного журнала, который только дописывается и может
+        обрезаться ротацией. Непрерывность подтверждает максимальное перекрытие
+        ``previous[-overlap:] == current[:overlap]``: полное перекрытие — обычный
+        append, неполное — ротация/compaction, а его отсутствие означает, что
+        общий контекст доказать нельзя, и вызывающая сторона выполняет
+        controlled rebuild вместо молчаливой потери событий.
+
+        Перекрытие считается по префиксу нового снимка, поэтому повторяющиеся
+        соседние события не теряются: ``(A,)`` против ``(A, A)`` даёт ровно один
+        новый ``A``, а не пустую дельту.
+        """
+
+        if not previous:
+            return current
+        if current == previous:
+            return ()
+        overlap = min(len(previous), len(current))
+        while overlap >= 1 and previous[-overlap:] != current[:overlap]:
+            overlap -= 1
+        if overlap < 1:
+            return None
+        return current[overlap:]
+
     def refresh_renderables(self) -> bool:
         try:
             signature = runtime_log_signature(
@@ -133,15 +163,29 @@ class _ProfileClient:
             )
             if signature == self._log_signature:
                 return False
-            lines = read_runtime_log_tail(
+            events = read_runtime_log_events(
                 self.config_name,
                 repository_root=_REPOSITORY_ROOT,
             )
         except (OSError, ValueError):
             return False
+
         self._log_signature = signature
-        self.renderables = [Text(line.rstrip("\r\n")) for line in lines]
-        self.renderables_total = len(self.renderables)
+        delta = self._projected_delta(self._projected_events, events)
+        self._projected_events = events
+
+        if delta is None:
+            self.renderables = list(events)
+            self.renderables_total += len(self.renderables)
+            self.renderables_generation += 1
+            return True
+        if not delta:
+            return False
+
+        self.renderables.extend(delta)
+        self.renderables_total += len(delta)
+        if len(self.renderables) > self.renderables_max_length:
+            del self.renderables[: self.renderables_reduce_length]
         return True
 
     def _get_state_override(self) -> int | None:

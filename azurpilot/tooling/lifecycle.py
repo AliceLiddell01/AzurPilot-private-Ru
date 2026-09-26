@@ -1,4 +1,4 @@
-"""Сервис lifecycle для WebUI проекта с точным владением процессом и портом."""
+"""Сервис жизненного цикла WebUI с точной проверкой процесса и порта."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 from secrets import token_hex
+from typing import Literal
 
 import psutil
 
@@ -28,8 +29,13 @@ from .contracts import (
     ToolingWarning,
     WarningCode,
 )
-from .coordination import PortObservation, RepositoryCoordinator, observe_tcp_port
-from .errors import ToolingError
+from .coordination import (
+    PortObservation,
+    RepositoryCoordinator,
+    iter_processes_for_root,
+    observe_tcp_port,
+)
+from .errors import ProcessExecutionError, ToolingError
 from .infrastructure import InfrastructureService
 from .process import (
     ProcessController,
@@ -71,21 +77,21 @@ def _probe_ready(
             return (200 <= status < 400), f"http_{status}"
     except urllib.error.HTTPError as exc:
         return (200 <= exc.code < 400) or exc.code in {401, 403}, f"http_{exc.code}"
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except urllib.error.URLError, TimeoutError, OSError:
         return False, "no_http_response"
 
 
 def _process_is_descendant(pid: int, ancestor: ProcessIdentity) -> bool:
     try:
         process = psutil.Process(pid)
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
+    except psutil.NoSuchProcess, psutil.AccessDenied:
         return False
     for _ in range(16):
         if process.pid == ancestor.pid:
             return ancestor.matches(process)
         try:
             process = process.parent()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except psutil.NoSuchProcess, psutil.AccessDenied:
             return False
         if process is None:
             return False
@@ -93,7 +99,7 @@ def _process_is_descendant(pid: int, ancestor: ProcessIdentity) -> bool:
 
 
 class LifecycleService:
-    """Безопасные Start/Stop/inspect без завершения процесса только по имени."""
+    """Безопасные запуск, остановка и проверка без завершения процесса только по имени."""
 
     def __init__(
         self,
@@ -133,6 +139,146 @@ class LifecycleService:
             if ownership:
                 return _PortState(observation, "azurpilot", True), identity
         return _PortState(observation, "foreign", False), identity
+
+    @staticmethod
+    def _legacy_webui_identity(
+        root: Path,
+        settings: DeploySettings,
+        observation: PortObservation,
+    ) -> ProcessIdentity | None:
+        """Найти только однозначный `gui.py` из текущей рабочей копии."""
+
+        if (
+            observation.inspection_failed
+            or observation.listener_present is not True
+            or observation.pid_unknown
+            or len(observation.pids) != 1
+        ):
+            return None
+        try:
+            root = root.resolve(strict=True)
+            expected_executable = ProcessSpec(
+                executable=project_python(root, settings),
+                argv=("gui.py",),
+                cwd=root,
+            ).launch_executable
+            gui_entrypoint = (root / "gui.py").resolve(strict=True)
+            gui_entrypoint.relative_to(root)
+        except OSError, ProcessExecutionError, RuntimeError, ValueError:
+            return None
+        if not gui_entrypoint.is_file():
+            return None
+        matches: list[ProcessIdentity] = []
+        for identity in iter_processes_for_root(root):
+            if identity.pid != observation.pids[0]:
+                continue
+            if identity.executable != expected_executable:
+                continue
+            if identity.cwd != root or len(identity.argv) != 2:
+                continue
+            try:
+                argv_executable = Path(identity.argv[0])
+                if not argv_executable.is_absolute():
+                    continue
+                if argv_executable.resolve(strict=False) != expected_executable:
+                    continue
+                script = Path(identity.argv[1])
+                if script.is_absolute():
+                    script_path = script.resolve(strict=False)
+                elif identity.argv[1] == "gui.py":
+                    script_path = gui_entrypoint
+                else:
+                    continue
+            except OSError, RuntimeError, ValueError:
+                continue
+            if script_path != gui_entrypoint:
+                continue
+            matches.append(identity)
+        if len(matches) != 1 or not matches[0].matches():
+            return None
+        return matches[0]
+
+    def _stop_legacy_webui(
+        self,
+        resolved: object,
+        settings: DeploySettings,
+        coordinator: RepositoryCoordinator,
+        identity: ProcessIdentity,
+        timeout_seconds: float,
+        operation_id: str,
+    ) -> ToolingResult[LifecycleDetails, LifecycleEvidence]:
+        """Остановить однозначно установленный слушатель порта и очистить состояние WebUI."""
+
+        observation = observe_tcp_port(settings.webui_port)
+        if (
+            observation.inspection_failed
+            or observation.listener_present is not True
+            or observation.pid_unknown
+            or observation.pids != (identity.pid,)
+            or not identity.matches()
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Процесс WebUI изменился во время проверки; остановка отклонена.",
+                operation_id=operation_id,
+            )
+        deadline = time.monotonic() + timeout_seconds
+        terminated = ProcessController.terminate(
+            identity,
+            timeout_seconds=min(15.0, max(0.1, timeout_seconds)),
+            include_children=False,
+        )
+        cleanup_confirmed, _observation = self._wait_stop_cleanup(
+            identity,
+            settings,
+            max(0.0, deadline - time.monotonic()),
+        )
+        identity_state = ProcessController.inspect_state(identity)
+        if not cleanup_confirmed or identity_state != "absent":
+            code = (
+                ResultCode.TOOLING_TIMEOUT
+                if identity_state == "alive"
+                else ResultCode.TOOLING_CLEANUP_UNKNOWN
+            )
+            raise ToolingError(
+                code,
+                "После остановки не подтверждены завершение прежнего WebUI и освобождение порта.",
+                state=OperationState.IN_FLIGHT,
+                operation_id=operation_id,
+                details=self._lifecycle_details(
+                    settings,
+                    status=OperationState.IN_FLIGHT,
+                    readiness="legacy_cleanup_unknown",
+                    pid=identity.pid,
+                    cleanup_confirmed=False,
+                ),
+            )
+        self._clear_confirmed_cleanup(
+            coordinator,
+            settings,
+            operation_id,
+            pid=identity.pid,
+            readiness="legacy_stopped",
+        )
+        return ToolingResult[LifecycleDetails, LifecycleEvidence](
+            ok=True,
+            code=ResultCode.OK,
+            state=OperationState.STOPPED,
+            message=(
+                "Прежний WebUI остановлен и освобождение порта подтверждено."
+                if terminated
+                else "Прежний WebUI уже завершился; освобождение порта подтверждено."
+            ),
+            operation_id=operation_id,
+            details=LifecycleDetails(
+                status=OperationState.STOPPED,
+                pid=identity.pid,
+                port=settings.webui_port,
+                readiness="legacy_stopped",
+                cleanup_confirmed=True,
+            ),
+            evidence=self._evidence(resolved, None, "free"),
+        )
 
     @staticmethod
     def _evidence(
@@ -193,10 +339,35 @@ class LifecycleService:
                 evidence=self._evidence(resolved, identity, port_state.owner),
             )
         if record is not None and port_state.owner == "free":
-            raise ToolingError(
-                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Старое состояние lifecycle не подтверждается текущим PID; очистка не выполнена.",
-            )
+            if identity is None:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Запись жизненного цикла WebUI не удалось преобразовать в идентичность процесса.",
+                )
+            identity_state = ProcessController.inspect_state(identity)
+            if identity_state == "unknown":
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Старая запись жизненного цикла не может быть безопасно проверена.",
+                )
+            if identity_state == "absent":
+                return ToolingResult[LifecycleDetails, LifecycleEvidence](
+                    ok=True,
+                    code=ResultCode.OK,
+                    state=OperationState.STOPPED,
+                    message=(
+                        "WebUI не запущен; обнаружена устаревшая запись жизненного цикла. "
+                        "Она будет безопасно очищена следующей командой start/stop."
+                    ),
+                    details=LifecycleDetails(
+                        status=OperationState.STOPPED,
+                        pid=identity.pid,
+                        port=settings.webui_port,
+                        readiness="stale_record",
+                        cleanup_confirmed=False,
+                    ),
+                    evidence=self._evidence(resolved, None, "free"),
+                )
         return ToolingResult[LifecycleDetails, LifecycleEvidence](
             ok=True,
             code=ResultCode.OK,
@@ -219,7 +390,7 @@ class LifecycleService:
         if any(not item.is_file() for item in required):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Checkout не подготовлен для Start; выполните Build.",
+                "Рабочая копия не подготовлена к запуску; выполните сборку.",
             )
 
     def _ensure_infrastructure(
@@ -269,11 +440,12 @@ class LifecycleService:
         deadline = time.monotonic() + max(0.0, timeout_seconds)
         observation = observe_tcp_port(settings.webui_port)
         while True:
+            identity_state = ProcessController.inspect_state(identity)
             confirmed = (
                 not observation.inspection_failed
                 and observation.listener_present is False
                 and not observation.pids
-                and not identity.matches()
+                and identity_state == "absent"
             )
             if confirmed or time.monotonic() >= deadline:
                 return confirmed, observation
@@ -310,12 +482,48 @@ class LifecycleService:
         exit_status: int | None = None,
     ) -> None:
         try:
+            observation = observe_tcp_port(settings.webui_port)
+        except Exception as error:
+            raise ToolingError(
+                ResultCode.TOOLING_CLEANUP_UNKNOWN,
+                "Не удалось повторно подтвердить освобождение порта WebUI; запись жизненного цикла сохранена.",
+                state=OperationState.IN_FLIGHT,
+                operation_id=operation_id,
+                details=self._lifecycle_details(
+                    settings,
+                    status=OperationState.IN_FLIGHT,
+                    readiness=readiness,
+                    pid=pid,
+                    cleanup_confirmed=False,
+                    exit_status=exit_status,
+                ),
+            ) from error
+        if (
+            observation.inspection_failed
+            or observation.listener_present is not False
+            or observation.pids
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_CLEANUP_UNKNOWN,
+                "Порт WebUI снова занят или его состояние неизвестно; запись жизненного цикла сохранена.",
+                state=OperationState.IN_FLIGHT,
+                operation_id=operation_id,
+                details=self._lifecycle_details(
+                    settings,
+                    status=OperationState.IN_FLIGHT,
+                    readiness=readiness,
+                    pid=pid,
+                    cleanup_confirmed=False,
+                    exit_status=exit_status,
+                ),
+            )
+        try:
             coordinator.clear_lifecycle()
             coordinator.clear_stop_request()
         except Exception as error:
             raise ToolingError(
                 ResultCode.TOOLING_CLEANUP_UNKNOWN,
-                "Процесс остановлен, но состояние lifecycle нельзя безопасно очистить; требуется восстановление.",
+                "Процесс остановлен, но запись жизненного цикла нельзя безопасно очистить; требуется восстановление.",
                 state=OperationState.IN_FLIGHT,
                 operation_id=operation_id,
                 details=self._lifecycle_details(
@@ -327,6 +535,33 @@ class LifecycleService:
                     exit_status=exit_status,
                 ),
             ) from error
+
+    def _recover_stale_lifecycle_record(
+        self,
+        coordinator: RepositoryCoordinator,
+        settings: DeploySettings,
+        identity: ProcessIdentity,
+        operation_id: str,
+    ) -> bool:
+        """Очистить устаревшую запись жизненного цикла, не завершая процесс с переиспользованным PID."""
+
+        identity_state = ProcessController.inspect_state(identity)
+        if identity_state == "unknown":
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Не удалось безопасно проверить устаревшую запись жизненного цикла WebUI.",
+                operation_id=operation_id,
+            )
+        if identity_state == "alive":
+            return False
+        self._clear_confirmed_cleanup(
+            coordinator,
+            settings,
+            operation_id,
+            pid=identity.pid,
+            readiness="stale_record",
+        )
+        return True
 
     def _wait_readiness(
         self,
@@ -342,9 +577,10 @@ class LifecycleService:
             observation = observe_tcp_port(settings.webui_port)
             if observation.inspection_failed or observation.listener_present is None:
                 return False, "port_identity_unavailable"
-            if observation.pid_unknown:
-                if observation.pids or not running.identity.matches():
-                    return False, "foreign_listener"
+            if observation.pid_unknown and (
+                observation.pids or not running.identity.matches()
+            ):
+                return False, "foreign_listener"
             if observation.pids and not all(
                 _process_is_descendant(pid, running.identity)
                 for pid in observation.pids
@@ -381,7 +617,7 @@ class LifecycleService:
         if not lock.acquire(timeout_seconds=0):
             raise ToolingError(
                 ResultCode.TOOLING_OPERATION_CONFLICT,
-                "Start/Stop уже выполняется.",
+                "Запуск или остановка уже выполняется.",
                 operation_id=operation_id,
             )
         running: RunningProcess | None = None
@@ -398,7 +634,7 @@ class LifecycleService:
             if remaining <= 0:
                 raise ToolingError(
                     ResultCode.TOOLING_TIMEOUT,
-                    "Подготовка инфраструктуры исчерпала срок Start.",
+                    "Подготовка инфраструктуры исчерпала срок запуска.",
                     operation_id=operation_id,
                 )
             record = coordinator.read_lifecycle()
@@ -439,11 +675,23 @@ class LifecycleService:
                     operation_id=operation_id,
                 )
             if record is not None and port_state.owner == "free":
-                raise ToolingError(
-                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Старое состояние lifecycle не подтверждается текущим PID; запуск запрещён.",
-                    operation_id=operation_id,
-                )
+                if identity is None:
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "Запись жизненного цикла WebUI не удалось преобразовать в идентичность процесса.",
+                        operation_id=operation_id,
+                    )
+                if not self._recover_stale_lifecycle_record(
+                    coordinator,
+                    settings,
+                    identity,
+                    operation_id,
+                ):
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "Запись WebUI указывает на живой процесс без подтверждённого слушателя порта.",
+                        operation_id=operation_id,
+                    )
 
             python_path = project_python(root, settings)
             running = self.runner.start(
@@ -475,7 +723,7 @@ class LifecycleService:
                 if not cleanup_confirmed or (was_running and not terminate_succeeded):
                     raise ToolingError(
                         ResultCode.TOOLING_CLEANUP_UNKNOWN,
-                        "Не удалось сохранить состояние lifecycle; очистка WebUI не подтверждена, состояние сохранено для восстановления.",
+                        "Не удалось сохранить запись жизненного цикла; очистка WebUI не подтверждена, запись сохранена для восстановления.",
                         state=OperationState.IN_FLIGHT,
                         operation_id=operation_id,
                         details=self._lifecycle_details(
@@ -507,7 +755,7 @@ class LifecycleService:
                     ) from error
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Не удалось сохранить состояние lifecycle; WebUI остановлен, повторите команду.",
+                    "Не удалось сохранить запись жизненного цикла; WebUI остановлен, повторите команду.",
                     operation_id=operation_id,
                 ) from error
             ready, readiness = self._wait_readiness(
@@ -529,7 +777,7 @@ class LifecycleService:
                 if not cleanup_confirmed or (was_running and not terminate_succeeded):
                     raise ToolingError(
                         ResultCode.TOOLING_CLEANUP_UNKNOWN,
-                        "Готовность WebUI не подтверждена, а остановку и освобождение порта нельзя доказать; состояние lifecycle сохранено.",
+                        "Готовность WebUI не подтверждена, а остановку и освобождение порта нельзя доказать; запись жизненного цикла сохранена.",
                         state=OperationState.IN_FLIGHT,
                         operation_id=operation_id,
                         details=self._lifecycle_details(
@@ -629,7 +877,7 @@ class LifecycleService:
                         )
                     raise ToolingError(
                         ResultCode.TOOLING_CLEANUP_UNKNOWN,
-                        "WebUI в переднем плане прерван, но очистка не подтверждена; состояние lifecycle сохранено.",
+                        "Работа WebUI в переднем плане прервана, но очистка не подтверждена; запись жизненного цикла сохранена.",
                         state=OperationState.IN_FLIGHT,
                         operation_id=operation_id,
                         details=self._lifecycle_details(
@@ -673,7 +921,7 @@ class LifecycleService:
                         )
                     raise ToolingError(
                         ResultCode.TOOLING_CLEANUP_UNKNOWN,
-                        "WebUI в переднем плане завершился, но listener или дерево процессов не освобождены; состояние lifecycle сохранено.",
+                        "Работа WebUI в переднем плане завершилась, но слушатель порта или дерево процессов не освобождены; запись жизненного цикла сохранена.",
                         state=OperationState.IN_FLIGHT,
                         operation_id=operation_id,
                         details=self._lifecycle_details(
@@ -716,7 +964,7 @@ class LifecycleService:
             if not cleanup_confirmed or (was_running and not terminate_succeeded):
                 raise ToolingError(
                     ResultCode.TOOLING_CLEANUP_UNKNOWN,
-                    "Ошибка Start не позволила подтвердить остановку WebUI; состояние lifecycle сохранено.",
+                    "Ошибка запуска не позволила подтвердить остановку WebUI; запись жизненного цикла сохранена.",
                     state=OperationState.IN_FLIGHT,
                     operation_id=operation_id,
                     details=self._lifecycle_details(
@@ -747,7 +995,7 @@ class LifecycleService:
                 ) from error
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Start завершился ошибкой; WebUI остановлен, повторите команду.",
+                "Запуск завершился ошибкой; WebUI остановлен, повторите команду.",
                 operation_id=operation_id,
             ) from error
         finally:
@@ -773,24 +1021,82 @@ class LifecycleService:
         if not lock.acquire(timeout_seconds=0):
             raise ToolingError(
                 ResultCode.TOOLING_OPERATION_CONFLICT,
-                "Start/Stop уже выполняется.",
+                "Запуск или остановка уже выполняется.",
                 operation_id=operation_id,
             )
         try:
             record = coordinator.read_lifecycle()
             port_state, identity = self._port_state(settings, coordinator, record)
+            if port_state.owner == "foreign":
+                legacy_identity = self._legacy_webui_identity(
+                    root, settings, port_state.observation
+                )
+                if legacy_identity is not None:
+                    if record is not None and identity is not None and identity != legacy_identity:
+                        recorded_state = ProcessController.inspect_state(identity)
+                        if recorded_state == "unknown":
+                            raise ToolingError(
+                                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                                "Записанный процесс WebUI не удалось безопасно проверить; "
+                                "прежний слушатель порта не будет остановлен.",
+                                operation_id=operation_id,
+                            )
+                        if recorded_state == "alive":
+                            raise ToolingError(
+                                ResultCode.TOOLING_OPERATION_CONFLICT,
+                                "Запись жизненного цикла указывает на другой живой процесс WebUI; "
+                                "прежний слушатель порта не будет остановлен.",
+                                operation_id=operation_id,
+                            )
+                    return self._stop_legacy_webui(
+                        resolved,
+                        settings,
+                        coordinator,
+                        legacy_identity,
+                        timeout_seconds,
+                        operation_id,
+                    )
             if port_state.owner == "unknown":
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Владение портом WebUI не подтверждено.",
+                    "Владение портом WebUI не подтверждено.",
                     operation_id=operation_id,
                 )
             if port_state.owner == "foreign":
                 raise ToolingError(
                     ResultCode.TOOLING_PORT_CONFLICT,
-                "Чужой процесс на порту WebUI не будет остановлен.",
+                    "Чужой процесс на порту WebUI не будет остановлен.",
                     operation_id=operation_id,
                 )
+            if (
+                record is not None
+                and port_state.owner == "free"
+                and identity is not None
+            ):
+                if self._recover_stale_lifecycle_record(
+                    coordinator,
+                    settings,
+                    identity,
+                    operation_id,
+                ):
+                    return ToolingResult[LifecycleDetails, LifecycleEvidence](
+                        ok=True,
+                        code=ResultCode.OK,
+                        state=OperationState.STOPPED,
+                        message=(
+                            "WebUI уже остановлен; устаревшая запись жизненного цикла "
+                            "безопасно очищена."
+                        ),
+                        operation_id=operation_id,
+                        details=LifecycleDetails(
+                            status=OperationState.STOPPED,
+                            pid=identity.pid,
+                            port=settings.webui_port,
+                            readiness="stale_record_cleared",
+                            cleanup_confirmed=True,
+                        ),
+                        evidence=self._evidence(resolved, None, "free"),
+                    )
             if identity is None:
                 if port_state.owner == "free":
                     return ToolingResult[LifecycleDetails, LifecycleEvidence](
@@ -829,16 +1135,16 @@ class LifecycleService:
                 settings,
                 max(0.0, deadline - time.monotonic()),
             )
-            identity_still_matches = identity.matches()
-            if not cleanup_confirmed or identity_still_matches:
+            identity_state = ProcessController.inspect_state(identity)
+            if not cleanup_confirmed or identity_state != "absent":
                 code = (
                     ResultCode.TOOLING_TIMEOUT
-                    if not terminated or identity_still_matches
+                    if identity_state == "alive"
                     else ResultCode.TOOLING_CLEANUP_UNKNOWN
                 )
                 raise ToolingError(
                     code,
-                    "После Stop не подтверждены завершение принадлежащего дерева процессов и свободный порт WebUI; состояние lifecycle сохранено.",
+                    "После остановки не подтверждены завершение принадлежащего дерева процессов и освобождение порта WebUI; запись жизненного цикла сохранена.",
                     operation_id=operation_id,
                     state=OperationState.IN_FLIGHT,
                     details=self._lifecycle_details(

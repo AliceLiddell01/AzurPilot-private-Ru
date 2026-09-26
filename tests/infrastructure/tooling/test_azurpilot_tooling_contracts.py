@@ -473,6 +473,21 @@ def test_lifecycle_stop_succeeds_when_cleanup_proves_process_already_exited(
         "_wait_stop_cleanup",
         lambda *_args: (True, PortObservation(settings.webui_port, ())),
     )
+    monkeypatch.setattr(
+        tooling_lifecycle.ProcessController,
+        "inspect_state",
+        staticmethod(lambda _identity: "absent"),
+    )
+    monkeypatch.setattr(
+        tooling_lifecycle,
+        "observe_tcp_port",
+        lambda port: PortObservation(
+            port,
+            (),
+            listener_present=False,
+            pid_unknown=False,
+        ),
+    )
 
     result = service.stop(root, timeout_seconds=1)
 

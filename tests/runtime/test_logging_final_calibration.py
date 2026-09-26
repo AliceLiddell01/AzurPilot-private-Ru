@@ -7,6 +7,7 @@ import numpy as np
 
 from module.device.app_control import AppControl
 from module.exception import MapDetectionError
+from module.logging_core import sanitize_log_text
 from module.map.camera import Camera, _MAP_OUTSIDE_WARNING_KEY
 from module.ocr.ocr import DigitCounter, Ocr
 
@@ -91,6 +92,22 @@ class TestFinalLoggingCalibration(unittest.TestCase):
             payload="10",
         )
         finish.assert_not_called()
+
+    def test_digit_counter_invalid_payload_is_not_redacted_as_absolute_path(self):
+        counter = DigitCounter((0, 0, 1, 1), name="TEST_COUNTER")
+
+        with (
+            patch.object(Ocr, "ocr", return_value="/2"),
+            patch("module.ocr.ocr.logger.log_suppressed", return_value=True) as suppressed,
+            patch("module.ocr.ocr.logger.finish_suppressed") as finish,
+        ):
+            result = counter.ocr(object())
+
+        self.assertEqual((0, 0, 0), result)
+        finish.assert_not_called()
+        message = suppressed.call_args.args[1]
+        self.assertEqual("[OCR] Неожиданный результат счётчика: /2", message)
+        self.assertEqual(message, sanitize_log_text(message))
 
     def test_digit_counter_valid_result_closes_suppression_without_changing_result(self):
         counter = DigitCounter((0, 0, 1, 1), name="TEST_COUNTER")

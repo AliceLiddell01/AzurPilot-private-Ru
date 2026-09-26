@@ -1,7 +1,7 @@
 """Система журналирования AzurPilot.
 
 Модуль построен на Rich и поддерживает вывод в консоль, потоковую отрисовку
-в WebUI и bounded in-memory контекст для incident-ов. Глобальный экземпляр
+в WebUI и ограниченный контекст инцидентов в памяти. Глобальный экземпляр
 ``logger`` с именем ``alas`` используется всем приложением.
 
 Основные компоненты:
@@ -134,6 +134,16 @@ class RichRenderableHandler(RichHandler):
         super().handle(record)
 
 
+class _SuppressStructuredSectionInRichOutput(logging.Filter):
+    """Оставить уровни hr 0–2 в Rich как Rule и сохранить запись в проекции."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (
+            getattr(record, "azurpilot_log_kind", None) == "section"
+            and getattr(record, "azurpilot_section_level", None) in (0, 1, 2)
+        )
+
+
 class HTMLConsole(Console):
     """Rich Console с принудительно включёнными возможностями для Web-вывода.
 
@@ -203,12 +213,13 @@ console_hdlr = RichHandler(
 )
 console_hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
 console_hdlr.setFormatter(console_formatter)
+console_hdlr.addFilter(_SuppressStructuredSectionInRichOutput())
 logger.addHandler(console_hdlr)
 
 # Гарантируем запуск из корня AzurPilot.
 os.chdir(os.path.join(os.path.dirname(__file__), '../'))
 
-# Имя процесса используется только как default для application observability.
+# Имя процесса используется только как значение по умолчанию для application observability.
 pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 
 
@@ -242,8 +253,8 @@ def configure_runtime_logging(
 ):
     if observability_profile is None and observability_component is None:
         observability_profile = name
-    # Обычный runtime не создаёт локальный файл: console/WebUI и bounded
-    # in-memory incident context остаются доступными независимо от OTLP.
+    # Обычный runtime не создаёт локальный файл: console/WebUI и ограниченный
+    # контекст инцидентов в памяти остаются доступными независимо от OTLP.
     _configure_application_observability(
         observability_profile,
         component=observability_component,
@@ -275,6 +286,7 @@ def set_func_logger(func):
     )
     hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
     hdlr.setFormatter(web_formatter)
+    hdlr.addFilter(_SuppressStructuredSectionInRichOutput())
     logger.handlers = [h for h in logger.handlers if not isinstance(
         h, RichRenderableHandler)]
     logger.addHandler(hdlr)
@@ -323,13 +335,24 @@ def rule(title="", *, characters="─", style="rule.line", end="\n", align="cent
 
 def hr(title, level=3):
     title = str(title).upper()
+    section_extra = {
+        "azurpilot_log_kind": "section",
+        "azurpilot_section_level": level,
+        "azurpilot_section_title": title,
+    }
     if level == 1:
+        logger.info(title, extra=section_extra)
         logger.rule(title, characters='═')
     if level == 2:
+        logger.info(title, extra=section_extra)
         logger.rule(title, characters='─')
     if level == 3:
-        logger.info(f"[bold]<<< {title} >>>[/bold]", extra={"markup": True})
+        logger.info(
+            f"[bold]<<< {title} >>>[/bold]",
+            extra={"markup": True, **section_extra},
+        )
     if level == 0:
+        logger.info(title, extra=section_extra)
         logger.rule(characters='═')
         logger.rule(title, characters=' ')
         logger.rule(characters='═')
