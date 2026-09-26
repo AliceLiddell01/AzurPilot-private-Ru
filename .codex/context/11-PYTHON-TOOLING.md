@@ -164,7 +164,8 @@ typed-контракта; нельзя возвращать unconditional `host.
 
 Caller auth и provider credentials — разные контуры. Клиент предъявляет caller
 token из `AZURPILOT_GRAFANA_MCP_CALLER_TOKEN` / `AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN`
-(задаётся оператором в `.env`), provider credentials остаются внутри Compose.
+(Compose читает её из `.env`, а MCP-клиент — из окружения своего процесса),
+provider credentials остаются внутри Compose.
 Tool allowlist остаётся read-only, mutating tools блокируются; Grafana
 дополнительно ограничена серверно (`--disable-write`, `--disable-api`, bounded
 categories), а для Docker Hub read-only обеспечивается read-only PAT вместе с

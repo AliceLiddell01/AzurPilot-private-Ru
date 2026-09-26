@@ -741,7 +741,7 @@ class _SharedHttpMcpAdapter(_HttpMcpAdapter):
     """
 
     blocked_tools: frozenset[str] = frozenset()
-    requires_provider_credential: bool = False
+    read_only_enforced: bool = True
 
     def call_route(
         self, config: IntegrationConfig
@@ -784,6 +784,8 @@ class _SharedHttpMcpAdapter(_HttpMcpAdapter):
         diagnostics = [
             f"caller_configured={str(caller_credential is not None).lower()}",
             f"provider_credential_configured={str(credential.configured).lower()}",
+            "read_only_enforced="
+            + ("server" if self.read_only_enforced else "client_allowlist"),
         ]
         evidence_arguments: dict[str, object] = {
             "config": settings,
@@ -802,14 +804,6 @@ class _SharedHttpMcpAdapter(_HttpMcpAdapter):
                 f"окружении вызывающей стороны; ожидается {caller_env_name or 'caller token'}.",
                 _evidence(**evidence_arguments),
             )
-        if self.requires_provider_credential and not credential.configured:
-            return _record(
-                self.name,
-                IntegrationState.UNAUTHENTICATED,
-                "INTEGRATION_CREDENTIAL_NOT_CONFIGURED",
-                "Caller auth настроен, но provider credential общего сервиса не выбран явно.",
-                _evidence(**evidence_arguments),
-            )
         return _record(
             self.name,
             IntegrationState.READY,
@@ -820,7 +814,7 @@ class _SharedHttpMcpAdapter(_HttpMcpAdapter):
 
     def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:
         settings = self._settings(config)
-        credential = _credential(settings, required=self.requires_provider_credential)
+        credential = _credential(settings, required=False)
         _endpoint, endpoint_code = _shared_endpoint(settings)
         if endpoint_code:
             return _record(
@@ -846,13 +840,12 @@ class _SharedHttpMcpAdapter(_HttpMcpAdapter):
     async def probe(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
         settings = self._settings(config)
         endpoint, endpoint_code = _shared_endpoint(settings)
-        credential = _credential(settings, required=self.requires_provider_credential)
+        credential = _credential(settings, required=False)
         _caller_env_name, caller_credential = self._caller_credentials(settings)
         if (
             endpoint_code
             or endpoint is None
             or caller_credential is None
-            or (self.requires_provider_credential and not credential.configured)
         ):
             return AdapterOutcome(self.status(root, config))
         result = await probe_http(
@@ -887,7 +880,7 @@ class GrafanaAdapter(_SharedHttpMcpAdapter):
         toolset_drift_reason_code="GRAFANA_PROXIED_TOOLSET_DRIFT",
     )
     blocked_tools = GRAFANA_BLOCKED_TOOLS
-    requires_provider_credential = True
+    read_only_enforced = True
 
 
 class DockerHubAdapter(_SharedHttpMcpAdapter):
@@ -901,6 +894,9 @@ class DockerHubAdapter(_SharedHttpMcpAdapter):
         blocked_tools=DOCKER_HUB_BLOCKED_TOOLS,
     )
     blocked_tools = DOCKER_HUB_BLOCKED_TOOLS
+    # Серверной фильтрации tools у Docker Hub MCP нет: мутирующие tools
+    # запрещает клиентский allowlist, это defence-in-depth, а не контроль сервиса.
+    read_only_enforced = False
 
 __all__ = [
     "DOCKER_HUB_BLOCKED_TOOLS",

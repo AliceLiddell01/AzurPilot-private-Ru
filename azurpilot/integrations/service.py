@@ -296,7 +296,12 @@ class IntegrationService:
                 ResultCode.TOOLING_INVALID_INVOCATION,
                 "Неизвестная операция общих MCP HTTP services.",
             )
-        ready = outcome.state is CapabilityStatus.READY
+        # Успех операции оценивается по её смыслу: start требует готового
+        # сервиса, а stop и status отражают состояние без ошибки.
+        if action == "start":
+            ready = outcome.state is CapabilityStatus.READY
+        else:
+            ready = outcome.state is not CapabilityStatus.FAILED
         return ToolingResult[SharedMcpDetails, IntegrationEvidenceBundle](
             ok=ready,
             code=ResultCode.OK if ready else ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,

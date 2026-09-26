@@ -1,4 +1,4 @@
-// Repository-owned healthcheck общего Docker Hub MCP HTTP service.
+// Принадлежащая репозиторию проверка работоспособности общего Docker Hub MCP HTTP service.
 //
 // Upstream не публикует отдельный health endpoint, поэтому healthcheck
 // проверяет сразу два инварианта общего сервиса:

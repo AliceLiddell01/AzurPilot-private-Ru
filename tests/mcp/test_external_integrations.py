@@ -535,13 +535,15 @@ def test_shared_probe_never_reaches_service_without_caller_token(
     assert outcome.record.reason_code == "INTEGRATION_CALLER_TOKEN_NOT_CONFIGURED"
 
 
-def test_shared_status_ready_requires_caller_and_provider_credentials(
+def test_shared_status_ready_requires_only_caller_credential(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
+    """Готовность общего сервиса определяется caller auth, а не секретом провайдера."""
+
     caller_token = "fixture-caller-token"
     provider_token = "fixture-provider-token"
     monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, caller_token)
-    monkeypatch.setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", provider_token)
+    monkeypatch.delenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", raising=False)
 
     record = GrafanaAdapter().status(tmp_path, IntegrationConfig())
     serialized = record.model_dump_json()
@@ -566,15 +568,19 @@ def test_shared_status_reports_missing_caller_token(
     assert GRAFANA_CALLER_TOKEN_ENV in record.message
 
 
-def test_shared_status_reports_missing_provider_credential(
+def test_shared_status_does_not_require_provider_credential_of_caller(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
+    """Provider credential принадлежит общему сервису, а не окружению клиента."""
+
     monkeypatch.setenv(GRAFANA_CALLER_TOKEN_ENV, "fixture-caller-token")
 
     record = GrafanaAdapter().status(tmp_path, IntegrationConfig())
 
-    assert record.state is IntegrationState.UNAUTHENTICATED
-    assert record.reason_code == "INTEGRATION_CREDENTIAL_NOT_CONFIGURED"
+    assert record.state is IntegrationState.READY
+    assert record.reason_code == "INTEGRATION_SHARED_SERVICE_CONFIGURED"
+    assert "provider_credential_configured=false" in record.evidence.diagnostics
+    assert "read_only_enforced=server" in record.evidence.diagnostics
 
 
 def test_docker_hub_status_reports_missing_caller_token(tmp_path: Path):

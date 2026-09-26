@@ -221,6 +221,7 @@ _SHARED_MCP_FAMILIES = ("grafana", "docker-hub")
 _IMMUTABLE_IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}@sha256:[0-9a-f]{64}$")
 _SOURCE_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _COMPOSE_PATH = Path("infrastructure") / "observability" / "compose.yaml"
+_REPOSITORY_OWNED_IMAGE_PREFIX = "azurpilot-infrastructure/"
 _SHARED_MCP_PROFILE = "external-mcp"
 _FORBIDDEN_REGISTRATION_KEYS = (
     "command",
@@ -340,11 +341,29 @@ def _check_shared_service(
                 f"{_COMPOSE_PATH.as_posix()}: {service_name} расходится с read-only "
                 "категориями adapter contract"
             )
+        entrypoint = _string_list(service, "entrypoint")
+        if entrypoint is None or not any(
+            str(item).startswith("/opt/azurpilot/") for item in entrypoint
+        ):
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан запускаться через "
+                "repository-owned entrypoint, который отказывает стартовать без caller token"
+            )
         return
 
     # У Docker Hub MCP нет публичного immutable образа с fail-closed caller auth,
     # поэтому владелец собирает его из закреплённого commit-а исходников.
-    if not isinstance(image, str) or not image or _IMMUTABLE_IMAGE_RE.fullmatch(image):
+    repository_owned_image = isinstance(image, str) and image.startswith(
+        _REPOSITORY_OWNED_IMAGE_PREFIX
+    )
+    provider_digest = (
+        isinstance(image, str) and _IMMUTABLE_IMAGE_RE.fullmatch(image) is not None
+    )
+    if (
+        not isinstance(image, str)
+        or not image
+        or (provider_digest and not repository_owned_image)
+    ):
         errors.append(
             f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан использовать "
             "repository-owned build вместо provider image"

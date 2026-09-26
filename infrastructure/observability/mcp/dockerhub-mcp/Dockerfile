@@ -1,4 +1,4 @@
-# Repository-owned boundary для Docker Hub MCP.
+# Принадлежащая репозиторию граница сборки для Docker Hub MCP.
 #
 # Upstream (docker/hub-mcp) закрывает caller auth fail-closed в HTTP transport,
 # но среди публичных immutable образов такого revision нет: единственный

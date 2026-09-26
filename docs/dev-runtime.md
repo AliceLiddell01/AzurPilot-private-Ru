@@ -141,6 +141,9 @@ services, которые принадлежат Compose-проекту `azurpilo
 окружение клиента не попадают. Обе caller-переменные задаёт оператор в локальном
 `.env`; без них общий service не стартует (fail-closed), а буквальная команда
 `azur integrations shared-mcp status|start|stop` отказывается запускать его.
+Значение caller-переменной читают два независимых потребителя: Compose берёт его
+из локального `.env`, а MCP-клиент — из окружения своего процесса, поскольку
+клиентская регистрация указывает только имя переменной и `.env` не читает.
 CodeRabbit использует host-native read-only review adapter текущей ОС — Windows
 или POSIX — в canonical checkout с exact candidate pre/postcondition. Все
 шесть поверхностей собираются общим

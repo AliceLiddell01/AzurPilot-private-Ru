@@ -479,7 +479,7 @@ class InfrastructureService:
                 "Не удалось прочитать локальную конфигурацию общих MCP services.",
             ) from exc
         # Docker CLI получает ограниченный набор переменных окружения, поэтому
-        # единственный источник, из которого Compose соберёт caller token, - env-файл.
+        # env-файл — единственный источник, из которого Compose соберёт caller token.
         return tuple(sorted(key for key, present in configured.items() if not present))
 
     def shared_mcp_status(
@@ -562,7 +562,6 @@ class InfrastructureService:
             env_file,
             "up",
             "--detach",
-            "--build",
             "--wait",
             *SHARED_MCP_SERVICES,
             timeout_seconds=timeout_seconds,
