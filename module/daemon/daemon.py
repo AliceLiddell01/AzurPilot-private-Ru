@@ -101,7 +101,7 @@ class AzurLaneDaemon(DaemonBase, CampaignBase):
             # Управление настроением
             pass
 
-            # Срочные комиссии
+            # Срочные заказы
             if self.handle_urgent_commission():
                 continue
 

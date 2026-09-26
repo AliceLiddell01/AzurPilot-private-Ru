@@ -70,7 +70,7 @@ class CommissionOcrAcceptanceTests(unittest.TestCase):
         findings = evaluate_rows(rows)
 
         self.assertTrue(any("Commission.valid=False" in item for item in findings))
-        self.assertTrue(any("тип комиссии не классифицирован" in item for item in findings))
+        self.assertTrue(any("тип заказа не классифицирован" in item for item in findings))
         self.assertTrue(any("OCR-мусор" in item for item in findings))
         self.assertTrue(any("длительность не распознана" in item for item in findings))
 

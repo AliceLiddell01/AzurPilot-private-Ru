@@ -530,7 +530,7 @@ class RuntimeStorageService:
     def commission_entries_for_month(
         self, instance: str, year: int, month: int, *, limit: int = 5000
     ) -> tuple[CommissionEntry, ...]:
-        """Вернуть комиссионные записи за локальный календарный месяц."""
+        """Вернуть записи о наградах за заказы за локальный календарный месяц."""
 
         start, end = self._month_range(year, month)
         return self.commission_entries(instance, start=start, end=end, limit=limit)

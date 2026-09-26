@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -497,6 +498,71 @@ def test_commission_receive_does_not_retry_after_fail_closed_recovery(monkeypatc
 
     assert calls == 1
     assert ap.purchase_calls == 0
+
+
+def test_commission_receive_routes_oil_popup_to_recovery_before_background_clicks(monkeypatch):
+    handler = commission.RewardCommission.__new__(commission.RewardCommission)
+    handler.config = SimpleNamespace(
+        config_name="ap",
+        SERVER="en",
+        DropRecord_CommissionRecord=False,
+    )
+    handler.device = SimpleNamespace(image=object())
+    handler.stat = SimpleNamespace(new=lambda *_args, **_kwargs: nullcontext())
+    handler._handle_research_genre_t_update = lambda _count: None
+
+    oil_checks = []
+    background_clicks = []
+    recoveries = []
+    background_matches = {
+        "REWARD_1": True,
+        "REWARD_1_WHITE": True,
+        "REWARD_GOTO_COMMISSION": True,
+        "REWARD_GOTO_COMMISSION_WHITE": True,
+        "MAIN_GOTO_REWARD_WHITE": True,
+    }
+
+    def appear(button, **kwargs):
+        oil_checks.append(button)
+        if button is commission.OIL_MAXED:
+            # OIL_MAXED должен проверяться в каждой итерации без интервала повторной проверки.
+            assert kwargs.get("interval", 0) == 0
+            return True
+        return False
+
+    def background_button_click(button, **_kwargs):
+        assert background_matches[button.name]
+        background_clicks.append(button.name)
+        raise AssertionError("Нельзя нажимать кнопку под блокирующим всплывающим окном")
+
+    def main_reward_click(*_args, **_kwargs):
+        assert background_matches["MAIN_GOTO_REWARD_WHITE"]
+        background_clicks.append("MAIN_GOTO_REWARD_WHITE")
+        raise AssertionError("Нельзя переходить по фоновой кнопке под блокирующим всплывающим окном")
+
+    handler.appear = appear
+    handler.appear_then_click = background_button_click
+    handler.ui_main_appear_then_click = main_reward_click
+    handler.ui_page_appear = lambda *_args, **_kwargs: False
+
+    def recover():
+        recoveries.append(True)
+        return commission.CommissionRecoveryOutcome.BLOCKED
+
+    handler._recover_commission_oil_overflow = recover
+    handler.ui_ensure = lambda _page: None
+    monkeypatch.setattr(
+        commission,
+        "Timer",
+        lambda _interval: SimpleNamespace(reached=lambda: True, reset=lambda: None),
+    )
+
+    with pytest.raises(RequestHumanTakeover):
+        handler.commission_receive()
+
+    assert oil_checks == [commission.OIL_MAXED]
+    assert recoveries == [True]
+    assert background_clicks == []
 
 
 def test_commission_receive_retries_once_after_successful_ap_recovery(monkeypatch):

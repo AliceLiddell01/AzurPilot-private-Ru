@@ -598,9 +598,9 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def commission_notice_show_at_campaign(self):
         """
-        Проверяет, отображается ли в интерфейсе кампании уведомление о завершении поручений.
+        Проверяет, отображается ли в интерфейсе кампании уведомление о завершении заказов.
 
         Returns:
-            bool: Завершено ли какое-либо поручение.
+            bool: Завершён ли какой-либо заказ.
         """
         return self.appear(CAMPAIGN_CHECK, offset=(20, 20)) and self.appear(COMMISSION_NOTICE_AT_CAMPAIGN)

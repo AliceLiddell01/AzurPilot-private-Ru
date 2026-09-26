@@ -184,13 +184,13 @@ def evaluate_rows(rows: list[dict[str, Any]]) -> list[str]:
 
     findings: list[str] = []
     if len(rows) < 2:
-        findings.append("На обеих вкладках найдено меньше двух комиссий суммарно.")
+        findings.append("На обеих вкладках найдено меньше двух заказов суммарно.")
     for row in rows:
         prefix = f"#{row['id']} {row['mode']}"
         if not row["valid"]:
             findings.append(f"{prefix}: Commission.valid=False.")
         if not row["genre"]:
-            findings.append(f"{prefix}: тип комиссии не классифицирован.")
+            findings.append(f"{prefix}: тип заказа не классифицирован.")
         if row["duration_seconds"] <= 0:
             findings.append(f"{prefix}: длительность не распознана.")
         if not any(char.isalpha() for char in row["name"]):
@@ -216,7 +216,7 @@ def _ensure_mode_active(runner: RewardCommission, mode: str) -> None:
         current = COMMISSION_SWITCH.get(main=runner)
     if current != mode:
         raise AcceptanceFailure(
-            "Не удалось подтвердить вкладку комиссий "
+            "Не удалось подтвердить вкладку заказов "
             f"{mode}; текущее состояние: {current}."
         )
 
@@ -346,7 +346,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
     print(f"Exact head: {head}")
     print(f"Profile: {args.profile}")
     print("Действия: открыть Commission, прочитать Daily/Urgent, сохранить кропы.")
-    print("Запрещено: получение наград, запуск комиссий, изменение фильтра/расписания.")
+    print("Запрещено: получение наград, запуск заказов, изменение фильтра/расписания.")
     if not args.non_interactive:
         if input("Введите START для начала: ").strip() != "START":
             raise AcceptanceFailure("Acceptance отменён: не получено точное START.")
@@ -436,7 +436,7 @@ def run_acceptance(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Реальная Windows/MuMu-приёмка OCR английских комиссий"
+        description="Реальная Windows/MuMu-приёмка OCR английских названий заказов"
     )
     parser.add_argument("--profile", required=True)
     serial_group = parser.add_mutually_exclusive_group(required=True)

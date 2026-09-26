@@ -62,7 +62,7 @@ class TestSharedHandlersBaseRuntimeMessages:
                 "Ускорение перемещения",
             ),
             "module/handler/info_handler.py": (
-                "[Обработчик — комиссии] Получена срочная комиссия",
+                "[Обработчик — заказы] Получен срочный заказ",
                 "Количество вариантов сюжета",
             ),
             "module/handler/login.py": (

@@ -315,7 +315,7 @@ class PostgresStatisticsRepository:
         _bounded(income.source, label="source", maximum=64)
         if income.commission_count < 1:
             raise StorageInvalidDataError(
-                "Количество комиссий должно быть положительным."
+                "Количество заказов должно быть положительным."
             )
         if len({item.item_code for item in income.items}) != len(income.items):
             raise StorageInvalidDataError("Commission items должны быть уникальны.")
@@ -347,7 +347,7 @@ class PostgresStatisticsRepository:
                 if existing == digest:
                     return False
                 raise StorageConflictError(
-                    "Idempotency key комиссии уже связан с другими данными."
+                    "Ключ идемпотентности заказа уже связан с другими данными."
                 )
             if income.items:
                 self._connection.execute(
@@ -366,7 +366,7 @@ class PostgresStatisticsRepository:
             raise
         except NoResultFound:
             raise StorageConflictError(
-                "Idempotency key комиссии обрабатывается конкурирующей транзакцией."
+                "Ключ идемпотентности заказа обрабатывается конкурирующей транзакцией."
             ) from None
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None

@@ -227,7 +227,7 @@ class MapOperation(MysteryHandler, FleetPreparation, Retirement, FastForwardHand
                 if self.handle_combat_low_emotion():
                     continue
 
-                # Срочная комиссия.
+                # Срочный заказ.
                 if self.handle_urgent_commission(drop=drop):
                     continue
 

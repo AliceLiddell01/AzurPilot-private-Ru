@@ -83,7 +83,7 @@ _RECOVERY_STAGE3_TRANSLATIONS = {
 _PERSONAL_RUNTIME_TRANSLATIONS = {
     "Gui.Dashboard.EventPtTotal": "Всего валюты ивента заработано",
     "Gui.Dashboard.EventCurrencyBalance": "Текущий баланс валюты ивента",
-    "Gui.CommissionRecovery.Title": "Защита награды «Комиссия»",
+    "Gui.CommissionRecovery.Title": "Защита при получении награды за заказ",
     "Gui.CommissionRecovery.Description": (
         "Только чтение: подтверждённое состояние недельной покупки AP и последнего восстановления нефти."
     ),

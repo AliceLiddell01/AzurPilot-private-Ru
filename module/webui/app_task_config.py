@@ -285,7 +285,7 @@ class TaskConfigMixin(WebUIMixinBase):
         )
 
     def _render_commission_recovery_state(self) -> None:
-        """Показать состояние защиты Commission только для чтения."""
+        """Показать состояние защиты при получении награды за заказ только для чтения."""
 
         instance = self.alas_name or DEFAULT_CONFIG_NAME
         scope_id = re.sub(r"[^0-9A-Za-z_]", "_", instance)

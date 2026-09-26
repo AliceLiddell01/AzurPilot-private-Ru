@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Агрегация комиссионных наград из production PostgreSQL."""
+"""Агрегация наград за заказы из рабочей базы PostgreSQL."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -69,7 +69,7 @@ def get_commission_income_summary(
     year: int = None,
     month: int = None,
 ) -> Dict[str, Any]:
-    """Вернуть агрегированную сводку комиссионных наград."""
+    """Вернуть сводку о наградах за заказы."""
     now = get_runtime_storage().current_datetime()
     if year is None:
         year = now.year
@@ -132,7 +132,7 @@ def get_recent_commission_entries(
     instance: str,
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
-    """Вернуть последние записи комиссий в обратном порядке времени."""
+    """Вернуть последние записи о наградах за заказы в обратном порядке времени."""
     storage = get_runtime_storage()
     now = storage.current_datetime()
     all_entries = []
