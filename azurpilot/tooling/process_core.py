@@ -99,6 +99,27 @@ def _is_absolute_path(value: str) -> bool:
     )
 
 
+def _venv_marker_home(venv_root: Path) -> str | None:
+    """Прочитать ``home`` каталога venv-разметки без обхода symlink/reparse point."""
+
+    config_path = venv_root / "pyvenv.cfg"
+    try:
+        if is_unsafe_path(config_path):
+            return None
+        config = bounded_read_text(config_path, max_bytes=_VENV_CONFIG_LIMIT)
+    except (OSError, ToolingError, UnicodeError):
+        return None
+
+    for line in config.splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key.strip().casefold() == "home":
+            home_value = value.strip()
+            if not home_value or "\x00" in home_value:
+                return None
+            return home_value
+    return None
+
+
 def _windows_venv_runtime(executable: Path) -> Path | None:
     """Найти фактическую среду Python за перенаправителем Windows venv."""
 
@@ -108,22 +129,8 @@ def _windows_venv_runtime(executable: Path) -> Path | None:
         return None
     if executable.parent.name.casefold() != "scripts":
         return None
-    venv_root = executable.parent.parent
-    config_path = venv_root / "pyvenv.cfg"
-    try:
-        if is_unsafe_path(config_path):
-            return None
-        config = bounded_read_text(config_path, max_bytes=_VENV_CONFIG_LIMIT)
-    except (OSError, ToolingError, UnicodeError):
-        return None
-
-    home_value: str | None = None
-    for line in config.splitlines():
-        key, separator, value = line.partition("=")
-        if separator and key.strip().casefold() == "home":
-            home_value = value.strip()
-            break
-    if not home_value or "\x00" in home_value:
+    home_value = _venv_marker_home(executable.parent.parent)
+    if home_value is None:
         return None
     home = Path(home_value).expanduser()
     if not home.is_absolute():
@@ -140,6 +147,47 @@ def _windows_venv_runtime(executable: Path) -> Path | None:
         return canonical_runtime
     except OSError:
         return None
+
+
+def _posix_venv_launch_executable(logical: Path, canonical: Path) -> Path | None:
+    """Сохранить логический путь POSIX venv, который уничтожается канонизацией.
+
+    На POSIX ``.venv/bin/python`` обычно является symlink на базовый runtime.
+    Канонический путь остаётся правильной identity фактического процесса, но
+    запуск именно канонического пути лишает дочерний интерпретатор venv-границы:
+    CPython определяет префикс по пути запуска, а не по цели symlink. Поэтому
+    запускать нужно логический путь, подтвердив, что он принадлежит реальной
+    venv-разметке: абсолютный путь запуска и абсолютный существующий каталог
+    базового runtime в ``home``.
+    """
+
+    if os.name == "nt" or _same_path(logical, canonical):
+        return None
+    # Относительный путь запуска нельзя передавать в Popen: поиск по PATH пошёл
+    # бы уже относительно ``cwd`` дочернего процесса, то есть исполнялся бы не
+    # тот файл, который проверен здесь.
+    if not logical.is_absolute():
+        return None
+    try:
+        if not logical.is_file():
+            return None
+    except OSError:
+        return None
+    for venv_root in (logical.parent, logical.parent.parent):
+        home_value = _venv_marker_home(venv_root)
+        if home_value is None:
+            continue
+        # Каталог базового runtime обязан быть абсолютным и существующим: ``home``,
+        # указывающий на файл, ломает вычисление путей дочернего интерпретатора,
+        # тогда как запуск канонического пути в этом случае работал.
+        try:
+            home = Path(home_value).expanduser()
+            if not home.is_absolute() or not home.is_dir():
+                continue
+        except OSError:
+            continue
+        return logical
+    return None
 
 
 def public_argv(argv: Sequence[str]) -> tuple[str, ...]:
@@ -183,19 +231,29 @@ class ProcessSpec:
         object.__setattr__(self, "cwd", cwd)
 
     @property
-    def resolved_executable(self) -> Path:
+    def _logical_executable(self) -> Path | None:
+        """Вернуть executable до канонизации, включая логический путь внутри venv."""
+
         raw = Path(self.executable)
         candidate = raw if raw.is_absolute() else None
         if candidate is None and raw.parent != Path("."):
             candidate = self.cwd / raw
         if candidate is None:
             found = which(str(raw))
-            if found is None:
-                raise ProcessExecutionError(
-                    code=ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
-                    message=f"Исполняемый файл {raw.name!r} не найден.",
-                )
-            candidate = Path(found)
+            candidate = Path(found) if found is not None else None
+        return candidate
+
+    @property
+    def resolved_executable(self) -> Path:
+        """Вернуть канонический путь исполняемого файла для проверок идентичности."""
+
+        candidate = self._logical_executable
+        raw = Path(self.executable)
+        if candidate is None:
+            raise ProcessExecutionError(
+                code=ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
+                message=f"Исполняемый файл {raw.name!r} не найден.",
+            )
         resolved = _canonical(candidate)
         if not resolved.is_file():
             raise ProcessExecutionError(
@@ -205,11 +263,26 @@ class ProcessSpec:
         return resolved
 
     @property
-    def launch_executable(self) -> Path:
-        """Вернуть фактический executable без Windows venv redirector."""
+    def identity_executable(self) -> Path:
+        """Вернуть каноническую identity образа процесса для ownership-проверок."""
 
         resolved = self.resolved_executable
         return _windows_venv_runtime(resolved) or resolved
+
+    @property
+    def launch_executable(self) -> Path:
+        """Вернуть фактический executable запуска без потери venv-семантики."""
+
+        resolved = self.resolved_executable
+        windows_runtime = _windows_venv_runtime(resolved)
+        if windows_runtime is not None:
+            return windows_runtime
+        logical = self._logical_executable
+        if logical is not None:
+            venv_launch = _posix_venv_launch_executable(logical, resolved)
+            if venv_launch is not None:
+                return venv_launch
+        return resolved
 
     @property
     def launch_environment(self) -> dict[str, str]:
@@ -226,10 +299,14 @@ class ProcessSpec:
 
     @property
     def command(self) -> tuple[str, ...]:
+        """Вернуть каноническую команду для evidence, а не путь запуска."""
+
         return (str(self.resolved_executable), *self.argv)
 
     @property
     def launch_command(self) -> tuple[str, ...]:
+        """Вернуть фактическую команду запуска, включая логический путь venv."""
+
         return (str(self.launch_executable), *self.argv)
 
 
@@ -253,7 +330,9 @@ class ProcessIdentity:
         except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
             if fallback is None:
                 raise
-            executable = fallback.launch_executable
+            # Ownership-проверки сравнивают канонический образ процесса, а не
+            # путь запуска: на POSIX логический путь venv остаётся symlink.
+            executable = fallback.identity_executable
         try:
             cmdline = tuple(str(item) for item in process.cmdline())
         except (psutil.AccessDenied, psutil.NoSuchProcess):
@@ -790,7 +869,7 @@ class StructuredProcessRunner:
             identity = ProcessIdentity(
                 pid=process.pid,
                 start_time=time.time(),
-                executable=spec.launch_executable,
+                executable=spec.identity_executable,
                 argv=spec.launch_command,
                 cwd=spec.cwd,
             )
