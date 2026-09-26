@@ -388,6 +388,86 @@ services:
       retries: 12
       start_period: 30s
 
+  # Общие внешние MCP HTTP services: один долгоживущий процесс на машину,
+  # к которому подключаются несколько локальных клиентов и checkout-ов.
+  # Профиль external-mcp делает запуск явным: без него инфраструктура игры
+  # поднимается без интеграционных кредалов.
+  grafana-mcp:
+    profiles:
+      - external-mcp
+    image: grafana/mcp-grafana:1.6.0@sha256:c668a6cc87e7b2b69a0e414bc2c5cf12b37dcca02809df500842b690d592e91f
+    depends_on:
+      grafana:
+        condition: service_started
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    entrypoint:
+      - /bin/sh
+      - /opt/azurpilot/entrypoint.sh
+    command:
+      - "--transport=streamable-http"
+      - "--address=0.0.0.0:8000"
+      - "--endpoint-path=/mcp"
+      - "--healthz-address=0.0.0.0:8081"
+      - "--disable-write"
+      - "--disable-api"
+      - "--enabled-tools=search,datasource,prometheus,loki,dashboard,navigation,tempo"
+      - "--allowed-hosts=127.0.0.1:8777,localhost:8777,grafana-mcp:8000,127.0.0.1:8000,localhost:8000"
+    environment:
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_SERVICE_ACCOUNT_TOKEN: ${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}
+      MCP_GRAFANA_SERVER_TOKEN: ${AZURPILOT_GRAFANA_MCP_CALLER_TOKEN:-}
+    ports:
+      - "127.0.0.1:8777:8000/tcp"
+    volumes:
+      - type: bind
+        source: ./mcp/grafana-mcp
+        target: /opt/azurpilot
+        read_only: true
+    healthcheck:
+      test: ["CMD", "bash", "/opt/azurpilot/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+  dockerhub-mcp:
+    profiles:
+      - external-mcp
+    image: azurpilot-infrastructure/dockerhub-mcp:4c01b635d523
+    build:
+      context: ./mcp/dockerhub-mcp
+      args:
+        HUBCP_COMMIT: 4c01b635d5239192e5d1b5e0f659a6d224a44ab6
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      # upstream logger пишет файл в /app/logs, поэтому rootfs остаётся read-only.
+      - /app/logs
+    command:
+      - "--transport=http"
+      - "--port=3000"
+      - "--host=0.0.0.0"
+      - "--allowed-hosts=127.0.0.1:8778,localhost:8778,dockerhub-mcp:3000,127.0.0.1:3000,localhost:3000"
+      - "--username=${DOCKERHUB_USERNAME:-}"
+    environment:
+      MCP_AUTH_TOKEN: ${AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN:-}
+      HUB_PAT_TOKEN: ${DOCKERHUB_PAT:-}
+    ports:
+      - "127.0.0.1:8778:3000/tcp"
+    healthcheck:
+      test: ["CMD", "node", "/app/healthcheck.mjs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 volumes:
   postgres-data:
     name: azurpilot-postgres-data

@@ -6,8 +6,9 @@ import json
 import os
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from azurpilot.tooling.contracts import (
     AnalysisScope,
@@ -22,9 +23,9 @@ from azurpilot.tooling.filesystem import (
 )
 from azurpilot.tooling.git import GitClient
 from azurpilot.tooling.process import (
+    INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS,
     ProcessSpec,
     StructuredProcessRunner,
-    safe_environment,
 )
 
 from .config import IntegrationConfig
@@ -39,11 +40,12 @@ from .contracts import (
     IntegrationState,
 )
 from .mcp_client import (
+    LOOPBACK_HOSTS,
+    HttpEndpointError,
     McpCallPlan,
     McpProbeResult,
     probe_http,
-    probe_stdio,
-    validate_endpoint,
+    validate_http_endpoint,
 )
 
 _VERSION_RE = re.compile(r"^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
@@ -54,18 +56,17 @@ _MAX_SCAN_BYTES = 2 * 1024 * 1024
 _MAX_FINDINGS = 128
 
 GRAFANA_ENABLED_TOOL_CATEGORIES = (
-    "datasource,loki,prometheus,dashboard,search,navigation,proxied"
+    "search,datasource,prometheus,loki,dashboard,navigation,tempo"
 )
 GRAFANA_TEMPO_READ_ONLY_TOOLS = frozenset(
     {
-        "tempo_docs-config",
-        "tempo_docs-traceql",
-        "tempo_get-attribute-names",
-        "tempo_get-attribute-values",
-        "tempo_get-trace",
-        "tempo_traceql-metrics-instant",
-        "tempo_traceql-metrics-range",
-        "tempo_traceql-search",
+        "diff_tempo_traces",
+        "get_tempo_trace",
+        "get_tempo_traceql_docs",
+        "list_tempo_attribute_names",
+        "list_tempo_attribute_values",
+        "query_tempo_metrics",
+        "search_tempo_traces",
     }
 )
 GRAFANA_EXPECTED_TOOL_NAMES = frozenset(
@@ -78,6 +79,7 @@ GRAFANA_EXPECTED_TOOL_NAMES = frozenset(
         "get_dashboard_property",
         "get_dashboard_summary",
         "get_datasource",
+        "list_dashboard_versions",
         "list_datasources",
         "list_loki_label_names",
         "list_loki_label_values",
@@ -96,28 +98,10 @@ GRAFANA_EXPECTED_TOOL_NAMES = frozenset(
     }
 )
 
-GRAFANA_READ_ONLY_TOOLS = frozenset(
-    {
-        "check_datasources_health",
-        "get_dashboard_panel_queries",
-        "get_dashboard_property",
-        "get_dashboard_summary",
-        "get_datasource",
-        "list_datasources",
-        "list_loki_label_names",
-        "list_loki_label_values",
-        "list_prometheus_label_names",
-        "list_prometheus_label_values",
-        "list_prometheus_metric_metadata",
-        "list_prometheus_metric_names",
-        "query_loki_logs",
-        "query_prometheus",
-        "query_prometheus_histogram",
-        "search_dashboards",
-        "generate_deeplink",
-    }
-)
-GRAFANA_READ_ONLY_TOOLS |= GRAFANA_TEMPO_READ_ONLY_TOOLS
+# Общий Grafana MCP HTTP service запускается с --disable-write и --disable-api,
+# а его --enabled-tools ограничен read-only категориями. Поэтому negotiated
+# catalog совпадает с полным allowlist-ом вызывающей стороны.
+GRAFANA_READ_ONLY_TOOLS = GRAFANA_EXPECTED_TOOL_NAMES
 GRAFANA_REQUIRED_READ_ONLY_TOOLS = frozenset(
     {
         "check_datasources_health",
@@ -251,18 +235,6 @@ def _credential_value(
             return None
         return value or None
     return None
-
-
-def _dockerhub_username(config: dict[str, object]) -> str | None:
-    """Получить Docker Hub username из явно выбранного несекретного env-source."""
-
-    raw_name = config.get("username_env")
-    if not isinstance(raw_name, str) or _ENV_NAME_RE.fullmatch(raw_name) is None:
-        return None
-    value = os.environ.get(raw_name, "").strip()
-    if not value or _DOCKERHUB_USERNAME_RE.fullmatch(value) is None:
-        return None
-    return value
 
 
 def _executable(command: object) -> str | None:
@@ -713,293 +685,149 @@ class DockerDocsAdapter(_HttpMcpAdapter):
     )
 
 
-def _docker_readonly(
-    root: Path, executable: str, arguments: tuple[str, ...]
-) -> str | None:
-    """Выполнить только bounded read-only запрос к Docker CLI."""
+def _shared_caller_token(settings: dict[str, object]) -> tuple[str | None, str | None]:
+    """Вернуть имя и значение caller credential общего сервиса, не раскрывая секрет."""
 
-    try:
-        result = StructuredProcessRunner().run(
-            ProcessSpec(
-                executable=executable,
-                argv=arguments,
-                cwd=root,
-                timeout_seconds=30,
-                max_output_bytes=128 * 1024,
-                env=safe_environment(),
-            )
-        )
-    except (OSError, ToolingError):
-        return None
+    name = settings.get("caller_token_env")
     if (
-        result.timed_out
-        or result.stdout_truncated
-        or result.stderr_truncated
-        or result.returncode != 0
+        not isinstance(name, str)
+        or name not in INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS
     ):
-        return None
-    return result.stdout
+        return None, None
+    return name, (os.environ.get(name, "").strip() or None)
 
 
-def _grafana_topology_matches(root: Path, labels: object) -> bool:
-    if not isinstance(labels, dict):
-        return False
-    root_text = str(root).replace("\\", "/").rstrip("/").casefold()
-    if not root_text:
-        return False
-    for key, value in labels.items():
-        if key not in {
-            "com.docker.compose.project.config_files",
-            "com.docker.compose.project.working_dir",
-        }:
-            continue
-        for candidate in str(value).replace("\\", "/").casefold().split(";"):
-            candidate = candidate.strip().rstrip("/")
-            if candidate == root_text or candidate.startswith(f"{root_text}/"):
-                return True
-    return False
+def _shared_endpoint(settings: dict[str, object]) -> tuple[str | None, str]:
+    """Проверить, что endpoint общего сервиса остаётся loopback-only HTTP.
+
+    Общий долговременный service обслуживает клиентов одной машины, поэтому
+    удалённый host отклоняется независимо от схемы: иначе клиент предъявлял бы
+    caller token внешнему endpoint-у за пределами подтверждённой topology.
+    """
+
+    raw = settings.get("endpoint")
+    if not isinstance(raw, str) or not raw:
+        return None, "INTEGRATION_ENDPOINT_NOT_CONFIGURED"
+    try:
+        endpoint = validate_http_endpoint(raw)
+    except HttpEndpointError as exc:
+        return None, exc.code
+    if (urlsplit(endpoint).hostname or "").casefold() not in LOOPBACK_HOSTS:
+        return None, "INTEGRATION_SHARED_ENDPOINT_NOT_LOOPBACK"
+    return endpoint, ""
 
 
-def _discover_grafana_settings(
-    root: Path, settings: dict[str, object]
-) -> tuple[dict[str, object], str | None]:
-    """Найти Grafana route только по подтверждённой текущей Compose topology."""
+@dataclass(frozen=True, slots=True)
+class SharedMcpCallRoute:
+    """Bounded маршрут вызова общего MCP HTTP service.
 
-    if isinstance(settings.get("endpoint"), str) and settings["endpoint"]:
-        return dict(settings), None
-    executable = _executable(settings.get("command", "docker"))
-    if executable is None:
-        return dict(settings), "INTEGRATION_CONTAINER_RUNTIME_UNAVAILABLE"
-    inventory = _docker_readonly(
-        root,
-        executable,
-        (
-            "ps",
-            "--filter",
-            "label=com.docker.compose.service=grafana",
-            "--filter",
-            "status=running",
-            "--format",
-            "{{.ID}}",
-        ),
-    )
-    if inventory is None:
-        return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
-    container_ids = tuple(
-        sorted({line.strip() for line in inventory.splitlines() if line.strip()})
-    )
-    published_ports: set[int] = set()
-    networks: set[tuple[str, str]] = set()
-    for container_id in container_ids[:16]:
-        payload = _docker_readonly(
-            root,
-            executable,
-            (
-                "inspect",
-                "--format",
-                "{{json .Config.Labels}}\t{{json .NetworkSettings.Ports}}\t{{json .NetworkSettings.Networks}}",
-                container_id,
+    Значение caller token исключено из `repr`, поэтому секрет не попадает в
+    логи, диагностику и evidence; наружу наблюдаемо только имя переменной
+    окружения, из которой он прочитан.
+    """
+
+    endpoint: str
+    caller_token_env: str
+    caller_token: str = field(repr=False)
+
+
+class _SharedHttpMcpAdapter(_HttpMcpAdapter):
+    """Клиент общего долгоживущего MCP HTTP service.
+
+    Владельцем process-а, immutable image ref и read-only flags является
+    `infrastructure/observability/compose.yaml`. Адаптер подтверждает вызывающую
+    сторону caller credential-ом и вызывает bounded read-only tools; provider
+    credential остаётся на стороне сервиса и в клиентское окружение не попадает.
+    """
+
+    blocked_tools: frozenset[str] = frozenset()
+    requires_provider_credential: bool = False
+
+    def call_route(
+        self, config: IntegrationConfig
+    ) -> tuple[SharedMcpCallRoute | None, str]:
+        """Вернуть bounded маршрут вызова общего сервиса или typed код отказа.
+
+        Проверяются только endpoint и caller credential: provider credential
+        принадлежит сервису и в окружении вызывающей стороны не требуется.
+        """
+
+        settings = self._settings(config)
+        endpoint, endpoint_code = _shared_endpoint(settings)
+        if endpoint_code or endpoint is None:
+            return None, endpoint_code or "INTEGRATION_ENDPOINT_NOT_CONFIGURED"
+        caller_env_name, caller_credential = self._caller_credentials(settings)
+        if caller_credential is None:
+            return None, "INTEGRATION_CALLER_TOKEN_NOT_CONFIGURED"
+        return (
+            SharedMcpCallRoute(
+                endpoint=endpoint,
+                caller_token_env=caller_env_name or "",
+                caller_token=caller_credential,
             ),
+            "",
         )
-        if not payload:
-            continue
-        line = payload.splitlines()[0]
-        parts = line.split("\t")
-        if len(parts) != 3:
-            continue
-        try:
-            labels = json.loads(parts[0])
-            ports = json.loads(parts[1])
-            network_payload = json.loads(parts[2])
-        except (TypeError, ValueError, json.JSONDecodeError):
-            continue
-        if not _grafana_topology_matches(root, labels):
-            continue
-        published = ports.get("3000/tcp") if isinstance(ports, dict) else None
-        if isinstance(published, list):
-            for item in published:
-                host_port = item.get("HostPort") if isinstance(item, dict) else None
-                if isinstance(host_port, str) and host_port.isdecimal():
-                    published_ports.add(int(host_port))
-        if isinstance(network_payload, dict):
-            for network_name in network_payload:
-                if isinstance(network_name, str) and _SAFE_ID_RE.fullmatch(network_name):
-                    networks.add(("http://grafana:3000", network_name))
 
-    # Child adapter запускается отдельным container. Подтверждённая Compose
-    # network является детерминированным route; published host port сам по себе
-    # не доказывает, что host route достижим из текущей container topology.
-    if len(networks) == 1:
-        endpoint, network = next(iter(networks))
-        try:
-            validate_endpoint(endpoint, allow_http=True)
-        except ValueError:
-            return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
-        resolved = dict(settings)
-        resolved["endpoint"] = endpoint
-        resolved["network"] = network
-        return resolved, "GRAFANA_ENDPOINT_DISCOVERED"
-    if len(networks) > 1:
-        return dict(settings), "GRAFANA_ENDPOINT_AMBIGUOUS"
-    if len(published_ports) > 1:
-        return dict(settings), "GRAFANA_ENDPOINT_AMBIGUOUS"
-    if published_ports:
-        return dict(settings), "GRAFANA_HOST_ROUTE_REQUIRES_EXPLICIT_CONFIG"
-    return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
+    def _caller_credentials(
+        self, settings: dict[str, object]
+    ) -> tuple[str | None, str | None]:
+        return _shared_caller_token(settings)
 
-
-class _ContainerMcpAdapter(IntegrationAdapter):
-    image_name: str
-    plan: McpCallPlan
-    blocked_tools: frozenset[str]
-    requires_endpoint: bool = False
-    requires_credential: bool = False
-
-    def _settings(self, config: IntegrationConfig) -> dict[str, object]:
-        return config.provider(self.name.value)
-
-    def _resolved_settings(
-        self, root: Path, config: IntegrationConfig
-    ) -> tuple[dict[str, object], str | None]:
-        return self._settings(config), None
-
-    def _resolved_credential(
-        self, root: Path, settings: dict[str, object]
-    ) -> tuple[CredentialRef, str | None]:
-        credential = _credential(settings, required=self.requires_credential)
-        value = _credential_value(settings, credential)
-        return credential, value
-
-    def _command_args(
+    def _state_record(
         self,
         settings: dict[str, object],
         credential: CredentialRef,
         *,
-        credential_value: str | None = None,
-        include_credentials: bool = True,
-    ) -> tuple[str, tuple[str, ...], dict[str, str]] | None:
-        executable = _executable(settings.get("command", "docker"))
-        image = settings.get("image")
-        if executable is None or not isinstance(image, str):
-            return None
-        env: dict[str, str] = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
-        args: list[str] = ["run", "--rm", "-i"]
-        endpoint = settings.get("endpoint")
-        if self.requires_endpoint:
-            if not isinstance(endpoint, str) or not endpoint:
-                return None
-            env["GRAFANA_URL"] = endpoint
-            args.extend(("--env", "GRAFANA_URL"))
-        value = credential_value
-        if value is None and include_credentials:
-            value = _credential_value(settings, credential)
-        if self.requires_credential and include_credentials and not value:
-            return None
-
-        dockerhub_username: str | None = None
-        if include_credentials and value:
-            if self.name is IntegrationName.DOCKER_HUB:
-                dockerhub_username = _dockerhub_username(settings)
-                if not dockerhub_username:
-                    return None
-                # Сначала credential проходит внутреннюю allowlisted boundary как
-                # DOCKERHUB_PAT; непосредственно перед child process он будет
-                # переименован в upstream-required HUB_PAT_TOKEN.
-                env["DOCKERHUB_PAT"] = value
-                args.extend(("--env", "HUB_PAT_TOKEN"))
-            else:
-                environment_name = credential.name
-                if environment_name:
-                    env[environment_name] = value
-                    args.extend(("--env", environment_name))
-        network = settings.get("network")
-        if isinstance(network, str) and _SAFE_ID_RE.fullmatch(network):
-            args.extend(("--network", network))
-        args.append(image)
-        if self.name is IntegrationName.GRAFANA:
-            args.extend(
-                (
-                    "-transport",
-                    "stdio",
-                    "-disable-write",
-                    "-disable-api",
-                    "-enabled-tools",
-                    GRAFANA_ENABLED_TOOL_CATEGORIES,
-                )
+        caller_env_name: str | None,
+        caller_credential: str | None,
+    ) -> IntegrationRecord:
+        diagnostics = [
+            f"caller_configured={str(caller_credential is not None).lower()}",
+            f"provider_credential_configured={str(credential.configured).lower()}",
+        ]
+        evidence_arguments: dict[str, object] = {
+            "config": settings,
+            "credential": credential,
+            "configured": True,
+            "authenticated": credential.auth_verified,
+            "blocked_tools": self.blocked_tools,
+            "diagnostics": tuple(diagnostics),
+        }
+        if caller_credential is None:
+            return _record(
+                self.name,
+                IntegrationState.UNAUTHENTICATED,
+                "INTEGRATION_CALLER_TOKEN_NOT_CONFIGURED",
+                "Общий MCP HTTP service настроен, но caller credential не задан в "
+                f"окружении вызывающей стороны; ожидается {caller_env_name or 'caller token'}.",
+                _evidence(**evidence_arguments),
             )
-        elif self.name is IntegrationName.DOCKER_HUB and dockerhub_username:
-            args.append(f"--username={dockerhub_username}")
-        return executable, tuple(args), env
-
-    @staticmethod
-    def _launch_environment(
-        env_values: dict[str, str], *, dockerhub: bool = False
-    ) -> dict[str, str]:
-        """Построить child env и выполнить upstream mapping без утечки PAT в argv."""
-
-        environment = safe_environment(env_values)
-        if dockerhub and "DOCKERHUB_PAT" in environment:
-            environment["HUB_PAT_TOKEN"] = environment.pop("DOCKERHUB_PAT")
-        return environment
-
-    def build_command(
-        self, root: Path, config: IntegrationConfig
-    ) -> tuple[str, tuple[str, ...], dict[str, str]] | None:
-        """Вернуть готовый direct command без раскрытия credential в evidence."""
-
-        settings, _resolution_code = self._resolved_settings(root, config)
-        credential, credential_value = self._resolved_credential(root, settings)
-        command = self._command_args(
-            settings, credential, credential_value=credential_value
-        )
-        if command is None:
-            return None
-        executable, args, env_values = command
-        return (
-            executable,
-            args,
-            self._launch_environment(
-                env_values, dockerhub=self.name is IntegrationName.DOCKER_HUB
-            ),
+        if self.requires_provider_credential and not credential.configured:
+            return _record(
+                self.name,
+                IntegrationState.UNAUTHENTICATED,
+                "INTEGRATION_CREDENTIAL_NOT_CONFIGURED",
+                "Caller auth настроен, но provider credential общего сервиса не выбран явно.",
+                _evidence(**evidence_arguments),
+            )
+        return _record(
+            self.name,
+            IntegrationState.READY,
+            "INTEGRATION_SHARED_SERVICE_CONFIGURED",
+            "Общий MCP HTTP service настроен; provider credential передаётся сервису, а не клиенту.",
+            _evidence(**evidence_arguments),
         )
 
     def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:
-        settings, resolution_code = self._resolved_settings(root, config)
-        credential, credential_value = self._resolved_credential(root, settings)
-        executable = _executable(settings.get("command", "docker"))
-        image = settings.get("image")
-        if executable is None:
-            return _record(
-                self.name,
-                IntegrationState.UNAVAILABLE,
-                "INTEGRATION_CONTAINER_RUNTIME_UNAVAILABLE",
-                "Docker executable не найден.",
-                _evidence(
-                    config=settings,
-                    credential=credential,
-                    configured=False,
-                    blocked_tools=self.blocked_tools,
-                ),
-            )
-        if not isinstance(image, str):
-            return _record(
-                self.name,
-                IntegrationState.INCOMPATIBLE,
-                "INTEGRATION_IMAGE_NOT_CONFIGURED",
-                "Immutable image ref прямого server не настроен.",
-                _evidence(
-                    config=settings,
-                    credential=credential,
-                    configured=False,
-                    blocked_tools=self.blocked_tools,
-                ),
-            )
-        if self.requires_endpoint and not isinstance(settings.get("endpoint"), str):
+        settings = self._settings(config)
+        credential = _credential(settings, required=self.requires_provider_credential)
+        _endpoint, endpoint_code = _shared_endpoint(settings)
+        if endpoint_code:
             return _record(
                 self.name,
                 IntegrationState.NOT_CONFIGURED,
-                resolution_code or "GRAFANA_ENDPOINT_NOT_CONFIGURED",
-                "Grafana endpoint не настроен; адрес Compose не угадывается.",
+                endpoint_code,
+                "Endpoint общего MCP HTTP service не настроен или не является loopback-адресом.",
                 _evidence(
                     config=settings,
                     credential=credential,
@@ -1007,66 +835,34 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                     blocked_tools=self.blocked_tools,
                 ),
             )
-        if self.requires_credential and (
-            not credential.configured or not credential_value
-        ):
-            state = IntegrationState.UNAUTHENTICATED
-            reason = "INTEGRATION_CREDENTIAL_NOT_CONFIGURED"
-            message = "Прямой server настроен, но credential не выбран явно."
-        else:
-            state = IntegrationState.READY
-            reason = "INTEGRATION_DIRECT_SERVER_CONFIGURED"
-            message = "Прямой immutable MCP server настроен."
-        return _record(
-            self.name,
-            state,
-            reason,
-            message,
-            _evidence(
-                config=settings,
-                credential=credential,
-                configured=True,
-                authenticated=credential.auth_verified,
-                blocked_tools=self.blocked_tools,
-                diagnostics=(resolution_code,) if resolution_code else (),
-            ),
+        caller_env_name, caller_credential = self._caller_credentials(settings)
+        return self._state_record(
+            settings,
+            credential,
+            caller_env_name=caller_env_name,
+            caller_credential=caller_credential,
         )
 
     async def probe(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
-        settings, _resolution_code = self._resolved_settings(root, config)
-        credential, credential_value = self._resolved_credential(root, settings)
-        command = self._command_args(
-            settings, credential, credential_value=credential_value
-        )
-        if command is None:
-            return AdapterOutcome(self.status(root, config))
-        executable, args, env_values = command
-        environment = self._launch_environment(
-            env_values, dockerhub=self.name is IntegrationName.DOCKER_HUB
-        )
-        result = await probe_stdio(
-            command=executable,
-            args=args,
-            cwd=root,
-            environment=environment,
-            plan=self.plan,
-            timeout_seconds=45,
-            credential_configured=credential.configured,
-            credential_required=self.requires_credential,
-        )
+        settings = self._settings(config)
+        endpoint, endpoint_code = _shared_endpoint(settings)
+        credential = _credential(settings, required=self.requires_provider_credential)
+        _caller_env_name, caller_credential = self._caller_credentials(settings)
         if (
-            result.state is IntegrationState.READY
-            and self.requires_credential
-            and not credential.configured
+            endpoint_code
+            or endpoint is None
+            or caller_credential is None
+            or (self.requires_provider_credential and not credential.configured)
         ):
-            result = McpProbeResult(
-                IntegrationState.UNAUTHENTICATED,
-                "INTEGRATION_AUTH_NOT_ASSERTED",
-                tool_count=result.tool_count,
-                selected_tool=result.selected_tool,
-                authenticated=False,
-                diagnostics=result.diagnostics + ("credential_not_asserted",),
-            )
+            return AdapterOutcome(self.status(root, config))
+        result = await probe_http(
+            endpoint=endpoint,
+            headers={"Authorization": f"Bearer {caller_credential}"},
+            plan=self.plan,
+            timeout_seconds=30,
+            credential_configured=True,
+            credential_required=True,
+        )
         return AdapterOutcome(
             _probe_record(
                 self.name,
@@ -1078,9 +874,8 @@ class _ContainerMcpAdapter(IntegrationAdapter):
         )
 
 
-class GrafanaAdapter(_ContainerMcpAdapter):
+class GrafanaAdapter(_SharedHttpMcpAdapter):
     name = IntegrationName.GRAFANA
-    image_name = "mcp/grafana"
     plan = McpCallPlan(
         required_tools=GRAFANA_REQUIRED_READ_ONLY_TOOLS,
         probe_tool="list_datasources",
@@ -1092,18 +887,11 @@ class GrafanaAdapter(_ContainerMcpAdapter):
         toolset_drift_reason_code="GRAFANA_PROXIED_TOOLSET_DRIFT",
     )
     blocked_tools = GRAFANA_BLOCKED_TOOLS
-    requires_endpoint = True
-    requires_credential = True
-
-    def _resolved_settings(
-        self, root: Path, config: IntegrationConfig
-    ) -> tuple[dict[str, object], str | None]:
-        return _discover_grafana_settings(root, self._settings(config))
+    requires_provider_credential = True
 
 
-class DockerHubAdapter(_ContainerMcpAdapter):
+class DockerHubAdapter(_SharedHttpMcpAdapter):
     name = IntegrationName.DOCKER_HUB
-    image_name = "mcp/dockerhub"
     plan = McpCallPlan(
         required_tools=frozenset(
             {"checkRepository", "getRepositoryInfo", "listRepositoryTags"}
@@ -1113,163 +901,6 @@ class DockerHubAdapter(_ContainerMcpAdapter):
         blocked_tools=DOCKER_HUB_BLOCKED_TOOLS,
     )
     blocked_tools = DOCKER_HUB_BLOCKED_TOOLS
-    requires_credential = True
-
-    def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:
-        settings = self._settings(config)
-        credential, credential_value = self._resolved_credential(root, settings)
-        executable = _executable(settings.get("command", "docker"))
-        image = settings.get("image")
-        username = _dockerhub_username(settings)
-        if executable is None:
-            return _record(
-                self.name,
-                IntegrationState.UNAVAILABLE,
-                "INTEGRATION_CONTAINER_RUNTIME_UNAVAILABLE",
-                "Docker executable не найден.",
-                _evidence(
-                    config=settings,
-                    credential=credential,
-                    configured=False,
-                    blocked_tools=self.blocked_tools,
-                ),
-            )
-        if not isinstance(image, str):
-            return _record(
-                self.name,
-                IntegrationState.INCOMPATIBLE,
-                "INTEGRATION_IMAGE_NOT_CONFIGURED",
-                "Immutable image ref Docker Hub MCP не настроен.",
-                _evidence(
-                    config=settings,
-                    credential=credential,
-                    configured=False,
-                    blocked_tools=self.blocked_tools,
-                ),
-            )
-        auth_configured = bool(username and credential.configured and credential_value)
-        return _record(
-            self.name,
-            IntegrationState.READY if auth_configured else IntegrationState.UNAUTHENTICATED,
-            "DOCKER_HUB_AUTH_CONFIGURED"
-            if auth_configured
-            else "DOCKER_HUB_AUTH_NOT_CONFIGURED",
-            "Docker Hub authenticated route настроен; live auth ещё не подтверждён."
-            if auth_configured
-            else "Docker Hub public route доступен для probe; username и PAT для auth не настроены полностью.",
-            _evidence(
-                config=settings,
-                credential=credential,
-                configured=True,
-                authenticated=False,
-                blocked_tools=self.blocked_tools,
-                diagnostics=(
-                    f"username_configured={str(bool(username)).lower()}",
-                    f"pat_configured={str(bool(credential_value)).lower()}",
-                ),
-            ),
-        )
-
-    async def probe(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
-        settings = self._settings(config)
-        credential, credential_value = self._resolved_credential(root, settings)
-        public_command = self._command_args(
-            settings,
-            credential,
-            credential_value=None,
-            include_credentials=False,
-        )
-        if public_command is None:
-            return AdapterOutcome(self.status(root, config))
-        executable, public_args, public_env_values = public_command
-        public_result = await probe_stdio(
-            command=executable,
-            args=public_args,
-            cwd=root,
-            environment=self._launch_environment(public_env_values),
-            plan=self.plan,
-            timeout_seconds=45,
-            credential_configured=False,
-            credential_required=False,
-        )
-        if public_result.state is not IntegrationState.READY:
-            return AdapterOutcome(
-                _probe_record(
-                    self.name,
-                    settings,
-                    credential,
-                    public_result,
-                    blocked_tools=self.blocked_tools,
-                )
-            )
-
-        username = _dockerhub_username(settings)
-        if not username or not credential.configured or not credential_value:
-            return AdapterOutcome(
-                _record(
-                    self.name,
-                    IntegrationState.UNAUTHENTICATED,
-                    "DOCKER_HUB_PUBLIC_REACHABLE_AUTH_NOT_CONFIGURED",
-                    "Docker Hub public probe подтверждён; authenticated route не настроен полностью.",
-                    _evidence(
-                        config=settings,
-                        credential=credential,
-                        configured=True,
-                        reachable=True,
-                        authenticated=False,
-                        selected_tool=public_result.selected_tool,
-                        tool_count=public_result.tool_count,
-                        blocked_tools=self.blocked_tools,
-                        diagnostics=public_result.diagnostics
-                        + (
-                            f"username_configured={str(bool(username)).lower()}",
-                            f"pat_configured={str(bool(credential_value)).lower()}",
-                        ),
-                    ),
-                )
-            )
-
-        auth_command = self._command_args(
-            settings,
-            credential,
-            credential_value=credential_value,
-            include_credentials=True,
-        )
-        if auth_command is None:
-            return AdapterOutcome(self.status(root, config))
-        executable, auth_args, auth_env_values = auth_command
-        auth_result = await probe_stdio(
-            command=executable,
-            args=auth_args,
-            cwd=root,
-            environment=self._launch_environment(auth_env_values, dockerhub=True),
-            plan=self.plan,
-            timeout_seconds=45,
-            credential_configured=True,
-            credential_required=True,
-        )
-        if (
-            auth_result.state is IntegrationState.UNAVAILABLE
-            and auth_result.reason_code == "MCP_READ_ONLY_PROBE_ERROR"
-        ):
-            auth_result = McpProbeResult(
-                IntegrationState.UNAUTHENTICATED,
-                "DOCKER_HUB_AUTH_FAILED",
-                tool_count=auth_result.tool_count,
-                selected_tool=auth_result.selected_tool,
-                authenticated=False,
-                diagnostics=auth_result.diagnostics + ("public_probe_ready",),
-            )
-        return AdapterOutcome(
-            _probe_record(
-                self.name,
-                settings,
-                credential,
-                auth_result,
-                blocked_tools=self.blocked_tools,
-            )
-        )
-
 
 __all__ = [
     "DOCKER_HUB_BLOCKED_TOOLS",
@@ -1287,6 +918,7 @@ __all__ = [
     "GrafanaAdapter",
     "IntegrationAdapter",
     "SemgrepAdapter",
+    "SharedMcpCallRoute",
     "build_evidence",
     "build_record",
 ]

@@ -129,9 +129,18 @@ Reconnect не являются fallback для direct local stdio; они пр�
 Для задач репозитория рядом разрешены direct read-only routes: `docker_docs_direct`
 использует официальный Docker Docs endpoint, `context7_direct` — официальный
 Context7 endpoint, а `semgrep_local_direct` запускает локальный `semgrep mcp -t
-stdio`. Grafana и Docker Hub запускаются как отдельные immutable container
-servers, если их endpoint/image подтверждены локальной конфигурацией; для
-Grafana credential требуется, а Docker Hub допускает public read-only probe.
+stdio`. Grafana и Docker Hub подключаются к общим долговременным Streamable HTTP
+services, которые принадлежат Compose-проекту `azurpilot-infrastructure`
+(профиль `external-mcp`): `grafana-mcp` слушает только `127.0.0.1:8777`, а
+`dockerhub-mcp` — только `127.0.0.1:8778`. Один экземпляр каждого service
+обслуживает несколько локальных клиентов и checkout-ов на одной машине, поэтому
+клиент не запускает provider container. Клиент предъявляет caller token из
+`AZURPILOT_GRAFANA_MCP_CALLER_TOKEN` или
+`AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN`; provider credentials
+(`GRAFANA_SERVICE_ACCOUNT_TOKEN`, `DOCKERHUB_PAT`) остаются в Compose и в
+окружение клиента не попадают. Обе caller-переменные задаёт оператор в локальном
+`.env`; без них общий service не стартует (fail-closed), а буквальная команда
+`azur integrations shared-mcp status|start|stop` отказывается запускать его.
 CodeRabbit использует host-native read-only review adapter текущей ОС — Windows
 или POSIX — в canonical checkout с exact candidate pre/postcondition. Все
 шесть поверхностей собираются общим

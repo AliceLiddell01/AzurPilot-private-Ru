@@ -10,12 +10,14 @@ from pathlib import Path
 
 from azurpilot.tooling.contracts import (
     AnalysisScope,
+    CapabilityStatus,
     CodeRabbitDeferredBacklog,
     OperationState,
     ResultCode,
     ToolingResult,
 )
 from azurpilot.tooling.errors import ToolingError
+from azurpilot.tooling.infrastructure import InfrastructureService
 from azurpilot.tooling.repository import RepositoryResolver
 
 from .adapters import (
@@ -37,6 +39,7 @@ from .contracts import (
     IntegrationName,
     IntegrationRecord,
     IntegrationState,
+    SharedMcpDetails,
 )
 
 ADAPTER_ORDER = (
@@ -264,6 +267,46 @@ class IntegrationService:
                 findings=findings,
                 coderabbit_cycle=coderabbit_cycle,
                 coderabbit_backlog=coderabbit_backlog,
+            ),
+            evidence=IntegrationEvidenceBundle(generated_at=_now()),
+        )
+
+    def shared_mcp(
+        self,
+        action: str,
+        repository_root: str | Path | None = None,
+    ) -> ToolingResult[SharedMcpDetails, IntegrationEvidenceBundle]:
+        """Управлять общими MCP HTTP services, принадлежащими Compose-владельцу.
+
+        Compose остаётся единственным владельцем immutable image ref, runtime
+        command и read-only flags; здесь только типизированная операторская
+        граница запуска, остановки и чтения состояния.
+        """
+
+        root = self.resolve_root(repository_root)
+        infrastructure = InfrastructureService()
+        if action == "start":
+            outcome = infrastructure.ensure_shared_mcp_started(root)
+        elif action == "stop":
+            outcome = infrastructure.stop_shared_mcp(root)
+        elif action == "status":
+            outcome = infrastructure.shared_mcp_status(root)
+        else:
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "Неизвестная операция общих MCP HTTP services.",
+            )
+        ready = outcome.state is CapabilityStatus.READY
+        return ToolingResult[SharedMcpDetails, IntegrationEvidenceBundle](
+            ok=ready,
+            code=ResultCode.OK if ready else ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
+            state=OperationState.READY if ready else OperationState.DIAGNOSTIC,
+            message=outcome.message[:300],
+            details=SharedMcpDetails(
+                action=action,
+                state=outcome.state,
+                services=outcome.services,
+                diagnostics=outcome.diagnostics,
             ),
             evidence=IntegrationEvidenceBundle(generated_at=_now()),
         )

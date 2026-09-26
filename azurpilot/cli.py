@@ -16,9 +16,10 @@ from pydantic import BaseModel
 
 from .integrations import IntegrationService
 from .integrations.coderabbit import CodeRabbitProgress
-from .integrations.contracts import IntegrationName
+from .integrations.contracts import IntegrationName, SharedMcpDetails
 from .tooling.application_state import ApplicationStateService
 from .tooling.bootstrap import BuildService
+from .tooling.bot_runtime import BotRuntimeService
 from .tooling.contracts import (
     AnalysisScope,
     CapabilityStatus,
@@ -30,12 +31,11 @@ from .tooling.contracts import (
     McpVersionDetails,
     OperationState,
     ResultCode,
-    ToolingWarning,
     ToolingResult,
+    ToolingWarning,
     WarningCode,
     exit_code_for,
 )
-from .tooling.bot_runtime import BotRuntimeService
 from .tooling.delivery import DeliveryService
 from .tooling.docker import DockerDeploymentService
 from .tooling.doctor import DoctorService
@@ -488,6 +488,19 @@ def build_parser() -> argparse.ArgumentParser:
             ),
         )
         _add_common_options(command, suppress_defaults=True)
+    shared_mcp = integration_subparsers.add_parser(
+        "shared-mcp", help="управлять общими внешними MCP HTTP services"
+    )
+    shared_mcp_subparsers = shared_mcp.add_subparsers(
+        dest="integration_shared_mcp_action", required=True, metavar="ACTION"
+    )
+    for action, action_help in (
+        ("status", "прочитать состояние общих MCP HTTP services"),
+        ("start", "запустить общие MCP HTTP services"),
+        ("stop", "остановить общие MCP HTTP services"),
+    ):
+        command = shared_mcp_subparsers.add_parser(action, help=action_help)
+        _add_common_options(command, suppress_defaults=True)
     for name in IntegrationName:
         provider = integration_subparsers.add_parser(
             name.value, help=f"операции интеграции {name.value}"
@@ -864,6 +877,15 @@ def _render_human(
             force_terminal=False,
             highlight=False,
         )
+
+        if isinstance(result.details, SharedMcpDetails):
+            render_verbose(console)
+            console.print(result.message)
+            for service in result.details.services:
+                console.print(f"запущен: {service}")
+            for diagnostic in result.details.diagnostics:
+                console.print(f"диагностика: {diagnostic}")
+            return
 
         checks = getattr(result.details, "checks", None)
         integrations = getattr(result.details, "integrations", None)
@@ -1283,6 +1305,10 @@ def _dispatch(
             return services.integrations.status(root)
         if target == "doctor":
             return services.integrations.doctor(root)
+        if target == "shared-mcp":
+            return services.integrations.shared_mcp(
+                args.integration_shared_mcp_action, root
+            )
         action = args.integration_action
         if target == IntegrationName.SEMGREP.value and action == "scan":
             integration_root = services.integrations.resolve_root(root)

@@ -205,7 +205,7 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
                     {"uid": "tempo", "status": "OK"},
                 ]
             }
-        if name == "tempo_get-trace":
+        if name == "get_tempo_trace":
             return {"trace": {"traceId": arguments["trace_id"]}}
         return {
             "data": {
@@ -225,7 +225,7 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
     assert calls == [
         "check_datasources_health",
         "query_prometheus",
-        "tempo_get-trace",
+        "get_tempo_trace",
     ]
     assert result["loki"] == {
         "responded": False,
@@ -237,6 +237,43 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
     assert result["tempo"]["responded"] is True
     assert result["tempo"]["nonempty"] is True
     assert result["operator_checks"] == {"skipped": "DATASOURCE_UNAVAILABLE"}
+
+
+def test_mcp_signals_uses_only_allowlisted_read_only_tools(monkeypatch):
+    from dev_tools import observability_mcp
+
+    calls = []
+
+    def grafana_call(name, arguments):
+        calls.append(name)
+        if name == "check_datasources_health":
+            return {
+                "results": [
+                    {"uid": uid, "status": "OK"}
+                    for uid in ("prometheus", "loki", "tempo")
+                ]
+            }
+        if name == "get_tempo_trace":
+            return {"trace": {"traceId": arguments["trace_id"]}}
+        return {
+            "data": {
+                "result": [{"value": [1, "1"]}],
+                "environment": "probe",
+                "marker": "marker",
+            }
+        }
+
+    monkeypatch.setattr(
+        observability_mcp, "read_only_grafana_tool_call", grafana_call
+    )
+    result = target.mcp_signals(
+        {"environment": "probe", "marker": "marker", "trace_ids": ["trace"]}
+    )
+
+    assert result["operator_checks"] != {"skipped": "DATASOURCE_UNAVAILABLE"}
+    assert calls
+    # Любое имя вне allowlist прямого client-а отбивается гейтом read-only.
+    assert set(calls) <= observability_mcp.GRAFANA_READ_ONLY_TOOLS
 
 
 def test_mcp_signal_nonempty_accepts_direct_list_response_shape():

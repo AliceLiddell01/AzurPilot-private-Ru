@@ -15,20 +15,21 @@ import tomllib
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+import yaml
+
 from azurpilot.integrations import IntegrationRegistry
 from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
     DOCKER_HUB_READ_ONLY_TOOLS,
     GRAFANA_BLOCKED_TOOLS,
+    GRAFANA_ENABLED_TOOL_CATEGORIES,
     GRAFANA_READ_ONLY_TOOLS,
     GRAFANA_REQUIRED_READ_ONLY_TOOLS,
 )
 from azurpilot.integrations.config import (
     DEFAULTS,
-    GRAFANA_STDIO_LAUNCHER_ARGS,
-    GRAFANA_STDIO_LAUNCHER_COMMAND,
-    GRAFANA_STDIO_LAUNCHER_CWD,
     REPOSITORY_MCP_ALIASES,
+    SHARED_MCP_ROUTE,
 )
 from azurpilot.integrations.contracts import IntegrationName
 
@@ -200,78 +201,219 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
                 )
             continue
 
-        args = _string_list(entry, "args")
-        if family == "grafana":
-            if (
-                entry.get("command") != GRAFANA_STDIO_LAUNCHER_COMMAND
-                or args != GRAFANA_STDIO_LAUNCHER_ARGS
-                or entry.get("cwd") != GRAFANA_STDIO_LAUNCHER_CWD
-            ):
-                errors.append(
-                    ".codex/config.toml: grafana_direct обязан указывать "
-                    "repository-owned stdio launcher"
-                )
-            if any(
-                key in entry
-                for key in (
-                    "url",
-                    "image",
-                    "credential_env_var",
-                    "bearer_token_env_var",
-                )
-            ):
-                errors.append(
-                    ".codex/config.toml: grafana_direct не должен задавать route "
-                    "в обход adapter"
-                )
-            enabled_tools = _string_list(entry, "enabled_tools")
-            if enabled_tools is None or set(enabled_tools) != set(GRAFANA_READ_ONLY_TOOLS):
-                errors.append(
-                    ".codex/config.toml: grafana_direct allowlist расходится с adapter contract"
-                )
-            elif not set(GRAFANA_REQUIRED_READ_ONLY_TOOLS).issubset(enabled_tools):
-                errors.append(
-                    ".codex/config.toml: grafana_direct allowlist не содержит required query/Tempo reads"
-                )
-            disabled_tools = _string_list(entry, "disabled_tools")
-            if disabled_tools is None or set(disabled_tools) != set(GRAFANA_BLOCKED_TOOLS):
-                errors.append(
-                    ".codex/config.toml: grafana_direct denylist расходится с adapter contract"
-                )
-            env_vars = _string_list(entry, "env_vars")
-            if env_vars is None or set(env_vars) != {"GRAFANA_SERVICE_ACCOUNT_TOKEN"}:
-                errors.append(
-                    ".codex/config.toml: grafana_direct должен передавать только "
-                    "credential env launcher-у"
-                )
-            continue
-        canonical_image = DEFAULTS[family].get("image")
-        if (
-            entry.get("command") != DEFAULTS[family].get("command")
-            or args is None
-            or not isinstance(canonical_image, str)
-            or canonical_image not in args
-        ):
-            errors.append(
-                f".codex/config.toml: {registration} расходится с canonical container route"
+        if family in _SHARED_MCP_FAMILIES:
+            _check_shared_registration(
+                root, family, registration, entry, errors
             )
             continue
 
-        if family == "docker-hub":
-            enabled_tools = _string_list(entry, "enabled_tools")
-            disabled_tools = _string_list(entry, "disabled_tools")
-            if enabled_tools is None or set(enabled_tools) != set(
-                DOCKER_HUB_READ_ONLY_TOOLS
-            ):
-                errors.append(
-                    ".codex/config.toml: dockerhub_direct allowlist расходится с adapter contract"
-                )
-            if disabled_tools is None or set(disabled_tools) != set(
-                DOCKER_HUB_BLOCKED_TOOLS
-            ):
-                errors.append(
-                    ".codex/config.toml: dockerhub_direct denylist расходится с adapter contract"
-                )
+        errors.append(
+            f".codex/config.toml: {registration} использует неизвестный route"
+        )
+
+    compose = _load_compose(root, errors)
+    if compose is not None:
+        for family in _SHARED_MCP_FAMILIES:
+            _check_shared_service(root, compose, family, errors)
+
+
+_SHARED_MCP_FAMILIES = ("grafana", "docker-hub")
+_IMMUTABLE_IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}@sha256:[0-9a-f]{64}$")
+_SOURCE_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_COMPOSE_PATH = Path("infrastructure") / "observability" / "compose.yaml"
+_SHARED_MCP_PROFILE = "external-mcp"
+_FORBIDDEN_REGISTRATION_KEYS = (
+    "command",
+    "args",
+    "cwd",
+    "image",
+    "credential_env_var",
+    "env_vars",
+)
+
+
+def _load_compose(root: Path, errors: list[str]) -> Mapping[object, object] | None:
+    path = root / _COMPOSE_PATH
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        errors.append(f"{_COMPOSE_PATH.as_posix()}: не удалось разобрать Compose owner")
+        return None
+    if not isinstance(document, Mapping):
+        errors.append(f"{_COMPOSE_PATH.as_posix()}: корень Compose не является отображением")
+        return None
+    return document
+
+
+def _environment_names(service: Mapping[object, object]) -> str:
+    environment = service.get("environment")
+    if isinstance(environment, Mapping):
+        return " ".join(str(value) for value in environment.values())
+    if isinstance(environment, list):
+        return " ".join(str(item) for item in environment)
+    return ""
+
+
+def _loopback_publication(service: Mapping[object, object], endpoint: object) -> bool:
+    """Проверить, что общий сервис опубликован только на loopback-порт endpoint-а."""
+
+    if not isinstance(endpoint, str):
+        return False
+    match = re.search(r":([0-9]{2,5})/", endpoint)
+    if match is None:
+        return False
+    expected = f"127.0.0.1:{match.group(1)}"
+    ports = _string_list(service, "ports")
+    if ports is None:
+        return False
+    return any(
+        item.replace(" ", "").startswith(f"{expected}:") for item in ports
+    )
+
+
+def _check_shared_service(
+    root: Path,
+    compose: Mapping[object, object],
+    family: str,
+    errors: list[str],
+) -> None:
+    """Проверить Compose-владельца общего HTTP service для одного семейства."""
+
+    services = compose.get("services")
+    service_name = str(DEFAULTS[family].get("compose_service", ""))
+    service: object = (
+        services.get(service_name) if isinstance(services, Mapping) else None
+    )
+    if not isinstance(service, Mapping):
+        errors.append(f"{_COMPOSE_PATH.as_posix()}: отсутствует service {service_name}")
+        return
+    profiles = _string_list(service, "profiles")
+    if profiles is None or _SHARED_MCP_PROFILE not in profiles:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} должен быть в профиле "
+            f"{_SHARED_MCP_PROFILE}"
+        )
+    if service.get("read_only") is not True:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} должен иметь read-only rootfs"
+        )
+    if not _loopback_publication(service, DEFAULTS[family].get("endpoint")):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} должен публиковаться только "
+            "на loopback-порт общего endpoint"
+        )
+    caller_env = str(DEFAULTS[family].get("caller_token_env", ""))
+    if caller_env not in _environment_names(service):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан получать caller token "
+            "общего сервиса из окружения"
+        )
+    if service.get("healthcheck") is None:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} должен иметь healthcheck"
+        )
+
+    image = service.get("image")
+    build = service.get("build")
+    if family == "grafana":
+        if not isinstance(image, str) or _IMMUTABLE_IMAGE_RE.fullmatch(image) is None:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан использовать "
+                "immutable image digest"
+            )
+        command = " ".join(_string_list(service, "command") or ())
+        if "--transport=streamable-http" not in command:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан обслуживать "
+                "Streamable HTTP transport"
+            )
+        if "--disable-write" not in command or "--disable-api" not in command:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан отключать write и API tools"
+            )
+        if "--disable-query" in command:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} не должен отключать read-only query tools"
+            )
+        if GRAFANA_ENABLED_TOOL_CATEGORIES not in command:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} расходится с read-only "
+                "категориями adapter contract"
+            )
+        return
+
+    # У Docker Hub MCP нет публичного immutable образа с fail-closed caller auth,
+    # поэтому владелец собирает его из закреплённого commit-а исходников.
+    if not isinstance(image, str) or not image or _IMMUTABLE_IMAGE_RE.fullmatch(image):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан использовать "
+            "repository-owned build вместо provider image"
+        )
+    arguments = build.get("args") if isinstance(build, Mapping) else None
+    commit = (
+        str(arguments.get("HUBCP_COMMIT", ""))
+        if isinstance(arguments, Mapping)
+        else ""
+    )
+    if _SOURCE_COMMIT_RE.fullmatch(commit) is None:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан закреплять полный "
+            "commit исходников"
+        )
+
+
+def _check_shared_registration(
+    root: Path,
+    family: str,
+    registration: str,
+    entry: Mapping[object, object],
+    errors: list[str],
+) -> None:
+    """Проверить, что регистрация подключается к общему HTTP service, а не запускает provider."""
+
+    settings = DEFAULTS[family]
+    if settings.get("route") != SHARED_MCP_ROUTE:
+        errors.append(f"config: {family} обязан использовать общий MCP HTTP route")
+    for key in _FORBIDDEN_REGISTRATION_KEYS:
+        if key in entry:
+            errors.append(
+                f".codex/config.toml: {registration} не должен владеть provider "
+                f"process-ом ({key})"
+            )
+    if entry.get("url") != settings.get("endpoint"):
+        errors.append(
+            f".codex/config.toml: {registration} расходится с общим HTTP endpoint"
+        )
+    if entry.get("bearer_token_env_var") != settings.get("caller_token_env"):
+        errors.append(
+            f".codex/config.toml: {registration} обязан предъявлять caller token "
+            "общего сервиса"
+        )
+
+    enabled_tools = _string_list(entry, "enabled_tools")
+    disabled_tools = _string_list(entry, "disabled_tools")
+    if family == "grafana":
+        if enabled_tools is None or set(enabled_tools) != set(GRAFANA_READ_ONLY_TOOLS):
+            errors.append(
+                ".codex/config.toml: grafana_direct allowlist расходится с adapter contract"
+            )
+        elif not set(GRAFANA_REQUIRED_READ_ONLY_TOOLS).issubset(enabled_tools):
+            errors.append(
+                ".codex/config.toml: grafana_direct allowlist не содержит required query/Tempo reads"
+            )
+        if disabled_tools is None or set(disabled_tools) != set(GRAFANA_BLOCKED_TOOLS):
+            errors.append(
+                ".codex/config.toml: grafana_direct denylist расходится с adapter contract"
+            )
+        return
+    if enabled_tools is None or set(enabled_tools) != set(DOCKER_HUB_READ_ONLY_TOOLS):
+        errors.append(
+            ".codex/config.toml: dockerhub_direct allowlist расходится с adapter contract"
+        )
+    if disabled_tools is None or set(disabled_tools) != set(DOCKER_HUB_BLOCKED_TOOLS):
+        errors.append(
+            ".codex/config.toml: dockerhub_direct denylist расходится с adapter contract"
+        )
 
 
 def _check_active_text(root: Path, errors: list[str]) -> None:
