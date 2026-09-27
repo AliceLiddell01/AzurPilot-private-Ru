@@ -75,7 +75,7 @@ skill также не является запросом немедленно з�
 → native CodeRabbit review
 → authoritative completion
 → независимая перепроверка findings
-→ исправление confirmed / partially confirmed
+→ исправление confirmed и partially confirmed
 → применимая repository verification
 → публикация нового HEAD по GIT-WORKFLOW.md, если были изменения
 ```
