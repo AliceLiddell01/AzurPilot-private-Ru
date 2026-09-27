@@ -158,8 +158,25 @@ def _ensure_state_directory(repository_root: Path) -> Path:
     return state_directory
 
 
-def _bounded_token_present(name: str, *, environment: dict[str, str] | None = None) -> bool:
-    value = (os.environ if environment is None else environment).get(name, "")
+def _observe_state_directory(repository_root: Path) -> Path:
+    """Разрешить путь состояния для чтения, не создавая каталоги."""
+
+    state_directory = repository_root / _STATE_DIRECTORY
+    for candidate in (
+        repository_root,
+        repository_root / "config",
+        repository_root / "config" / "state",
+        state_directory,
+    ):
+        if os.path.lexists(candidate) and _is_reparse_point(candidate):
+            raise LocalHttpSupervisorError(
+                "Путь local MCP supervisor не должен проходить через ссылку или junction"
+            )
+    return state_directory
+
+
+def _bounded_token_present(name: str) -> bool:
+    value = os.environ.get(name, "")
     return bool(
         value
         and len(value.encode("utf-8")) <= 16 * 1024
@@ -248,6 +265,7 @@ class LocalHttpSupervisor:
         runner: StructuredProcessRunner | None = None,
         state_namespace: str | None = None,
         allow_test_environment: bool = False,
+        create_state_directory: bool = True,
     ) -> None:
         self.repository_root = Path(repository_root).absolute()
         self.services = tuple(services)
@@ -257,14 +275,19 @@ class LocalHttpSupervisor:
             if python_executable
             else self._default_python()
         )
-        state_directory = _ensure_state_directory(self.repository_root)
+        state_directory = (
+            _ensure_state_directory(self.repository_root)
+            if create_state_directory
+            else _observe_state_directory(self.repository_root)
+        )
         if state_namespace is not None:
             if re.fullmatch(r"[a-z][a-z0-9-]{0,63}", state_namespace) is None:
                 raise LocalHttpSupervisorError(
                     "Namespace local MCP supervisor имеет неверный формат"
                 )
             state_directory = state_directory / state_namespace
-            state_directory.mkdir(parents=True, exist_ok=True)
+            if create_state_directory:
+                state_directory.mkdir(parents=True, exist_ok=True)
             if _is_reparse_point(state_directory):
                 raise LocalHttpSupervisorError(
                     "Namespace local MCP supervisor не должен быть ссылкой или junction"

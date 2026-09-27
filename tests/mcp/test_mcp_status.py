@@ -10,6 +10,7 @@ import pytest
 
 import dev_tools.integration_contract_gate as gate
 import dev_tools.mcp_status as status
+import module.mcp_shared.local_http_auth as local_http_auth
 from azurpilot.integrations.contracts import (
     IntegrationEvidence,
     IntegrationName,
@@ -160,6 +161,80 @@ def test_status_timeout_is_bounded_and_fail_closed(monkeypatch):
     assert report["probe"]["status"] == "unavailable"
     assert all(item["state"] == "unavailable" for item in report["integrations"].values())
     assert report["status"] == "partial"
+
+
+def test_status_does_not_create_state_directories_and_reports_auth_oserror_as_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_ready_collectors(monkeypatch)
+
+    def unreadable_token(*_args, **_kwargs):
+        raise PermissionError("synthetic access denial")
+
+    monkeypatch.setattr(local_http_auth, "read_local_mcp_token", unreadable_token)
+    records = tuple(
+        _record(IntegrationName(name)) for name in status.DIRECT_INTEGRATION_NAMES
+    )
+    report = asyncio.run(
+        status.collect_status_async(
+            tmp_path,
+            local_probe=_local_probe,
+            remote_probe=_remote_probe,
+            integration_service=_IntegrationService(records),
+            now=lambda: "2026-01-01T00:00:00Z",
+        )
+    )
+
+    owned_status = report["servers"]["azurpilot-dev"]["owned_local_http"]
+    assert owned_status["status"] == "unknown"
+    assert owned_status["credential"] == "unknown"
+    assert not (tmp_path / "config" / "state").exists()
+
+
+@pytest.mark.parametrize("denied_attribute", ("cmdline", "exe", "cwd"))
+def test_legacy_stdio_status_is_unknown_for_access_denied_attributes(
+    monkeypatch: pytest.MonkeyPatch, denied_attribute: str
+) -> None:
+    info = {
+        "pid": 123,
+        "cmdline": ["python", "-m", status.SERVER_MODULES["azurpilot-dev"][0]],
+        "exe": "python.exe",
+        "cwd": "C:/AzurPilot",
+    }
+
+    def process_iter(_attrs, *, ad_value):
+        info[denied_attribute] = ad_value
+        return (SimpleNamespace(info=info),)
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "unknown"
+    assert result["reason_code"] == "LEGACY_STDIO_PROCESS_UNOBSERVABLE"
+
+
+def test_legacy_stdio_status_reports_absent_after_complete_unmatched_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def process_iter(_attrs, *, ad_value):
+        return (
+            SimpleNamespace(
+                info={
+                    "pid": 123,
+                    "cmdline": ["python", "-c", "pass"],
+                    "exe": "python.exe",
+                    "cwd": "C:/AzurPilot",
+                }
+            ),
+        )
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
+    assert result["reason_code"] == "LEGACY_STDIO_PROCESS_ABSENT"
 
 
 def test_local_http_probe_does_not_claim_authentication_after_failure(

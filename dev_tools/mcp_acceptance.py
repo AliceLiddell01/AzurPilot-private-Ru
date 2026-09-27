@@ -139,9 +139,13 @@ async def accept(
         )
     result = results["azurpilot-dev"]
     game_result = results["azurpilot-game"]
+    called_tools = tuple(
+        dict.fromkeys((*result.called_tools, *game_result.called_tools))
+    )
     if result.state is IntegrationState.READY and game_result.state is not IntegrationState.READY:
         result = replace(
             game_result,
+            called_tools=called_tools,
             diagnostics=(
                 "azurpilot-dev:ready",
                 *game_result.diagnostics,
@@ -150,6 +154,7 @@ async def accept(
     elif result.state is IntegrationState.READY:
         result = replace(
             result,
+            called_tools=called_tools,
             diagnostics=(
                 *result.diagnostics,
                 "azurpilot-game:ready",
@@ -158,6 +163,7 @@ async def accept(
     else:
         result = replace(
             result,
+            called_tools=called_tools,
             diagnostics=(
                 *result.diagnostics,
                 f"azurpilot-game:{game_result.state.value.lower()}",

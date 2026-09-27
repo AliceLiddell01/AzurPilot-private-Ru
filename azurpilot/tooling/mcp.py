@@ -2621,7 +2621,7 @@ class McpService:
                 "Порт локального MCP занят процессом без подтверждённого владельца.",
                 details=details,
             )
-        if outcome.runtime_unavailable_servers:
+        if runtime_unavailable:
             raise ToolingError(
                 ResultCode.MCP_RUNTIME_UNAVAILABLE,
                 "Одна или несколько локальных служб MCP не перешли в состояние готовности.",
@@ -2763,7 +2763,6 @@ class McpService:
                 )
                 auth_unavailable.update(start_outcome.auth_unavailable_servers)
                 runtime_unavailable.update(start_outcome.runtime_unavailable_servers)
-                runtime = start_outcome.runtime
             runtime_state, runtime = self._runtime_status(root, bundle)
             service_items = {
                 item.get("server_name"): item

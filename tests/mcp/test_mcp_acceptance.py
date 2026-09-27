@@ -189,6 +189,12 @@ def test_combined_acceptance_reports_game_family_failure(
 
     assert result.state is IntegrationState.UNAVAILABLE
     assert result.reason_code == "MCP_FRESH_CLIENT_READ_ONLY_CALL_FAILED"
+    assert result.called_tools == (
+        "dev_get_contract",
+        "dev_list_smoke_capabilities",
+        "game_get_contract",
+        "game_list_profiles",
+    )
     assert "azurpilot-dev:ready" in result.diagnostics
     assert "game_list_profiles:transport_error" in result.diagnostics
 
@@ -230,12 +236,17 @@ def test_sync_acceptance_checks_the_dirty_candidate_with_a_fresh_client(
 
     async def accept_fresh_http(**kwargs) -> FreshMcpClientResult:
         calls.append(kwargs)
+        called_tools = (
+            ("game_get_contract", "game_list_profiles")
+            if kwargs["endpoint"] == mcp_acceptance.LOCAL_HTTP_ENDPOINTS["azurpilot-game"]
+            else ("dev_get_contract", "dev_list_smoke_capabilities")
+        )
         return FreshMcpClientResult(
             state=IntegrationState.READY,
             reason_code="MCP_FRESH_CLIENT_READY",
             initialized=True,
             source_revision=source_revision,
-            called_tools=("dev_get_contract", "dev_list_smoke_capabilities"),
+            called_tools=called_tools,
         )
 
     monkeypatch.setattr(mcp_acceptance, "accept_fresh_http", accept_fresh_http)
@@ -245,6 +256,12 @@ def test_sync_acceptance_checks_the_dirty_candidate_with_a_fresh_client(
     assert result.state is IntegrationState.READY
     assert result.reason_code == "MCP_FRESH_CLIENT_READY"
     assert result.diagnostics == ("working_tree_modified", "azurpilot-game:ready")
+    assert result.called_tools == (
+        "dev_get_contract",
+        "dev_list_smoke_capabilities",
+        "game_get_contract",
+        "game_list_profiles",
+    )
     assert len(calls) == 2
     assert calls[0]["endpoint"] == mcp_acceptance.LOCAL_HTTP_ENDPOINTS["azurpilot-dev"]
     assert calls[0]["plan"].expected_contract["source_revision"] == source_revision

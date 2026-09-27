@@ -1156,6 +1156,58 @@ def test_auth_readiness_is_scoped_to_servers_being_started(monkeypatch) -> None:
     assert not mcp_tooling.McpService._auth_ready(REPOSITORY_ROOT)
 
 
+def test_restart_fails_closed_when_authentication_state_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    runtime = {
+        "services": [
+            {"server_name": name, "ready": True}
+            for name in mcp_tooling.MCP_SERVER_NAMES
+        ],
+        "supervisors": {
+            name: {"code": "LOCAL_MCP_SUPERVISOR_READY"}
+            for name in mcp_tooling.MCP_SERVER_NAMES
+        },
+    }
+    monkeypatch.setattr(service.source, "check", lambda _root: None)
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_authentication_states",
+        lambda _root: {
+            "azurpilot-dev": "unknown",
+            "azurpilot-game": "configured",
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_supervisor",
+        lambda _root, _name: SimpleNamespace(
+            status=lambda: {"code": "LOCAL_MCP_SUPERVISOR_STOPPED"},
+            port_conflicts=lambda: (),
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_start_owned",
+        lambda *_args, **_kwargs: mcp_tooling._McpStartOutcome(True, runtime),
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service.restart(REPOSITORY_ROOT)
+
+    assert error.value.code is ResultCode.MCP_RUNTIME_UNAVAILABLE
+    assert error.value.details is not None
+    dev_status = next(
+        item
+        for item in error.value.details.services
+        if item.server_name == "azurpilot-dev"
+    )
+    assert dev_status.status == "unavailable"
+
+
 def test_runtime_server_statuses_use_supplied_authentication_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

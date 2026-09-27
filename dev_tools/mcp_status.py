@@ -556,7 +556,12 @@ def _owned_local_http_status(root: Path, server_name: str) -> dict[str, object]:
 
     service = next(item for item in LOCAL_HTTP_SERVICES if item.name == server_name)
     try:
-        supervisor = LocalHttpSupervisor(root, services=(service,), state_namespace=server_name)
+        supervisor = LocalHttpSupervisor(
+            root,
+            services=(service,),
+            state_namespace=server_name,
+            create_state_directory=False,
+        )
         runtime = supervisor.status()
     except Exception as error:  # noqa: BLE001 - diagnostic boundary.
         runtime = {
@@ -565,13 +570,21 @@ def _owned_local_http_status(root: Path, server_name: str) -> dict[str, object]:
         }
     try:
         read_local_mcp_token(root, server_name)
+    except OSError:
+        credential = "unknown"
     except LocalHttpAuthError:
         credential = "unavailable"
     else:
         credential = "configured"
     code = str(runtime.get("code", "LOCAL_MCP_SUPERVISOR_UNKNOWN"))
+    if credential == "unknown":
+        status_value = "unknown"
+    elif code == "LOCAL_MCP_SUPERVISOR_READY":
+        status_value = "ready"
+    else:
+        status_value = "partial"
     return {
-        "status": "ready" if code == "LOCAL_MCP_SUPERVISOR_READY" else "partial",
+        "status": status_value,
         "supervisor_code": code,
         "ownership_confirmed": code in {
             "LOCAL_MCP_SUPERVISOR_READY",
@@ -590,10 +603,19 @@ def _legacy_stdio_process_status(server_name: str) -> dict[str, object]:
     processes: list[dict[str, object]] = []
     inaccessible = False
     try:
-        iterator = psutil.process_iter(["pid", "cmdline", "exe", "cwd"])
+        access_denied = object()
+        iterator = psutil.process_iter(
+            ["pid", "cmdline", "exe", "cwd"], ad_value=access_denied
+        )
         for process in iterator:
             try:
                 info = process.info
+                if any(
+                    info.get(attribute) is access_denied
+                    for attribute in ("cmdline", "exe", "cwd")
+                ):
+                    inaccessible = True
+                    continue
                 command = tuple(str(item) for item in (info.get("cmdline") or ()))
                 if not any(
                     command[index : index + 2] == ("-m", module_name)
