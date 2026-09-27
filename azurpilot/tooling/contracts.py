@@ -959,7 +959,6 @@ class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
 
 
 __all__ = [
-    "CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME",
     "FRESH_MCP_ACCEPTANCE_GATE_NAME",
     "AnalysisScope",
     "ApplicationStateDetails",
@@ -971,16 +970,6 @@ __all__ = [
     "CapabilityCheck",
     "CapabilityStatus",
     "ClosedModel",
-    "CodeRabbitConflictKind",
-    "CodeRabbitDeferralReason",
-    "CodeRabbitDeferredBacklog",
-    "CodeRabbitDeferredFinding",
-    "CodeRabbitDeferredOccurrence",
-    "CodeRabbitFinding",
-    "CodeRabbitFindingTriage",
-    "CodeRabbitReview",
-    "CodeRabbitTriageEntry",
-    "CodeRabbitTriageManifest",
     "CommissionRecoveryProjection",
     "CommitIdentity",
     "DeliveryChange",
@@ -994,8 +983,6 @@ __all__ = [
     "DoctorEvidence",
     "ExitCode",
     "FileState",
-    "FindingDisposition",
-    "FindingSeverity",
     "GitEvidence",
     "GitRange",
     "GitSnapshot",
