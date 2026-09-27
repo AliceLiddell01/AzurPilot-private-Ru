@@ -481,7 +481,6 @@ class PullRequestBody(ClosedModel):
     checks: str = Field(min_length=1, max_length=8000)
     ci: str = Field(min_length=1, max_length=4000)
     security_secret_scan: str = Field(min_length=1, max_length=4000)
-    coderabbit_review: CodeRabbitReview | None = None
     readiness: ReadinessState = Field(
         default_factory=lambda: ReadinessState(mcp_impact="NOT_REQUIRED")
     )
@@ -489,37 +488,6 @@ class PullRequestBody(ClosedModel):
     limitations: str = Field(min_length=1, max_length=4000)
     merge_method: Literal["squash", "merge", "rebase"] = "squash"
 
-    @model_validator(mode="after")
-    def validate_coderabbit_readiness(self) -> PullRequestBody:
-        review = self.coderabbit_review
-        status = self.readiness.external_reviewer_status
-        if status == "SUBSTANTIVE" and review is None:
-            raise ValueError(
-                "SUBSTANTIVE external reviewer требует CodeRabbit review evidence"
-            )
-        if review is None:
-            return self
-        actionable = any(
-            finding.triage is None
-            or (
-                finding.disposition
-                in {
-                    FindingDisposition.CONFIRMED,
-                    FindingDisposition.PARTIALLY_CONFIRMED,
-                }
-                and finding.fix_head is None
-            )
-            for finding in review.findings
-        )
-        if actionable and (
-            self.readiness.overall_outcome == "READY"
-            or self.readiness.ready_for_chatgpt_review
-            or self.readiness.merge_ready
-        ):
-            raise ValueError(
-                "actionable CodeRabbit findings требуют triage/fix до readiness"
-            )
-        return self
 
 
 class PrPublicationSpec(ClosedModel):
