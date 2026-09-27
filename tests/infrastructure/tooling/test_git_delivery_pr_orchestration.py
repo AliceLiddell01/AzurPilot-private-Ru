@@ -1557,7 +1557,7 @@ def test_head_repository_identity_rejects_missing_expected_gh_fields(
     assert error.value.code is ResultCode.TOOLING_PR_IDENTITY_MISMATCH
 
 
-def test_structured_pr_body_contains_required_sections_and_exact_review_head() -> None:
+def test_structured_pr_body_contains_required_provider_neutral_sections() -> None:
     body = PullRequestBody(
         goal=(
             "Добавить безопасную fail-closed публикацию Git-изменений и draft PR.\n\n"
