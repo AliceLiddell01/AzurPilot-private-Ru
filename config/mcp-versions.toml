@@ -1,6 +1,6 @@
 schema_version = 2
-bundle_revision = "e4214b8a0c8c07b9b301fee96c44d46feeee38bd4894a1e20bd527bb63ce6f34"
-plugin_version = "0.1.0+codex.63932751650620"
+bundle_revision = "e9de354bb3d82933abe26fe66ca4e77857b12096cdb26b10b398d37c47903e3c"
+plugin_version = "0.1.0+codex.75982585087066"
 skill_bundle_revision = "9e4e4e4931bebe99e29ae787b1c809a70086b9a0b362937dde2beec883107ddd"
 
 [servers.azurpilot-dev]
