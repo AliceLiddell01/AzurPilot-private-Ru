@@ -841,6 +841,8 @@ def test_cli_rejects_ambiguous_semgrep_scope():
                 "azurpilot/cli.py",
             ]
         )
+
+
 def test_integration_finding_rejects_reversed_line_range():
     with pytest.raises(ValueError, match="line_end"):
         IntegrationFinding(
