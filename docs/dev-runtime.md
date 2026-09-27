@@ -302,7 +302,7 @@ source сохраняются как `source_status=modified` и дают `PARTI
 
 Collector выполняет negotiated local discovery/`tools/list` и
 `dev_get_contract`/`game_get_contract`, а `IntegrationRegistry` — bounded
-direct probes для шести внешних adapters с их отдельными transport/config
+direct probes для пяти внешних adapters с их отдельными transport/config
 evidence. Статическое описание server или endpoint не считается runtime
 readiness. В JSON не попадают URL credentials, headers, secrets, paths или
 полное окружение. Состояние `effective_codex_registration` намеренно может
