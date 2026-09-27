@@ -948,7 +948,7 @@ def test_doctor_full_uses_closed_external_integration_record_contract(
                     action="status",
                     integrations=(
                         IntegrationRecord(
-                            name=IntegrationName.CODERABBIT,
+                            name=IntegrationName.SEMGREP,
                             state=IntegrationState.READY,
                             reason_code="CODERABBIT_NATIVE_READY",
                             message="Исполняемый файл CodeRabbit и его версия подтверждены.",
