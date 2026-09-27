@@ -129,7 +129,7 @@ class IntegrationDetails(ClosedModel):
     """Операционный payload CLI."""
 
     action: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,31}$")
-    integrations: tuple[IntegrationRecord, ...] = Field(min_length=1, max_length=6)
+    integrations: tuple[IntegrationRecord, ...] = Field(min_length=1, max_length=5)
     target: IntegrationName | None = None
     scope: AnalysisScope | None = None
     findings: tuple[IntegrationFinding, ...] = Field(default_factory=tuple, max_length=128)
