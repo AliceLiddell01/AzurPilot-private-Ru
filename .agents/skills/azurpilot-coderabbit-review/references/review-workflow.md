@@ -52,11 +52,11 @@ coderabbit config validate
 coderabbit review --agent
 ```
 
-Для review опубликованного committed candidate выбери поддерживаемый текущей
-версией CLI committed/base selector после проверки `coderabbit review --help`.
-Предпочитай публичные актуальные flags текущей версии, например
-`--committed`, `--base <branch>` или `--base-commit <sha>`, если они
-фактически поддерживаются.
+Для review опубликованного committed candidate сначала проверь
+`coderabbit review --help`, затем используй публичный committed scope текущего
+CLI: `-t committed`. При необходимости задай точную базу через
+`--base <branch>` или `--base-commit <sha>`. Не придумывай alias вроде
+`--committed`, если его нет в фактическом help установленной версии.
 
 Если пользователь явно запросил deep/focus/другой режим, сначала проверь наличие
 этой capability в установленной версии. Не подменяй её обычным review молча.
