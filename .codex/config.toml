@@ -4,34 +4,16 @@ web_search = "live"
 model_reasoning_summary = "concise"
 
 [mcp_servers.azurpilot-dev]
-command = "uv"
-args = ["run", "--locked", "--no-sync", "python", "-m", "module.dev_mcp"]
-cwd = "."
-enabled = true
-required = false
-startup_timeout_sec = 5
-tool_timeout_sec = 180
-
-[mcp_servers.azurpilot_dev]
 url = "http://127.0.0.1:8775/mcp"
-bearer_token_env_var = "AZURPILOT_DEV_LOCAL_MCP_TOKEN"
+http_headers_helper = "uv run --locked --no-sync python -m module.mcp_shared.local_http_auth --server azurpilot-dev"
 enabled = true
 required = false
 startup_timeout_sec = 10
 tool_timeout_sec = 180
 
 [mcp_servers.azurpilot-game]
-command = "uv"
-args = ["run", "--locked", "--no-sync", "python", "-m", "module.game_mcp"]
-cwd = "."
-enabled = true
-required = false
-startup_timeout_sec = 10
-tool_timeout_sec = 180
-
-[mcp_servers.azurpilot_game]
 url = "http://127.0.0.1:8776/mcp"
-bearer_token_env_var = "AZURPILOT_GAME_LOCAL_MCP_TOKEN"
+http_headers_helper = "uv run --locked --no-sync python -m module.mcp_shared.local_http_auth --server azurpilot-game"
 enabled = true
 required = false
 startup_timeout_sec = 10

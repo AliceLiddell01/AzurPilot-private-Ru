@@ -189,7 +189,11 @@ def _prepare_test_project(tmp_path: Path) -> None:
 
 def _supervisor(tmp_path: Path) -> LocalHttpSupervisor:
     _prepare_test_project(tmp_path)
-    return LocalHttpSupervisor(tmp_path, python_executable=sys.executable)
+    return LocalHttpSupervisor(
+        tmp_path,
+        python_executable=sys.executable,
+        allow_test_environment=True,
+    )
 
 
 def _free_port() -> int:
@@ -295,6 +299,7 @@ def _observer(tmp_path: Path, specs: list[dict[str, object]]) -> LocalHttpSuperv
         python_executable=sys.executable,
         services=services,
         startup_timeout_seconds=5,
+        allow_test_environment=True,
     )
 
 

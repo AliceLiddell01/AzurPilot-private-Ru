@@ -167,7 +167,8 @@ MCP не должен становиться обходом конфигурац
 - доступ к screenshot, логам и пользовательским данным;
 - отключаемость интеграции.
 
-`module/dev_mcp` — отдельный stdio-адаптер только для разработки поверх
+`module/dev_mcp` — transport-neutral backend с отдельным stdio compatibility
+entrypoint и canonical loopback HTTP поверх
 `DevSessionManager` и `RuntimeControlManager`. Он использует только target,
 разрешённый registry (включая policy default при отсутствии marker), создаёт
 менеджер лениво и не связан с Game MCP. При смене marker
@@ -190,7 +191,8 @@ MCP Tasks не эмулируются. `SmokeRun` и `DevRuntimeControlOperation
 application-level persistent entities.
 
 First-party Dev/Game service layer публикует одну transport-neutral compatibility
-model для direct stdio и authenticated loopback HTTP. Единственный canonical
+model для standalone stdio и authenticated loopback HTTP. Windows Codex использует
+только loopback HTTP, а stdio остаётся compatibility/test entrypoint. Единственный canonical
 bundle находится в `config/mcp-versions.toml` и содержит идентификаторы сервера,
 API и контракта, отпечатки инструментов и возможностей, контрольные суммы наборов исходников,
 версию плагина и редакцию набора навыков. `azur mcp sync --base <exact-base-sha>`
@@ -229,8 +231,8 @@ catalog; длительный или визуальный сценарий за�
 Standalone Game MCP находится в `module.game_mcp` и использует тот же
 нейтральный application/domain слой через собственную lazy composition root.
 Он работает через stateless stdio и authenticated Streamable HTTP. Для Codex
-Desktop предусмотрен отдельный strict-loopback local HTTP supervisor с
-`transport=local_http`, `local_authority=true` и user-level bearer token;
+Desktop canonical route — strict-loopback local HTTP supervisor с
+`transport=local_http`, `local_authority=true` и project-local `.env` token;
 public remote HTTP остаётся `transport=remote_http`, `local_authority=false`.
 Сервер принимает
 канонический `profile` в каждом target-dependent запросе и не импортирует Dev

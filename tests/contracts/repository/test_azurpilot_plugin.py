@@ -109,11 +109,11 @@ def test_routing_reference_keeps_plugin_and_mcp_registration_separate() -> None:
     routing = _ROUTING_PATH.read_text(encoding="utf-8")
 
     assert re.search(
-        r"(?m)^\| Development \| `azurpilot-dev` \| direct local stdio \| `module\.dev_mcp` \| none \|$",
+        r"(?m)^\| Development \| `azurpilot-dev` \| authenticated loopback Streamable HTTP \| `module\.dev_mcp\.local_http` \| none \|$",
         routing,
     )
     assert re.search(
-        r"(?m)^\| Game \| `azurpilot-game` \| direct local stdio \| `module\.game_mcp` \| none \|$",
+        r"(?m)^\| Game \| `azurpilot-game` \| authenticated loopback Streamable HTTP \| `module\.game_mcp\.local_http` \| none \|$",
         routing,
     )
     assert ".codex/config.toml" in routing
@@ -251,62 +251,31 @@ def test_server_compatibility_rejects_missing_or_malformed_metadata(
     assert path in server_compatibility_issues(compatibility, invalid)
 
 
-def test_project_config_declares_both_canonical_direct_routes() -> None:
+def test_project_config_declares_one_canonical_http_route_per_backend() -> None:
     with _CODEX_CONFIG_PATH.open("rb") as stream:
         config = tomllib.load(stream)
 
     servers = config["mcp_servers"]
-    expected_modules = {
-        "azurpilot-dev": "module.dev_mcp",
-        "azurpilot-game": "module.game_mcp",
+    expected = {
+        "azurpilot-dev": (
+            "http://127.0.0.1:8775/mcp",
+            "uv run --locked --no-sync python -m module.mcp_shared.local_http_auth --server azurpilot-dev",
+        ),
+        "azurpilot-game": (
+            "http://127.0.0.1:8776/mcp",
+            "uv run --locked --no-sync python -m module.mcp_shared.local_http_auth --server azurpilot-game",
+        ),
     }
-    expected_startup_timeouts = {"azurpilot-dev": 5, "azurpilot-game": 10}
-    for name, module_name in expected_modules.items():
+    assert "azurpilot_dev" not in servers
+    assert "azurpilot_game" not in servers
+    for name, (url, helper) in expected.items():
         entry = servers[name]
-        assert entry["command"] == "uv"
-        assert entry["args"] == [
-            "run",
-            "--locked",
-            "--no-sync",
-            "python",
-            "-m",
-            module_name,
-        ]
-        assert entry["cwd"] == "."
+        assert entry["url"] == url
+        assert entry["http_headers_helper"] == helper
         assert entry["enabled"] is True
         assert entry["required"] is False
-        assert entry["startup_timeout_sec"] == expected_startup_timeouts[name]
+        assert entry["startup_timeout_sec"] == 10
         assert entry["tool_timeout_sec"] == 180
-        assert "url" not in entry
-
-
-def test_project_config_declares_separate_local_http_registration_aliases() -> None:
-    with _CODEX_CONFIG_PATH.open("rb") as stream:
-        config = tomllib.load(stream)
-
-    expected = {
-        "azurpilot_dev": (
-            "azurpilot-dev",
-            "http://127.0.0.1:8775/mcp",
-            "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
-        ),
-        "azurpilot_game": (
-            "azurpilot-game",
-            "http://127.0.0.1:8776/mcp",
-            "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
-        ),
-    }
-    for registration_key, (server_name, url, token_env_var) in expected.items():
-        entry = config["mcp_servers"][registration_key]
-        assert entry == {
-            "url": url,
-            "bearer_token_env_var": token_env_var,
-            "enabled": True,
-            "required": False,
-            "startup_timeout_sec": 10,
-            "tool_timeout_sec": 180,
-        }
-        assert registration_key != server_name
 
 
 @pytest.mark.parametrize(
@@ -443,7 +412,7 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
         "azurpilot-game",
         "module.game_mcp",
         ".codex/config.toml",
-        "direct local stdio",
+        "authenticated loopback Streamable HTTP",
         "game_get_contract",
         "game_list_profiles",
         "game_list_tasks",
@@ -468,7 +437,7 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
         ".codex/config.toml",
         "azurpilot-dev",
         "azurpilot-game",
-        "local stdio",
+        "local HTTP",
         "Connected App не является fallback",
         "dev_get_contract",
         "game_get_contract",

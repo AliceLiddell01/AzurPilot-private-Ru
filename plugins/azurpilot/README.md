@@ -20,11 +20,15 @@ remote runtime остаются внешними по отношению к pack
 operator actions используй только буквальные команды `azur mcp ...` из PATH:
 `uv run`, `python -m azurpilot`, `.venv/.../azur`, absolute executable path и
 shell wrapper запрещены как fallback.
-- Codex Desktop может использовать first-class authenticated loopback route
-  `azurpilot_game` на `http://127.0.0.1:8776/mcp`; protocol identity остаётся
-  `azurpilot-game`. Этот route не является аварийным alias и выбирается явно.
-- Аналогичный first-class Dev route — `azurpilot_dev` на
-  `http://127.0.0.1:8775/mcp`, при сохранении identity `azurpilot-dev`.
+- Нормальный Windows Codex route для Game — first-class authenticated loopback
+  `azurpilot-game` на `http://127.0.0.1:8776/mcp`; protocol identity и
+  registration key совпадают.
+- Аналогичный canonical Dev route — `azurpilot-dev` на
+  `http://127.0.0.1:8775/mcp`; пара backend-ов принадлежит единому
+  `module.mcp_shared.local_http_supervisor` и не создаётся на каждый thread.
+- Оба `Authorization` header формируются через project-local
+  `http_headers_helper`; единственный durable owner токенов — защищённый
+  `.env` (`AZURPILOT_DEV_LOCAL_MCP_TOKEN` и `AZURPILOT_GAME_LOCAL_MCP_TOKEN`).
 - ChatGPT/public использует отдельную remote surface через authenticated public HTTPS
   URL `https://<public-host>/mcp`, Caddy и внешний OAuth/OIDC provider; это тот
   же backend family, а не Codex fallback и не второй runtime.
@@ -33,7 +37,9 @@ Project trust — обязательная часть direct Codex маршру�
 Codex пропускает `.codex/config.toml`, plugin не выполняет automatic trust и не
 подменяет route Connected App или remote surface. Диагностика отдельно сообщает
 `source_config` и `effective_codex_registration`; tracked TOML не является
-доказательством live registration.
+доказательством live registration. Поле `effective_codex_registration` остаётся
+`not_observable`, пока текущая Codex session не предоставит authoritative
+evidence.
 
 Полная матрица маршрутизации находится в
 [references/mcp-routing.md](references/mcp-routing.md). Отсутствующий direct
@@ -44,7 +50,7 @@ Connected App не подменяет Codex route.
 `azur mcp sync --base <exact-base-sha>`. Terminal `NO_CHANGES` означает, что
 MCP source set не затронут; `SYNCED` подтверждает source/version finalization от
 exact base, generated metadata, owned runtime readiness и fresh-client
-acceptance. Foreign/unknown ownership, port conflict и непроверенная readiness
+acceptance. Чужое или неизвестное владение, конфликт порта и непроверенная readiness
 завершаются fail-closed. Состояние текущей внешней Codex session не является
 postcondition, hot reload не предполагается. `impact`, `status`, `versions`,
 `reconcile`, `start`, `stop` и `restart` остаются diagnostic/admin operations.
@@ -170,9 +176,11 @@ control operation с новой immutable спецификацией. Созда
 Developer-only capability `Game` внутри `azurpilot-development` реализована как
 односторонний Dev → neutral `module/application` bridge и предоставляет только
 typed read observations назначенного target. Обычная игровая эксплуатация
-маршрутизируется в `azurpilot-game-control` через standalone `module.game_mcp`;
-его canonical `profile`, read/control scopes и postconditions не смешиваются с
-Dev MCP. MCP-to-MCP loopback, второй game domain и обратная зависимость
+маршрутизируется в `azurpilot-game-control` через канонический
+`azurpilot-game` authenticated loopback HTTP route; standalone
+`module.game_mcp` сохраняется только для compatibility/test consumers. Его
+canonical `profile`, read/control scopes и postconditions не смешиваются с Dev
+MCP. MCP-to-MCP loopback, второй game domain и обратная зависимость
 application от Dev Runtime запрещены.
 
 Smoke сохраняет before/final и объявленные intermediate checkpoints в

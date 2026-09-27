@@ -498,6 +498,37 @@ async def accept_fresh_stdio(
         )
 
 
+async def accept_fresh_http(
+    *,
+    endpoint: str,
+    headers: Mapping[str, str],
+    plan: FreshMcpClientPlan,
+    timeout_seconds: float,
+) -> FreshMcpClientResult:
+    """Создать независимый Streamable HTTP SDK client и вернуть acceptance evidence."""
+
+    try:
+        validate_http_endpoint(endpoint)
+        async with _http_session(
+            endpoint=endpoint,
+            headers=headers,
+            timeout_seconds=timeout_seconds,
+        ) as session:
+            return await _accept_fresh_session(
+                session,
+                plan=plan,
+                timeout_seconds=timeout_seconds,
+            )
+    except TimeoutError:
+        return FreshMcpClientResult(IntegrationState.UNAVAILABLE, "MCP_FRESH_CLIENT_TIMEOUT")
+    except Exception as error:  # noqa: BLE001 - boundary exposes only type.
+        return FreshMcpClientResult(
+            IntegrationState.UNAVAILABLE,
+            "MCP_FRESH_CLIENT_HTTP_FAILED",
+            diagnostics=(_safe_type_name(error),),
+        )
+
+
 def _call_state(
     *,
     is_error: bool,
@@ -634,6 +665,9 @@ async def _http_session(
         headers=dict(headers),
         timeout=timeout_seconds,
         follow_redirects=False,
+        # Project-local bearer credentials нельзя отправлять в ambient HTTP(S)
+        # proxy при обращении к loopback supervisor.
+        trust_env=False,
     ) as http_client, streamable_http_client(
         endpoint, http_client=http_client
     ) as (read_stream, write_stream), ClientSession(
@@ -760,6 +794,7 @@ __all__ = [
     "McpCallPlan",
     "McpProbeResult",
     "McpToolCallResult",
+    "accept_fresh_http",
     "accept_fresh_stdio",
     "call_http_tool",
     "probe_http",

@@ -16,6 +16,7 @@ from azurpilot.integrations.contracts import (
     IntegrationRecord,
     IntegrationState,
 )
+from azurpilot.integrations.mcp_client import FreshMcpClientResult
 from azurpilot.tooling.contracts import ResultCode
 from tests.support.paths import REPOSITORY_ROOT
 
@@ -138,6 +139,10 @@ def test_status_keeps_first_party_contract_and_adds_exactly_six_direct_integrati
         item["local_direct"]["status"] == "ready"
         for item in report["servers"].values()
     )
+    assert all("owned_local_http" in item for item in report["servers"].values())
+    assert all(
+        "legacy_stdio_processes" in item for item in report["servers"].values()
+    )
     assert report["effective_codex_registration"]["status"] == "not_observable"
 
 
@@ -155,6 +160,30 @@ def test_status_timeout_is_bounded_and_fail_closed(monkeypatch):
     assert report["probe"]["status"] == "unavailable"
     assert all(item["state"] == "unavailable" for item in report["integrations"].values())
     assert report["status"] == "partial"
+
+
+def test_local_http_probe_does_not_claim_authentication_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(status, "local_http_headers", lambda *_args: {"Authorization": "Bearer test"})
+    async def failed_probe(**_kwargs):
+        return _failed_fresh_result()
+
+    monkeypatch.setattr(status, "accept_fresh_http", failed_probe)
+
+    payload = asyncio.run(
+        status._probe_local_http("azurpilot-dev", root=REPOSITORY_ROOT, revision="a" * 40)
+    )
+
+    assert payload["status"] == "unavailable"
+    assert payload["authenticated"] is False
+
+
+def _failed_fresh_result() -> FreshMcpClientResult:
+    return FreshMcpClientResult(
+        state=IntegrationState.UNAVAILABLE,
+        reason_code="MCP_FRESH_CLIENT_HTTP_FAILED",
+    )
 
 
 def test_json_report_and_metric_labels_are_bounded(monkeypatch):

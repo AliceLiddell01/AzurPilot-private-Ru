@@ -9,7 +9,7 @@ import re
 import shutil
 import stat
 import subprocess
-from collections.abc import MutableMapping
+from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from module.application.errors import StorageConfigurationError
 from module.persistence.config import DatabaseSettings
 from module.persistence.local_environment_schema import (
     INFRASTRUCTURE_ENVIRONMENT_KEYS,
+    LOCAL_ENVIRONMENT_KEYS,
     POSTGRES_ENVIRONMENT_KEYS,
     SECRET_ENVIRONMENT_KEYS,
 )
@@ -130,7 +131,7 @@ def _parse_value(raw: str, line_number: int) -> str:
         or " #" in value
     ):
         raise StorageConfigurationError(
-            f"Значение PostgreSQL env в строке {line_number} некорректно."
+            f"Значение локального environment в строке {line_number} некорректно."
         )
     return value
 
@@ -163,6 +164,8 @@ $payload | ConvertTo-Json -Compress -Depth 4
     environment.pop("PGPASSWORD", None)
     environment.pop(_APP_PREFIX + "PASSWORD", None)
     environment.pop(_MIGRATOR_PREFIX + "PASSWORD", None)
+    environment.pop("AZURPILOT_DEV_LOCAL_MCP_TOKEN", None)
+    environment.pop("AZURPILOT_GAME_LOCAL_MCP_TOKEN", None)
     environment["AZURPILOT_ENV_ACL_PATH"] = str(path)
     try:
         completed = subprocess.run(
@@ -230,21 +233,21 @@ def _require_secure_permissions(path: Path, metadata: os.stat_result) -> None:
         )
 
 
-def read_local_postgres_environment(
-    path: str | Path = DEFAULT_LOCAL_ENV_PATH,
-) -> LocalPostgresEnvironment | None:
+def _read_local_environment_values(path: str | Path) -> dict[str, str] | None:
+    """Прочитать registry-ограниченный `.env` без установки его в environment."""
+
     env_path = Path(path)
     if not env_path.exists():
         if env_path.is_symlink():
             raise StorageConfigurationError(
-                "Локальный PostgreSQL env отсутствует или небезопасен."
+                "Локальный environment отсутствует или небезопасен."
             )
         return None
     try:
         metadata = env_path.stat()
         if env_path.is_symlink() or not env_path.is_file() or metadata.st_size > 65_536:
             raise StorageConfigurationError(
-                "Локальный PostgreSQL env отсутствует или небезопасен."
+                "Локальный environment отсутствует или небезопасен."
             )
         _require_secure_permissions(env_path, metadata)
         lines = env_path.read_text(encoding="utf-8").splitlines()
@@ -257,17 +260,16 @@ def read_local_postgres_environment(
             or metadata.st_mtime_ns != final_metadata.st_mtime_ns
         ):
             raise StorageConfigurationError(
-                "Локальный PostgreSQL env изменился во время чтения."
+                "Локальный environment изменился во время чтения."
             )
     except StorageConfigurationError:
         raise
     except (OSError, UnicodeError) as exc:
         raise StorageConfigurationError(
-            "Локальный PostgreSQL env невозможно прочитать."
+            "Локальный environment невозможно прочитать."
         ) from exc
 
     values: dict[str, str] = {}
-    infrastructure_values: dict[str, str] = {}
     seen_keys: set[str] = set()
     for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
@@ -275,26 +277,64 @@ def read_local_postgres_environment(
             continue
         if "=" not in line:
             raise StorageConfigurationError(
-                f"Строка {line_number} локального PostgreSQL env некорректна."
+                f"Строка {line_number} локального environment некорректна."
             )
         key, raw_value = line.split("=", 1)
         key = key.strip()
         if not _KEY_RE.fullmatch(key) or key in seen_keys:
             raise StorageConfigurationError(
-                f"Ключ локального PostgreSQL env в строке {line_number} некорректен."
+                f"Ключ локального environment в строке {line_number} некорректен."
             )
         seen_keys.add(key)
-        if key in _ALLOWED_KEYS:
-            values[key] = _parse_value(raw_value, line_number)
-        elif key in INFRASTRUCTURE_ENVIRONMENT_KEYS:
-            # Compose и боевой PostgreSQL используют один защищённый локальный
-            # файл окружения. Registry перечисляет инфраструктурные ключи
-            # явно: опечатка внутри namespace не должна пройти незамеченной.
-            infrastructure_values[key] = _parse_value(raw_value, line_number)
-        else:
+        if key not in LOCAL_ENVIRONMENT_KEYS:
             raise StorageConfigurationError(
-                f"Ключ локального PostgreSQL env в строке {line_number} некорректен."
+                f"Ключ локального environment в строке {line_number} некорректен."
             )
+        values[key] = _parse_value(raw_value, line_number)
+    return values
+
+
+def read_local_environment_subset(
+    path: str | Path,
+    *,
+    keys: Iterable[str],
+) -> dict[str, str] | None:
+    """Вернуть только заранее разрешённое подмножество локального `.env`.
+
+    Весь файл всё равно проходит registry/duplicate/ACL/race проверки, но
+    вызывающий consumer получает только собственные запрошенные ключи.
+    """
+
+    requested = frozenset(keys)
+    if not requested or not requested.issubset(LOCAL_ENVIRONMENT_KEYS):
+        raise StorageConfigurationError(
+            "Запрошенный subset локального environment не зарегистрирован."
+        )
+    values = _read_local_environment_values(path)
+    if values is None:
+        return None
+    missing = requested.difference(values)
+    if missing:
+        raise StorageConfigurationError(
+            "Локальный environment не содержит обязательный зарегистрированный key."
+        )
+    return {key: values[key] for key in requested}
+
+
+def read_local_postgres_environment(
+    path: str | Path = DEFAULT_LOCAL_ENV_PATH,
+) -> LocalPostgresEnvironment | None:
+    env_path = Path(path)
+    all_values = _read_local_environment_values(path)
+    if all_values is None:
+        return None
+
+    values = {key: all_values[key] for key in _ALLOWED_KEYS if key in all_values}
+    infrastructure_values = {
+        key: value
+        for key, value in all_values.items()
+        if key in INFRASTRUCTURE_ENVIRONMENT_KEYS
+    }
 
     if _ALLOWED_KEYS.difference(values):
         raise StorageConfigurationError(

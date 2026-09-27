@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import re
 import time
 import tomllib
@@ -25,6 +24,7 @@ from module.mcp_shared.catalog import (
     tool_descriptor_hashes_from_tools,
     tool_names_from_tools,
 )
+from module.mcp_shared.local_http_auth import LocalHttpAuthError, read_local_mcp_token
 from module.mcp_shared.versioning import (
     MCP_SOURCE_SET_NAMES,
     McpBundle,
@@ -252,7 +252,7 @@ class _McpBaseline:
 
 
 class McpSourceDriftDetails(BaseModel):
-    """Bounded evidence for one generated MCP artifact mismatch."""
+    """Ограниченное evidence одного расхождения сгенерированного MCP-артефакта."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -843,9 +843,10 @@ def _server_status_from_model(
     observed_version: str | None = None,
     observed_source_revision: str | None = None,
     routes: tuple[Literal["stdio", "loopback_http", "public_https"], ...] = (
-        "stdio",
         "loopback_http",
     ),
+    authentication: Literal["configured", "unavailable", "unknown"] = "unknown",
+    ownership_confirmed: bool = False,
     reason_code: str | None = None,
 ) -> McpServerStatus:
     return McpServerStatus(
@@ -859,6 +860,8 @@ def _server_status_from_model(
         capability_catalog_sha256=server.capability_catalog_sha256,
         contract_revision=server.contract_revision,
         routes=routes,
+        authentication=authentication,
+        ownership_confirmed=ownership_confirmed,
         reason_code=reason_code,
     )
 
@@ -1585,7 +1588,7 @@ class McpService:
         if service is None:  # pragma: no cover - closed MCP server catalog
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Неизвестный first-party MCP server.",
+                "Неизвестный первичный MCP-сервер.",
             )
         return LocalHttpSupervisor(
             root,
@@ -1803,6 +1806,22 @@ class McpService:
         for name in MCP_SERVER_NAMES:
             server = bundle.servers[name]
             runtime_item = ready_services.get(name, {})
+            supervisor_item = runtime.get("supervisors", {}).get(name, {})
+            supervisor_code = (
+                str(supervisor_item.get("code"))
+                if isinstance(supervisor_item, Mapping)
+                else "LOCAL_MCP_SUPERVISOR_UNKNOWN"
+            )
+            ownership_confirmed = supervisor_code in {
+                "LOCAL_MCP_SUPERVISOR_READY",
+                "LOCAL_MCP_SUPERVISOR_DEGRADED",
+            }
+            try:
+                read_local_mcp_token(root, name)
+            except LocalHttpAuthError:
+                authentication = "unavailable"
+            else:
+                authentication = "configured"
             observed = runtime_item.get("server_version")
             contract_matches = (
                 observed == server.version
@@ -1830,6 +1849,8 @@ class McpService:
                     observed_source_revision=_safe_source_revision(
                         runtime_item.get("source_revision")
                     ),
+                    authentication=authentication,
+                    ownership_confirmed=ownership_confirmed,
                     reason_code=(
                         None
                         if ready
@@ -1920,7 +1941,7 @@ class McpService:
         *,
         allow_dirty: bool = False,
     ) -> ToolingResult[McpAcceptanceDetails, McpLifecycleDetails]:
-        """Проверить MCP через новый клиент stdio и вернуть типизированный результат."""
+        """Проверить canonical local HTTP через новую SDK-сессию."""
 
         root = self._root(repository_root)
         from dev_tools.mcp_acceptance import accept as accept_fresh_mcp_client
@@ -2109,17 +2130,19 @@ class McpService:
         )
 
     @staticmethod
-    def _auth_ready(server_names: Iterable[str] = MCP_SERVER_NAMES) -> bool:
+    def _auth_ready(
+        repository_root: str | Path,
+        server_names: Iterable[str] = MCP_SERVER_NAMES,
+    ) -> bool:
         names = tuple(server_names)
         if not names or any(name not in MCP_SERVER_NAMES for name in names):
             return False
-        values = [os.environ.get(TOKEN_ENVIRONMENT_KEYS[name], "") for name in names]
-        return bool(values) and all(
-            value
-            and len(value.encode("utf-8")) <= 4096
-            and not any(char.isspace() for char in value)
-            for value in values
-        )
+        try:
+            for name in names:
+                read_local_mcp_token(repository_root, name)
+        except LocalHttpAuthError:
+            return False
+        return True
 
     def _start_owned(
         self,
@@ -2132,18 +2155,18 @@ class McpService:
         if not requested or any(name not in MCP_SERVER_NAMES for name in requested):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Список first-party MCP servers для запуска имеет неверный формат.",
+                "Список первичных MCP-серверов для запуска имеет неверный формат.",
             )
         if len(set(requested)) != len(requested):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Список first-party MCP servers содержит повторения.",
+                "Список первичных MCP-серверов содержит повторения.",
             )
         before_state, before = self._runtime_status(root, bundle)
         if before_state == "conflict":
             raise ToolingError(
                 ResultCode.TOOLING_PORT_CONFLICT,
-                "Порт локального first-party MCP уже занят чужим процессом.",
+                "Порт локального первичного MCP уже занят чужим процессом.",
             )
         service_items = {
             item.get("server_name"): item
@@ -2162,21 +2185,21 @@ class McpService:
             ):
                 raise ToolingError(
                     ResultCode.MCP_RUNTIME_STALE,
-                    "Состояние owned local MCP supervisor нельзя безопасно подтвердить.",
+                    "Состояние принадлежащего локального MCP supervisor нельзя безопасно подтвердить.",
                 )
             start_names.append(name)
         if not start_names:
             return False, before
-        if not self._auth_ready(start_names):
+        if not self._auth_ready(root, start_names):
             raise ToolingError(
                 ResultCode.MCP_AUTH_NOT_CONFIGURED,
-                "Ожидаемые bearer environment values локального MCP не настроены.",
+                "Ожидаемые project-local credentials локального MCP не настроены.",
             )
         python = project_python(root)
         if not python.is_file():
             raise ToolingError(
                 ResultCode.MCP_ENVIRONMENT_STALE,
-                "Project Python локального MCP отсутствует.",
+                "Интерпретатор Python проекта для локального MCP отсутствует.",
             )
         from module.mcp_shared.local_http_supervisor import (
             LOCAL_HTTP_SOURCE_SET_DIGEST_ENV_VARS,
@@ -2190,7 +2213,6 @@ class McpService:
         try:
             for name in start_names:
                 explicit_env = {
-                    TOKEN_ENVIRONMENT_KEYS[name]: os.environ[TOKEN_ENVIRONMENT_KEYS[name]],
                     LOCAL_HTTP_SOURCE_SET_DIGEST_ENV_VARS[name]: bundle.servers[
                         name
                     ].source_set_digest,
@@ -2259,7 +2281,7 @@ class McpService:
         if result.outcome is LocalHttpSupervisorStopOutcome.PORT_CONFLICT:
             raise ToolingError(
                 ResultCode.TOOLING_PORT_CONFLICT,
-                "Порт локального first-party MCP уже занят чужим процессом.",
+                "Порт локального первичного MCP уже занят чужим процессом.",
             )
         if not result.ok:
             raise ToolingError(
@@ -2280,9 +2302,9 @@ class McpService:
             code=ResultCode.OK,
             state=OperationState.READY,
             message=(
-                "Owned local MCP supervisor готов."
+                "Принадлежащий локальный MCP supervisor готов."
                 if changed
-                else "Owned local MCP supervisor уже готов; запуск не требовался."
+                else "Принадлежащий локальный MCP supervisor уже готов; запуск не требовался."
             ),
             details=details,
         )
@@ -2297,7 +2319,7 @@ class McpService:
                 if supervisor.port_conflicts():
                     raise ToolingError(
                         ResultCode.TOOLING_PORT_CONFLICT,
-                        "Порт локального first-party MCP уже занят чужим процессом.",
+                        "Порт локального первичного MCP уже занят чужим процессом.",
                     )
                 continue
             self._stop_owned_supervisor(root, name)
@@ -2307,7 +2329,7 @@ class McpService:
             ok=True,
             code=ResultCode.OK,
             state=OperationState.STOPPED,
-            message="Owned local MCP supervisor остановлен.",
+            message="Принадлежащий локальный MCP supervisor остановлен.",
             details=details,
         )
 
@@ -2315,6 +2337,13 @@ class McpService:
         root = self._root(repository_root)
         self.source.check(root)
         bundle = self._bundle(root)
+        # Проверить оба project-local credential до остановки любого backend-а:
+        # отсутствие одного токена не должно оставлять второй backend остановленным.
+        if not self._auth_ready(root):
+            raise ToolingError(
+                ResultCode.MCP_AUTH_NOT_CONFIGURED,
+                "Ожидаемые project-local credentials локального MCP не настроены.",
+            )
         for name in MCP_SERVER_NAMES:
             supervisor = self._supervisor(root, name)
             before = supervisor.status()
@@ -2322,7 +2351,7 @@ class McpService:
                 if supervisor.port_conflicts():
                     raise ToolingError(
                         ResultCode.TOOLING_PORT_CONFLICT,
-                        "Порт локального first-party MCP уже занят чужим процессом.",
+                        "Порт локального первичного MCP уже занят чужим процессом.",
                     )
                 continue
             self._stop_owned_supervisor(root, name)
@@ -2332,7 +2361,7 @@ class McpService:
             ok=True,
             code=ResultCode.OK,
             state=OperationState.READY,
-            message="Owned local MCP supervisor перезапущен и готов.",
+            message="Принадлежащий локальный MCP supervisor перезапущен и готов.",
             details=details,
         )
 
@@ -2382,14 +2411,14 @@ class McpService:
         if not project_python(root).is_file():
             raise ToolingError(
                 ResultCode.MCP_ENVIRONMENT_STALE,
-                "Project Python отсутствует; согласование MCP runtime остановлено.",
+                "Интерпретатор Python проекта отсутствует; согласование MCP runtime остановлено.",
             )
         bundle = self._bundle(root)
         runtime_state, runtime = self._runtime_status(root, bundle)
         if runtime_state == "conflict":
             raise ToolingError(
                 ResultCode.TOOLING_PORT_CONFLICT,
-                "Порт first-party local MCP уже занят чужим процессом.",
+                "Порт первичного локального MCP уже занят чужим процессом.",
             )
         session_state: Literal["current", "reload_required", "not_observable", "unknown"] = self._session_state(
             root,
@@ -2426,6 +2455,11 @@ class McpService:
                     ResultCode.MCP_RUNTIME_STALE,
                     "Остановленный или устаревший local MCP runtime не имеет безопасного exact owner.",
                 )
+            if not self._auth_ready(root, repair_names):
+                raise ToolingError(
+                    ResultCode.MCP_AUTH_NOT_CONFIGURED,
+                    "Ожидаемые project-local credentials локального MCP не настроены.",
+                )
             for name in repair_names:
                 if supervisors[name].get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED":
                     continue
@@ -2438,7 +2472,7 @@ class McpService:
             if runtime_state != "ready":
                 raise ToolingError(
                     ResultCode.MCP_RUNTIME_UNAVAILABLE,
-                    "После start/restart readiness и exact MCP runtime postcondition не подтверждены.",
+                    "После start/restart readiness и postcondition точного MCP runtime не подтверждены.",
                 )
             session_state = self._session_state(root, runtime, changed_paths=changed_paths)
         details = McpReconcileDetails(
@@ -2469,7 +2503,7 @@ class McpService:
             message=(
                 "MCP runtime уже согласован; mutation не потребовалась."
                 if not restarted
-                else "Остановленный или устаревший owned MCP runtime запущен/перезапущен; readiness подтверждён."
+                else "Остановленный или устаревший принадлежащий MCP runtime запущен/перезапущен; readiness подтверждён."
             ),
             details=details,
         )

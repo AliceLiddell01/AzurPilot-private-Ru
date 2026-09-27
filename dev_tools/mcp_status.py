@@ -21,9 +21,17 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import psutil
+
 from azurpilot.integrations import IntegrationName, IntegrationService
+from azurpilot.integrations.mcp_client import accept_fresh_http
 from azurpilot.tooling.process import safe_environment
 from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
+from module.mcp_shared.local_http_auth import (
+    LOCAL_HTTP_ENDPOINTS,
+    LOCAL_HTTP_TOKEN_ENV_VARS,
+    local_http_headers,
+)
 from module.mcp_shared.versioning import (
     SOURCE_REVISION_ENV,
     UNKNOWN_SOURCE_REVISION,
@@ -47,16 +55,18 @@ SERVER_MODULES = {
     "azurpilot-game": ("module.game_mcp", "game_get_contract"),
 }
 CODEX_LOCAL_HTTP_REGISTRATION_KEYS = {
-    "azurpilot-dev": "azurpilot_dev",
-    "azurpilot-game": "azurpilot_game",
+    "azurpilot-dev": "azurpilot-dev",
+    "azurpilot-game": "azurpilot-game",
 }
-CODEX_LOCAL_HTTP_URLS = {
-    "azurpilot-dev": "http://127.0.0.1:8775/mcp",
-    "azurpilot-game": "http://127.0.0.1:8776/mcp",
-}
-CODEX_LOCAL_HTTP_TOKEN_ENV_VARS = {
-    "azurpilot-dev": "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
-    "azurpilot-game": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+CODEX_LOCAL_HTTP_URLS = LOCAL_HTTP_ENDPOINTS
+CODEX_LOCAL_HTTP_TOKEN_ENV_VARS = LOCAL_HTTP_TOKEN_ENV_VARS
+CODEX_LOCAL_HTTP_HELPERS = {
+    name: (
+        "uv run --locked --no-sync python -m "
+        "module.mcp_shared.local_http_auth --server "
+        f"{name}"
+    )
+    for name in SERVER_NAMES
 }
 CODEX_SERVER_ARGS = {
     name: ("run", "--locked", "--no-sync", "python", "-m", module_name)
@@ -295,6 +305,7 @@ def _codex_url_entry_status(
     *,
     expected_url: str,
     expected_bearer_token_env_var: str | None = None,
+    expected_http_headers_helper: str | None = None,
     expected_startup_timeout_sec: int = 20,
     expected_tool_timeout_sec: int = 120,
     expected_required: bool = False,
@@ -312,6 +323,10 @@ def _codex_url_entry_status(
     }
     if expected_bearer_token_env_var is not None:
         expected["bearer_token_env_var"] = expected_bearer_token_env_var
+    if expected_http_headers_helper is not None:
+        expected["http_headers_helper"] = expected_http_headers_helper
+        if any(key in entry for key in ("bearer_token_env_var", "command", "args", "cwd")):
+            return {"status": "drift", "reason_code": "CODEX_SOURCE_ENTRY_DRIFT"}
     if any(entry.get(key) != value for key, value in expected.items()):
         return {"status": "drift", "reason_code": "CODEX_SOURCE_ENTRY_DRIFT"}
     return {"status": "configured", "reason_code": "CODEX_SOURCE_ENTRY_CONFIGURED"}
@@ -340,8 +355,8 @@ def _codex_effective_registration_status(name: str) -> dict[str, object]:
         "reason_code": "CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE",
         "evidence_kind": "external_live_codex_session",
         "server_name": name,
-        "canonical_route": "direct_local_stdio",
-        "transport": "stdio",
+        "canonical_route": "direct_local_http",
+        "transport": "streamable_http",
         "runtime_reachable": False,
         "runtime_ready": False,
     }
@@ -356,23 +371,14 @@ def first_party_source_registration(root: Path) -> dict[str, object]:
         return {"status": "unavailable", "reason_code": error.code}
     servers: dict[str, dict[str, object]] = {}
     entries: dict[str, object] = {}
+    servers_config = config.get("mcp_servers")
     for name in SERVER_NAMES:
-        stdio = _codex_entry_status(
-            config,
-            name,
-            expected_command="uv",
-            expected_args=CODEX_SERVER_ARGS[name],
-            expected_startup_timeout_sec=CODEX_SERVER_TIMEOUTS[name][0],
-            expected_tool_timeout_sec=CODEX_SERVER_TIMEOUTS[name][1],
-            expected_required=False,
-        )
-        stdio = {**stdio, "evidence_kind": "repository_source_config", "source_path": ".codex/config.toml"}
         local_name = CODEX_LOCAL_HTTP_REGISTRATION_KEYS[name]
         loopback = _codex_url_entry_status(
             config,
             local_name,
             expected_url=CODEX_LOCAL_HTTP_URLS[name],
-            expected_bearer_token_env_var=CODEX_LOCAL_HTTP_TOKEN_ENV_VARS[name],
+            expected_http_headers_helper=CODEX_LOCAL_HTTP_HELPERS[name],
             expected_startup_timeout_sec=10,
             expected_tool_timeout_sec=180,
         )
@@ -383,17 +389,21 @@ def first_party_source_registration(root: Path) -> dict[str, object]:
             "canonical_server_name": name,
             "registration_key": local_name,
         }
-        server_summary = _codex_source_summary(
-            {"stdio": stdio, "loopback_http": loopback}
-        )
+        legacy_alias = "azurpilot_dev" if name == "azurpilot-dev" else "azurpilot_game"
+        if isinstance(servers_config, Mapping) and legacy_alias in servers_config:
+            loopback = {
+                **loopback,
+                "status": "drift",
+                "reason_code": "CODEX_LEGACY_ALIAS_PRESENT",
+            }
+        server_summary = _codex_source_summary({"loopback_http": loopback})
         servers[name] = {
             "status": server_summary["status"],
             "reason_code": server_summary["reason_code"],
-            "source_config": stdio,
+            "source_config": loopback,
             "local_http_source_config": loopback,
         }
-        entries[f"{name}.stdio"] = stdio
-        entries[f"{name}.loopback_http"] = loopback
+        entries[name] = loopback
     result = _codex_source_summary(entries)
     result["servers"] = servers
     return result
@@ -402,7 +412,7 @@ def first_party_source_registration(root: Path) -> dict[str, object]:
 async def _probe_local_stdio(
     server_name: str, *, root: Path, revision: str | None = None
 ) -> dict[str, object]:
-    """Выполнить bounded initialize/tools/list/contract call first-party server."""
+    """Выполнить bounded initialize/tools/list/contract call первичного сервера."""
 
     from mcp.client import Client
     from mcp.client.stdio import StdioServerParameters
@@ -486,6 +496,139 @@ async def _probe_local_stdio(
     }
 
 
+async def _probe_local_http(
+    server_name: str, *, root: Path, revision: str | None = None
+) -> dict[str, object]:
+    """Выполнить bounded acceptance свежего клиента через canonical loopback HTTP."""
+
+    from dev_tools.mcp_acceptance import build_plan
+    from module.mcp_shared.local_http_auth import LocalHttpAuthError
+
+    try:
+        headers = local_http_headers(root, server_name)
+    except LocalHttpAuthError:
+        return {
+            "status": "unavailable",
+            "reason_code": "MCP_PROJECT_LOCAL_CREDENTIAL_UNAVAILABLE",
+            "authenticated": False,
+        }
+    result = await accept_fresh_http(
+        endpoint=CODEX_LOCAL_HTTP_URLS[server_name],
+        headers=headers,
+        plan=build_plan(revision or UNKNOWN_SOURCE_REVISION, server_name),
+        timeout_seconds=STATUS_TIMEOUT_SECONDS,
+    )
+    payload = {
+        "status": result.state.value.lower(),
+        "reason_code": result.reason_code,
+        "evidence_kind": "representative_local_http_probe",
+        "server_name": result.server_name,
+        "server_version": result.server_version,
+        "protocol_version": result.protocol_version,
+        "source_revision": _safe_sha(result.source_revision),
+        "tool_count": result.tool_count,
+        "tool_catalog_sha256": result.tool_catalog_sha256,
+        "capability_catalog_sha256": result.capability_catalog_sha256,
+        "contract_revision": result.contract_revision,
+        "runtime_reachable": result.state.value == "READY",
+        "runtime_ready": result.state.value == "READY",
+        "authenticated": result.state.value == "READY",
+        "diagnostics": list(result.diagnostics),
+    }
+    return payload
+
+
+def _owned_local_http_status(root: Path, server_name: str) -> dict[str, object]:
+    """Собрать read-only evidence точного состояния supervisor/credential."""
+
+    from module.mcp_shared.local_http_auth import (
+        LocalHttpAuthError,
+        read_local_mcp_token,
+    )
+    from module.mcp_shared.local_http_supervisor import (
+        LOCAL_HTTP_SERVICES,
+        LocalHttpSupervisor,
+    )
+
+    service = next(item for item in LOCAL_HTTP_SERVICES if item.name == server_name)
+    try:
+        supervisor = LocalHttpSupervisor(root, services=(service,), state_namespace=server_name)
+        runtime = supervisor.status()
+    except Exception as error:  # noqa: BLE001 - diagnostic boundary.
+        runtime = {
+            "code": "LOCAL_MCP_SUPERVISOR_UNKNOWN",
+            "error_type": _safe_type_name(error),
+        }
+    try:
+        read_local_mcp_token(root, server_name)
+    except LocalHttpAuthError:
+        credential = "unavailable"
+    else:
+        credential = "configured"
+    code = str(runtime.get("code", "LOCAL_MCP_SUPERVISOR_UNKNOWN"))
+    return {
+        "status": "ready" if code == "LOCAL_MCP_SUPERVISOR_READY" else "partial",
+        "supervisor_code": code,
+        "ownership_confirmed": code in {
+            "LOCAL_MCP_SUPERVISOR_READY",
+            "LOCAL_MCP_SUPERVISOR_DEGRADED",
+        },
+        "credential": credential,
+        "port": service.port,
+        "runtime": runtime,
+    }
+
+
+def _legacy_stdio_process_status(server_name: str) -> dict[str, object]:
+    """Зафиксировать наличие legacy stdio process без synthetic ownership claims."""
+
+    module_name = SERVER_MODULES[server_name][0]
+    processes: list[dict[str, object]] = []
+    inaccessible = False
+    try:
+        iterator = psutil.process_iter(["pid", "cmdline", "exe", "cwd"])
+        for process in iterator:
+            try:
+                info = process.info
+                command = tuple(str(item) for item in (info.get("cmdline") or ()))
+                if not any(
+                    command[index : index + 2] == ("-m", module_name)
+                    for index in range(max(0, len(command) - 1))
+                ):
+                    continue
+                processes.append(
+                    {
+                        "pid": int(info["pid"]),
+                        "server_name": server_name,
+                        "executable_name": Path(str(info.get("exe") or "")).name
+                        or "unknown",
+                        "working_directory_name": Path(str(info.get("cwd") or "")).name
+                        or "unknown",
+                    }
+                )
+            except (KeyError, OSError, psutil.Error, TypeError, ValueError):
+                inaccessible = True
+    except (OSError, psutil.Error):
+        inaccessible = True
+    if processes:
+        return {
+            "status": "present",
+            "reason_code": "LEGACY_STDIO_PROCESS_PRESENT",
+            "processes": processes[:16],
+        }
+    if inaccessible:
+        return {
+            "status": "unknown",
+            "reason_code": "LEGACY_STDIO_PROCESS_UNOBSERVABLE",
+            "processes": [],
+        }
+    return {
+        "status": "absent",
+        "reason_code": "LEGACY_STDIO_PROCESS_ABSENT",
+        "processes": [],
+    }
+
+
 def _surface_status(
     probe: Mapping[str, object],
     *,
@@ -507,7 +650,10 @@ def _surface_status(
     except ValueError:
         version_status = "drift"
     observed_revision = probe.get("source_revision")
-    if probe.get("evidence_kind") == "representative_local_probe":
+    if probe.get("evidence_kind") in {
+        "representative_local_probe",
+        "representative_local_http_probe",
+    }:
         source_status = "not_applicable"
     elif (
         expected_revision != UNKNOWN_SOURCE_REVISION
@@ -611,7 +757,7 @@ async def collect_status_async(
     integration_service: IntegrationService | None = None,
     now: Callable[[], str] | None = None,
 ) -> dict[str, object]:
-    """Собрать bounded status без profile или implicit route assumptions."""
+    """Собрать bounded status без предположений о profile или implicit route."""
 
     repository_root = (Path(root) if root is not None else REPOSITORY_ROOT).resolve()
     generated_at = now() if now is not None else _utc_now()
@@ -633,7 +779,7 @@ async def collect_status_async(
         "servers": effective,
     }
     local_runner = local_probe or (
-        lambda name, item_root, item_revision: _probe_local_stdio(
+        lambda name, item_root, item_revision: _probe_local_http(
             name, root=item_root, revision=item_revision
         )
     )
@@ -681,6 +827,8 @@ async def collect_status_async(
         server_source = source_config.get("servers")
         server_items[name] = {
             "expected_version": expected_version,
+            "owned_local_http": _owned_local_http_status(repository_root, name),
+            "legacy_stdio_processes": _legacy_stdio_process_status(name),
             "local_direct": _surface_status(
                 local_mapping,
                 expected_version=expected_version,
@@ -999,14 +1147,14 @@ def _strict_failure(report: Mapping[str, object], emission: MetricEmission | Non
 
 
 _HUMAN_STATUS_LABELS = {
-    "ready": "OK",
-    "configured": "OK",
-    "partial": "PARTIAL",
-    "drift": "DRIFT",
-    "not_configured": "NOT CONFIGURED",
-    "not_observable": "UNKNOWN",
-    "unavailable": "UNAVAILABLE",
-    "unknown": "UNKNOWN",
+    "ready": "ГОТОВО",
+    "configured": "НАСТРОЕНО",
+    "partial": "ЧАСТИЧНО",
+    "drift": "РАСХОЖДЕНИЕ",
+    "not_configured": "НЕ НАСТРОЕНО",
+    "not_observable": "НЕ НАБЛЮДАЕМО",
+    "unavailable": "НЕДОСТУПНО",
+    "unknown": "НЕИЗВЕСТНО",
 }
 
 
@@ -1034,8 +1182,8 @@ def _print_human_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) ->
 def _print_human_notes(notes: Sequence[str]) -> None:
     if notes:
         print()
-        print("Notes")
-        print("-----")
+        print("Примечания")
+        print("----------")
         for note in notes:
             print(f"- {note}")
 
@@ -1043,13 +1191,13 @@ def _print_human_notes(notes: Sequence[str]) -> None:
 def _print_human(report: Mapping[str, object], emission: MetricEmission | None) -> None:
     print("Статус MCP AzurPilot")
     print("====================")
-    print(f"OVERALL  {_human_status_label(report.get('status'))} ({_human_reason(report.get('reason_code'))})")
+    print(f"ИТОГ     {_human_status_label(report.get('status'))} ({_human_reason(report.get('reason_code'))})")
     source = report.get("source")
     if isinstance(source, Mapping):
         revision = source.get("revision", UNKNOWN_SOURCE_REVISION)
         shown_revision = revision[:12] if isinstance(revision, str) and revision != UNKNOWN_SOURCE_REVISION else UNKNOWN_SOURCE_REVISION
-        print(f"SOURCE   {shown_revision} ({source.get('working_tree', 'unknown')})")
-    for label, key in (("PLUGIN", "plugin"), ("SOURCE CONFIG", "source_config"), ("CODEX SESSION", "effective_codex_registration"), ("VERSION", "version_guard")):
+        print(f"ИСТОЧНИК {shown_revision} ({source.get('working_tree', 'unknown')})")
+    for label, key in (("ПЛАГИН", "plugin"), ("КОНФИГ. ИСТОЧНИКА", "source_config"), ("СЕССИЯ CODEX", "effective_codex_registration"), ("ВЕРСИЯ", "version_guard")):
         value = report.get(key)
         if isinstance(value, Mapping):
             print(f"{label:14} {_human_status_label(value.get('status'))} ({_human_reason(value.get('reason_code'))})")
@@ -1069,7 +1217,7 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
             if local_status != "ready":
                 notes.append(f"{name} local/direct: {_human_status_label(local_status)} ({_human_reason(local.get('reason_code') if isinstance(local, Mapping) else None)})")
     print()
-    _print_human_table(("СЕРВЕР", "ОЖИДАЕМАЯ ВЕРСИЯ", "ЛОКАЛЬНО", "REMOTE"), rows)
+    _print_human_table(("СЕРВЕР", "ОЖИДАЕМАЯ ВЕРСИЯ", "ЛОКАЛЬНО", "УДАЛЁННЫЙ"), rows)
     integrations = report.get("integrations")
     if isinstance(integrations, Mapping):
         print()
@@ -1089,12 +1237,12 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
         _print_human_table(("ИНТЕГРАЦИЯ", "СОСТОЯНИЕ", "НАСТРОЕНО", "ПРИЧИНА"), integration_rows)
     if emission is not None:
         print()
-        print(f"METRICS  {_human_status_label('ready' if emission.emitted else 'unavailable')} ({_human_reason(emission.reason_code)}) samples={emission.sample_count}")
+        print(f"МЕТРИКИ  {_human_status_label('ready' if emission.emitted else 'unavailable')} ({_human_reason(emission.reason_code)}) samples={emission.sample_count}")
     _print_human_notes(notes)
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Read-only status и bounded drift check MCP surfaces AzurPilot.")
+    parser = argparse.ArgumentParser(description="Read-only статус и bounded drift check MCP-поверхностей AzurPilot.")
     parser.add_argument("--json", action="store_true", dest="as_json", help="Вывести bounded JSON.")
     parser.add_argument("--strict", action="store_true", help="Вернуть ненулевой код при неполной проверке.")
     parser.add_argument("--emit-metrics", action="store_true", help="Однократно отправить status metrics через OTel.")
@@ -1149,16 +1297,16 @@ __all__ = [
     "MetricEmission",
     "MetricSample",
     "StatusError",
-    "child_environment",
-    "git_source_snapshot",
     "_codex_entry_status",
     "_codex_url_entry_status",
     "_print_human",
     "_strict_failure",
+    "child_environment",
     "collect_status",
     "collect_status_async",
     "emit_metrics",
     "first_party_source_registration",
+    "git_source_snapshot",
     "main",
     "status_metric_samples",
 ]

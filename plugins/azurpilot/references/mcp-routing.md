@@ -38,11 +38,10 @@ project trust и effective registration должны быть подтвержд
 
 | Workflow | Codex route | Transport | Backend implementation | Fallback |
 | --- | --- | --- | --- | --- |
-| Development | `azurpilot-dev` | direct local stdio | `module.dev_mcp` | none |
-| Game | `azurpilot-game` | direct local stdio | `module.game_mcp` | none |
-| Codex Desktop Development | `azurpilot_dev` | authenticated loopback local HTTP | `module.dev_mcp.local_http` | none |
-| Codex Desktop Game | `azurpilot_game` | authenticated loopback local HTTP | `module.game_mcp.local_http` | none |
-| Troubleshooting | read-only evidence соответствующего direct route | direct local stdio | соответствующий `module.*_mcp` | none |
+| Development | `azurpilot-dev` | authenticated loopback Streamable HTTP | `module.dev_mcp.local_http` | none |
+| Game | `azurpilot-game` | authenticated loopback Streamable HTTP | `module.game_mcp.local_http` | none |
+| Standalone/compatibility | protocol identity `azurpilot-dev` или `azurpilot-game` | stdio | соответствующий `module.*_mcp` | не является Codex Desktop route |
+| Troubleshooting | read-only evidence соответствующего HTTP route | authenticated loopback Streamable HTTP | соответствующий `module.*_mcp.local_http` | none |
 | ChatGPT/public | отдельная remote surface | authenticated HTTPS/remote | соответствующий `module.*_mcp.remote` той же backend family | не является Codex fallback |
 
 Canonical developer synchronization после candidate freeze:
@@ -54,8 +53,8 @@ azur mcp sync --base <exact-base-sha>
 `NO_CHANGES` — terminal no-op; `SYNCED` включает source/version finalization от
 exact base, generated metadata, восстановление только доказанного owned stale
 runtime, readiness и fresh-client acceptance. После изменения MCP source-set
-повтори sync, который пересчитает версию от base и нового candidate. Unknown или
-foreign ownership, port conflict и failure readiness остаются fail-closed.
+повтори sync, который пересчитает версию от base и нового candidate. Неизвестное
+или чужое владение, конфликт порта и ошибка readiness остаются fail-closed.
 Текущая внешняя Codex session не является postcondition; hot reload не
 предполагается. `impact`, `status`, `versions`, `reconcile`, `start`, `stop` и
 `restart` остаются admin/diagnostic capabilities. Внутренние `module.*_mcp` и
@@ -63,17 +62,19 @@ supervisor modules напрямую не запускаются. Если `azur`
 workflow fail-closed; `uv run`, Python module entrypoint и shell wrapper не
 являются fallback.
 
-Codex Desktop aliases намеренно отличаются от protocol identities:
-`azurpilot_dev` → `http://127.0.0.1:8775/mcp` и
-`azurpilot_game` → `http://127.0.0.1:8776/mcp`. Их bearer tokens берутся из
-user-level environment; literal token в repository config запрещён.
+Canonical Codex registrations совпадают с protocol identities:
+`azurpilot-dev` → `http://127.0.0.1:8775/mcp` и
+`azurpilot-game` → `http://127.0.0.1:8776/mcp`. Их `Authorization` headers
+формирует закрытый `http_headers_helper`, который читает только
+зарегистрированный project-local key из `.env`; user-level environment и
+literal token в repository config не используются.
 Supervisor `module.mcp_shared.local_http_supervisor` владеет обоими
 процессами, проверяет `/ready` и завершает только exact-owned children.
 
 Для обычной Codex-сессии отсутствие direct callable catalog или несовместимый
 contract означает fail-closed остановку и диагностику. Reconnect, OAuth или
 Connected App refresh относятся только к явно выбранной ChatGPT/public remote
-surface и не заменяют local stdio route.
+surface и не заменяют local HTTP route.
 
 ## Canonical bundle и lifecycle
 
