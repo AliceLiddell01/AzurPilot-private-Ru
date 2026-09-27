@@ -789,7 +789,7 @@ def mcp_signals(emission: dict) -> dict:
             },
         ),
         "tempo": (
-            "tempo_get-trace",
+            "get_tempo_trace",
             {"datasourceUid": "tempo", "trace_id": trace_id},
         ),
     }

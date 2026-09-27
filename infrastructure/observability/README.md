@@ -817,37 +817,97 @@ active native operation без новой доказанной identity.
 
 ### Семантика direct MCP adapters
 
-Grafana запускается pinned immutable image через stdio с disable-write,
-disable-api и явными bounded categories; query execution остаётся включённым,
-поскольку observability contract требует Loki/Prometheus reads. Текущий image
-публикует Tempo/TraceQL только через proxied Tempo MCP, поэтому disable-proxied
-на этом route не используется: он удаляет required Tempo tools. Вместо этого
-Codex registration использует deny-by-default allowlist из typed
-`GRAFANA_READ_ONLY_TOOLS`, а exact runtime catalog gate отклоняет неизвестную
-proxied surface до любого tool call. Endpoint передаётся через validated
-AZURPILOT_GRAFANA_URL или bounded discovery текущей Compose topology, а
-credential выбирается через поддержанный environment или validated file
-reference.
-Create/update/delete, generic API, admin, plugin, annotation и alert mutation
-tools не попадают в registration и дополнительно блокируются typed policy.
-Проверка доступности не заявляет более широкую роль, чем подтверждённый
-credential.
+Grafana и Docker Hub используют общий долговременный Streamable HTTP service
+вместо процесса на каждого клиента. Единственный владелец этого service —
+`infrastructure/observability/compose.yaml` (Compose project
+`azurpilot-infrastructure`) с профилем `external-mcp`: он владеет immutable
+image ref, runtime command, loopback publication и read-only flags. Один
+экземпляр обслуживает несколько локальных клиентов и checkout-ов на одной
+машине; клиенты не запускают provider container и не владеют его жизненным
+циклом.
+
+Grafana service `grafana-mcp` публикуется только на `127.0.0.1:8777` (endpoint
+`http://127.0.0.1:8777/mcp`) и запускается с `--disable-write`,
+`--disable-api` и явными bounded categories
+(`search,datasource,prometheus,loki,dashboard,navigation,tempo`). Query
+execution остаётся включённым, поскольку observability contract требует
+Loki/Prometheus reads. Runtime каталог версии 1.6.0 содержит ровно 30
+read-only tools, включая Tempo/TraceQL. Create/update/delete, generic API,
+admin, plugin, annotation и alert mutation tools серверно недоступны, а typed
+`GRAFANA_READ_ONLY_TOOLS` остаётся deny-by-default allowlist как
+defence-in-depth. Provider credential (`GRAFANA_SERVICE_ACCOUNT_TOKEN`)
+остаётся внутри Compose и не попадает в окружение клиента.
+
+Docker Hub service `dockerhub-mcp` публикуется только на `127.0.0.1:8778`
+(endpoint `http://127.0.0.1:8778/mcp`). Публичный image `mcp/dockerhub` не
+обеспечивает fail-closed caller auth, поэтому image собирается самим
+репозиторием из закреплённого commit исходников, закреплённого базового digest
+и замороженного lockfile. Upstream допускает checkRepository/info/tag reads без
+PAT; createRepository, updateRepositoryInfo и deleteRepository никогда не
+вызываются адаптером. Серверной фильтрации tools у этого upstream нет, поэтому
+read-only обеспечивается read-only PAT вместе с typed
+`DOCKER_HUB_READ_ONLY_TOOLS` allowlist как defence-in-depth.
+
+GitHub service `github-mcp` публикуется только на `127.0.0.1:8779`
+(endpoint `http://127.0.0.1:8779/mcp`) и работает как долгоживущий Streamable
+HTTP service проверенного provider image. GitHub identity не принадлежит сервису:
+HTTP transport принимает bearer от вызывающего клиента, поэтому GitHub PAT не
+попадает ни в Compose, ни в container, ни в argv, ни в tracked config. Каталог
+ограничен серверно: `--read-only` вместе с exact `--tools` из восьми read-only
+tools (`pull_request_read`, `list_pull_requests`, `get_file_contents`,
+`search_code`, `issue_read`, `list_issues`, `get_commit`, `get_job_logs`);
+mutation tools отсутствуют в самом каталоге, а не отфильтровываются клиентом.
+Image distroless, поэтому вместо container healthcheck readiness подтверждает
+repository-owned loopback probe из `azurpilot.tooling.infrastructure`: endpoint
+обязан отвечать `401` (допускается и `403`) на запрос без bearer, а любой другой
+ответ означает fail-open и не подтверждает готовность. Проба подтверждает
+доступность листенера и включённую caller auth общего сервиса, а не авторизацию
+конкретного вызывающего: GitHub identity проверяет сам провайдер по клиентскому
+bearer. repository-owned клиентской регистрации GitHub нет: подписка на этот
+маршрут operator-local и в репозиторий не входит, а `.codex/config.toml` и
+`azurpilot.integrations` сознательно не получают GitHub route.
+
+Caller auth и provider credentials — разные контуры. Общий service требует
+bearer token от вызывающего клиента: `MCP_GRAFANA_SERVER_TOKEN` заполняется из
+`AZURPILOT_GRAFANA_MCP_CALLER_TOKEN`, `MCP_AUTH_TOKEN` — из
+`AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN`. Обе переменные задаёт оператор в
+локальном `.env`; при их отсутствии Compose не подставляет значение, а
+контейнеры отказываются стартовать (fail-closed), поэтому общий endpoint
+никогда не открывается без caller auth. Значение читают два независимых
+потребителя: Compose берёт его из `.env`, а MCP-клиент — из окружения своего
+процесса, потому что клиентская регистрация указывает только имя переменной и
+`.env` не читает. Дополнительно healthcheck Grafana требует ответ `401` на
+анонимный `POST /mcp`, поэтому выключенный caller auth становится наблюдаемым
+как `unhealthy`, а не остаётся невидимым. Клиентская регистрация передаёт только
+`url` и имя env-переменной caller token; provider credential клиенту не нужен,
+и в критическом пути нет общего шлюза или прокси.
+
+Жизненным циклом общих services владеет Compose, а типизированная операторская
+граница — буквальная команда `azur integrations shared-mcp status|start|stop`.
+`start` отказывается работать при отсутствии caller tokens в `.env` и не
+создаёт второго владельца image ref или runtime command. Перед `up` эта команда
+выполняет `docker compose build --pull` для `dockerhub-mcp`, вычисляет тег из
+содержимого полного набора входов образа и передаёт его Compose.
+Обычный `up` пересоздаёт только изменившийся контейнер, поэтому изменения
+Dockerfile, lockfile, `.npmrc`, healthcheck или build args не могут остаться
+скрытыми за прежним upstream-only tag. `status` проверяет running/health,
+caller auth и label текущего тега; `build_confirmed` становится
+истинным только после успешного `start` с таким совпадением.
 
 Context7 использует официальный endpoint
 https://mcp.context7.com/mcp; anonymous read-only probe допустим, а
 authenticated readiness требует user-scoped credential. Docker Docs использует
-https://mcp-docs.docker.com/mcp и bounded fetch_docker_docs call. Public
-Docker Hub использует pinned mcp/dockerhub image и допускает
-checkRepository/info/tag reads без PAT; createRepository, updateRepositoryInfo и
-deleteRepository никогда не вызываются адаптером.
+https://mcp-docs.docker.com/mcp и bounded fetch_docker_docs call.
 
 ### Compose и observability lifecycle
 
-Direct integrations не владеют Compose lifecycle. Docker Desktop/Engine/Compose,
+Runtime внешних MCP integrations принадлежит
+`infrastructure/observability/compose.yaml`: Docker Desktop/Engine/Compose,
 Grafana, Loki, Tempo, Prometheus, PostgreSQL, Caddy, pgAdmin, Alloy,
 healthchecks, named volumes и существующие backup/recovery workflows остаются
-в infrastructure/observability/compose.yaml и связанных lifecycle-модулях.
-Замена developer-tooling integrations не удаляет volumes, не пересоздаёт
+там же. Профиль `external-mcp` включается только явно, поэтому отсутствие
+integration credentials не блокирует запуск игровой инфраструктуры. Замена
+developer-tooling integrations не удаляет volumes, не пересоздаёт
 observability project и не переводит application logs/traces на новый storage.
 
 Grafana direct adapter читает explicit endpoint или безопасно подтверждённую
@@ -864,10 +924,13 @@ UNAUTHENTICATED или UNAVAILABLE.
 
 - human и JSON output для integrations и dev_tools.mcp_status;
 - Semgrep staged/changed scope с доказанным ограничением файловой области;
-- Grafana list/query reads;
+- Grafana list/query reads через общий endpoint `127.0.0.1:8777` при
+  подтверждённом caller auth и отказе 401 без него;
 - Context7 resolve/search;
 - Docker Docs search/fetch;
-- Docker Hub repository/info/tag reads;
+- Docker Hub repository/info/tag reads через общий endpoint `127.0.0.1:8778` при
+  подтверждённом caller auth и отказе 401 без него;
+- отказ `azur integrations shared-mcp start` без caller tokens в `.env`;
 - Compose health и сохранность observability volumes;
 - CodeRabbit dogfood review с canonical native-checkout evidence.
 

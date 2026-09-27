@@ -1,8 +1,10 @@
-"""Прямой read-only client для Grafana MCP.
+"""Прямой read-only client общего Grafana MCP HTTP service.
 
-Модуль оставляет Compose lifecycle и storage в соответствующих
-infrastructure-сервисах. Здесь находится только bounded direct transport,
-нужный observability acceptance и reliability checks.
+Модуль не порождает контейнер и не владеет Compose lifecycle: долгоживущий
+process, публикацию, immutable image ref и read-only flags владеет
+`infrastructure/observability/compose.yaml`. Здесь остаётся только bounded
+direct transport к общему Streamable HTTP endpoint с caller credential, нужный
+observability acceptance и reliability checks.
 """
 
 from __future__ import annotations
@@ -11,7 +13,6 @@ import argparse
 import asyncio
 import json
 import re
-import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -21,9 +22,8 @@ from azurpilot.integrations.adapters import (
     GrafanaAdapter,
 )
 from azurpilot.integrations.config import load_integration_config
-from azurpilot.integrations.mcp_client import validate_tool_catalog
+from azurpilot.integrations.mcp_client import call_http_tool
 from azurpilot.tooling.errors import ToolingError
-from azurpilot.tooling.process import safe_environment
 from tools.paths import REPOSITORY_ROOT
 
 MAX_RESULT_ITEMS = 128
@@ -33,6 +33,10 @@ MAX_ARGUMENT_BYTES = 64 * 1024
 GRAFANA_DIRECT_TIMEOUT_SECONDS = 45
 _KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SECRET_KEY_RE = re.compile(r"password|token|secret|authorization|cookie", re.IGNORECASE)
+# Transport сообщает о недопустимой форме negotiated catalog отдельно от adapter
+# plan: недопустимый каталог остаётся отказом прямого client-а, а несовпадение
+# с plan приходит собственным типизированным кодом адаптера.
+_CATALOG_REASON_CODES = {"MCP_TOOL_CATALOG_INVALID": "GRAFANA_TOOL_CATALOG_INVALID"}
 
 
 class ObservabilityMcpError(RuntimeError):
@@ -130,61 +134,41 @@ async def _read_only_grafana_tool_call_async(
     adapter = GrafanaAdapter()
     try:
         config = load_integration_config(repository_root)
-        command = adapter.build_command(repository_root, config)
-        if command is None:
-            raise ObservabilityMcpError("GRAFANA_DIRECT_ROUTE_NOT_CONFIGURED")
-        executable, args, environment_values = command
-        from mcp.client.session import ClientSession
-        from mcp.client.stdio import StdioServerParameters, stdio_client
-
-        parameters = StdioServerParameters(
-            command=executable,
-            args=list(args),
-            cwd=repository_root,
-            env=safe_environment(environment_values),
+        route, reason_code = adapter.call_route(config)
+        if route is None:
+            # Отсутствие caller token или не-loopback endpoint — типизированное
+            # состояние: другого, небезопасного маршрута у client-а нет.
+            raise ObservabilityMcpError(reason_code)
+        outcome = await call_http_tool(
+            endpoint=route.endpoint,
+            headers={"Authorization": f"Bearer {route.caller_token}"},
+            tool_name=tool_name,
+            arguments=bounded_arguments,
+            timeout_seconds=GRAFANA_DIRECT_TIMEOUT_SECONDS,
+            plan=adapter.plan,
         )
-        async with (
-            stdio_client(parameters, errlog=subprocess.DEVNULL) as (read_stream, write_stream),
-            ClientSession(
-                read_stream,
-                write_stream,
-                read_timeout_seconds=GRAFANA_DIRECT_TIMEOUT_SECONDS,
-            ) as session,
-        ):
-            await asyncio.wait_for(
-                session.initialize(), timeout=GRAFANA_DIRECT_TIMEOUT_SECONDS
-            )
-            listed = await asyncio.wait_for(
-                session.list_tools(), timeout=GRAFANA_DIRECT_TIMEOUT_SECONDS
-            )
-            tool_items = getattr(listed, "tools", None)
-            if not isinstance(tool_items, list) or len(tool_items) > MAX_CATALOG_TOOLS:
-                raise ObservabilityMcpError("GRAFANA_TOOL_CATALOG_INVALID")
-            raw_tool_names = [getattr(item, "name", None) for item in tool_items]
-            if any(
-                not isinstance(name, str) or _KEY_RE.fullmatch(name) is None
-                for name in raw_tool_names
-            ) or len(raw_tool_names) != len(set(raw_tool_names)):
-                raise ObservabilityMcpError("GRAFANA_TOOL_CATALOG_INVALID")
-            tool_names = set(raw_tool_names)
-            catalog_error = validate_tool_catalog(adapter.plan, tuple(tool_names))
-            if catalog_error is not None:
-                raise ObservabilityMcpError(catalog_error[0])
-            if tool_name not in tool_names:
-                raise ObservabilityMcpError("GRAFANA_READ_ONLY_TOOL_NOT_OBSERVABLE")
-            result = await asyncio.wait_for(
-                session.call_tool(tool_name, bounded_arguments),
-                timeout=GRAFANA_DIRECT_TIMEOUT_SECONDS,
-            )
     except ObservabilityMcpError:
         raise
-    except (ToolingError, OSError, ValueError, TypeError) as exc:
-        raise ObservabilityMcpError("GRAFANA_DIRECT_CONFIG_INVALID") from exc
+    # TimeoutError обязан проверяться раньше OSError: сам TimeoutError является
+    # его подклассом, иначе ограниченный таймаут общего сервиса маскируется под
+    # ошибку конфигурации.
     except TimeoutError as exc:
         raise ObservabilityMcpError("GRAFANA_DIRECT_PROBE_TIMEOUT") from exc
+    except (ToolingError, OSError, ValueError, TypeError) as exc:
+        raise ObservabilityMcpError("GRAFANA_DIRECT_CONFIG_INVALID") from exc
     except Exception as exc:
         raise ObservabilityMcpError("GRAFANA_DIRECT_TOOL_CALL_FAILED") from exc
-    return _result_payload(result)
+    if outcome.catalog_reason_code is not None:
+        raise ObservabilityMcpError(
+            _CATALOG_REASON_CODES.get(
+                outcome.catalog_reason_code, outcome.catalog_reason_code
+            )
+        )
+    if len(outcome.tool_names) > MAX_CATALOG_TOOLS:
+        raise ObservabilityMcpError("GRAFANA_TOOL_CATALOG_INVALID")
+    if tool_name not in outcome.tool_names:
+        raise ObservabilityMcpError("GRAFANA_READ_ONLY_TOOL_NOT_OBSERVABLE")
+    return _result_payload(outcome)
 
 
 def read_only_grafana_tool_call(
@@ -216,7 +200,9 @@ def direct_grafana_status(repository_root: Path = REPOSITORY_ROOT) -> dict[str, 
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Прямой read-only probe Grafana MCP.")
+    parser = argparse.ArgumentParser(
+        description="Прямой read-only probe общего Grafana MCP HTTP service."
+    )
     parser.add_argument("--repository-root", type=Path, default=REPOSITORY_ROOT)
     parser.add_argument("--probe", action="store_true", help="Проверить один read-only вызов datasource.")
     return parser

@@ -34,6 +34,11 @@ DOCKER_ENVIRONMENT_KEYS = frozenset(
         "DOCKER_CERT_PATH",
     }
 )
+# Ограниченные значения, которые типизированный Compose-владелец передаёт
+# только для выбора образа Docker Hub MCP, принадлежащего репозиторию.
+DOCKER_COMPOSE_ENVIRONMENT_KEYS = frozenset(
+    {"AZURPILOT_DOCKERHUB_MCP_IMAGE_TAG"}
+)
 MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS = {
     "azurpilot-dev": "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
     "azurpilot-game": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
@@ -54,6 +59,15 @@ INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS = frozenset(
 )
 INTEGRATION_CREDENTIAL_FILE_ENVIRONMENT_KEYS = frozenset(
     {"GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE"}
+)
+# Caller auth общих внешних MCP HTTP services — отдельный путь от provider
+# credentials: этот токен подтверждает вызывающую сторону перед общим сервисом
+# и никогда не уходит провайдеру.
+INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS = frozenset(
+    {
+        "AZURPILOT_GRAFANA_MCP_CALLER_TOKEN",
+        "AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN",
+    }
 )
 GRAFANA_URL_ENVIRONMENT_KEY = "GRAFANA_URL"
 
@@ -605,12 +619,13 @@ def _safe_environment(
         "GH_PAGER",
         "GH_PROMPT_DISABLED",
         "__PYVENV_LAUNCHER__",
-    } | DOCKER_ENVIRONMENT_KEYS
+    } | DOCKER_ENVIRONMENT_KEYS | DOCKER_COMPOSE_ENVIRONMENT_KEYS
     allowed_explicit |= (
         set(MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS.values())
         | MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS
         | set(INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS)
         | set(INTEGRATION_CREDENTIAL_FILE_ENVIRONMENT_KEYS)
+        | set(INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS)
         | {GRAFANA_URL_ENVIRONMENT_KEY}
     )
     result = {
@@ -1035,8 +1050,10 @@ class ProcessController:
 __all__ = [
     "DEFAULT_OUTPUT_LIMIT",
     "DEFAULT_PROCESS_TIMEOUT",
+    "DOCKER_COMPOSE_ENVIRONMENT_KEYS",
     "DOCKER_ENVIRONMENT_KEYS",
     "GRAFANA_URL_ENVIRONMENT_KEY",
+    "INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS",
     "INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS",
     "INTEGRATION_CREDENTIAL_FILE_ENVIRONMENT_KEYS",
     "MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS",

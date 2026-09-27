@@ -52,23 +52,25 @@ required = false
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 
+# Общие долгоживущие MCP HTTP services: один process на машину, владелец —
+# infrastructure/observability/compose.yaml. Клиент предъявляет caller token из
+# окружения вызывающей стороны; provider credential остаётся у сервиса.
 [mcp_servers.grafana_direct]
-command = "uv"
-args = [
-    "run",
-    "--locked",
-    "--no-sync",
-    "python",
-    "-m",
-    "azurpilot.integrations.grafana_stdio",
-]
+url = "http://127.0.0.1:8777/mcp"
+bearer_token_env_var = "AZURPILOT_GRAFANA_MCP_CALLER_TOKEN"
 enabled_tools = [
+    "analyze_loki_labels",
     "check_datasources_health",
+    "diff_tempo_traces",
     "generate_deeplink",
+    "get_dashboard_by_uid",
     "get_dashboard_panel_queries",
     "get_dashboard_property",
     "get_dashboard_summary",
     "get_datasource",
+    "get_tempo_trace",
+    "get_tempo_traceql_docs",
+    "list_dashboard_versions",
     "list_datasources",
     "list_loki_label_names",
     "list_loki_label_values",
@@ -76,18 +78,17 @@ enabled_tools = [
     "list_prometheus_label_values",
     "list_prometheus_metric_metadata",
     "list_prometheus_metric_names",
+    "list_tempo_attribute_names",
+    "list_tempo_attribute_values",
     "query_loki_logs",
+    "query_loki_patterns",
+    "query_loki_stats",
     "query_prometheus",
     "query_prometheus_histogram",
+    "query_tempo_metrics",
     "search_dashboards",
-    "tempo_docs-config",
-    "tempo_docs-traceql",
-    "tempo_get-attribute-names",
-    "tempo_get-attribute-values",
-    "tempo_get-trace",
-    "tempo_traceql-metrics-instant",
-    "tempo_traceql-metrics-range",
-    "tempo_traceql-search",
+    "search_folders",
+    "search_tempo_traces",
 ]
 disabled_tools = [
     "alerting_manage_routing",
@@ -104,21 +105,14 @@ disabled_tools = [
     "update_dashboard",
     "update_datasource",
 ]
-env_vars = ["GRAFANA_SERVICE_ACCOUNT_TOKEN"]
-cwd = "."
 enabled = true
 required = false
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 
 [mcp_servers.dockerhub_direct]
-command = "docker"
-args = [
-    "run",
-    "--rm",
-    "-i",
-    "mcp/dockerhub@sha256:76454af4edfd21571d9740113104d0d9f707220453d1c8f7c9971b21848d4248",
-]
+url = "http://127.0.0.1:8778/mcp"
+bearer_token_env_var = "AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN"
 enabled_tools = [
     "checkRepository",
     "checkRepositoryTag",
@@ -133,7 +127,6 @@ enabled_tools = [
     "search",
 ]
 disabled_tools = ["createRepository", "updateRepositoryInfo"]
-cwd = "."
 enabled = true
 required = false
 startup_timeout_sec = 20

@@ -129,9 +129,42 @@ Reconnect не являются fallback для direct local stdio; они пр�
 Для задач репозитория рядом разрешены direct read-only routes: `docker_docs_direct`
 использует официальный Docker Docs endpoint, `context7_direct` — официальный
 Context7 endpoint, а `semgrep_local_direct` запускает локальный `semgrep mcp -t
-stdio`. Grafana и Docker Hub запускаются как отдельные immutable container
-servers, если их endpoint/image подтверждены локальной конфигурацией; для
-Grafana credential требуется, а Docker Hub допускает public read-only probe.
+stdio`. Grafana и Docker Hub подключаются к общим долговременным Streamable HTTP
+services, которые принадлежат Compose-проекту `azurpilot-infrastructure`
+(профиль `external-mcp`): `grafana-mcp` слушает только `127.0.0.1:8777`, а
+`dockerhub-mcp` — только `127.0.0.1:8778`, и `github-mcp` — только
+`127.0.0.1:8779`. Один экземпляр каждого service
+обслуживает несколько локальных клиентов и checkout-ов на одной машине, поэтому
+клиент не запускает provider container. Клиент предъявляет caller token из
+`AZURPILOT_GRAFANA_MCP_CALLER_TOKEN` или
+`AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN`; provider credentials
+(`GRAFANA_SERVICE_ACCOUNT_TOKEN`, `DOCKERHUB_PAT`) остаются в Compose и в
+окружение клиента не попадают. Обе caller-переменные задаёт оператор в локальном
+`.env`; без них команда `azur integrations shared-mcp start` отказывается
+запускать сервис (fail-closed), а `status` и `stop` продолжают работать и
+показывают отсутствие токенов в diagnostics.
+GitHub MCP отличается моделью credential: его provider принимает bearer от
+вызывающего клиента, поэтому GitHub PAT не задаётся ни Compose, ни container, а
+каталог ограничен серверно (`--read-only` и exact `--tools`). Repository-owned
+клиентской регистрации GitHub в репозитории нет: подписка на этот маршрут
+operator-local (профиль `azurpilot-web` в `~/.dsh`), а repository-поверхность —
+только `azur integrations shared-mcp status|start|stop`. Готовность этого сервиса
+подтверждает repository-owned loopback probe: endpoint обязан отвечать `401`
+(допускается и `403`) без bearer, а любой другой ответ означает fail-open и не
+подтверждает готовность. Проба подтверждает, что на loopback-порту слушает
+сервис с включённой caller auth, а не авторизацию конкретного вызывающего:
+GitHub identity проверяет сам провайдер по клиентскому bearer.
+Значение caller-переменной читают два независимых потребителя: Compose берёт его
+из локального `.env`, а MCP-клиент — из окружения своего процесса, поскольку
+клиентская регистрация указывает только имя переменной и `.env` не читает.
+Операция `start` перед запуском выполняет `docker compose build --pull`
+для `dockerhub-mcp`. Канонический владелец вычисляет тег из содержимого
+Compose, Dockerfile, lockfile и остальных входов образа; обычный `up` пересоздаёт
+только изменившийся контейнер. Поэтому изменения входов репозитория
+обновляют image даже при неизменном upstream `HUBCP_COMMIT`, а старый контейнер
+не может пройти проверку под новым тегом. Результат `status` дополнительно
+подтверждает этот тег, health и caller auth; `build_confirmed` отражается только
+в результате успешного `start`.
 CodeRabbit использует host-native read-only review adapter текущей ОС — Windows
 или POSIX — в canonical checkout с exact candidate pre/postcondition. Все
 шесть поверхностей собираются общим

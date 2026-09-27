@@ -6,6 +6,7 @@ import asyncio
 import re
 import subprocess
 from collections.abc import Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -13,6 +14,20 @@ from .contracts import IntegrationState
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _MAX_TOOLS = 256
+# Plain HTTP допускается только для endpoint общего сервиса на loopback: это
+# адрес машины-владельца, а не расширение доступа за её пределы. Владелец
+# проверки один — этот модуль, остальные вызывающие стороны её переиспользуют.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+ENDPOINT_INVALID_CODE = "INTEGRATION_ENDPOINT_INVALID"
+ENDPOINT_NOT_LOOPBACK_CODE = "INTEGRATION_SHARED_ENDPOINT_NOT_LOOPBACK"
+
+
+class HttpEndpointError(ValueError):
+    """Типизированный отказ проверки HTTP MCP endpoint общего сервиса."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
 
 
 def validate_endpoint(value: str, *, allow_http: bool = False) -> str:
@@ -29,6 +44,19 @@ def validate_endpoint(value: str, *, allow_http: bool = False) -> str:
         raise ValueError("endpoint не должен содержать credentials или управляющие символы")
     if len(value) > 512:
         raise ValueError("endpoint превышает ограниченный размер")
+    return value
+
+
+def validate_http_endpoint(value: str) -> str:
+    """Проверить endpoint HTTP MCP: plain HTTP допускается только на loopback."""
+
+    try:
+        validate_endpoint(value, allow_http=True)
+    except ValueError as exc:
+        raise HttpEndpointError(ENDPOINT_INVALID_CODE) from exc
+    parsed = urlsplit(value)
+    if parsed.scheme == "http" and (parsed.hostname or "").casefold() not in LOOPBACK_HOSTS:
+        raise HttpEndpointError(ENDPOINT_NOT_LOOPBACK_CODE)
     return value
 
 
@@ -66,6 +94,31 @@ class McpProbeResult:
     selected_tool: str | None = None
     authenticated: bool | None = None
     diagnostics: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class McpToolCallResult:
+    """Bounded результат одной read-only операции в Streamable HTTP session.
+
+    Negotiated catalog остаётся валидированным: `catalog_reason_code` заполняется
+    только тогда, когда catalog не совпал с переданным `McpCallPlan`. Ошибки
+    transport сюда не превращаются в data, их типизируют вызывающие стороны.
+    """
+
+    tool_names: tuple[str, ...] = ()
+    catalog_reason_code: str | None = None
+    is_error: bool = False
+    content: tuple[object, ...] = ()
+    structured_content: Mapping[str, object] | None = None
+    diagnostics: tuple[str, ...] = ()
+
+    @property
+    def has_content(self) -> bool:
+        """Сообщить, наблюдаем ли bounded результат без raw payload."""
+
+        if self.structured_content:
+            return True
+        return bool(self.content)
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,14 +498,17 @@ async def accept_fresh_stdio(
         )
 
 
-def _call_error_state(
-    result: object,
+def _call_state(
     *,
+    is_error: bool,
+    has_content: bool,
     credential_configured: bool,
     credential_required: bool = False,
 ) -> tuple[IntegrationState, str, bool | None]:
-    if not _result_has_error(result):
-        if _result_has_content(result):
+    """Типизировать исход одного read-only вызова без raw payload."""
+
+    if not is_error:
+        if has_content:
             return IntegrationState.READY, "MCP_READ_ONLY_PROBE_READY", bool(
                 credential_configured
             )
@@ -465,6 +521,20 @@ def _call_error_state(
         if credential_required and not credential_configured
         else "MCP_READ_ONLY_PROBE_ERROR",
         False if credential_required and not credential_configured else None,
+    )
+
+
+def _call_error_state(
+    result: object,
+    *,
+    credential_configured: bool,
+    credential_required: bool = False,
+) -> tuple[IntegrationState, str, bool | None]:
+    return _call_state(
+        is_error=_result_has_error(result),
+        has_content=_result_has_content(result),
+        credential_configured=credential_configured,
+        credential_required=credential_required,
     )
 
 
@@ -547,6 +617,84 @@ async def probe_stdio(
         )
 
 
+@asynccontextmanager
+async def _http_session(
+    *,
+    endpoint: str,
+    headers: Mapping[str, str],
+    timeout_seconds: float,
+):
+    """Открыть одну bounded Streamable HTTP session без redirect и retry."""
+
+    import httpx2
+    from mcp.client.session import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    async with httpx2.AsyncClient(
+        headers=dict(headers),
+        timeout=timeout_seconds,
+        follow_redirects=False,
+    ) as http_client, streamable_http_client(
+        endpoint, http_client=http_client
+    ) as (read_stream, write_stream), ClientSession(
+        read_stream,
+        write_stream,
+        read_timeout_seconds=timeout_seconds,
+    ) as session:
+        yield session
+
+
+async def call_http_tool(
+    *,
+    endpoint: str,
+    headers: Mapping[str, str],
+    tool_name: str,
+    arguments: Mapping[str, object],
+    timeout_seconds: float,
+    plan: McpCallPlan | None = None,
+) -> McpToolCallResult:
+    """Выполнить ровно один read-only tool call по Streamable HTTP.
+
+    Helper остаётся bounded: одна session, один negotiate catalog и один вызов
+    tool. Если передан `plan`, negotiated catalog проверяется до вызова, а его
+    несовпадение возвращается типизированным кодом вместо вызова tool.
+    """
+
+    validate_http_endpoint(endpoint)
+    async with _http_session(
+        endpoint=endpoint,
+        headers=headers,
+        timeout_seconds=timeout_seconds,
+    ) as session:
+        await asyncio.wait_for(session.initialize(), timeout=timeout_seconds)
+        listed = await asyncio.wait_for(session.list_tools(), timeout=timeout_seconds)
+        names = _tool_names(getattr(listed, "tools", None))
+        if names is None:
+            return McpToolCallResult(catalog_reason_code="MCP_TOOL_CATALOG_INVALID")
+        if plan is not None:
+            catalog_error = validate_tool_catalog(plan, names)
+            if catalog_error is not None:
+                reason_code, diagnostic = catalog_error
+                return McpToolCallResult(
+                    tool_names=names,
+                    catalog_reason_code=reason_code,
+                    diagnostics=(diagnostic,),
+                )
+        result = await asyncio.wait_for(
+            session.call_tool(tool_name, dict(arguments)),
+            timeout=timeout_seconds,
+        )
+        # Форма content повторяет прежнюю проверку наблюдаемости: наблюдаемым
+        # считается только список блоков, а не произвольный объект.
+        raw_content = getattr(result, "content", None)
+        return McpToolCallResult(
+            tool_names=names,
+            is_error=_result_has_error(result),
+            content=tuple(raw_content) if isinstance(raw_content, list | tuple) else (),
+            structured_content=_structured_payload(result),
+        )
+
+
 async def probe_http(
     *,
     endpoint: str,
@@ -559,62 +707,39 @@ async def probe_http(
     """Проверить конкретный streamable HTTP server с фиксированным read call."""
 
     try:
-        validate_endpoint(endpoint)
-        import httpx2
-        from mcp.client.session import ClientSession
-        from mcp.client.streamable_http import streamable_http_client
-
-        async with httpx2.AsyncClient(
+        outcome = await call_http_tool(
+            endpoint=endpoint,
             headers=headers,
-            timeout=timeout_seconds,
-            follow_redirects=False,
-        ) as http_client, streamable_http_client(
-            endpoint, http_client=http_client
-        ) as (read_stream, write_stream), ClientSession(
-            read_stream,
-            write_stream,
-            read_timeout_seconds=timeout_seconds,
-        ) as session:
-            await asyncio.wait_for(session.initialize(), timeout=timeout_seconds)
-            listed = await asyncio.wait_for(
-                session.list_tools(), timeout=timeout_seconds
-            )
-            names = _tool_names(getattr(listed, "tools", None))
-            if names is None:
-                return McpProbeResult(
-                    IntegrationState.INCOMPATIBLE,
-                    "MCP_TOOL_CATALOG_INVALID",
-                )
-            catalog_error = validate_tool_catalog(plan, names)
-            if catalog_error is not None:
-                reason_code, diagnostic = catalog_error
-                return McpProbeResult(
-                    IntegrationState.INCOMPATIBLE,
-                    reason_code,
-                    tool_count=len(names),
-                    diagnostics=(diagnostic,),
-                )
-            result = await asyncio.wait_for(
-                session.call_tool(plan.probe_tool, dict(plan.arguments)),
-                timeout=timeout_seconds,
-            )
-            state, reason, authenticated = _call_error_state(
-                result,
-                credential_configured=credential_configured,
-                credential_required=credential_required,
-            )
+            tool_name=plan.probe_tool,
+            arguments=plan.arguments,
+            timeout_seconds=timeout_seconds,
+            plan=plan,
+        )
+        if outcome.catalog_reason_code is not None:
             return McpProbeResult(
-                state,
-                reason,
-                tool_count=len(names),
-                selected_tool=plan.probe_tool,
-                authenticated=authenticated,
-                diagnostics=(
-                    ("write_tools_blocked",)
-                    if plan.blocked_tools.intersection(names)
-                    else ()
-                ),
+                IntegrationState.INCOMPATIBLE,
+                outcome.catalog_reason_code,
+                tool_count=len(outcome.tool_names) or None,
+                diagnostics=outcome.diagnostics,
             )
+        state, reason, authenticated = _call_state(
+            is_error=outcome.is_error,
+            has_content=outcome.has_content,
+            credential_configured=credential_configured,
+            credential_required=credential_required,
+        )
+        return McpProbeResult(
+            state,
+            reason,
+            tool_count=len(outcome.tool_names),
+            selected_tool=plan.probe_tool,
+            authenticated=authenticated,
+            diagnostics=(
+                ("write_tools_blocked",)
+                if plan.blocked_tools.intersection(outcome.tool_names)
+                else ()
+            ),
+        )
     except TimeoutError:
         return McpProbeResult(IntegrationState.UNAVAILABLE, "MCP_PROBE_TIMEOUT")
     except Exception as error:  # noqa: BLE001 - boundary exposes only type.
@@ -626,13 +751,20 @@ async def probe_http(
 
 
 __all__ = [
+    "ENDPOINT_INVALID_CODE",
+    "ENDPOINT_NOT_LOOPBACK_CODE",
+    "LOOPBACK_HOSTS",
     "FreshMcpClientPlan",
     "FreshMcpClientResult",
+    "HttpEndpointError",
     "McpCallPlan",
     "McpProbeResult",
+    "McpToolCallResult",
     "accept_fresh_stdio",
+    "call_http_tool",
     "probe_http",
     "probe_stdio",
     "validate_endpoint",
+    "validate_http_endpoint",
     "validate_tool_catalog",
 ]

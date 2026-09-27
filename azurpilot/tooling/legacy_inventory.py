@@ -41,6 +41,13 @@ def classify(path: str) -> LegacySurface | None:
             "external-runtime",
             "RETAIN",
         )
+    if normalized.startswith("infrastructure/observability/mcp/"):
+        return LegacySurface(
+            normalized,
+            "CONTAINER_BOOT_HOOK",
+            "azurpilot.tooling.infrastructure",
+            "RETAIN",
+        )
     if normalized.startswith(".github/"):
         return LegacySurface(normalized, "CI_RUNNER_GLUE", "ci", "RETAIN")
     if normalized.startswith("deploy/docker/") and Path(normalized).name in {

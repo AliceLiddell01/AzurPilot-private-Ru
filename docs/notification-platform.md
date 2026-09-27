@@ -162,7 +162,9 @@ LISTEN/NOTIFY в notification runtime не используется.
 
 infrastructure/observability предоставляет локальный Compose-контур PostgreSQL,
 Alloy OTLP, Loki, Prometheus, Tempo, Grafana и Caddy. Grafana MCP остаётся
-read-only diagnostic consumer и не является частью delivery path.
+read-only diagnostic consumer и не является частью delivery path: это общий
+долговременный Streamable HTTP service на loopback `127.0.0.1:8777` с caller
+auth от клиента и read-only ограничением на стороне сервера.
 
 ## 3. Инвентаризация producers и конфигурации
 

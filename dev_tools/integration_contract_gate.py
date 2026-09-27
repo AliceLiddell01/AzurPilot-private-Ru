@@ -15,22 +15,29 @@ import tomllib
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+import yaml
+
 from azurpilot.integrations import IntegrationRegistry
 from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
     DOCKER_HUB_READ_ONLY_TOOLS,
     GRAFANA_BLOCKED_TOOLS,
+    GRAFANA_ENABLED_TOOL_CATEGORIES,
     GRAFANA_READ_ONLY_TOOLS,
     GRAFANA_REQUIRED_READ_ONLY_TOOLS,
 )
 from azurpilot.integrations.config import (
     DEFAULTS,
-    GRAFANA_STDIO_LAUNCHER_ARGS,
-    GRAFANA_STDIO_LAUNCHER_COMMAND,
-    GRAFANA_STDIO_LAUNCHER_CWD,
     REPOSITORY_MCP_ALIASES,
+    SHARED_MCP_ROUTE,
 )
 from azurpilot.integrations.contracts import IntegrationName
+from azurpilot.tooling.infrastructure import (
+    DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY,
+    SHARED_MCP_EXTERNAL_READINESS,
+    SHARED_MCP_PROFILE,
+    SHARED_MCP_SERVICES,
+)
 
 EXPECTED_FAMILIES = tuple(name.value for name in IntegrationName)
 _CODEX_FAMILIES = frozenset(
@@ -200,78 +207,431 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
                 )
             continue
 
-        args = _string_list(entry, "args")
-        if family == "grafana":
-            if (
-                entry.get("command") != GRAFANA_STDIO_LAUNCHER_COMMAND
-                or args != GRAFANA_STDIO_LAUNCHER_ARGS
-                or entry.get("cwd") != GRAFANA_STDIO_LAUNCHER_CWD
-            ):
-                errors.append(
-                    ".codex/config.toml: grafana_direct обязан указывать "
-                    "repository-owned stdio launcher"
-                )
-            if any(
-                key in entry
-                for key in (
-                    "url",
-                    "image",
-                    "credential_env_var",
-                    "bearer_token_env_var",
-                )
-            ):
-                errors.append(
-                    ".codex/config.toml: grafana_direct не должен задавать route "
-                    "в обход adapter"
-                )
-            enabled_tools = _string_list(entry, "enabled_tools")
-            if enabled_tools is None or set(enabled_tools) != set(GRAFANA_READ_ONLY_TOOLS):
-                errors.append(
-                    ".codex/config.toml: grafana_direct allowlist расходится с adapter contract"
-                )
-            elif not set(GRAFANA_REQUIRED_READ_ONLY_TOOLS).issubset(enabled_tools):
-                errors.append(
-                    ".codex/config.toml: grafana_direct allowlist не содержит required query/Tempo reads"
-                )
-            disabled_tools = _string_list(entry, "disabled_tools")
-            if disabled_tools is None or set(disabled_tools) != set(GRAFANA_BLOCKED_TOOLS):
-                errors.append(
-                    ".codex/config.toml: grafana_direct denylist расходится с adapter contract"
-                )
-            env_vars = _string_list(entry, "env_vars")
-            if env_vars is None or set(env_vars) != {"GRAFANA_SERVICE_ACCOUNT_TOKEN"}:
-                errors.append(
-                    ".codex/config.toml: grafana_direct должен передавать только "
-                    "credential env launcher-у"
-                )
-            continue
-        canonical_image = DEFAULTS[family].get("image")
-        if (
-            entry.get("command") != DEFAULTS[family].get("command")
-            or args is None
-            or not isinstance(canonical_image, str)
-            or canonical_image not in args
-        ):
-            errors.append(
-                f".codex/config.toml: {registration} расходится с canonical container route"
+        if family in _SHARED_MCP_FAMILIES:
+            _check_shared_registration(
+                root, family, registration, entry, errors
             )
             continue
 
-        if family == "docker-hub":
-            enabled_tools = _string_list(entry, "enabled_tools")
-            disabled_tools = _string_list(entry, "disabled_tools")
-            if enabled_tools is None or set(enabled_tools) != set(
-                DOCKER_HUB_READ_ONLY_TOOLS
-            ):
-                errors.append(
-                    ".codex/config.toml: dockerhub_direct allowlist расходится с adapter contract"
-                )
-            if disabled_tools is None or set(disabled_tools) != set(
-                DOCKER_HUB_BLOCKED_TOOLS
-            ):
-                errors.append(
-                    ".codex/config.toml: dockerhub_direct denylist расходится с adapter contract"
-                )
+        errors.append(
+            f".codex/config.toml: {registration} использует неизвестный route"
+        )
+
+    compose = _load_compose(root, errors)
+    if compose is not None:
+        for family in _SHARED_MCP_FAMILIES:
+            _check_shared_service(root, compose, family, errors)
+        _check_github_service(compose, errors)
+
+
+_SHARED_MCP_FAMILIES = ("grafana", "docker-hub")
+_IMMUTABLE_IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}@sha256:[0-9a-f]{64}$")
+_SOURCE_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_COMPOSE_PATH = Path("infrastructure") / "observability" / "compose.yaml"
+_REPOSITORY_OWNED_IMAGE_PREFIX = "azurpilot-infrastructure/"
+# GitHub MCP принадлежит canonical infrastructure, а GitHub identity остаётся
+# клиентской, поэтому repository policy-инварианты проверяются отдельно от
+# семейств `azurpilot.integrations`.
+GITHUB_MCP_SERVICE = "github-mcp"
+GITHUB_MCP_PORT = 8779
+GITHUB_MCP_CONTAINER_PORT = 8082
+GITHUB_MCP_IMAGE_PREFIX = "ghcr.io/github/"
+GITHUB_MCP_READ_ONLY_TOOLS = (
+    "pull_request_read",
+    "list_pull_requests",
+    "get_file_contents",
+    "search_code",
+    "issue_read",
+    "list_issues",
+    "get_commit",
+    "get_job_logs",
+)
+_CREDENTIAL_ENVIRONMENT_RE = re.compile(
+    r"TOKEN|SECRET|CREDENTIAL|PASSWORD|PAT", re.IGNORECASE
+)
+_FORBIDDEN_REGISTRATION_KEYS = (
+    "command",
+    "args",
+    "cwd",
+    "image",
+    "credential_env_var",
+    "env_vars",
+)
+
+
+def _load_compose(root: Path, errors: list[str]) -> Mapping[object, object] | None:
+    path = root / _COMPOSE_PATH
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError):
+        errors.append(f"{_COMPOSE_PATH.as_posix()}: не удалось разобрать Compose owner")
+        return None
+    if not isinstance(document, Mapping):
+        errors.append(f"{_COMPOSE_PATH.as_posix()}: корень Compose не является отображением")
+        return None
+    return document
+
+
+def _environment_names(service: Mapping[object, object]) -> str:
+    environment = service.get("environment")
+    if isinstance(environment, Mapping):
+        return " ".join(str(value) for value in environment.values())
+    if isinstance(environment, list):
+        return " ".join(str(item) for item in environment)
+    return ""
+
+
+def _loopback_publication(service: Mapping[object, object], endpoint: object) -> bool:
+    """Проверить, что общий сервис опубликован только на loopback-порт endpoint-а."""
+
+    if not isinstance(endpoint, str):
+        return False
+    match = re.search(r":([0-9]{2,5})/", endpoint)
+    if match is None:
+        return False
+    expected = f"127.0.0.1:{match.group(1)}"
+    ports = service.get("ports")
+    if not isinstance(ports, list) or len(ports) != 1:
+        return False
+    item = ports[0]
+    if not isinstance(item, str):
+        return False
+    normalized = item.replace(" ", "")
+    return re.fullmatch(
+        rf"{re.escape(expected)}:[0-9]{{1,5}}(?:/(?:tcp|udp|sctp))?",
+        normalized,
+    ) is not None
+
+
+def _check_shared_service(
+    root: Path,
+    compose: Mapping[object, object],
+    family: str,
+    errors: list[str],
+) -> None:
+    """Проверить Compose-владельца общего HTTP service для одного семейства."""
+
+    services = compose.get("services")
+    service_name = str(DEFAULTS[family].get("compose_service", ""))
+    service: object = (
+        services.get(service_name) if isinstance(services, Mapping) else None
+    )
+    if not isinstance(service, Mapping):
+        errors.append(f"{_COMPOSE_PATH.as_posix()}: отсутствует service {service_name}")
+        return
+    profiles = _string_list(service, "profiles")
+    if profiles is None or SHARED_MCP_PROFILE not in profiles:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} должен быть в профиле "
+            f"{SHARED_MCP_PROFILE}"
+        )
+    if service.get("read_only") is not True:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} должен иметь read-only rootfs"
+        )
+    if not _loopback_publication(service, DEFAULTS[family].get("endpoint")):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} должен публиковаться только "
+            "на loopback-порт общего endpoint"
+        )
+    if service.get("network_mode") is not None:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан жить в "
+            "loopback-публикации Compose, а не в network_mode"
+        )
+    caller_env = str(DEFAULTS[family].get("caller_token_env", ""))
+    if caller_env not in _environment_names(service):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан получать caller token "
+            "общего сервиса из окружения"
+        )
+    if service.get("healthcheck") is None:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} должен иметь healthcheck"
+        )
+
+    image = service.get("image")
+    build = service.get("build")
+    if family == "grafana":
+        if not isinstance(image, str) or _IMMUTABLE_IMAGE_RE.fullmatch(image) is None:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан использовать "
+                "immutable image digest"
+            )
+        command = _string_list(service, "command") or ()
+        if "--transport=streamable-http" not in command:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан обслуживать "
+                "Streamable HTTP transport"
+            )
+        if "--disable-write" not in command or "--disable-api" not in command:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан отключать write и API tools"
+            )
+        if "--disable-query" in command:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} не должен отключать read-only query tools"
+            )
+        if f"--enabled-tools={GRAFANA_ENABLED_TOOL_CATEGORIES}" not in command:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} расходится с read-only "
+                "категориями adapter contract"
+            )
+        entrypoint = _string_list(service, "entrypoint")
+        if entrypoint is None or not any(
+            str(item).startswith("/opt/azurpilot/") for item in entrypoint
+        ):
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан запускаться через "
+                "repository-owned entrypoint, который отказывает стартовать без caller token"
+            )
+        return
+
+    # У Docker Hub MCP нет публичного immutable образа с fail-closed caller auth,
+    # поэтому владелец собирает его из закреплённого commit-а исходников.
+    repository_owned_image = isinstance(image, str) and image.startswith(
+        _REPOSITORY_OWNED_IMAGE_PREFIX
+    )
+    if not isinstance(image, str) or not image or not repository_owned_image:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан использовать "
+            "repository-owned build вместо provider image"
+        )
+    if family == "docker-hub" and (
+        not isinstance(image, str)
+        or f"${{{DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY}:-" not in image
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан связывать image "
+            "с вычисляемым по содержимому тегом сборки"
+        )
+    arguments = build.get("args") if isinstance(build, Mapping) else None
+    commit = (
+        str(arguments.get("HUBCP_COMMIT", ""))
+        if isinstance(arguments, Mapping)
+        else ""
+    )
+    if _SOURCE_COMMIT_RE.fullmatch(commit) is None:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан закреплять полный "
+            "commit исходников"
+        )
+
+
+def _check_github_service(
+    compose: Mapping[object, object], errors: list[str]
+) -> None:
+    """Проверить Compose-владельца общего GitHub MCP HTTP service.
+
+    GitHub provider не принадлежит `azurpilot.integrations`: runtime owner — общий
+    Compose service, а GitHub identity предъявляет вызывающий клиент. Поэтому здесь
+    проверяются repository policy-инварианты: immutable image, loopback-only
+    публикация, server-side read-only с exact allowlist, отсутствие credential в
+    container и согласованность readiness-контракта с Compose.
+    """
+
+    services = compose.get("services")
+    service: object = (
+        services.get(GITHUB_MCP_SERVICE) if isinstance(services, Mapping) else None
+    )
+    if not isinstance(service, Mapping):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: отсутствует service {GITHUB_MCP_SERVICE}"
+        )
+        return
+
+    profiles = _string_list(service, "profiles")
+    if profiles is None or SHARED_MCP_PROFILE not in profiles:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} должен быть в профиле "
+            f"{SHARED_MCP_PROFILE}"
+        )
+    if service.get("read_only") is not True:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} должен иметь read-only rootfs"
+        )
+    if "no-new-privileges:true" not in (_string_list(service, "security_opt") or ()):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} должен запрещать "
+            "повышение привилегий"
+        )
+
+    image = service.get("image")
+    if (
+        not isinstance(image, str)
+        or not image.startswith(GITHUB_MCP_IMAGE_PREFIX)
+        or _IMMUTABLE_IMAGE_RE.fullmatch(image) is None
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан использовать "
+            "immutable digest проверенного provider image"
+        )
+
+    expected_port = f"127.0.0.1:{GITHUB_MCP_PORT}:{GITHUB_MCP_CONTAINER_PORT}/tcp"
+    ports = _string_list(service, "ports") or ()
+    if tuple(item.replace(" ", "") for item in ports) != (expected_port,):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан публиковаться "
+            f"только как {expected_port}"
+        )
+
+    environment = service.get("environment")
+    environment_names: list[str] = []
+    if isinstance(environment, Mapping):
+        environment_names = [str(key) for key in environment]
+    elif isinstance(environment, list):
+        environment_names = [str(item).split("=", 1)[0] for item in environment]
+    if any(_CREDENTIAL_ENVIRONMENT_RE.search(name) for name in environment_names):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} не должен получать "
+            "GitHub credential: identity принадлежит вызывающему клиенту"
+        )
+    # Проверки только по `environment` недостаточно: credential можно провести в
+    # container через `env_file` или через compose `secrets`, поэтому оба пути
+    # запрещены явно.
+    for key in ("env_file", "secrets"):
+        if service.get(key) is not None:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} не должен "
+                f"принимать {key}: GitHub credential не попадает в container"
+            )
+    # `network_mode` вместе с `ports` Docker применяет иначе, чем ожидает Compose:
+    # публикация отбрасывается, а `--listen-host=0.0.0.0` начинает слушать все
+    # интерфейсы хоста вместо loopback.
+    if service.get("network_mode") is not None:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан жить в "
+            "loopback-публикации Compose, а не в network_mode"
+        )
+    if service.get("restart") != "unless-stopped":
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан "
+            "перезапускаться как долгоживущий service"
+        )
+    tmpfs = _string_list(service, "tmpfs") or ()
+    if not any(item.startswith("/tmp") for item in tmpfs):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} с read-only rootfs "
+            "обязан иметь tmpfs для временных путей"
+        )
+
+    command = _string_list(service, "command") or ()
+    if not command or command[0] != "http":
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан работать "
+            "долгоживущим Streamable HTTP service"
+        )
+    if "--read-only" not in command:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан запускать "
+            "provider с server-side --read-only"
+        )
+    if any(
+        item.startswith(("--toolsets=", "--exclude-tools=")) for item in command
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан ограничивать "
+            "каталог exact --tools, а не toolsets или исключениями"
+        )
+    # Provider накапливает повторные `--tools=` флаги, поэтому одного вхождения
+    # недостаточно: допускается ровно один флаг, а разобранный каталог обязан
+    # совпасть с объявленным allowlist без повторов.
+    tools_flags = tuple(item for item in command if item.startswith("--tools="))
+    provided = (
+        tuple(
+            name
+            for name in tools_flags[0][len("--tools=") :].split(",")
+            if name
+        )
+        if len(tools_flags) == 1
+        else ()
+    )
+    if (
+        len(provided) != len(GITHUB_MCP_READ_ONLY_TOOLS)
+        or len(set(provided)) != len(provided)
+        or sorted(provided) != sorted(GITHUB_MCP_READ_ONLY_TOOLS)
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан публиковать "
+            "ровно exact read-only allowlist одним флагом --tools без mutation tools"
+        )
+    if (
+        "--listen-host=0.0.0.0" not in command
+        or f"--port={GITHUB_MCP_CONTAINER_PORT}" not in command
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан слушать "
+            f"Streamable HTTP на container-порту {GITHUB_MCP_CONTAINER_PORT}"
+        )
+
+    if GITHUB_MCP_SERVICE not in SHARED_MCP_SERVICES:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} должен входить в "
+            "repository runtime-контракт общих MCP services"
+        )
+    if SHARED_MCP_EXTERNAL_READINESS.get(GITHUB_MCP_SERVICE) != (
+        "127.0.0.1",
+        GITHUB_MCP_PORT,
+        "/mcp",
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: readiness-контракт {GITHUB_MCP_SERVICE} "
+            "должен совпадать с loopback публикацией Compose"
+        )
+
+
+def _check_shared_registration(
+    root: Path,
+    family: str,
+    registration: str,
+    entry: Mapping[object, object],
+    errors: list[str],
+) -> None:
+    """Проверить, что регистрация подключается к общему HTTP service, а не запускает provider."""
+
+    settings = DEFAULTS[family]
+    if settings.get("route") != SHARED_MCP_ROUTE:
+        errors.append(f"config: {family} обязан использовать общий MCP HTTP route")
+    for key in _FORBIDDEN_REGISTRATION_KEYS:
+        if key in entry:
+            errors.append(
+                f".codex/config.toml: {registration} не должен владеть provider "
+                f"process-ом ({key})"
+            )
+    if entry.get("url") != settings.get("endpoint"):
+        errors.append(
+            f".codex/config.toml: {registration} расходится с общим HTTP endpoint"
+        )
+    if entry.get("bearer_token_env_var") != settings.get("caller_token_env"):
+        errors.append(
+            f".codex/config.toml: {registration} обязан предъявлять caller token "
+            "общего сервиса"
+        )
+
+    enabled_tools = _string_list(entry, "enabled_tools")
+    disabled_tools = _string_list(entry, "disabled_tools")
+    if family == "grafana":
+        if enabled_tools is None or set(enabled_tools) != set(GRAFANA_READ_ONLY_TOOLS):
+            errors.append(
+                ".codex/config.toml: grafana_direct allowlist расходится с adapter contract"
+            )
+        elif not set(GRAFANA_REQUIRED_READ_ONLY_TOOLS).issubset(enabled_tools):
+            errors.append(
+                ".codex/config.toml: grafana_direct allowlist не содержит required query/Tempo reads"
+            )
+        if disabled_tools is None or set(disabled_tools) != set(GRAFANA_BLOCKED_TOOLS):
+            errors.append(
+                ".codex/config.toml: grafana_direct denylist расходится с adapter contract"
+            )
+        return
+    if enabled_tools is None or set(enabled_tools) != set(DOCKER_HUB_READ_ONLY_TOOLS):
+        errors.append(
+            ".codex/config.toml: dockerhub_direct allowlist расходится с adapter contract"
+        )
+    if disabled_tools is None or set(disabled_tools) != set(DOCKER_HUB_BLOCKED_TOOLS):
+        errors.append(
+            ".codex/config.toml: dockerhub_direct denylist расходится с adapter contract"
+        )
 
 
 def _check_active_text(root: Path, errors: list[str]) -> None:
