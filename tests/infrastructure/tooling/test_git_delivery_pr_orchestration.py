@@ -1807,7 +1807,26 @@ def test_codex_registration_failure_is_separate_from_mcp_readiness() -> None:
     assert readiness.integration_checks[0].state is IntegrationCheckState.BLOCKED_PRECONDITION
 
 
-def test_structured_pr_body_reports_external_reviewer_rate_limit() -> None:
+@pytest.mark.parametrize(
+    ("reviewer_status", "reviewer_limitation", "expected_fragment"),
+    [
+        (
+            "RATE_LIMITED",
+            "Provider rate limit; содержательная внешняя проверка текущего head не завершена.",
+            "Provider rate limit",
+        ),
+        (
+            "SUBSTANTIVE",
+            None,
+            "Содержательная внешняя проверка выполнена",
+        ),
+    ],
+)
+def test_structured_pr_body_reports_external_reviewer_status(
+    reviewer_status: str,
+    reviewer_limitation: str | None,
+    expected_fragment: str,
+) -> None:
     body = PullRequestBody(
         goal=(
             "Цель описана достаточно подробно, чтобы оператор понимал причину и ожидаемый результат изменения delivery orchestration. "
@@ -1850,8 +1869,8 @@ def test_structured_pr_body_reports_external_reviewer_rate_limit() -> None:
         readiness=ReadinessState(
             implementation_status="COMPLETE",
             mcp_impact="NOT_REQUIRED",
-            external_reviewer_status="RATE_LIMITED",
-            reviewer_limitation="Provider rate limit; содержательная внешняя проверка текущего head не завершена.",
+            external_reviewer_status=reviewer_status,
+            reviewer_limitation=reviewer_limitation,
             overall_outcome="READY",
             ready_for_chatgpt_review=True,
         ),
@@ -1875,8 +1894,10 @@ def test_structured_pr_body_reports_external_reviewer_rate_limit() -> None:
     )
 
     assert "## Внешняя проверка" in rendered
-    assert "RATE_LIMITED" in rendered
-    assert "Provider rate limit" in rendered
+    assert reviewer_status in rendered
+    assert expected_fragment in rendered
+
+
 def test_nested_cli_parser_exposes_delivery_and_pr_actions() -> None:
     parser = build_parser()
     delivery = parser.parse_args(["delivery", "status", "delivery-test", "--json"])
