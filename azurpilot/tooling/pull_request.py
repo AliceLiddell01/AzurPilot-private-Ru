@@ -123,7 +123,7 @@ class PullRequestBodyRenderer:
     def render(cls, body: PullRequestBody, *, base_sha: str, head_sha: str) -> str:
         cls.validate(body, base_sha=base_sha, head_sha=head_sha)
         reviewer_status = body.readiness.external_reviewer_status
-        review_lines = [f"- Статус внешнего reviewer: \`{reviewer_status}\`."]
+        review_lines = [f"- Статус внешнего reviewer: `{reviewer_status}`."]
         if reviewer_status == "NOT_RUN":
             review_lines.append(
                 "- Проверка не запрошена; это нормальное состояние и не является ограничением."
