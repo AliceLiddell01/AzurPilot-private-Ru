@@ -1,4 +1,4 @@
-"""Registry и CLI-facing service для шести прямых интеграций."""
+"""Registry и CLI-facing service для пяти прямых интеграций."""
 
 from __future__ import annotations
 
