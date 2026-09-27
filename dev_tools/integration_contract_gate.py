@@ -328,6 +328,11 @@ def _check_shared_service(
             f"{_COMPOSE_PATH.as_posix()}: {service_name} должен публиковаться только "
             "на loopback-порт общего endpoint"
         )
+    if service.get("network_mode") is not None:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан жить в "
+            "loopback-публикации Compose, а не в network_mode"
+        )
     caller_env = str(DEFAULTS[family].get("caller_token_env", ""))
     if caller_env not in _environment_names(service):
         errors.append(
@@ -474,6 +479,34 @@ def _check_github_service(
             f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} не должен получать "
             "GitHub credential: identity принадлежит вызывающему клиенту"
         )
+    # Проверки только по `environment` недостаточно: credential можно провести в
+    # container через `env_file` или через compose `secrets`, поэтому оба пути
+    # запрещены явно.
+    for key in ("env_file", "secrets"):
+        if service.get(key) is not None:
+            errors.append(
+                f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} не должен "
+                f"принимать {key}: GitHub credential не попадает в container"
+            )
+    # `network_mode` вместе с `ports` Docker применяет иначе, чем ожидает Compose:
+    # публикация отбрасывается, а `--listen-host=0.0.0.0` начинает слушать все
+    # интерфейсы хоста вместо loopback.
+    if service.get("network_mode") is not None:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан жить в "
+            "loopback-публикации Compose, а не в network_mode"
+        )
+    if service.get("restart") != "unless-stopped":
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан "
+            "перезапускаться как долгоживущий service"
+        )
+    tmpfs = _string_list(service, "tmpfs") or ()
+    if not any(item.startswith("/tmp") for item in tmpfs):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} с read-only rootfs "
+            "обязан иметь tmpfs для временных путей"
+        )
 
     command = _string_list(service, "command") or ()
     if not command or command[0] != "http":
@@ -487,25 +520,33 @@ def _check_github_service(
             "provider с server-side --read-only"
         )
     if any(
-        item.startswith("--toolsets=") or item.startswith("--exclude-tools=")
-        for item in command
+        item.startswith(("--toolsets=", "--exclude-tools=")) for item in command
     ):
         errors.append(
             f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан ограничивать "
             "каталог exact --tools, а не toolsets или исключениями"
         )
-    tools_flag = next(
-        (item for item in command if item.startswith("--tools=")), ""
+    # Provider накапливает повторные `--tools=` флаги, поэтому одного вхождения
+    # недостаточно: допускается ровно один флаг, а разобранный каталог обязан
+    # совпасть с объявленным allowlist без повторов.
+    tools_flags = tuple(item for item in command if item.startswith("--tools="))
+    provided = (
+        tuple(
+            name
+            for name in tools_flags[0][len("--tools=") :].split(",")
+            if name
+        )
+        if len(tools_flags) == 1
+        else ()
     )
-    provided = tuple(
-        item for item in tools_flag[len("--tools=") :].split(",") if item
-    )
-    if len(provided) != len(GITHUB_MCP_READ_ONLY_TOOLS) or sorted(
-        provided
-    ) != sorted(GITHUB_MCP_READ_ONLY_TOOLS):
+    if (
+        len(provided) != len(GITHUB_MCP_READ_ONLY_TOOLS)
+        or len(set(provided)) != len(provided)
+        or sorted(provided) != sorted(GITHUB_MCP_READ_ONLY_TOOLS)
+    ):
         errors.append(
             f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан публиковать "
-            "ровно exact read-only allowlist без mutation tools"
+            "ровно exact read-only allowlist одним флагом --tools без mutation tools"
         )
     if (
         "--listen-host=0.0.0.0" not in command

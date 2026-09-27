@@ -859,8 +859,13 @@ tools (`pull_request_read`, `list_pull_requests`, `get_file_contents`,
 mutation tools отсутствуют в самом каталоге, а не отфильтровываются клиентом.
 Image distroless, поэтому вместо container healthcheck readiness подтверждает
 repository-owned loopback probe из `azurpilot.tooling.infrastructure`: endpoint
-обязан отвечать `401` на запрос без bearer, а любой другой ответ означает
-fail-open и не подтверждает готовность.
+обязан отвечать `401` (допускается и `403`) на запрос без bearer, а любой другой
+ответ означает fail-open и не подтверждает готовность. Проба подтверждает
+доступность листенера и включённую caller auth общего сервиса, а не авторизацию
+конкретного вызывающего: GitHub identity проверяет сам провайдер по клиентскому
+bearer. repository-owned клиентской регистрации GitHub нет: подписка на этот
+маршрут operator-local и в репозиторий не входит, а `.codex/config.toml` и
+`azurpilot.integrations` сознательно не получают GitHub route.
 
 Caller auth и provider credentials — разные контуры. Общий service требует
 bearer token от вызывающего клиента: `MCP_GRAFANA_SERVER_TOKEN` заполняется из

@@ -169,7 +169,10 @@ provider credentials остаются внутри Compose.
 Третьим общим service является `github-mcp` на `127.0.0.1:8779`: GitHub identity
 предъявляет вызывающий клиент, а provider запускается с серверным `--read-only` и
 exact `--tools` из восьми read-only tools. Его readiness подтверждает
-repository-owned loopback probe, а не container healthcheck.
+repository-owned loopback probe (`401`, допускается `403`), а не container
+healthcheck. Repository-owned клиентской регистрации GitHub нет: подписка на этот
+маршрут operator-local, а repository-поверхность — `azur integrations shared-mcp
+status|start|stop`.
 Tool allowlist остаётся read-only, mutating tools блокируются; Grafana
 дополнительно ограничена серверно (`--disable-write`, `--disable-api`, bounded
 categories), а для Docker Hub read-only обеспечивается read-only PAT вместе с

@@ -144,9 +144,15 @@ services, которые принадлежат Compose-проекту `azurpilo
 `azur integrations shared-mcp status|start|stop` отказывается запускать его.
 GitHub MCP отличается моделью credential: его provider принимает bearer от
 вызывающего клиента, поэтому GitHub PAT не задаётся ни Compose, ни container, а
-каталог ограничен серверно (`--read-only` и exact `--tools`). Готовность этого
-сервиса подтверждает repository-owned loopback probe: endpoint обязан отвечать
-`401` без bearer.
+каталог ограничен серверно (`--read-only` и exact `--tools`). Repository-owned
+клиентской регистрации GitHub в репозитории нет: подписка на этот маршрут
+operator-local (профиль `azurpilot-web` в `~/.dsh`), а repository-поверхность —
+только `azur integrations shared-mcp status|start|stop`. Готовность этого сервиса
+подтверждает repository-owned loopback probe: endpoint обязан отвечать `401`
+(допускается и `403`) без bearer, а любой другой ответ означает fail-open и не
+подтверждает готовность. Проба подтверждает, что на loopback-порту слушает
+сервис с включённой caller auth, а не авторизацию конкретного вызывающего:
+GitHub identity проверяет сам провайдер по клиентскому bearer.
 Значение caller-переменной читают два независимых потребителя: Compose берёт его
 из локального `.env`, а MCP-клиент — из окружения своего процесса, поскольку
 клиентская регистрация указывает только имя переменной и `.env` не читает.

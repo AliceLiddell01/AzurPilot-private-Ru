@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 import dev_tools.integration_contract_gate as gate
 from azurpilot.integrations.adapters import DOCKER_HUB_BLOCKED_TOOLS
@@ -153,9 +154,67 @@ def _tools_flag_line(tools: tuple[str, ...]) -> str:
     return '      - "--tools=' + ",".join(tools) + '"' + "\n"
 
 
+def _mutated_github_block(tmp_path: Path, transform) -> Path:
+    """Изменить только блок service github-mcp по границам отступов Compose."""
+
+    source = (REPOSITORY_ROOT / gate._COMPOSE_PATH).read_text(encoding="utf-8")
+    lines = source.splitlines(keepends=True)
+    start = lines.index("  " + gate.GITHUB_MCP_SERVICE + ":\n")
+    end = next(
+        index
+        for index in range(start + 1, len(lines))
+        if lines[index].strip() and not lines[index].startswith("    ")
+    )
+    mutated = transform(lines[start:end])
+    assert mutated != lines[start:end]
+
+    compose = tmp_path / gate._COMPOSE_PATH
+    compose.parent.mkdir(parents=True, exist_ok=True)
+    compose.write_text(
+        "".join(lines[:start] + mutated + lines[end:]), encoding="utf-8"
+    )
+
+    codex_dir = tmp_path / ".codex"
+    codex_dir.mkdir(exist_ok=True)
+    (codex_dir / "config.toml").write_text(
+        (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
 def test_contract_declares_github_read_only_catalog():
-    assert len(gate.GITHUB_MCP_READ_ONLY_TOOLS) == 8
-    assert "github-mcp" in gate.SHARED_MCP_SERVICES
+    """Объявленный allowlist обязан совпасть с фактическим Compose command."""
+
+    document = yaml.safe_load(
+        (REPOSITORY_ROOT / gate._COMPOSE_PATH).read_text(encoding="utf-8")
+    )
+    service = document["services"][gate.GITHUB_MCP_SERVICE]
+    flags = [
+        item
+        for item in service["command"]
+        if item.startswith("--tools=")
+    ]
+    assert len(flags) == 1
+    assert tuple(flags[0][len("--tools=") :].split(",")) == gate.GITHUB_MCP_READ_ONLY_TOOLS
+    assert sorted(gate.GITHUB_MCP_READ_ONLY_TOOLS) == sorted(
+        set(gate.GITHUB_MCP_READ_ONLY_TOOLS)
+    )
+    assert set(gate.GITHUB_MCP_READ_ONLY_TOOLS).isdisjoint(
+        {
+            "create_issue",
+            "create_repository",
+            "merge_pull_request",
+            "push_files",
+            "update_issue",
+        }
+    )
+    assert gate.SHARED_MCP_EXTERNAL_READINESS[gate.GITHUB_MCP_SERVICE] == (
+        "127.0.0.1",
+        gate.GITHUB_MCP_PORT,
+        "/mcp",
+    )
+    assert service["ports"] == [f"127.0.0.1:{gate.GITHUB_MCP_PORT}:{gate.GITHUB_MCP_CONTAINER_PORT}/tcp"]
 
 
 def test_contract_rejects_github_service_without_server_side_read_only(tmp_path: Path):
@@ -199,7 +258,7 @@ def test_contract_rejects_github_tool_catalog_widening(tmp_path: Path):
     payload = gate.check(root)
 
     assert any(
-        "обязан публиковать ровно exact read-only allowlist без mutation tools"
+        "ровно exact read-only allowlist одним флагом --tools без mutation tools"
         in error
         for error in payload["errors"]
     )
@@ -239,11 +298,124 @@ def test_contract_rejects_github_readiness_contract_drift(
         for error in payload["errors"]
     )
 
-    monkeypatch.setattr(gate, "SHARED_MCP_EXTERNAL_READINESS", dict())
+    monkeypatch.setattr(gate, "SHARED_MCP_EXTERNAL_READINESS", {})
     payload = gate.check(root)
 
     assert any(
         "readiness-контракт github-mcp должен совпадать с loopback публикацией Compose"
         in error
+        for error in payload["errors"]
+    )
+
+
+def test_contract_rejects_repeated_tools_flag_widening(tmp_path: Path):
+    """Повторный `--tools=` накапливается provider-ом и расширяет каталог."""
+
+    root = _mutated_repository(
+        tmp_path,
+        _tools_flag_line(gate.GITHUB_MCP_READ_ONLY_TOOLS),
+        _tools_flag_line(gate.GITHUB_MCP_READ_ONLY_TOOLS)
+        + _tools_flag_line(("search_repositories",)),
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        "ровно exact read-only allowlist одним флагом --tools" in error
+        for error in payload["errors"]
+    )
+
+
+def test_contract_rejects_duplicated_tool_inside_allowlist(tmp_path: Path):
+    """Каталог обязан быть точным набором без повторов внутри одного флага."""
+
+    duplicated = (*gate.GITHUB_MCP_READ_ONLY_TOOLS, "search_code")
+    root = _mutated_repository(
+        tmp_path,
+        _tools_flag_line(gate.GITHUB_MCP_READ_ONLY_TOOLS),
+        _tools_flag_line(duplicated),
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        "ровно exact read-only allowlist одним флагом --tools" in error
+        for error in payload["errors"]
+    )
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["env_file", "secrets"],
+)
+def test_contract_rejects_github_credential_channels(tmp_path: Path, key: str):
+    """Credential нельзя провести в container мимо `environment`."""
+
+    injection = f"    {key}:\n      - .env\n" if key == "env_file" else (
+        f"    {key}:\n      - github_token\n"
+    )
+    root = _mutated_repository(
+        tmp_path, _GITHUB_PORTS, injection + _GITHUB_PORTS
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        f"github-mcp не должен принимать {key}" in error
+        for error in payload["errors"]
+    )
+
+
+def test_contract_rejects_network_mode_on_shared_services(tmp_path: Path):
+    """network_mode отменяет loopback-публикацию Compose."""
+
+    root = _mutated_repository(
+        tmp_path, _GITHUB_PORTS, "    network_mode: host\n" + _GITHUB_PORTS
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        "github-mcp обязан жить в loopback-публикации Compose" in error
+        for error in payload["errors"]
+    )
+
+    grafana_port = '      - "127.0.0.1:8777:8000/tcp"' + "\n"
+    root = _mutated_repository(
+        tmp_path / "grafana",
+        grafana_port,
+        "    network_mode: host\n" + grafana_port,
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        "grafana-mcp обязан жить в loopback-публикации Compose" in error
+        for error in payload["errors"]
+    )
+
+
+def test_contract_rejects_github_runtime_hardening_regression(tmp_path: Path):
+    """read-only rootfs требует tmpfs, а сервис обязан перезапускаться."""
+
+    root = _mutated_github_block(
+        tmp_path,
+        lambda block: [line for line in block if line.strip() != "- /tmp"],
+    )
+    payload = gate.check(root)
+
+    assert any(
+        "обязан иметь tmpfs для временных путей" in error
+        for error in payload["errors"]
+    )
+
+    root = _mutated_github_block(
+        tmp_path / "restart",
+        lambda block: [line for line in block if "restart:" not in line],
+    )
+    payload = gate.check(root)
+
+    assert any(
+        "github-mcp обязан перезапускаться как долгоживущий service" in error
         for error in payload["errors"]
     )

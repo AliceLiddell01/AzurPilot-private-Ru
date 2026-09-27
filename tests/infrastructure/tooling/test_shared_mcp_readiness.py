@@ -85,13 +85,25 @@ def test_caller_auth_probe_accepts_only_fail_closed_answers(
 ) -> None:
     target = SHARED_MCP_EXTERNAL_READINESS["github-mcp"]
 
-    def _deny(_request: object, timeout: float = 0.0) -> object:
-        raise urllib.error.HTTPError(
-            "http://127.0.0.1:8779/mcp", 401, "Unauthorized", {}, None
-        )
+    def _harden(*, status: int) -> None:
+        def _deny(_request: object, timeout: float = 0.0) -> object:
+            raise urllib.error.HTTPError(
+                "http://127.0.0.1:8779/mcp", status, "Denied", {}, None
+            )
 
-    monkeypatch.setattr("urllib.request.urlopen", _deny)
+        monkeypatch.setattr("urllib.request.urlopen", _deny)
+
+    # Отказ вызывающему без bearer подтверждает, что caller auth включена.
+    _harden(status=401)
     assert InfrastructureService._caller_auth_probe(target) is True
+
+    _harden(status=403)
+    assert InfrastructureService._caller_auth_probe(target) is True
+
+    # Любой другой HTTP-ответ отказом caller auth не является.
+    for status in (404, 500):
+        _harden(status=status)
+        assert InfrastructureService._caller_auth_probe(target) is False
 
     class _OpenResponse:
         """Открытый ответ без отказа: он не подтверждает readiness."""
@@ -112,6 +124,12 @@ def test_caller_auth_probe_accepts_only_fail_closed_answers(
         raise urllib.error.URLError("connection refused")
 
     monkeypatch.setattr("urllib.request.urlopen", _unreachable)
+    assert InfrastructureService._caller_auth_probe(target) is False
+
+    def _broken(_request: object, timeout: float = 0.0) -> object:
+        raise OSError("network unreachable")
+
+    monkeypatch.setattr("urllib.request.urlopen", _broken)
     assert InfrastructureService._caller_auth_probe(target) is False
 
 
