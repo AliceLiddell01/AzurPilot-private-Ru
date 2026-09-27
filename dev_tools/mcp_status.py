@@ -625,14 +625,31 @@ def _legacy_stdio_process_status(server_name: str) -> dict[str, object]:
     try:
         access_denied = object()
         iterator = psutil.process_iter(
-            ["pid", "cmdline", "username", "exe", "cwd"],
+            ["pid", "cmdline", "username", "exe", "cwd", "name"],
             ad_value=access_denied,
         )
         for process in iterator:
             try:
                 info = process.info
+                username = info.get("username", access_denied)
+                if (
+                    isinstance(username, str)
+                    and username
+                    and username.casefold() != current_username.casefold()
+                ):
+                    continue
                 command_line = info.get("cmdline", access_denied)
                 if command_line is access_denied:
+                    executable = info.get("exe", access_denied)
+                    if not isinstance(executable, str) or not executable:
+                        executable = info.get("name", access_denied)
+                    executable_name = (
+                        Path(executable).name.casefold()
+                        if isinstance(executable, str) and executable
+                        else ""
+                    )
+                    if executable_name and not executable_name.startswith("python"):
+                        continue
                     inaccessible = True
                     continue
                 command = tuple(str(item) for item in (command_line or ()))
@@ -641,11 +658,8 @@ def _legacy_stdio_process_status(server_name: str) -> dict[str, object]:
                     for index in range(max(0, len(command) - 1))
                 ):
                     continue
-                username = info.get("username", access_denied)
                 if username is access_denied or not isinstance(username, str) or not username:
                     inaccessible = True
-                    continue
-                if username.casefold() != current_username.casefold():
                     continue
                 if any(
                     info.get(attribute, access_denied) is access_denied

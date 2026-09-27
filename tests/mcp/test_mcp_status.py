@@ -354,6 +354,58 @@ def test_legacy_stdio_status_ignores_matching_process_from_another_user(
     assert result["status"] == "absent"
 
 
+def test_legacy_stdio_status_skips_foreign_process_with_unreadable_command_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def process_iter(_attrs, *, ad_value):
+        return (
+            SimpleNamespace(
+                info={
+                    "pid": 123,
+                    "cmdline": ad_value,
+                    "username": "another-user",
+                    "exe": ad_value,
+                    "cwd": ad_value,
+                    "name": ad_value,
+                }
+            ),
+        )
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
+    assert result["reason_code"] == "LEGACY_STDIO_PROCESS_ABSENT"
+
+
+def test_legacy_stdio_status_skips_non_python_process_with_unreadable_command_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_username = status.psutil.Process().username()
+
+    def process_iter(_attrs, *, ad_value):
+        return (
+            SimpleNamespace(
+                info={
+                    "pid": 123,
+                    "cmdline": ad_value,
+                    "username": current_username,
+                    "exe": "C:/Program Files/OpenAI/ChatGPT.exe",
+                    "cwd": ad_value,
+                    "name": "ChatGPT.exe",
+                }
+            ),
+        )
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
+    assert result["reason_code"] == "LEGACY_STDIO_PROCESS_ABSENT"
+
+
 def test_local_http_probe_does_not_claim_authentication_after_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
