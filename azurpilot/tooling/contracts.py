@@ -60,38 +60,6 @@ class DeliveryPhase(StrEnum):
     FAILED = "failed"
 
 
-class FindingSeverity(StrEnum):
-    """Ограниченные уровни внешнего review finding."""
-
-    CRITICAL = "critical"
-    MAJOR = "major"
-    MINOR = "minor"
-    TRIVIAL = "trivial"
-    INFO = "info"
-
-
-class FindingDisposition(StrEnum):
-    """Допустимая классификация после независимого triage внешнего review."""
-
-    CONFIRMED = "confirmed"
-    PARTIALLY_CONFIRMED = "partially confirmed"
-    FALSE_POSITIVE = "false positive"
-    DEFERRED = "deferred"
-
-
-class CodeRabbitDeferralReason(StrEnum):
-    """Типизированная причина отложить подтверждённый, но вне scope finding."""
-
-    TASK_SCOPE = "task_scope"
-
-
-class CodeRabbitConflictKind(StrEnum):
-    """Основания отклонить finding; TASK_PROMPT_CONFLICT оставлен для legacy-чтения."""
-
-    REPOSITORY_CONTRACT_CONFLICT = "repository_contract_conflict"
-    TASK_PROMPT_CONFLICT = "task_prompt_conflict"
-    DEPENDENCY_VERSION_CONFLICT = "dependency_version_conflict"
-
 
 class WarningCode(StrEnum):
     """Ограниченные предупреждения, не меняющие основной код результата."""
