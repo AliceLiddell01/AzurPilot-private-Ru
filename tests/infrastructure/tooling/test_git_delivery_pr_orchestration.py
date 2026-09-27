@@ -1807,7 +1807,7 @@ def test_codex_registration_failure_is_separate_from_mcp_readiness() -> None:
     assert readiness.integration_checks[0].state is IntegrationCheckState.BLOCKED_PRECONDITION
 
 
-def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> None:
+def test_structured_pr_body_reports_external_reviewer_rate_limit() -> None:
     body = PullRequestBody(
         goal=(
             "Цель описана достаточно подробно, чтобы оператор понимал причину и ожидаемый результат изменения delivery orchestration. "
@@ -1847,11 +1847,13 @@ def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> No
             "- отсутствие секретов и credentials в diff.\n"
             "- machine-readable Gitleaks report разбирается, а не заменяется одним exit code.\n" * 2
         ),
-        coderabbit_review=CodeRabbitReview(
-            reviewed_head="c" * 40,
-            base_sha="a" * 40,
-            findings=(),
-            rate_limit="Повторный review текущего head временно недоступен из-за provider rate limit.",
+        readiness=ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            external_reviewer_status="RATE_LIMITED",
+            reviewer_limitation="Provider rate limit; содержательная внешняя проверка текущего head не завершена.",
+            overall_outcome="READY",
+            ready_for_chatgpt_review=True,
         ),
         migration_rollback=(
             "Миграций данных нет; rollback до merge выполняется закрытием Draft PR и удалением ветки после отдельного решения.\n"
@@ -1861,7 +1863,7 @@ def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> No
         limitations=(
             "PR остаётся Draft до финального review:\n"
             "- physical device и игровой acceptance не входят в этот scope;\n"
-            "- текущий CodeRabbit head требует отдельного повторного запуска после снятия rate limit.\n"
+            "- внешний reviewer требует отдельного повторного запуска после снятия rate limit.\n"
             "- provider rate limit не трактуется как product approval или как успешный review.\n" * 2
         ),
     )
@@ -1872,11 +1874,9 @@ def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> No
         head_sha="b" * 40,
     )
 
-    assert "Последний проверенный head: `" + "c" * 40 in rendered
-    assert "Текущий head: `" + "b" * 40 in rendered
-    assert "rate limit" in rendered
-
-
+    assert "## Внешняя проверка" in rendered
+    assert "RATE_LIMITED" in rendered
+    assert "Provider rate limit" in rendered
 def test_nested_cli_parser_exposes_delivery_and_pr_actions() -> None:
     parser = build_parser()
     delivery = parser.parse_args(["delivery", "status", "delivery-test", "--json"])
