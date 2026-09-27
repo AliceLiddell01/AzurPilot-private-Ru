@@ -196,6 +196,28 @@ def _supervisor(tmp_path: Path) -> LocalHttpSupervisor:
     )
 
 
+def test_unknown_project_credential_does_not_use_test_environment_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare_test_project(tmp_path)
+    monkeypatch.setenv(_DEV_TOKEN_ENV, "test-dev-token")
+    monkeypatch.setenv(_GAME_TOKEN_ENV, "test-game-token")
+
+    def unknown_token(*_args, **_kwargs):
+        raise supervisor_module.LocalHttpAuthUnknownError("LOCAL_MCP_AUTH_UNKNOWN")
+
+    monkeypatch.setattr(supervisor_module, "read_local_mcp_token", unknown_token)
+
+    supervisor = LocalHttpSupervisor(
+        tmp_path,
+        python_executable=sys.executable,
+        allow_test_environment=True,
+    )
+
+    with pytest.raises(LocalHttpSupervisorError, match="нельзя подтвердить"):
+        supervisor._read_token(supervisor.services[0])
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))

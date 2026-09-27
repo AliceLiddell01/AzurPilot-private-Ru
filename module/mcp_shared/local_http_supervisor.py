@@ -39,6 +39,7 @@ from azurpilot.tooling.process_core import (
 )
 from module.mcp_shared.local_http_auth import (
     LocalHttpAuthError,
+    LocalHttpAuthUnknownError,
     read_local_mcp_token,
 )
 from module.mcp_shared.versioning import SOURCE_REVISION_ENV
@@ -351,6 +352,11 @@ class LocalHttpSupervisor:
 
         try:
             return read_local_mcp_token(self.repository_root, service.name)
+        except LocalHttpAuthUnknownError as exc:
+            raise LocalHttpSupervisorError(
+                "Состояние project-local credential для local MCP service "
+                f"{service.name} ({service.token_env_var}) нельзя подтвердить"
+            ) from exc
         except LocalHttpAuthError as exc:
             if self.allow_test_environment:
                 token = os.environ.get(service.token_env_var, "")

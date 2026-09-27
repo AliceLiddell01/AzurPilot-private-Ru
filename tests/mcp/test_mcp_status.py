@@ -10,7 +10,6 @@ import pytest
 
 import dev_tools.integration_contract_gate as gate
 import dev_tools.mcp_status as status
-import module.mcp_shared.local_http_auth as local_http_auth
 from azurpilot.integrations.contracts import (
     IntegrationEvidence,
     IntegrationName,
@@ -19,6 +18,7 @@ from azurpilot.integrations.contracts import (
 )
 from azurpilot.integrations.mcp_client import FreshMcpClientResult
 from azurpilot.tooling.contracts import ResultCode
+from module.mcp_shared import local_http_auth, local_http_supervisor
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -191,13 +191,82 @@ def test_status_does_not_create_state_directories_and_reports_auth_oserror_as_un
     assert not (tmp_path / "config" / "state").exists()
 
 
-@pytest.mark.parametrize("denied_attribute", ("cmdline", "exe", "cwd"))
+def test_owned_local_http_requires_configured_credential_for_ready(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    service = local_http_supervisor.LOCAL_HTTP_SERVICES[0]
+    monkeypatch.setattr(
+        local_http_supervisor,
+        "LocalHttpSupervisor",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            status=lambda: {"code": "LOCAL_MCP_SUPERVISOR_READY"}
+        ),
+    )
+
+    def unavailable_token(*_args, **_kwargs):
+        raise local_http_auth.LocalHttpAuthError("LOCAL_MCP_AUTH_UNAVAILABLE")
+
+    monkeypatch.setattr(local_http_auth, "read_local_mcp_token", unavailable_token)
+
+    result = status._owned_local_http_status(tmp_path, service.name)
+
+    assert result["status"] == "partial"
+    assert result["credential"] == "unavailable"
+
+
+def test_owned_local_http_keeps_unknown_credential_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    service = local_http_supervisor.LOCAL_HTTP_SERVICES[0]
+    monkeypatch.setattr(
+        local_http_supervisor,
+        "LocalHttpSupervisor",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            status=lambda: {"code": "LOCAL_MCP_SUPERVISOR_READY"}
+        ),
+    )
+
+    def unknown_token(*_args, **_kwargs):
+        raise local_http_auth.LocalHttpAuthUnknownError("LOCAL_MCP_AUTH_UNKNOWN")
+
+    monkeypatch.setattr(local_http_auth, "read_local_mcp_token", unknown_token)
+
+    result = status._owned_local_http_status(tmp_path, service.name)
+
+    assert result["status"] == "unknown"
+    assert result["credential"] == "unknown"
+
+
+def test_local_http_probe_keeps_unknown_credential_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def unknown_headers(*_args, **_kwargs):
+        raise local_http_auth.LocalHttpAuthUnknownError("LOCAL_MCP_AUTH_UNKNOWN")
+
+    monkeypatch.setattr(status, "local_http_headers", unknown_headers)
+    monkeypatch.setattr(
+        status,
+        "accept_fresh_http",
+        lambda **_kwargs: pytest.fail("unknown credentials must block fresh HTTP"),
+    )
+
+    result = asyncio.run(
+        status._probe_local_http("azurpilot-dev", root=tmp_path, revision="a" * 40)
+    )
+
+    assert result["status"] == "unknown"
+    assert result["reason_code"] == "MCP_PROJECT_LOCAL_CREDENTIAL_UNKNOWN"
+
+
+@pytest.mark.parametrize("denied_attribute", ("cmdline", "username", "exe", "cwd"))
 def test_legacy_stdio_status_is_unknown_for_access_denied_attributes(
     monkeypatch: pytest.MonkeyPatch, denied_attribute: str
 ) -> None:
+    current_username = status.psutil.Process().username()
     info = {
         "pid": 123,
         "cmdline": ["python", "-m", status.SERVER_MODULES["azurpilot-dev"][0]],
+        "username": current_username,
         "exe": "python.exe",
         "cwd": "C:/AzurPilot",
     }
@@ -217,12 +286,15 @@ def test_legacy_stdio_status_is_unknown_for_access_denied_attributes(
 def test_legacy_stdio_status_reports_absent_after_complete_unmatched_scan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    current_username = status.psutil.Process().username()
+
     def process_iter(_attrs, *, ad_value):
         return (
             SimpleNamespace(
                 info={
                     "pid": 123,
                     "cmdline": ["python", "-c", "pass"],
+                    "username": current_username,
                     "exe": "python.exe",
                     "cwd": "C:/AzurPilot",
                 }
@@ -235,6 +307,51 @@ def test_legacy_stdio_status_reports_absent_after_complete_unmatched_scan(
 
     assert result["status"] == "absent"
     assert result["reason_code"] == "LEGACY_STDIO_PROCESS_ABSENT"
+
+
+@pytest.mark.parametrize("denied_attribute", ("exe", "cwd"))
+def test_legacy_stdio_status_ignores_inaccessible_metadata_for_unmatched_process(
+    monkeypatch: pytest.MonkeyPatch, denied_attribute: str
+) -> None:
+    current_username = status.psutil.Process().username()
+    info = {
+        "pid": 123,
+        "cmdline": ["python", "-c", "pass"],
+        "username": current_username,
+        "exe": "python.exe",
+        "cwd": "C:/Windows/System32",
+    }
+
+    def process_iter(attrs, *, ad_value):
+        assert "username" in attrs
+        info[denied_attribute] = ad_value
+        return (SimpleNamespace(info=info),)
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
+
+
+def test_legacy_stdio_status_ignores_matching_process_from_another_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info = {
+        "pid": 123,
+        "cmdline": ["python", "-m", status.SERVER_MODULES["azurpilot-dev"][0]],
+        "username": "another-user",
+    }
+
+    monkeypatch.setattr(
+        status.psutil,
+        "process_iter",
+        lambda _attrs, *, ad_value: (SimpleNamespace(info=info),),
+    )
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
 
 
 def test_local_http_probe_does_not_claim_authentication_after_failure(

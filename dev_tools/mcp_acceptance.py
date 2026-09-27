@@ -24,6 +24,7 @@ from module.game_mcp.server import tool_definitions as game_tool_definitions
 from module.mcp_shared.local_http_auth import (
     LOCAL_HTTP_ENDPOINTS,
     LocalHttpAuthError,
+    LocalHttpAuthUnknownError,
     local_http_headers,
 )
 from tools.paths import REPOSITORY_ROOT
@@ -123,6 +124,13 @@ async def accept(
     for server_name in ("azurpilot-dev", "azurpilot-game"):
         try:
             headers = local_http_headers(repository_root, server_name)
+        except LocalHttpAuthUnknownError:
+            results[server_name] = FreshMcpClientResult(
+                state=IntegrationState.UNKNOWN,
+                reason_code="MCP_PROJECT_LOCAL_CREDENTIAL_UNKNOWN",
+                diagnostics=(f"{server_name}:credential_unknown",),
+            )
+            continue
         except LocalHttpAuthError:
             results[server_name] = FreshMcpClientResult(
                 state=IntegrationState.UNAVAILABLE,

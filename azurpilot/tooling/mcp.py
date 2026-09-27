@@ -24,7 +24,11 @@ from module.mcp_shared.catalog import (
     tool_descriptor_hashes_from_tools,
     tool_names_from_tools,
 )
-from module.mcp_shared.local_http_auth import LocalHttpAuthError, read_local_mcp_token
+from module.mcp_shared.local_http_auth import (
+    LocalHttpAuthError,
+    LocalHttpAuthUnknownError,
+    read_local_mcp_token,
+)
 from module.mcp_shared.versioning import (
     MCP_SOURCE_SET_NAMES,
     McpBundle,
@@ -2194,6 +2198,8 @@ class McpService:
         try:
             for name in names:
                 read_local_mcp_token(repository_root, name)
+        except LocalHttpAuthUnknownError:
+            raise
         except LocalHttpAuthError:
             return False
         return True
@@ -2205,6 +2211,8 @@ class McpService:
         for name in MCP_SERVER_NAMES:
             try:
                 auth_ready = self._auth_ready(repository_root, (name,))
+            except LocalHttpAuthUnknownError:
+                states[name] = "unknown"
             except (OSError, ToolingError):
                 states[name] = "unknown"
             else:
@@ -2338,7 +2346,7 @@ class McpService:
                 # .env может измениться после первичного разделения по семействам.
                 try:
                     auth_ready = self._auth_ready(root, (name,))
-                except (OSError, ToolingError):
+                except (LocalHttpAuthUnknownError, OSError, ToolingError):
                     resolved_authentication[name] = "unknown"
                     runtime_unavailable.add(name)
                     continue
@@ -2413,7 +2421,7 @@ class McpService:
                     ProcessController.terminate(process.identity)  # type: ignore[attr-defined]
                 try:
                     auth_ready = self._auth_ready(root, (name,))
-                except (OSError, ToolingError):
+                except (LocalHttpAuthUnknownError, OSError, ToolingError):
                     resolved_authentication[name] = "unknown"
                     runtime_unavailable.add(name)
                     continue

@@ -505,10 +505,19 @@ async def _probe_local_http(
     """Выполнить bounded acceptance свежего клиента через canonical loopback HTTP."""
 
     from dev_tools.mcp_acceptance import build_plan
-    from module.mcp_shared.local_http_auth import LocalHttpAuthError
+    from module.mcp_shared.local_http_auth import (
+        LocalHttpAuthError,
+        LocalHttpAuthUnknownError,
+    )
 
     try:
         headers = local_http_headers(root, server_name)
+    except LocalHttpAuthUnknownError:
+        return {
+            "status": "unknown",
+            "reason_code": "MCP_PROJECT_LOCAL_CREDENTIAL_UNKNOWN",
+            "authenticated": False,
+        }
     except LocalHttpAuthError:
         return {
             "status": "unavailable",
@@ -547,6 +556,7 @@ def _owned_local_http_status(root: Path, server_name: str) -> dict[str, object]:
 
     from module.mcp_shared.local_http_auth import (
         LocalHttpAuthError,
+        LocalHttpAuthUnknownError,
         read_local_mcp_token,
     )
     from module.mcp_shared.local_http_supervisor import (
@@ -570,6 +580,8 @@ def _owned_local_http_status(root: Path, server_name: str) -> dict[str, object]:
         }
     try:
         read_local_mcp_token(root, server_name)
+    except LocalHttpAuthUnknownError:
+        credential = "unknown"
     except OSError:
         credential = "unknown"
     except LocalHttpAuthError:
@@ -579,7 +591,7 @@ def _owned_local_http_status(root: Path, server_name: str) -> dict[str, object]:
     code = str(runtime.get("code", "LOCAL_MCP_SUPERVISOR_UNKNOWN"))
     if credential == "unknown":
         status_value = "unknown"
-    elif code == "LOCAL_MCP_SUPERVISOR_READY":
+    elif credential == "configured" and code == "LOCAL_MCP_SUPERVISOR_READY":
         status_value = "ready"
     else:
         status_value = "partial"
@@ -603,24 +615,43 @@ def _legacy_stdio_process_status(server_name: str) -> dict[str, object]:
     processes: list[dict[str, object]] = []
     inaccessible = False
     try:
+        current_username = psutil.Process().username()
+    except (OSError, psutil.Error):
+        return {
+            "status": "unknown",
+            "reason_code": "LEGACY_STDIO_PROCESS_UNOBSERVABLE",
+            "processes": [],
+        }
+    try:
         access_denied = object()
         iterator = psutil.process_iter(
-            ["pid", "cmdline", "exe", "cwd"], ad_value=access_denied
+            ["pid", "cmdline", "username", "exe", "cwd"],
+            ad_value=access_denied,
         )
         for process in iterator:
             try:
                 info = process.info
-                if any(
-                    info.get(attribute) is access_denied
-                    for attribute in ("cmdline", "exe", "cwd")
-                ):
+                command_line = info.get("cmdline", access_denied)
+                if command_line is access_denied:
                     inaccessible = True
                     continue
-                command = tuple(str(item) for item in (info.get("cmdline") or ()))
+                command = tuple(str(item) for item in (command_line or ()))
                 if not any(
                     command[index : index + 2] == ("-m", module_name)
                     for index in range(max(0, len(command) - 1))
                 ):
+                    continue
+                username = info.get("username", access_denied)
+                if username is access_denied or not isinstance(username, str) or not username:
+                    inaccessible = True
+                    continue
+                if username.casefold() != current_username.casefold():
+                    continue
+                if any(
+                    info.get(attribute, access_denied) is access_denied
+                    for attribute in ("exe", "cwd")
+                ):
+                    inaccessible = True
                     continue
                 processes.append(
                     {

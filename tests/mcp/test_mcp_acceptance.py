@@ -4,6 +4,8 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from azurpilot.integrations.contracts import IntegrationState
 from azurpilot.integrations.mcp_client import (
     FreshMcpClientResult,
@@ -197,6 +199,30 @@ def test_combined_acceptance_reports_game_family_failure(
     )
     assert "azurpilot-dev:ready" in result.diagnostics
     assert "game_list_profiles:transport_error" in result.diagnostics
+
+
+def test_combined_acceptance_preserves_unknown_credential_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        mcp_acceptance, "git_source_snapshot", lambda _root: ("a" * 40, "clean")
+    )
+
+    def unknown_credential(*_args, **_kwargs):
+        raise mcp_acceptance.LocalHttpAuthUnknownError("LOCAL_MCP_AUTH_UNKNOWN")
+
+    monkeypatch.setattr(mcp_acceptance, "local_http_headers", unknown_credential)
+    monkeypatch.setattr(
+        mcp_acceptance,
+        "accept_fresh_http",
+        lambda **_kwargs: pytest.fail("unknown credentials must block fresh HTTP"),
+    )
+
+    result = asyncio.run(mcp_acceptance.accept(tmp_path))
+
+    assert result.state is IntegrationState.UNKNOWN
+    assert result.reason_code == "MCP_PROJECT_LOCAL_CREDENTIAL_UNKNOWN"
+    assert "azurpilot-dev:credential_unknown" in result.diagnostics
 
 
 def test_standalone_acceptance_still_fails_closed_for_dirty_source(

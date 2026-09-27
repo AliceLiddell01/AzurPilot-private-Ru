@@ -13,7 +13,10 @@ from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from module.application.errors import StorageConfigurationError
+from module.application.errors import (
+    StorageConfigurationError,
+    StorageConfigurationUnknownError,
+)
 from module.persistence.config import DatabaseSettings
 from module.persistence.local_environment_schema import (
     INFRASTRUCTURE_ENVIRONMENT_KEYS,
@@ -178,27 +181,32 @@ $payload | ConvertTo-Json -Compress -Depth 4
             encoding="utf-8-sig",
         )
         if completed.returncode != 0:
-            return False
+            return None
         payload = json.loads(completed.stdout)
         current_sid = payload["CurrentSid"]
         rules = payload["Rules"]
         if isinstance(rules, dict):
             rules = [rules]
-        if (
-            payload["OwnerSid"] != current_sid
-            or payload["Protected"] is not True
-            or not isinstance(rules, list)
-        ):
+        if not isinstance(rules, list):
+            return None
+        if payload["OwnerSid"] != current_sid or payload["Protected"] is not True:
             return False
         allowed_sids = {current_sid, "S-1-5-18"}
         current_full_control = False
         for rule in rules:
+            if not isinstance(rule, dict) or not {
+                "Sid",
+                "Type",
+                "Inherited",
+                "Rights",
+            }.issubset(rule):
+                return None
+            if not isinstance(rule["Rights"], int):
+                return None
             if (
-                not isinstance(rule, dict)
-                or rule.get("Sid") not in allowed_sids
-                or rule.get("Type") != "Allow"
-                or rule.get("Inherited") is not False
-                or not isinstance(rule.get("Rights"), int)
+                rule["Sid"] not in allowed_sids
+                or rule["Type"] != "Allow"
+                or rule["Inherited"] is not False
             ):
                 return False
             if rule["Sid"] == current_sid and rule["Rights"] & 0x1F01FF == 0x1F01FF:
@@ -212,16 +220,15 @@ $payload | ConvertTo-Json -Compress -Depth 4
         json.JSONDecodeError,
         subprocess.SubprocessError,
     ):
-        return False
+        return None
 
 
 def _require_secure_permissions(path: Path, metadata: os.stat_result) -> None:
     if os.name == "nt":
         secure = _windows_acl_is_restricted(path)
         if secure is None:
-            raise StorageConfigurationError(
-                "ACL локального PostgreSQL env невозможно проверить: "
-                "установите или включите PowerShell."
+            raise StorageConfigurationUnknownError(
+                "ACL локального environment невозможно подтвердить."
             )
     else:
         secure = metadata.st_uid == os.getuid() and stat.S_IMODE(metadata.st_mode) & 0o077 == 0
@@ -235,35 +242,45 @@ def _read_local_environment_values(path: str | Path) -> dict[str, str] | None:
     """Прочитать registry-ограниченный `.env` без установки его в environment."""
 
     env_path = Path(path)
-    if not env_path.exists():
-        if env_path.is_symlink():
-            raise StorageConfigurationError(
-                "Локальный environment отсутствует или небезопасен."
-            )
-        return None
     try:
-        metadata = env_path.stat()
-        if env_path.is_symlink() or not env_path.is_file() or metadata.st_size > 65_536:
+        metadata = env_path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise StorageConfigurationUnknownError(
+            "Локальный environment невозможно проверить."
+        ) from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        raise StorageConfigurationError(
+            "Локальный environment отсутствует или небезопасен."
+        )
+    try:
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 65_536:
             raise StorageConfigurationError(
                 "Локальный environment отсутствует или небезопасен."
             )
         _require_secure_permissions(env_path, metadata)
-        lines = env_path.read_text(encoding="utf-8").splitlines()
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        except UnicodeError as exc:
+            raise StorageConfigurationError(
+                "Локальный environment содержит некорректный текст."
+            ) from exc
         final_metadata = env_path.stat()
         if (
-            env_path.is_symlink()
+            stat.S_ISLNK(env_path.lstat().st_mode)
             or metadata.st_dev != final_metadata.st_dev
             or metadata.st_ino != final_metadata.st_ino
             or metadata.st_size != final_metadata.st_size
             or metadata.st_mtime_ns != final_metadata.st_mtime_ns
         ):
-            raise StorageConfigurationError(
+            raise StorageConfigurationUnknownError(
                 "Локальный environment изменился во время чтения."
             )
     except StorageConfigurationError:
         raise
-    except (OSError, UnicodeError) as exc:
-        raise StorageConfigurationError(
+    except OSError as exc:
+        raise StorageConfigurationUnknownError(
             "Локальный environment невозможно прочитать."
         ) from exc
 

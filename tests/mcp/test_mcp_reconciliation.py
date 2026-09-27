@@ -1156,6 +1156,19 @@ def test_auth_readiness_is_scoped_to_servers_being_started(monkeypatch) -> None:
     assert not mcp_tooling.McpService._auth_ready(REPOSITORY_ROOT)
 
 
+def test_authentication_state_preserves_unobservable_credential_as_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unknown_token(*_args, **_kwargs):
+        raise mcp_tooling.LocalHttpAuthUnknownError("LOCAL_MCP_AUTH_UNKNOWN")
+
+    monkeypatch.setattr(mcp_tooling, "read_local_mcp_token", unknown_token)
+
+    states = mcp_tooling.McpService()._authentication_states(REPOSITORY_ROOT)
+
+    assert states == {name: "unknown" for name in mcp_tooling.MCP_SERVER_NAMES}
+
+
 def test_restart_fails_closed_when_authentication_state_is_unknown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

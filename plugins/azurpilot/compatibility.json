@@ -2,7 +2,7 @@
   "contract_schema_version": 1,
   "product_family": "AzurPilot",
   "plugin_version": "0.1.0+codex.75310662743474",
-  "bundle_revision": "4d8f38a687ffb2d61a7b92ecaed8e9c4abb42df7209fef6814339379ee65d686",
+  "bundle_revision": "bf661e81b0af0cb11034f76ab9ce19ac347508d6be6d799802f0cf00c8c8af0b",
   "skill_bundle_revision": "a5c12320c364ee1260ef2478d0058ccac0493a797f56a5a8a366e9333e6806a2",
   "required_mcp_servers": {
     "azurpilot-dev": ">=8.0.4,<9.0.0",
@@ -57,7 +57,7 @@
       },
       "capability_catalog_sha256": "97853974a1f2a8387b6b9578a01dbc25ef463346ad5742bc6304a2b5bb3152d9",
       "contract_revision": "06a1ea3fc6c549a9a4d4de23950c998b7d7916eb6fce2f0e6c8dbf14ff7ebddc",
-      "source_set_digest": "38ba487f53415e47f349f61ae44ae6e9ae9d3f936e4420c03ad6955ca01d251d"
+      "source_set_digest": "e8d87563108596ee8b5018ffdb7fc23b82b1db6210e357a34d3a2239ae594720"
     },
     "azurpilot-game": {
       "version": "2.0.27",
@@ -91,7 +91,7 @@
       },
       "capability_catalog_sha256": "115b25b6082846093ff4047d44d7bd82661f713c7bebf00145784ff72fcc24d7",
       "contract_revision": "9d6d071c7b5b41991a567713890af417db55127acbbbafbd3808d6422513eef4",
-      "source_set_digest": "15907308fd3b140f5b28703714c4984975153fa2052c0fed83b39020a0b5dfbd"
+      "source_set_digest": "2eed2ef6522a7d3d9711154e7fa7d29d3560e402c8ba5f8436c0691f9f8c269c"
     }
   },
   "required_feature_flags": {
@@ -235,9 +235,9 @@
     "azurpilot-game": "9d6d071c7b5b41991a567713890af417db55127acbbbafbd3808d6422513eef4"
   },
   "source_digests": {
-    "DEV_MCP_SOURCE_SET": "20e2858d31594b1266f5964fd93c492cd74407428db070f473054b202c9b3615",
-    "GAME_MCP_SOURCE_SET": "bb90660df85232714b7f9ba745d22d4d9b0908bc186cd96f71ae88102b2f5971",
-    "SHARED_MCP_SOURCE_SET": "531b3d7a7061894eb0477968afb969751a07d91b044c13d6e3347cec14718686",
+    "DEV_MCP_SOURCE_SET": "519128b42f2d30d52f82f3c87b3667111ba234df9ad94421ae4c66058eb09647",
+    "GAME_MCP_SOURCE_SET": "254e118a3fe79fb589d0f49a96d799d43b2f2c47a24a858376842404fb92d633",
+    "SHARED_MCP_SOURCE_SET": "aa715d7bdc3d3bf0847533b80271bc25b3ca63bab99749c4f354932a3484382b",
     "PLUGIN_BUNDLE_SOURCE_SET": "b687371654e75fef365020b3578bd7341a246e3072141139455c382270c9108f",
     "SKILL_BUNDLE_SOURCE_SET": "a5c12320c364ee1260ef2478d0058ccac0493a797f56a5a8a366e9333e6806a2"
   }
