@@ -156,7 +156,7 @@ class IntegrationEvidenceBundle(ClosedModel):
 
 
 __all__ = [
-    "CYCLE_ID_PATTERN",    "CredentialRef",
+    "CredentialRef",
     "CredentialSource",
     "IntegrationDetails",
     "IntegrationEvidence",
