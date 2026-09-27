@@ -950,10 +950,10 @@ def test_doctor_full_uses_closed_external_integration_record_contract(
                         IntegrationRecord(
                             name=IntegrationName.SEMGREP,
                             state=IntegrationState.READY,
-                            reason_code="CODERABBIT_NATIVE_READY",
-                            message="Исполняемый файл CodeRabbit и его версия подтверждены.",
+                            reason_code="SEMGREP_TEST_READY",
+                            message="Semgrep test fixture готов.",
                             evidence=IntegrationEvidence(
-                                route="direct_native_agent",
+                                route="direct_local_cli",
                                 configured=True,
                                 reachable=True,
                                 read_only=True,
@@ -1007,10 +1007,10 @@ def test_doctor_full_uses_closed_external_integration_record_contract(
     assert result.ok is True
     assert len(result.details.external_integrations) == 1
     summary = result.details.external_integrations[0]
-    assert summary.name == "coderabbit"
+    assert summary.name == "semgrep"
     assert summary.status == "READY"
-    assert summary.reason_code == "CODERABBIT_NATIVE_READY"
-    assert summary.route == "direct_native_agent"
+    assert summary.reason_code == "SEMGREP_TEST_READY"
+    assert summary.route == "direct_local_cli"
 
 
 def test_doctor_fails_closed_for_mismatched_canonical_git_remote(
