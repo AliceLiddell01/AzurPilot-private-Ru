@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from azurpilot.cli import CliInvocationError, build_parser
+from azurpilot.cli import CliInvocationError, _render_human, build_parser
 from azurpilot.integrations import IntegrationRegistry
 from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
@@ -32,6 +33,7 @@ from azurpilot.integrations.config import (
 )
 from azurpilot.integrations.contracts import (
     CredentialSource,
+    IntegrationDetails,
     IntegrationEvidence,
     IntegrationFinding,
     IntegrationName,
@@ -52,6 +54,9 @@ from azurpilot.tooling.contracts import (
     AnalysisScope,
     CapabilityStatus,
     GitRange,
+    OperationState,
+    ResultCode,
+    ToolingResult,
 )
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.infrastructure import InfrastructureService, SharedMcpOutcome
@@ -826,6 +831,68 @@ def test_cli_exposes_typed_integration_leaves_without_coderabbit():
 
     with pytest.raises(CliInvocationError):
         parser.parse_args(["integrations", "coderabbit", "status"])
+
+
+def test_status_one_uses_generic_integration_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        IntegrationService,
+        "resolve_root",
+        lambda _self, _root=None: tmp_path,
+    )
+
+    result = IntegrationService().status_one(IntegrationName.SEMGREP, tmp_path)
+
+    assert result.details is not None
+    assert result.details.target is IntegrationName.SEMGREP
+    assert result.details.integrations[0].name is IntegrationName.SEMGREP
+
+
+def test_human_integration_finding_uses_provider_neutral_recommendation_label() -> None:
+    record = IntegrationRecord(
+        name=IntegrationName.SEMGREP,
+        state=IntegrationState.READY,
+        reason_code="SEMGREP_TEST_READY",
+        message="Semgrep готов.",
+        evidence=IntegrationEvidence(route="direct_local_cli"),
+    )
+    finding = IntegrationFinding(
+        kind="semgrep",
+        identifier="python.test.rule",
+        path="module/example.py",
+        line=3,
+        severity="minor",
+        message="Тестовое замечание.",
+        resolution="Исправить тестовое замечание.",
+    )
+    result = ToolingResult(
+        ok=True,
+        code=ResultCode.OK,
+        state=OperationState.READY,
+        message="Проверка завершена.",
+        details=IntegrationDetails(
+            action="scan",
+            integrations=(record,),
+            target=IntegrationName.SEMGREP,
+            findings=(finding,),
+        ),
+    )
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    _render_human(
+        result,
+        stdout,
+        stderr,
+        no_color=True,
+        verbose=False,
+    )
+
+    rendered = stdout.getvalue()
+    assert "Рекомендация" in rendered
+    assert "Исправить тестовое замечание." in rendered
+    assert "Рекомендация CodeRabbit" not in rendered
 
 
 def test_cli_rejects_ambiguous_semgrep_scope():
