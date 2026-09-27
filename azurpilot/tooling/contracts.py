@@ -338,7 +338,6 @@ class MandatoryGateState(StrEnum):
 
 
 FRESH_MCP_ACCEPTANCE_GATE_NAME = "fresh_mcp_client_acceptance"
-CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME = "coderabbit_exact_head_checkpoint"
 
 
 class MandatoryGate(ClosedModel):
@@ -410,14 +409,6 @@ class ReadinessState(ClosedModel):
         integration_names = tuple(check.name for check in self.integration_checks)
         if len(integration_names) != len(set(integration_names)):
             raise ValueError("integration checks должны иметь уникальные имена")
-        if any(
-            gate.name == CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME
-            for gate in self.mandatory_gates
-        ):
-            raise ValueError(
-                "CodeRabbit checkpoint является external reviewer limitation, "
-                "а не mandatory product gate"
-            )
         if self.external_reviewer_status == "NOT_RUN":
             if self.reviewer_limitation:
                 raise ValueError(
