@@ -37,15 +37,15 @@ paths, serials, account identifiers и необработанные логи. Ev
 Для диагностики AzurPilot Codex может без отдельного запроса пользователю
 использовать настроенные direct read-only adapters, когда они доступны в
 текущей конфигурации: `context7_direct`, `docker_docs_direct`,
-`semgrep_local_direct`, Grafana, Docker Hub и CodeRabbit. Это дополнительное
+`semgrep_local_direct`, Grafana и Docker Hub. Это дополнительное
 разрешение для диагностического чтения; оно не расширяет права собственных
 AzurPilot plugins и не разрешает mutation. Retired MCP intermediary routes не
 используются как маршрут или fallback.
 
-Для CodeRabbit проверяй host-native provider текущей OS через
-`azur integrations coderabbit status|doctor`: executable, auth, agent syntax,
-canonical checkout и exact process liveness. Не заменяй этот маршрут wrapper,
-другим checkout, clone, WSL bridge или ручным повторным provider call.
+CodeRabbit не является диагностической integration capability AzurPilot. Если
+пользователь явно запросил CodeRabbit review или диагностику самого reviewer,
+маршрутизируй задачу в repository skill `azurpilot-coderabbit-review`, который
+работает напрямую с native CodeRabbit CLI.
 
 Различай repository source, user-configured direct adapter и фактический
 negotiated discovery/`tools/list`/read-only call: это разные доказательства.
