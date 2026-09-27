@@ -132,7 +132,7 @@ class PullRequestBodyRenderer:
             review_lines.append(
                 "- Содержательная внешняя проверка выполнена; её exact-head evidence принадлежит профильному review workflow."
             )
-        elif body.readiness.reviewer_limitation:
+        else:
             review_lines.append(
                 f"- Ограничение внешней проверки: {body.readiness.reviewer_limitation}"
             )
