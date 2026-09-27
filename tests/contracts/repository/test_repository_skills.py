@@ -577,7 +577,7 @@ def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
         "если навык coderabbit вернул `rate_limited`",
         "жизненный цикл git может достичь `ready_for_chatgpt_review`",
         "это не отменяет обязательные ci, проверку безопасности и секретов, обязательную приёмку продукта или блокирующие обсуждения",
-        "правила ожидания, повторного запуска и разбора результатов сервиса описаны в соответствующем навыке и справочнике",
+        "правила ожидания, повторного запуска и разбора результатов coderabbit описаны его repository skill и reference-файлом",
     ):
         assert required in workflow_flat
 
