@@ -82,7 +82,6 @@ DEFAULTS: dict[str, dict[str, object]] = {
         "endpoint": SHARED_MCP_ENDPOINTS["grafana"],
         "compose_service": _SHARED_MCP_COMPOSE_SERVICES["grafana"],
         "caller_token_env": _SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS["grafana"],
-        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["grafana"],
     },
     "docker-hub": {
         "route": SHARED_MCP_ROUTE,
@@ -90,7 +89,6 @@ DEFAULTS: dict[str, dict[str, object]] = {
         "compose_service": _SHARED_MCP_COMPOSE_SERVICES["docker-hub"],
         "caller_token_env": _SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS["docker-hub"],
         "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["docker-hub"],
-        "username_env": "DOCKERHUB_USERNAME",
     },
     "coderabbit": {"route": "direct_native_agent"},
 }
@@ -103,8 +101,6 @@ REPOSITORY_MCP_ALIASES = {
     "docker_hub_direct": "docker-hub",
     "grafana_direct": "grafana",
 }
-
-GRAFANA_URL_ENVIRONMENT_KEY = "GRAFANA_URL"
 
 _REPOSITORY_FIXED_VALUES: dict[str, dict[str, str]] = {
     "semgrep": {"command": "semgrep"},
@@ -120,8 +116,6 @@ _ENV_OVERRIDES = {
         "executable": "AZURPILOT_CODERABBIT_EXECUTABLE",
     },
     "grafana": {
-        "endpoint": "AZURPILOT_GRAFANA_URL",
-        "credential_env": "AZURPILOT_GRAFANA_CREDENTIAL_ENV",
         "credential_file": "GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE",
     },
     "context7": {
@@ -131,7 +125,6 @@ _ENV_OVERRIDES = {
     "docker-docs": {"endpoint": "AZURPILOT_DOCKER_DOCS_ENDPOINT"},
     "docker-hub": {
         "credential_env": "AZURPILOT_DOCKER_HUB_CREDENTIAL_ENV",
-        "username_env": "AZURPILOT_DOCKER_HUB_USERNAME_ENV",
     },
     "semgrep": {"command": "AZURPILOT_SEMGREP_COMMAND"},
 }

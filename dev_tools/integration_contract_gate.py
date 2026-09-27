@@ -392,14 +392,7 @@ def _check_shared_service(
     repository_owned_image = isinstance(image, str) and image.startswith(
         _REPOSITORY_OWNED_IMAGE_PREFIX
     )
-    provider_digest = (
-        isinstance(image, str) and _IMMUTABLE_IMAGE_RE.fullmatch(image) is not None
-    )
-    if (
-        not isinstance(image, str)
-        or not image
-        or (provider_digest and not repository_owned_image)
-    ):
+    if not isinstance(image, str) or not image or not repository_owned_image:
         errors.append(
             f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан использовать "
             "repository-owned build вместо provider image"

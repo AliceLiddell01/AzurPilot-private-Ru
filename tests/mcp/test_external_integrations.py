@@ -106,7 +106,7 @@ def test_registry_is_closed_to_exactly_six_typed_families():
 def test_grafana_defaults_use_only_direct_credential_boundaries():
     settings = IntegrationConfig().provider("grafana")
 
-    assert settings["credential_env"] == "GRAFANA_SERVICE_ACCOUNT_TOKEN"
+    assert "credential_env" not in settings
     assert "credential_provider" not in settings
     assert "credential_ref" not in settings
 
@@ -136,9 +136,6 @@ def test_shared_families_expose_caller_token_boundary_per_provider():
     assert (
         config.provider("docker-hub")["caller_token_env"]
         == DOCKER_HUB_CALLER_TOKEN_ENV
-    )
-    assert config.provider("grafana")["credential_env"] == (
-        "GRAFANA_SERVICE_ACCOUNT_TOKEN"
     )
     assert config.provider("docker-hub")["credential_env"] == "DOCKERHUB_PAT"
 
@@ -995,34 +992,25 @@ def test_config_rejects_unapproved_credential_reference(tmp_path: Path, monkeypa
         load_integration_config(tmp_path)
 
 
-@pytest.mark.parametrize(
-    ("provider", "credential_env"),
-    [
-        ("grafana", "GRAFANA_SERVICE_ACCOUNT_TOKEN"),
-        ("docker-hub", "DOCKERHUB_PAT"),
-        ("context7", "CONTEXT7_API_KEY"),
-    ],
-)
-def test_config_accepts_provider_specific_credential_reference(
-    provider: str, credential_env: str, tmp_path: Path, monkeypatch
+def test_config_ignores_retired_shared_service_environment_overrides(
+    tmp_path: Path, monkeypatch
 ):
-    variable = {
-        "grafana": "AZURPILOT_GRAFANA_CREDENTIAL_ENV",
-        "docker-hub": "AZURPILOT_DOCKER_HUB_CREDENTIAL_ENV",
-        "context7": "AZURPILOT_CONTEXT7_CREDENTIAL_ENV",
-    }[provider]
-    monkeypatch.setenv(variable, credential_env)
+    monkeypatch.setenv("AZURPILOT_GRAFANA_URL", "http://192.0.2.10:8777/mcp")
+    monkeypatch.setenv(
+        "AZURPILOT_GRAFANA_CREDENTIAL_ENV", "GRAFANA_SERVICE_ACCOUNT_TOKEN"
+    )
+    monkeypatch.setenv("AZURPILOT_DOCKER_HUB_USERNAME_ENV", "DOCKERHUB_USERNAME")
 
     config = load_integration_config(tmp_path)
 
-    assert config.provider(provider)["credential_env"] == credential_env
+    assert config.provider("grafana")["endpoint"] == SHARED_MCP_ENDPOINTS["grafana"]
+    assert "credential_env" not in config.provider("grafana")
+    assert "username_env" not in config.provider("docker-hub")
 
 
 @pytest.mark.parametrize(
     ("provider", "credential_env"),
     [
-        ("grafana", "DOCKERHUB_PAT"),
-        ("grafana", "CONTEXT7_API_KEY"),
         ("docker-hub", "GRAFANA_SERVICE_ACCOUNT_TOKEN"),
         ("context7", "DOCKERHUB_PAT"),
     ],
@@ -1031,7 +1019,6 @@ def test_config_rejects_cross_provider_credential_reference(
     provider: str, credential_env: str, tmp_path: Path, monkeypatch
 ):
     variable = {
-        "grafana": "AZURPILOT_GRAFANA_CREDENTIAL_ENV",
         "docker-hub": "AZURPILOT_DOCKER_HUB_CREDENTIAL_ENV",
         "context7": "AZURPILOT_CONTEXT7_CREDENTIAL_ENV",
     }[provider]

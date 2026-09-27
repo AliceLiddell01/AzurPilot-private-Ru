@@ -77,6 +77,37 @@ def test_dockerhub_mcp_image_uses_content_derived_runtime_tag():
     assert marker in label
 
 
+def test_contract_rejects_non_repository_owned_docker_hub_image(tmp_path: Path):
+    """Docker Hub service не должен принимать mutable/provider image вместо build-а."""
+
+    source = (REPOSITORY_ROOT / gate._COMPOSE_PATH).read_text(encoding="utf-8")
+    mutated, replacements = re.subn(
+        r'(?m)^    image: azurpilot-infrastructure/dockerhub-mcp:[^\n]+$',
+        "    image: dockerhub/mcp:latest",
+        source,
+        count=1,
+    )
+    assert replacements == 1
+
+    compose = tmp_path / gate._COMPOSE_PATH
+    compose.parent.mkdir(parents=True, exist_ok=True)
+    compose.write_text(mutated, encoding="utf-8")
+    codex_dir = tmp_path / ".codex"
+    codex_dir.mkdir()
+    (codex_dir / "config.toml").write_text(
+        (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    payload = gate.check(tmp_path)
+
+    assert any(
+        "dockerhub-mcp обязан использовать repository-owned build вместо provider image"
+        in error
+        for error in payload["errors"]
+    )
+
+
 def test_contract_rejects_empty_docker_hub_denylist(tmp_path: Path):
     source = (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8")
     assert DOCKER_HUB_BLOCKED_TOOLS
