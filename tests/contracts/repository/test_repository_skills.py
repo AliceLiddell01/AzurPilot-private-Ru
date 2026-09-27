@@ -260,7 +260,7 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "не переключайся на самописный adapter",
     ):
         assert required in workflow_content
-    assert "azur integrations coderabbit" not in workflow_content
+    assert "не восстанавливай старый `azur integrations coderabbit` wrapper" in workflow_content
 
 
 def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
