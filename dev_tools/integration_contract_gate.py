@@ -35,6 +35,7 @@ from azurpilot.integrations.contracts import IntegrationName
 from azurpilot.tooling.infrastructure import (
     DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY,
     SHARED_MCP_EXTERNAL_READINESS,
+    SHARED_MCP_PROFILE,
     SHARED_MCP_SERVICES,
 )
 
@@ -228,7 +229,6 @@ _IMMUTABLE_IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}@sha256:[0
 _SOURCE_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _COMPOSE_PATH = Path("infrastructure") / "observability" / "compose.yaml"
 _REPOSITORY_OWNED_IMAGE_PREFIX = "azurpilot-infrastructure/"
-_SHARED_MCP_PROFILE = "external-mcp"
 # GitHub MCP принадлежит canonical infrastructure, а GitHub identity остаётся
 # клиентской, поэтому repository policy-инварианты проверяются отдельно от
 # семейств `azurpilot.integrations`.
@@ -263,7 +263,7 @@ def _load_compose(root: Path, errors: list[str]) -> Mapping[object, object] | No
     path = root / _COMPOSE_PATH
     try:
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, ValueError):
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError):
         errors.append(f"{_COMPOSE_PATH.as_posix()}: не удалось разобрать Compose owner")
         return None
     if not isinstance(document, Mapping):
@@ -290,12 +290,17 @@ def _loopback_publication(service: Mapping[object, object], endpoint: object) ->
     if match is None:
         return False
     expected = f"127.0.0.1:{match.group(1)}"
-    ports = _string_list(service, "ports")
-    if ports is None:
+    ports = service.get("ports")
+    if not isinstance(ports, list) or len(ports) != 1:
         return False
-    return any(
-        item.replace(" ", "").startswith(f"{expected}:") for item in ports
-    )
+    item = ports[0]
+    if not isinstance(item, str):
+        return False
+    normalized = item.replace(" ", "")
+    return re.fullmatch(
+        rf"{re.escape(expected)}:[0-9]{{1,5}}(?:/(?:tcp|udp|sctp))?",
+        normalized,
+    ) is not None
 
 
 def _check_shared_service(
@@ -315,10 +320,10 @@ def _check_shared_service(
         errors.append(f"{_COMPOSE_PATH.as_posix()}: отсутствует service {service_name}")
         return
     profiles = _string_list(service, "profiles")
-    if profiles is None or _SHARED_MCP_PROFILE not in profiles:
+    if profiles is None or SHARED_MCP_PROFILE not in profiles:
         errors.append(
             f"{_COMPOSE_PATH.as_posix()}: {service_name} должен быть в профиле "
-            f"{_SHARED_MCP_PROFILE}"
+            f"{SHARED_MCP_PROFILE}"
         )
     if service.get("read_only") is not True:
         errors.append(
@@ -353,7 +358,7 @@ def _check_shared_service(
                 f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан использовать "
                 "immutable image digest"
             )
-        command = " ".join(_string_list(service, "command") or ())
+        command = _string_list(service, "command") or ()
         if "--transport=streamable-http" not in command:
             errors.append(
                 f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан обслуживать "
@@ -367,7 +372,7 @@ def _check_shared_service(
             errors.append(
                 f"{_COMPOSE_PATH.as_posix()}: {service_name} не должен отключать read-only query tools"
             )
-        if GRAFANA_ENABLED_TOOL_CATEGORIES not in command:
+        if f"--enabled-tools={GRAFANA_ENABLED_TOOL_CATEGORIES}" not in command:
             errors.append(
                 f"{_COMPOSE_PATH.as_posix()}: {service_name} расходится с read-only "
                 "категориями adapter contract"
@@ -443,10 +448,10 @@ def _check_github_service(
         return
 
     profiles = _string_list(service, "profiles")
-    if profiles is None or _SHARED_MCP_PROFILE not in profiles:
+    if profiles is None or SHARED_MCP_PROFILE not in profiles:
         errors.append(
             f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} должен быть в профиле "
-            f"{_SHARED_MCP_PROFILE}"
+            f"{SHARED_MCP_PROFILE}"
         )
     if service.get("read_only") is not True:
         errors.append(

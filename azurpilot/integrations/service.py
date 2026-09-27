@@ -297,9 +297,12 @@ class IntegrationService:
                 "Неизвестная операция общих MCP HTTP services.",
             )
         # Успех операции оценивается по её смыслу: start требует готового
-        # сервиса, а stop и status отражают состояние без ошибки.
+        # сервиса, stop — доказанно остановленного Compose-владельца, а status
+        # отражает состояние без ошибки.
         if action == "start":
             ready = outcome.state is CapabilityStatus.READY
+        elif action == "stop":
+            ready = outcome.state is CapabilityStatus.NOT_CONFIGURED
         else:
             ready = outcome.state is not CapabilityStatus.FAILED
         return ToolingResult[SharedMcpDetails, IntegrationEvidenceBundle](

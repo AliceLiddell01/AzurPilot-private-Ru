@@ -135,6 +135,81 @@ def test_contract_rejects_registration_that_owns_provider_process(tmp_path: Path
     ) in payload["errors"]
 
 
+def test_contract_rejects_extra_or_wildcard_shared_mcp_publications(
+    tmp_path: Path,
+):
+    """Loopback contract не должен принимать дополнительные или wildcard ports."""
+
+    source = (REPOSITORY_ROOT / gate._COMPOSE_PATH).read_text(encoding="utf-8")
+    extra = '      - "127.0.0.1:8777:8000/tcp"\n      - "0.0.0.0:9876:9876/tcp"\n'
+    mutated, replacements = re.subn(
+        r'(?m)^      - "127\.0\.0\.1:8777:8000/tcp"\n',
+        extra,
+        source,
+        count=1,
+    )
+    assert replacements == 1
+
+    compose = tmp_path / gate._COMPOSE_PATH
+    compose.parent.mkdir(parents=True, exist_ok=True)
+    compose.write_text(mutated, encoding="utf-8")
+    codex_dir = tmp_path / ".codex"
+    codex_dir.mkdir()
+    (codex_dir / "config.toml").write_text(
+        (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    payload = gate.check(tmp_path)
+
+    assert any(
+        "grafana-mcp должен публиковаться только на loopback-порт общего endpoint"
+        in error
+        for error in payload["errors"]
+    )
+
+
+def test_contract_reports_malformed_compose_as_typed_gate_error(tmp_path: Path):
+    compose = tmp_path / gate._COMPOSE_PATH
+    compose.parent.mkdir(parents=True, exist_ok=True)
+    compose.write_text("services: [\n", encoding="utf-8")
+    codex_dir = tmp_path / ".codex"
+    codex_dir.mkdir()
+    (codex_dir / "config.toml").write_text(
+        (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    payload = gate.check(tmp_path)
+
+    assert payload["checks"]["codex_config"] == "drift"
+    assert any("не удалось разобрать Compose owner" in error for error in payload["errors"])
+
+
+def test_contract_requires_exact_grafana_enabled_tools_argument(tmp_path: Path):
+    source = (REPOSITORY_ROOT / gate._COMPOSE_PATH).read_text(encoding="utf-8")
+    mutated, replacements = re.subn(
+        r'(?m)^      - "--enabled-tools=[^"]+"\n',
+        '      - "--enabled-tools=search,datasource,prometheus,loki,dashboard,navigation,tempo-extra"\n',
+        source,
+        count=1,
+    )
+    assert replacements == 1
+    compose = tmp_path / gate._COMPOSE_PATH
+    compose.parent.mkdir(parents=True, exist_ok=True)
+    compose.write_text(mutated, encoding="utf-8")
+    codex_dir = tmp_path / ".codex"
+    codex_dir.mkdir()
+    (codex_dir / "config.toml").write_text(
+        (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    payload = gate.check(tmp_path)
+
+    assert any("расходится с read-only категориями adapter contract" in error for error in payload["errors"])
+
+
 def test_contract_rejects_registration_without_caller_token(tmp_path: Path):
     """Регистрация обязана предъявлять caller token общего HTTP service."""
 

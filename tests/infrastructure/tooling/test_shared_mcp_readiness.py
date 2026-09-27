@@ -128,7 +128,10 @@ def test_caller_auth_probe_accepts_only_fail_closed_answers(
                 "http://127.0.0.1:8779/mcp", status, "Denied", {}, None
             )
 
-        monkeypatch.setattr("urllib.request.urlopen", _deny)
+        monkeypatch.setattr(
+            "urllib.request.build_opener",
+            lambda *_handlers: SimpleNamespace(open=_deny),
+        )
 
     # Отказ вызывающему без bearer подтверждает, что caller auth включена.
     _harden(status=401)
@@ -154,19 +157,28 @@ def test_caller_auth_probe_accepts_only_fail_closed_answers(
     def _allow(_request: object, timeout: float = 0.0) -> object:
         return _OpenResponse()
 
-    monkeypatch.setattr("urllib.request.urlopen", _allow)
+    monkeypatch.setattr(
+        "urllib.request.build_opener",
+        lambda *_handlers: SimpleNamespace(open=_allow),
+    )
     assert InfrastructureService._caller_auth_probe(target) is False
 
     def _unreachable(_request: object, timeout: float = 0.0) -> object:
         raise urllib.error.URLError("connection refused")
 
-    monkeypatch.setattr("urllib.request.urlopen", _unreachable)
+    monkeypatch.setattr(
+        "urllib.request.build_opener",
+        lambda *_handlers: SimpleNamespace(open=_unreachable),
+    )
     assert InfrastructureService._caller_auth_probe(target) is False
 
     def _broken(_request: object, timeout: float = 0.0) -> object:
         raise OSError("network unreachable")
 
-    monkeypatch.setattr("urllib.request.urlopen", _broken)
+    monkeypatch.setattr(
+        "urllib.request.build_opener",
+        lambda *_handlers: SimpleNamespace(open=_broken),
+    )
     assert InfrastructureService._caller_auth_probe(target) is False
 
 

@@ -26,7 +26,12 @@ from .config import DeploySettings, project_python
 from .contracts import CapabilityStatus, ResultCode
 from .errors import ToolingError
 from .filesystem import bounded_read_text, path_has_link
-from .process import ProcessSpec, StructuredProcessRunner, docker_environment
+from .process import (
+    INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS,
+    ProcessSpec,
+    StructuredProcessRunner,
+    docker_environment,
+)
 
 _PROJECT_MODULE_CAUSE_LIMIT = 160
 _PROJECT_MODULE_CAUSE_UNAVAILABLE = "причина недоступна"
@@ -103,9 +108,8 @@ SHARED_MCP_SERVICES: tuple[str, ...] = ("grafana-mcp", "dockerhub-mcp", "github-
 SHARED_MCP_EXTERNAL_READINESS: dict[str, tuple[str, int, str]] = {
     "github-mcp": ("127.0.0.1", 8779, "/mcp"),
 }
-SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS: tuple[str, ...] = (
-    "AZURPILOT_GRAFANA_MCP_CALLER_TOKEN",
-    "AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN",
+SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS: tuple[str, ...] = tuple(
+    sorted(INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS)
 )
 DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY = "AZURPILOT_DOCKERHUB_MCP_IMAGE_TAG"
 DOCKERHUB_MCP_BUILD_LABEL = "azurpilot.dockerhub-mcp.build-tag"
@@ -589,8 +593,24 @@ class InfrastructureService:
                 "Accept": "application/json, text/event-stream",
             },
         )
+
+        class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+            def redirect_request(
+                self,
+                _request: urllib.request.Request,
+                _response: object,
+                _code: int,
+                _message: str,
+                _headers: object,
+                _new_url: str,
+            ) -> None:
+                return None
+
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds):
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}), _NoRedirectHandler()
+            )
+            with opener.open(request, timeout=timeout_seconds):
                 return False
         except urllib.error.HTTPError as error:
             return error.code in {401, 403}

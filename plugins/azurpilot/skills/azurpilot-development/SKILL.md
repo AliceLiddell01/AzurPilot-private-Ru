@@ -200,7 +200,7 @@ contract/diagnostics при этом остаются действительны
   закрытого `IntegrationRegistry` — только их bounded read-only capabilities;
 - общие долговременные MCP HTTP services внешних integrations принадлежат
   Compose-проекту `azurpilot-infrastructure` (профиль `external-mcp`,
-  loopback-only `127.0.0.1:8777` и `127.0.0.1:8778`); их жизненным циклом
+  loopback-only `127.0.0.1:8777`, `127.0.0.1:8778` и `127.0.0.1:8779`); их жизненным циклом
   управляет буквальная команда `azur integrations shared-mcp status|start|stop`,
   и клиент не запускает provider container;
 - `azur integrations status` для конфигурации и `azur integrations doctor`

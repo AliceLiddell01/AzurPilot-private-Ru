@@ -44,14 +44,20 @@ from azurpilot.integrations.mcp_client import (
     McpProbeResult,
     validate_tool_catalog,
 )
-from azurpilot.integrations.service import ADAPTER_ORDER, AdapterOutcome
+from azurpilot.integrations.service import (
+    ADAPTER_ORDER,
+    AdapterOutcome,
+    IntegrationService,
+)
 from azurpilot.tooling.contracts import (
     AnalysisScope,
+    CapabilityStatus,
     CodeRabbitFindingTriage,
     FindingDisposition,
     GitRange,
 )
 from azurpilot.tooling.errors import ToolingError
+from azurpilot.tooling.infrastructure import InfrastructureService, SharedMcpOutcome
 from azurpilot.tooling.process import (
     INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS,
     INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS,
@@ -135,6 +141,36 @@ def test_shared_families_expose_caller_token_boundary_per_provider():
         "GRAFANA_SERVICE_ACCOUNT_TOKEN"
     )
     assert config.provider("docker-hub")["credential_env"] == "DOCKERHUB_PAT"
+
+
+@pytest.mark.parametrize(
+    ("state", "expected_ok"),
+    [(CapabilityStatus.NOT_CONFIGURED, True), (CapabilityStatus.READY, False)],
+)
+def test_shared_mcp_stop_requires_proven_not_configured_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    state: CapabilityStatus,
+    expected_ok: bool,
+) -> None:
+    """Stop не должен выдавать success без доказанного Compose postcondition."""
+
+    monkeypatch.setattr(
+        IntegrationService,
+        "resolve_root",
+        lambda _self, _root=None: tmp_path,
+    )
+    monkeypatch.setattr(
+        InfrastructureService,
+        "stop_shared_mcp",
+        lambda _self, _root: SharedMcpOutcome(state, "test outcome"),
+    )
+
+    result = IntegrationService().shared_mcp("stop", tmp_path)
+
+    assert result.ok is expected_ok
+    assert result.details is not None
+    assert result.details.state is state
 
 
 def test_coderabbit_defaults_use_only_native_host_route():
