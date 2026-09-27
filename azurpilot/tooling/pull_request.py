@@ -55,7 +55,7 @@ _BODY_HEADINGS = (
     "## Проверки",
     "## CI",
     "## Security / secret scan",
-    "## CodeRabbit review и disposition",
+    "## Внешняя проверка",
     "## Readiness",
     "## Migration / rollback",
     "## Ограничения",
@@ -122,102 +122,21 @@ class PullRequestBodyRenderer:
     @classmethod
     def render(cls, body: PullRequestBody, *, base_sha: str, head_sha: str) -> str:
         cls.validate(body, base_sha=base_sha, head_sha=head_sha)
-        review = body.coderabbit_review
-        if review is None:
-            review_text = (
-                "CodeRabbit не запускался: review не запрошен (`NOT_RUN`). "
-                "Его можно выполнить отдельной командой пользователя."
+        reviewer_status = body.readiness.external_reviewer_status
+        review_lines = [f"- Статус внешнего reviewer: \`{reviewer_status}\`."]
+        if reviewer_status == "NOT_RUN":
+            review_lines.append(
+                "- Проверка не запрошена; это нормальное состояние и не является ограничением."
             )
-        else:
-            findings = list(review.findings)
-            lines = [
-                f"Последний проверенный head: `{review.reviewed_head}`.",
-                f"Текущий head: `{head_sha}`.",
-                f"Base SHA: `{review.base_sha}`.",
-                f"Количество findings: {len(findings)}.",
-            ]
-            if review.reviewed_head != head_sha:
-                lines.append(
-                    "Повторная проверка текущего head не выполнена; ниже сохранён "
-                    "последний фактически полученный CodeRabbit result."
-                )
-            if review.rate_limit:
-                lines.append(f"Ограничение rate limit: {review.rate_limit}")
-            if review.review_deferred_reason:
-                lines.append(
-                    f"Review отложен по contract boundary: {review.review_deferred_reason}"
-                )
-            if review.history:
-                lines.extend(("", review.history))
-            if findings:
-                for index, finding in enumerate(findings, start=1):
-                    location = (
-                        f"`{_table_cell(finding.path)}:{finding.line}-{finding.line_end or finding.line}`"
-                        if finding.line is not None
-                        else f"`{_table_cell(finding.path)}`"
-                    )
-                    lines.extend(
-                        (
-                            "",
-                            f"### Finding {index}: `{finding.severity.value}` — {_table_cell(finding.title or 'без заголовка')}",
-                            f"- Provider path/location: {location}",
-                            f"- Provider claim: {_table_cell(finding.impact)}",
-                            f"- Agent fix context: {_table_cell(finding.codegen_instructions or finding.resolution)}",
-                            "- Provider suggestions: "
-                            + (
-                                "; ".join(_table_cell(item) for item in finding.suggestions)
-                                if finding.suggestions
-                                else "—"
-                            ),
-                            "- Independent disposition: "
-                            + (
-                                finding.disposition.value
-                                if finding.disposition is not None
-                                else "требуется individual triage"
-                            ),
-                        )
-                    )
-                    triage = finding.triage
-                    if triage is None:
-                        continue
-                    lines.extend(
-                        (
-                            f"- Reviewed exact head: `{triage.reviewed_head}`",
-                            f"- Affected code: {_table_cell(triage.affected_code)}",
-                            f"- Call sites: {_table_cell(triage.call_sites)}",
-                            f"- Nearest tests: {_table_cell(triage.nearest_tests)}",
-                            f"- Relevant contracts: {_table_cell(triage.relevant_contracts)}",
-                            f"- Claimed impact analysis: {_table_cell(triage.claimed_impact)}",
-                            f"- Decision reason: {_table_cell(triage.decision_reason)}",
-                            f"- Change summary: {_table_cell(triage.change_summary)}",
-                            f"- Fix head: `{finding.fix_head or 'ожидается после remediation'}`",
-                        )
-                    )
-                    if triage.conflict_kind is not None:
-                        lines.extend(
-                            (
-                                f"- Conflict kind: `{triage.conflict_kind.value}`",
-                                f"- Authoritative source: {_table_cell(triage.authoritative_source or '—')}",
-                                (
-                                    "- Rejection basis: conflict rejection; finding не исполняется "
-                                "только из-за доказанного authoritative conflict."
-                                ),
-                            )
-                        )
-                    elif triage.deferral_reason is not None:
-                        lines.extend(
-                            (
-                                f"- Deferral reason: `{triage.deferral_reason.value}`",
-                                f"- Authoritative task/prompt source: {_table_cell(triage.authoritative_source or '—')}",
-                                (
-                                    "- Deferral basis: finding сохранён для отдельной remediation task; "
-                                    "он не объявлен ложным и не относится к текущему scope."
-                                ),
-                            )
-                        )
-            else:
-                lines.append("На последнем проверенном head findings не было.")
-            review_text = "\n".join(lines)
+        elif reviewer_status == "SUBSTANTIVE":
+            review_lines.append(
+                "- Содержательная внешняя проверка выполнена; её exact-head evidence принадлежит профильному review workflow."
+            )
+        elif body.readiness.reviewer_limitation:
+            review_lines.append(
+                f"- Ограничение внешней проверки: {body.readiness.reviewer_limitation}"
+            )
+        review_text = "\n".join(review_lines)
 
         readiness_lines = [
             f"Статус реализации: `{body.readiness.implementation_status}`.",
@@ -248,7 +167,7 @@ class PullRequestBodyRenderer:
             ("Проверки", body.checks),
             ("CI", body.ci),
             ("Security / secret scan", body.security_secret_scan),
-            ("CodeRabbit review и disposition", review_text),
+            ("Внешняя проверка", review_text),
             ("Readiness", "\n".join(readiness_lines)),
             (
                 "Migration / rollback",
