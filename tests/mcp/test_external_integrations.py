@@ -19,6 +19,7 @@ from azurpilot.integrations.adapters import (
     GRAFANA_REQUIRED_READ_ONLY_TOOLS,
     GRAFANA_TEMPO_READ_ONLY_TOOLS,
     Context7Adapter,
+    DockerDocsAdapter,
     DockerHubAdapter,
     GrafanaAdapter,
     SemgrepAdapter,
@@ -102,6 +103,18 @@ def test_registry_is_closed_to_exactly_five_typed_families():
         IntegrationName.DOCKER_DOCS,
         IntegrationName.DOCKER_HUB,
     )
+
+
+def test_registry_rejects_incomplete_adapter_catalog() -> None:
+    with pytest.raises(ValueError, match="ровно пять adapters"):
+        IntegrationRegistry(
+            adapters=(
+                SemgrepAdapter(),
+                GrafanaAdapter(),
+                Context7Adapter(),
+                DockerDocsAdapter(),
+            )
+        )
 
 
 def test_grafana_defaults_use_only_direct_credential_boundaries():
