@@ -242,8 +242,6 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
     for required in (
         "coderabbit review --agent",
         "provider suggestions",
-        "partially confirmed",
-        "false positive",
         "rate limit",
         "git/pr lifecycle",
         "verification matrix",
@@ -257,6 +255,8 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "coderabbit review --agent",
         "ndjson stream",
         "независимый triage findings",
+        "partially confirmed",
+        "false positive",
         "не переключайся на самописный adapter",
     ):
         assert required in workflow_content
