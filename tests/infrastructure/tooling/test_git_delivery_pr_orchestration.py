@@ -12,17 +12,11 @@ import pytest
 
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling.contracts import (
-    CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME,
     FRESH_MCP_ACCEPTANCE_GATE_NAME,
-    CodeRabbitFinding,
-    CodeRabbitFindingTriage,
-    CodeRabbitReview,
     DeliveryChange,
     DeliveryDetails,
     DeliveryEvidence,
     DeliveryPhase,
-    FindingDisposition,
-    FindingSeverity,
     GitSnapshot,
     IntegrationCheck,
     IntegrationCheckState,
@@ -200,7 +194,7 @@ def test_delivery_rejects_ad_hoc_remote_topology(
         identity,
         base_sha=base_sha,
         branch="cli/fixture-delivery",
-        base_branch="codex/base-coderabbit-native-windows-boundary",
+        base_branch="codex/base-temporary-review-boundary",
         targets=[
             {
                 "path": "README.md",
@@ -1618,8 +1612,7 @@ def test_structured_pr_body_contains_required_sections_and_exact_review_head() -
             "Ограничения текущего checkpoint:\n"
             "- PR остаётся Draft до финального ChatGPT review пользователя; merge не выполняется;\n"
             "- physical device, MuMu, ADB и игровой acceptance в scope не входят;\n"
-            "- CodeRabbit является внешним review checkpoint через host-native provider "
-            "в canonical checkout;\n"
+            "- Внешний reviewer запускается только по явному запросу и не является product gate;\n"
             "- provider требует GitHub CLI `gh >= 2.63.0` для поля `baseRefOid`."
         ),
     )
