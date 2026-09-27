@@ -566,7 +566,7 @@ class DoctorDetails(ClosedModel):
     checks: tuple[CapabilityCheck, ...] = Field(max_length=32)
     healthy: bool
     external_integrations: tuple[IntegrationSummary, ...] = Field(
-        default_factory=tuple, max_length=6
+        default_factory=tuple, max_length=5
     )
 
 
