@@ -12,7 +12,6 @@ from urllib.parse import urlsplit
 
 from azurpilot.tooling.contracts import (
     AnalysisScope,
-    CodeRabbitDeferredBacklog,
     ResultCode,
 )
 from azurpilot.tooling.errors import ToolingError
@@ -30,7 +29,6 @@ from azurpilot.tooling.process import (
 
 from .config import IntegrationConfig
 from .contracts import (
-    CodeRabbitCycleSummary,
     CredentialRef,
     CredentialSource,
     IntegrationEvidence,
@@ -151,8 +149,6 @@ DOCKER_HUB_BLOCKED_TOOLS = frozenset(
 class AdapterOutcome:
     record: IntegrationRecord
     findings: tuple[IntegrationFinding, ...] = ()
-    coderabbit_cycle: CodeRabbitCycleSummary | None = None
-    coderabbit_backlog: CodeRabbitDeferredBacklog | None = None
 
 
 class IntegrationAdapter:
