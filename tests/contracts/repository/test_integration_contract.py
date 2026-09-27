@@ -124,3 +124,126 @@ def test_operator_launcher_detection_uses_tokens_and_negation(
     text: str, expected: bool
 ) -> None:
     assert gate._contains_prohibited_operator_launcher(text) is expected
+
+
+_GITHUB_CREDENTIAL_NAME = "GITHUB_PERSONAL_" + "ACCESS_" + "TOKEN"
+_GITHUB_PORTS = '    ports:\n      - "127.0.0.1:8779:8082/tcp"\n'
+_READ_ONLY_LINE = '      - "--read-only"\n'
+
+
+def _mutated_repository(tmp_path: Path, old: str, new: str) -> Path:
+    """Скопировать Compose owner и Codex config в корень с намеренной поломкой."""
+
+    source = (REPOSITORY_ROOT / gate._COMPOSE_PATH).read_text(encoding="utf-8")
+    assert source.count(old) == 1
+    compose = tmp_path / gate._COMPOSE_PATH
+    compose.parent.mkdir(parents=True, exist_ok=True)
+    compose.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+    codex_dir = tmp_path / ".codex"
+    codex_dir.mkdir(exist_ok=True)
+    (codex_dir / "config.toml").write_text(
+        (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def _tools_flag_line(tools: tuple[str, ...]) -> str:
+    return '      - "--tools=' + ",".join(tools) + '"' + "\n"
+
+
+def test_contract_declares_github_read_only_catalog():
+    assert len(gate.GITHUB_MCP_READ_ONLY_TOOLS) == 8
+    assert "github-mcp" in gate.SHARED_MCP_SERVICES
+
+
+def test_contract_rejects_github_service_without_server_side_read_only(tmp_path: Path):
+    """GitHub MCP обязан ограничивать каталог серверно, а не только клиентом."""
+
+    root = _mutated_repository(
+        tmp_path, _READ_ONLY_LINE, '      - "--disable-write"' + "\n"
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        "github-mcp обязан запускать provider с server-side --read-only" in error
+        for error in payload["errors"]
+    )
+
+
+def test_contract_rejects_github_tool_catalog_widening(tmp_path: Path):
+    """Ни toolsets, ни mutation tool не могут заменить exact read-only allowlist."""
+
+    root = _mutated_repository(
+        tmp_path,
+        _tools_flag_line(gate.GITHUB_MCP_READ_ONLY_TOOLS),
+        '      - "--toolsets=all"' + "\n",
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        "обязан ограничивать каталог exact --tools, а не toolsets" in error
+        for error in payload["errors"]
+    )
+
+    widened = (*gate.GITHUB_MCP_READ_ONLY_TOOLS, "create_repository")
+    root = _mutated_repository(
+        tmp_path / "widened",
+        _tools_flag_line(gate.GITHUB_MCP_READ_ONLY_TOOLS),
+        _tools_flag_line(widened),
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        "обязан публиковать ровно exact read-only allowlist без mutation tools"
+        in error
+        for error in payload["errors"]
+    )
+
+
+def test_contract_rejects_github_credential_inside_container(tmp_path: Path):
+    """GitHub identity принадлежит клиенту и не должна попадать в container."""
+
+    credential_line = "    environment:\n      " + _GITHUB_CREDENTIAL_NAME + ': ""\n'
+    root = _mutated_repository(
+        tmp_path, _GITHUB_PORTS, credential_line + _GITHUB_PORTS
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        "github-mcp не должен получать GitHub credential" in error
+        for error in payload["errors"]
+    )
+
+
+def test_contract_rejects_github_readiness_contract_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Readiness общих services обязан совпадать с loopback публикацией Compose."""
+
+    root = _mutated_repository(
+        tmp_path,
+        '      - "127.0.0.1:8779:8082/tcp"' + "\n",
+        '      - "127.0.0.1:8781:8082/tcp"' + "\n",
+    )
+
+    payload = gate.check(root)
+
+    assert any(
+        "обязан публиковаться только как 127.0.0.1:8779:8082/tcp" in error
+        for error in payload["errors"]
+    )
+
+    monkeypatch.setattr(gate, "SHARED_MCP_EXTERNAL_READINESS", dict())
+    payload = gate.check(root)
+
+    assert any(
+        "readiness-контракт github-mcp должен совпадать с loopback публикацией Compose"
+        in error
+        for error in payload["errors"]
+    )

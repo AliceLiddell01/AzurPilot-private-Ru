@@ -132,7 +132,8 @@ Context7 endpoint, а `semgrep_local_direct` запускает локальны
 stdio`. Grafana и Docker Hub подключаются к общим долговременным Streamable HTTP
 services, которые принадлежат Compose-проекту `azurpilot-infrastructure`
 (профиль `external-mcp`): `grafana-mcp` слушает только `127.0.0.1:8777`, а
-`dockerhub-mcp` — только `127.0.0.1:8778`. Один экземпляр каждого service
+`dockerhub-mcp` — только `127.0.0.1:8778`, а `github-mcp` — только
+`127.0.0.1:8779`. Один экземпляр каждого service
 обслуживает несколько локальных клиентов и checkout-ов на одной машине, поэтому
 клиент не запускает provider container. Клиент предъявляет caller token из
 `AZURPILOT_GRAFANA_MCP_CALLER_TOKEN` или
@@ -141,6 +142,11 @@ services, которые принадлежат Compose-проекту `azurpilo
 окружение клиента не попадают. Обе caller-переменные задаёт оператор в локальном
 `.env`; без них общий service не стартует (fail-closed), а буквальная команда
 `azur integrations shared-mcp status|start|stop` отказывается запускать его.
+GitHub MCP отличается моделью credential: его provider принимает bearer от
+вызывающего клиента, поэтому GitHub PAT не задаётся ни Compose, ни container, а
+каталог ограничен серверно (`--read-only` и exact `--tools`). Готовность этого
+сервиса подтверждает repository-owned loopback probe: endpoint обязан отвечать
+`401` без bearer.
 Значение caller-переменной читают два независимых потребителя: Compose берёт его
 из локального `.env`, а MCP-клиент — из окружения своего процесса, поскольку
 клиентская регистрация указывает только имя переменной и `.env` не читает.

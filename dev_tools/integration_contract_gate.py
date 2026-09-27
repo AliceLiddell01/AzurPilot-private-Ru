@@ -32,6 +32,10 @@ from azurpilot.integrations.config import (
     SHARED_MCP_ROUTE,
 )
 from azurpilot.integrations.contracts import IntegrationName
+from azurpilot.tooling.infrastructure import (
+    SHARED_MCP_EXTERNAL_READINESS,
+    SHARED_MCP_SERVICES,
+)
 
 EXPECTED_FAMILIES = tuple(name.value for name in IntegrationName)
 _CODEX_FAMILIES = frozenset(
@@ -215,6 +219,7 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
     if compose is not None:
         for family in _SHARED_MCP_FAMILIES:
             _check_shared_service(root, compose, family, errors)
+        _check_github_service(compose, errors)
 
 
 _SHARED_MCP_FAMILIES = ("grafana", "docker-hub")
@@ -223,6 +228,26 @@ _SOURCE_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _COMPOSE_PATH = Path("infrastructure") / "observability" / "compose.yaml"
 _REPOSITORY_OWNED_IMAGE_PREFIX = "azurpilot-infrastructure/"
 _SHARED_MCP_PROFILE = "external-mcp"
+# GitHub MCP принадлежит canonical infrastructure, а GitHub identity остаётся
+# клиентской, поэтому repository policy-инварианты проверяются отдельно от
+# семейств `azurpilot.integrations`.
+GITHUB_MCP_SERVICE = "github-mcp"
+GITHUB_MCP_PORT = 8779
+GITHUB_MCP_CONTAINER_PORT = 8082
+GITHUB_MCP_IMAGE_PREFIX = "ghcr.io/github/"
+GITHUB_MCP_READ_ONLY_TOOLS = (
+    "pull_request_read",
+    "list_pull_requests",
+    "get_file_contents",
+    "search_code",
+    "issue_read",
+    "list_issues",
+    "get_commit",
+    "get_job_logs",
+)
+_CREDENTIAL_ENVIRONMENT_RE = re.compile(
+    r"TOKEN|SECRET|CREDENTIAL|PASSWORD|PAT", re.IGNORECASE
+)
 _FORBIDDEN_REGISTRATION_KEYS = (
     "command",
     "args",
@@ -378,6 +403,132 @@ def _check_shared_service(
         errors.append(
             f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан закреплять полный "
             "commit исходников"
+        )
+
+
+def _check_github_service(
+    compose: Mapping[object, object], errors: list[str]
+) -> None:
+    """Проверить Compose-владельца общего GitHub MCP HTTP service.
+
+    GitHub provider не принадлежит `azurpilot.integrations`: runtime owner — общий
+    Compose service, а GitHub identity предъявляет вызывающий клиент. Поэтому здесь
+    проверяются repository policy-инварианты: immutable image, loopback-only
+    публикация, server-side read-only с exact allowlist, отсутствие credential в
+    container и согласованность readiness-контракта с Compose.
+    """
+
+    services = compose.get("services")
+    service: object = (
+        services.get(GITHUB_MCP_SERVICE) if isinstance(services, Mapping) else None
+    )
+    if not isinstance(service, Mapping):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: отсутствует service {GITHUB_MCP_SERVICE}"
+        )
+        return
+
+    profiles = _string_list(service, "profiles")
+    if profiles is None or _SHARED_MCP_PROFILE not in profiles:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} должен быть в профиле "
+            f"{_SHARED_MCP_PROFILE}"
+        )
+    if service.get("read_only") is not True:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} должен иметь read-only rootfs"
+        )
+    if "no-new-privileges:true" not in (_string_list(service, "security_opt") or ()):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} должен запрещать "
+            "повышение привилегий"
+        )
+
+    image = service.get("image")
+    if (
+        not isinstance(image, str)
+        or not image.startswith(GITHUB_MCP_IMAGE_PREFIX)
+        or _IMMUTABLE_IMAGE_RE.fullmatch(image) is None
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан использовать "
+            "immutable digest проверенного provider image"
+        )
+
+    expected_port = f"127.0.0.1:{GITHUB_MCP_PORT}:{GITHUB_MCP_CONTAINER_PORT}/tcp"
+    ports = _string_list(service, "ports") or ()
+    if tuple(item.replace(" ", "") for item in ports) != (expected_port,):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан публиковаться "
+            f"только как {expected_port}"
+        )
+
+    environment = service.get("environment")
+    environment_names: list[str] = []
+    if isinstance(environment, Mapping):
+        environment_names = [str(key) for key in environment]
+    elif isinstance(environment, list):
+        environment_names = [str(item).split("=", 1)[0] for item in environment]
+    if any(_CREDENTIAL_ENVIRONMENT_RE.search(name) for name in environment_names):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} не должен получать "
+            "GitHub credential: identity принадлежит вызывающему клиенту"
+        )
+
+    command = _string_list(service, "command") or ()
+    if not command or command[0] != "http":
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан работать "
+            "долгоживущим Streamable HTTP service"
+        )
+    if "--read-only" not in command:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан запускать "
+            "provider с server-side --read-only"
+        )
+    if any(
+        item.startswith("--toolsets=") or item.startswith("--exclude-tools=")
+        for item in command
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан ограничивать "
+            "каталог exact --tools, а не toolsets или исключениями"
+        )
+    tools_flag = next(
+        (item for item in command if item.startswith("--tools=")), ""
+    )
+    provided = tuple(
+        item for item in tools_flag[len("--tools=") :].split(",") if item
+    )
+    if len(provided) != len(GITHUB_MCP_READ_ONLY_TOOLS) or sorted(
+        provided
+    ) != sorted(GITHUB_MCP_READ_ONLY_TOOLS):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан публиковать "
+            "ровно exact read-only allowlist без mutation tools"
+        )
+    if (
+        "--listen-host=0.0.0.0" not in command
+        or f"--port={GITHUB_MCP_CONTAINER_PORT}" not in command
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} обязан слушать "
+            f"Streamable HTTP на container-порту {GITHUB_MCP_CONTAINER_PORT}"
+        )
+
+    if GITHUB_MCP_SERVICE not in SHARED_MCP_SERVICES:
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {GITHUB_MCP_SERVICE} должен входить в "
+            "repository runtime-контракт общих MCP services"
+        )
+    if SHARED_MCP_EXTERNAL_READINESS.get(GITHUB_MCP_SERVICE) != (
+        "127.0.0.1",
+        GITHUB_MCP_PORT,
+        "/mcp",
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: readiness-контракт {GITHUB_MCP_SERVICE} "
+            "должен совпадать с loopback публикацией Compose"
         )
 
 

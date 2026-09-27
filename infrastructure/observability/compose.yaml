@@ -468,6 +468,30 @@ services:
       retries: 3
       start_period: 10s
 
+  github-mcp:
+    profiles:
+      - external-mcp
+    image: ghcr.io/github/github-mcp-server@sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    # GitHub identity остаётся клиентской: HTTP transport принимает bearer от
+    # вызывающего клиента, поэтому PAT не попадает ни в Compose, ни в container.
+    command:
+      - "http"
+      - "--listen-host=0.0.0.0"
+      - "--port=8082"
+      - "--read-only"
+      - "--tools=pull_request_read,list_pull_requests,get_file_contents,search_code,issue_read,list_issues,get_commit,get_job_logs"
+    ports:
+      - "127.0.0.1:8779:8082/tcp"
+    # Healthcheck отсутствует осознанно: image distroless (нет shell, curl и node),
+    # а readiness подтверждает repository-owned loopback probe из
+    # azurpilot.tooling.infrastructure: endpoint обязан отвечать 401 без bearer.
+
 volumes:
   postgres-data:
     name: azurpilot-postgres-data

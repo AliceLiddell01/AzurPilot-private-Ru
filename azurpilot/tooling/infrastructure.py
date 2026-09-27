@@ -15,6 +15,8 @@ import json
 import re
 import shutil
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,7 +95,12 @@ class InfrastructureOutcome:
 
 
 SHARED_MCP_PROFILE = "external-mcp"
-SHARED_MCP_SERVICES: tuple[str, ...] = ("grafana-mcp", "dockerhub-mcp")
+SHARED_MCP_SERVICES: tuple[str, ...] = ("grafana-mcp", "dockerhub-mcp", "github-mcp")
+# Сервисы без shell в image не могут выполнить healthcheck внутри container,
+# поэтому их readiness подтверждает repository-owned loopback probe.
+SHARED_MCP_EXTERNAL_READINESS: dict[str, tuple[str, int, str]] = {
+    "github-mcp": ("127.0.0.1", 8779, "/mcp"),
+}
 SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS: tuple[str, ...] = (
     "AZURPILOT_GRAFANA_MCP_CALLER_TOKEN",
     "AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN",
@@ -482,6 +489,47 @@ class InfrastructureService:
         # env-файл — единственный источник, из которого Compose соберёт caller token.
         return tuple(sorted(key for key, present in configured.items() if not present))
 
+    @staticmethod
+    def _caller_auth_probe(
+        target: tuple[str, int, str], *, timeout_seconds: float = 5.0
+    ) -> bool:
+        """Подтвердить loopback readiness общего сервиса без caller credential.
+
+        Проверка идёт извне container: endpoint обязан слушать loopback и
+        отклонять запрос без bearer. Любой ответ без отказа означает fail-open и
+        не подтверждает readiness.
+        """
+
+        host, port, path = target
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "azurpilot-readiness", "version": "1"},
+                },
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"http://{host}:{port}{path}",
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds):
+                return False
+        except urllib.error.HTTPError as error:
+            return error.code in {401, 403}
+        except (urllib.error.URLError, OSError, ValueError):
+            return False
+
     def shared_mcp_status(
         self, root: Path, *, timeout_seconds: float = 60.0
     ) -> SharedMcpOutcome:
@@ -504,11 +552,25 @@ class InfrastructureService:
             str(item.get("Service", "")): item for item in self._records(raw)
         }
         running: list[str] = []
+        probe_failures: list[str] = []
         for service in SHARED_MCP_SERVICES:
-            if self._record_ready(records.get(service), require_health=True):
+            target = SHARED_MCP_EXTERNAL_READINESS.get(service)
+            if target is None:
+                if self._record_ready(records.get(service), require_health=True):
+                    running.append(service)
+                continue
+            if not self._record_ready(records.get(service), require_health=False):
+                continue
+            if self._caller_auth_probe(target):
                 running.append(service)
+            else:
+                probe_failures.append(
+                    f"{service}: loopback caller-auth probe не подтверждён на "
+                    f"{target[0]}:{target[1]}{target[2]}"
+                )
         diagnostics = (
-            (f"caller token не задан: {', '.join(missing)}",) if missing else ()
+            *((f"caller token не задан: {', '.join(missing)}",) if missing else ()),
+            *probe_failures,
         )
         if len(running) == len(SHARED_MCP_SERVICES):
             return SharedMcpOutcome(

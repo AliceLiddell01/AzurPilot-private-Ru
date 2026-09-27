@@ -848,6 +848,20 @@ PAT; createRepository, updateRepositoryInfo и deleteRepository никогда �
 read-only обеспечивается read-only PAT вместе с typed
 `DOCKER_HUB_READ_ONLY_TOOLS` allowlist как defence-in-depth.
 
+GitHub service `github-mcp` публикуется только на `127.0.0.1:8779`
+(endpoint `http://127.0.0.1:8779/mcp`) и работает как долгоживущий Streamable
+HTTP service проверенного provider image. GitHub identity не принадлежит сервису:
+HTTP transport принимает bearer от вызывающего клиента, поэтому GitHub PAT не
+попадает ни в Compose, ни в container, ни в argv, ни в tracked config. Каталог
+ограничен серверно: `--read-only` вместе с exact `--tools` из восьми read-only
+tools (`pull_request_read`, `list_pull_requests`, `get_file_contents`,
+`search_code`, `issue_read`, `list_issues`, `get_commit`, `get_job_logs`);
+mutation tools отсутствуют в самом каталоге, а не отфильтровываются клиентом.
+Image distroless, поэтому вместо container healthcheck readiness подтверждает
+repository-owned loopback probe из `azurpilot.tooling.infrastructure`: endpoint
+обязан отвечать `401` на запрос без bearer, а любой другой ответ означает
+fail-open и не подтверждает готовность.
+
 Caller auth и provider credentials — разные контуры. Общий service требует
 bearer token от вызывающего клиента: `MCP_GRAFANA_SERVER_TOKEN` заполняется из
 `AZURPILOT_GRAFANA_MCP_CALLER_TOKEN`, `MCP_AUTH_TOKEN` — из
