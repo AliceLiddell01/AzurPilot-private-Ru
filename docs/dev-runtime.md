@@ -265,8 +265,8 @@ uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
 Без `--json` вывод предназначен для оператора: сначала показывается таблица
 ожидаемых и наблюдаемых transport surfaces, затем отдельные блоки first-party
 MCP и direct external integrations. Неготовые поверхности получают короткий
-статус `UNKNOWN`, `UNAVAILABLE`, `NOT CONFIGURED` или `PARTIAL`, а точный
-`reason_code` выводится только в компактном блоке `Notes`.
+статус `НЕИЗВЕСТНО`, `НЕДОСТУПНО`, `НЕ НАСТРОЕНО` или `ЧАСТИЧНО`, а точный
+`reason_code` выводится только в компактном блоке «Примечания».
 
 `--strict` возвращает non-zero для подтверждённого drift или недоступной
 обязательной canonical surface. Доступный metadata endpoint без наблюдаемого status

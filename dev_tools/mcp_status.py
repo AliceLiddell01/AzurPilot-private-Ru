@@ -1164,7 +1164,7 @@ _HUMAN_STATUS_LABELS = {
 
 def _human_status_label(value: object) -> str:
     if not isinstance(value, str):
-        return "UNKNOWN"
+        return _HUMAN_STATUS_LABELS["unknown"]
     return _HUMAN_STATUS_LABELS.get(value, value.upper().replace("_", " "))
 
 

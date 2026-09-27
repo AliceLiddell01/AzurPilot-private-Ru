@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +15,7 @@ from module.persistence.local_environment import (
     LocalPostgresEnvironment,
     load_local_postgres_environment,
 )
+from module.persistence.local_environment_schema import SECRET_ENVIRONMENT_KEYS
 
 
 def _document() -> str:
@@ -332,6 +335,52 @@ def test_local_env_rejects_broad_permissions(tmp_path: Path, monkeypatch):
 
     with pytest.raises(StorageConfigurationError, match="права доступа"):
         load_local_postgres_environment(path, environment={})
+
+
+def test_windows_acl_probe_does_not_inherit_registered_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for key in SECRET_ENVIRONMENT_KEYS:
+        monkeypatch.setenv(key, f"test-only-{key}")
+    monkeypatch.setenv("PGPASSWORD", "test-only-PGPASSWORD")
+    original_values = {
+        key: os.environ[key] for key in (*SECRET_ENVIRONMENT_KEYS, "PGPASSWORD")
+    }
+    captured: dict[str, str] = {}
+    current_sid = "S-1-5-21-1000"
+
+    def run(_args, **kwargs):
+        captured.update(kwargs["env"])
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "CurrentSid": current_sid,
+                    "OwnerSid": current_sid,
+                    "Protected": True,
+                    "Rules": [
+                        {
+                            "Sid": current_sid,
+                            "Rights": 0x1F01FF,
+                            "Type": "Allow",
+                            "Inherited": False,
+                        }
+                    ],
+                }
+            ),
+        )
+
+    monkeypatch.setattr(
+        local_environment_module.shutil, "which", lambda _name: "powershell.exe"
+    )
+    monkeypatch.setattr(local_environment_module.subprocess, "run", run)
+
+    assert local_environment_module._windows_acl_is_restricted(tmp_path / ".env")
+
+    assert set(SECRET_ENVIRONMENT_KEYS).isdisjoint(captured)
+    assert "PGPASSWORD" not in captured
+    assert captured["AZURPILOT_ENV_ACL_PATH"] == str(tmp_path / ".env")
+    assert {key: os.environ[key] for key in original_values} == original_values
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows ACL gate")

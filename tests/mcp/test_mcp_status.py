@@ -245,6 +245,35 @@ def test_human_report_mentions_direct_integrations_without_legacy_route(
     assert "gateway" not in output
 
 
+def test_human_report_uses_russian_unknown_and_notes_labels(monkeypatch, capsys):
+    report = _ready_report(monkeypatch)
+    report["status"] = None
+    report["servers"]["azurpilot-dev"]["local_direct"]["status"] = "unavailable"
+
+    status._print_human(report, None)
+    output = capsys.readouterr().out
+
+    assert "ИТОГ     НЕИЗВЕСТНО" in output
+    assert "НЕДОСТУПНО" in output
+    assert "Примечания" in output
+    assert "Notes" not in output
+
+
+def test_human_table_expands_status_column_and_keeps_later_columns_aligned(capsys):
+    status._print_human_table(
+        ("СЕРВЕР", "СОСТОЯНИЕ", "ПРИЧИНА"),
+        (
+            ("azurpilot-dev", "НЕИЗВЕСТНО", "CODE_A"),
+            ("azurpilot-game", "НЕДОСТУПНО", "CODE_B"),
+        ),
+    )
+    lines = capsys.readouterr().out.splitlines()
+
+    reason_column = lines[0].index("ПРИЧИНА")
+    assert lines[2].index("CODE_A") == reason_column
+    assert lines[3].index("CODE_B") == reason_column
+
+
 def test_missing_yaml_dependency_is_reported_without_name_error(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "yaml", None)
     skill = tmp_path / "SKILL.md"

@@ -161,11 +161,9 @@ $payload | ConvertTo-Json -Compress -Depth 4
 """
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     environment = os.environ.copy()
+    for key in SECRET_ENVIRONMENT_KEYS:
+        environment.pop(key, None)
     environment.pop("PGPASSWORD", None)
-    environment.pop(_APP_PREFIX + "PASSWORD", None)
-    environment.pop(_MIGRATOR_PREFIX + "PASSWORD", None)
-    environment.pop("AZURPILOT_DEV_LOCAL_MCP_TOKEN", None)
-    environment.pop("AZURPILOT_GAME_LOCAL_MCP_TOKEN", None)
     environment["AZURPILOT_ENV_ACL_PATH"] = str(path)
     try:
         completed = subprocess.run(
