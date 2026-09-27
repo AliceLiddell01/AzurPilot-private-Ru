@@ -437,12 +437,14 @@ services:
   dockerhub-mcp:
     profiles:
       - external-mcp
-    image: azurpilot-infrastructure/dockerhub-mcp:4c01b635d523
+    image: azurpilot-infrastructure/dockerhub-mcp:${AZURPILOT_DOCKERHUB_MCP_IMAGE_TAG:-4c01b635d523}
     build:
       context: ./mcp/dockerhub-mcp
       args:
         HUBCP_COMMIT: 4c01b635d5239192e5d1b5e0f659a6d224a44ab6
     restart: unless-stopped
+    labels:
+      azurpilot.dockerhub-mcp.build-tag: "${AZURPILOT_DOCKERHUB_MCP_IMAGE_TAG:-4c01b635d523}"
     security_opt:
       - no-new-privileges:true
     read_only: true

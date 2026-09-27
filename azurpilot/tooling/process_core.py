@@ -34,6 +34,11 @@ DOCKER_ENVIRONMENT_KEYS = frozenset(
         "DOCKER_CERT_PATH",
     }
 )
+# Ограниченные значения, которые типизированный Compose-владелец передаёт
+# только для выбора образа Docker Hub MCP, принадлежащего репозиторию.
+DOCKER_COMPOSE_ENVIRONMENT_KEYS = frozenset(
+    {"AZURPILOT_DOCKERHUB_MCP_IMAGE_TAG"}
+)
 MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS = {
     "azurpilot-dev": "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
     "azurpilot-game": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
@@ -614,7 +619,7 @@ def _safe_environment(
         "GH_PAGER",
         "GH_PROMPT_DISABLED",
         "__PYVENV_LAUNCHER__",
-    } | DOCKER_ENVIRONMENT_KEYS
+    } | DOCKER_ENVIRONMENT_KEYS | DOCKER_COMPOSE_ENVIRONMENT_KEYS
     allowed_explicit |= (
         set(MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS.values())
         | MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS
@@ -1045,6 +1050,7 @@ class ProcessController:
 __all__ = [
     "DEFAULT_OUTPUT_LIMIT",
     "DEFAULT_PROCESS_TIMEOUT",
+    "DOCKER_COMPOSE_ENVIRONMENT_KEYS",
     "DOCKER_ENVIRONMENT_KEYS",
     "GRAFANA_URL_ENVIRONMENT_KEY",
     "INTEGRATION_CALLER_TOKEN_ENVIRONMENT_KEYS",

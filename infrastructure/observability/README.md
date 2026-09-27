@@ -885,7 +885,14 @@ bearer token от вызывающего клиента: `MCP_GRAFANA_SERVER_TOK
 Жизненным циклом общих services владеет Compose, а типизированная операторская
 граница — буквальная команда `azur integrations shared-mcp status|start|stop`.
 `start` отказывается работать при отсутствии caller tokens в `.env` и не
-создаёт второго владельца image ref или runtime command.
+создаёт второго владельца image ref или runtime command. Перед `up` эта команда
+выполняет `docker compose build --pull` для `dockerhub-mcp`, вычисляет тег из
+содержимого полного набора входов образа и передаёт его Compose.
+Обычный `up` пересоздаёт только изменившийся контейнер, поэтому изменения
+Dockerfile, lockfile, `.npmrc`, healthcheck или build args не могут остаться
+скрытыми за прежним upstream-only tag. `status` проверяет running/health,
+caller auth и label текущего тега; `build_confirmed` становится
+истинным только после успешного `start` с таким совпадением.
 
 Context7 использует официальный endpoint
 https://mcp.context7.com/mcp; anonymous read-only probe допустим, а

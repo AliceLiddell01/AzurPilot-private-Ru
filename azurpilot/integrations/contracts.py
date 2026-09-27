@@ -177,6 +177,9 @@ class SharedMcpDetails(ClosedModel):
     state: CapabilityStatus
     services: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
     diagnostics: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+    # Health/auth status сам по себе не доказывает provenance image. Поле
+    # становится истинным только для `start` после успешного Compose build.
+    build_confirmed: bool = False
 
 
 class IntegrationEvidenceBundle(ClosedModel):

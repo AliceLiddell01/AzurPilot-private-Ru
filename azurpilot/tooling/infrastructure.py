@@ -11,13 +11,15 @@ Docker secrets и не передаются в argv или evidence резуль
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .config import DeploySettings, project_python
@@ -105,16 +107,32 @@ SHARED_MCP_CALLER_TOKEN_ENVIRONMENT_KEYS: tuple[str, ...] = (
     "AZURPILOT_GRAFANA_MCP_CALLER_TOKEN",
     "AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN",
 )
+DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY = "AZURPILOT_DOCKERHUB_MCP_IMAGE_TAG"
+DOCKERHUB_MCP_BUILD_LABEL = "azurpilot.dockerhub-mcp.build-tag"
+# Все файлы, влияющие на результат сборки Docker Hub MCP из репозитория.
+# Compose включён, чтобы изменение build args или runtime label не могло
+# незаметно повторно использовать образ с прежним происхождением.
+DOCKERHUB_MCP_BUILD_INPUTS: tuple[Path, ...] = (
+    Path("infrastructure/observability/compose.yaml"),
+    Path("infrastructure/observability/mcp/dockerhub-mcp/Dockerfile"),
+    Path("infrastructure/observability/mcp/dockerhub-mcp/.npmrc"),
+    Path("infrastructure/observability/mcp/dockerhub-mcp/healthcheck.mjs"),
+    Path("infrastructure/observability/mcp/dockerhub-mcp/package.json"),
+    Path("infrastructure/observability/mcp/dockerhub-mcp/package-lock.json"),
+)
 
 
 @dataclass(frozen=True)
 class SharedMcpOutcome:
-    """Состояние общих внешних MCP HTTP services одной машины."""
+    """Состояние общих внешних HTTP-служб MCP одной машины."""
 
     state: CapabilityStatus
     message: str
     services: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
+    # `status` подтверждает только running/health/auth. Это поле становится
+    # истинным лишь после canonical `start`, который завершил Compose build.
+    build_confirmed: bool = False
 
 
 @dataclass(frozen=True)
@@ -205,6 +223,7 @@ class InfrastructureService:
         *arguments: str,
         timeout_seconds: float,
         profiles: tuple[str, ...] = (),
+        compose_environment: Mapping[str, str] | None = None,
     ) -> str:
         docker = self._docker()
         profile_arguments = tuple(
@@ -229,6 +248,7 @@ class InfrastructureService:
                     "PYTHONUTF8": "1",
                     "PYTHONUNBUFFERED": "1",
                     **docker_environment(),
+                    **(compose_environment or {}),
                 },
                 no_window=True,
             )
@@ -244,6 +264,53 @@ class InfrastructureService:
                 "Операция Docker Compose завершилась ошибкой; проверьте Docker Desktop и .env.",
             )
         return result.stdout
+
+    @staticmethod
+    def _dockerhub_mcp_image_tag(root: Path) -> str:
+        """Получить неперсональный тег из точного набора входов сборки."""
+
+        digest = hashlib.sha256()
+        for relative in DOCKERHUB_MCP_BUILD_INPUTS:
+            path = root / relative
+            if path_has_link(path) or not path.is_file():
+                raise ToolingError(
+                    ResultCode.TOOLING_PRECONDITION_FAILED,
+                    "Вход сборки Docker Hub MCP отсутствует или является ссылкой: "
+                    + relative.as_posix(),
+                )
+            try:
+                content = path.read_bytes()
+            except OSError as exc:
+                raise ToolingError(
+                    ResultCode.TOOLING_PRECONDITION_FAILED,
+                    "Не удалось прочитать вход сборки Docker Hub MCP: "
+                    + relative.as_posix(),
+                ) from exc
+            if len(content) > 16 * 1024 * 1024:
+                raise ToolingError(
+                    ResultCode.TOOLING_PRECONDITION_FAILED,
+                    "Вход сборки Docker Hub MCP слишком велик: "
+                    + relative.as_posix(),
+                )
+            digest.update(relative.as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(len(content).to_bytes(8, "big"))
+            digest.update(content)
+            digest.update(b"\0")
+        return digest.hexdigest()
+
+    @staticmethod
+    def _record_has_label(
+        record: Mapping[str, object] | None, *, key: str, value: str
+    ) -> bool:
+        if record is None:
+            return False
+        labels = record.get("Labels")
+        if isinstance(labels, Mapping):
+            return labels.get(key) == value
+        if isinstance(labels, str):
+            return any(item == f"{key}={value}" for item in labels.split(","))
+        return False
 
     def _run_project_module(
         self, root: Path, settings: DeploySettings, module: str, *arguments: str,
@@ -533,10 +600,11 @@ class InfrastructureService:
     def shared_mcp_status(
         self, root: Path, *, timeout_seconds: float = 60.0
     ) -> SharedMcpOutcome:
-        """Прочитать состояние общих MCP services, ничего не запуская."""
+        """Прочитать состояние общих служб MCP, ничего не запуская."""
 
         compose, env_file = self._paths(root)
         missing = self._missing_caller_tokens(env_file)
+        image_tag = self._dockerhub_mcp_image_tag(root)
         raw = self._run_docker(
             root,
             compose,
@@ -547,16 +615,31 @@ class InfrastructureService:
             "json",
             timeout_seconds=timeout_seconds,
             profiles=(SHARED_MCP_PROFILE,),
+            compose_environment={DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY: image_tag},
         )
         records = {
             str(item.get("Service", "")): item for item in self._records(raw)
         }
         running: list[str] = []
         probe_failures: list[str] = []
+        provenance_failures: list[str] = []
         for service in SHARED_MCP_SERVICES:
             target = SHARED_MCP_EXTERNAL_READINESS.get(service)
             if target is None:
-                if self._record_ready(records.get(service), require_health=True):
+                record = records.get(service)
+                if not self._record_ready(record, require_health=True):
+                    continue
+                if service == "dockerhub-mcp" and not self._record_has_label(
+                    record,
+                    key=DOCKERHUB_MCP_BUILD_LABEL,
+                    value=image_tag,
+                ):
+                    provenance_failures.append(
+                        "dockerhub-mcp: происхождение образа не подтверждено "
+                        "для текущей рабочей копии Compose"
+                    )
+                    continue
+                if record is not None:
                     running.append(service)
                 continue
             if not self._record_ready(records.get(service), require_health=False):
@@ -565,30 +648,34 @@ class InfrastructureService:
                 running.append(service)
             else:
                 probe_failures.append(
-                    f"{service}: loopback caller-auth probe не подтверждён на "
+                    f"{service}: проверка аутентификации вызывающего клиента "
+                    "по loopback не подтверждена на "
                     f"{target[0]}:{target[1]}{target[2]}"
                 )
         diagnostics = (
-            *((f"caller token не задан: {', '.join(missing)}",) if missing else ()),
+            *((
+                f"токен вызывающего клиента не задан: {', '.join(missing)}",
+            ) if missing else ()),
             *probe_failures,
+            *provenance_failures,
         )
         if len(running) == len(SHARED_MCP_SERVICES):
             return SharedMcpOutcome(
                 CapabilityStatus.READY,
-                "Общие внешние MCP HTTP services запущены и healthy.",
+                "Общие внешние HTTP-службы MCP запущены и исправны.",
                 tuple(running),
                 diagnostics,
             )
         if not running:
             return SharedMcpOutcome(
                 CapabilityStatus.NOT_CONFIGURED,
-                "Общие внешние MCP HTTP services не запущены.",
+                "Общие внешние HTTP-службы MCP не запущены.",
                 (),
                 diagnostics,
             )
         return SharedMcpOutcome(
             CapabilityStatus.FAILED,
-            "Запущена только часть общих MCP services: "
+            "Запущена только часть общих служб MCP: "
             + ", ".join(running)
             + ".",
             tuple(running),
@@ -598,25 +685,58 @@ class InfrastructureService:
     def ensure_shared_mcp_started(
         self, root: Path, *, timeout_seconds: float = 600.0
     ) -> SharedMcpOutcome:
-        """Запустить общие MCP services после проверки caller auth."""
+        """Собрать и запустить общие службы MCP после проверки токенов клиента.
+
+        Docker Hub MCP принадлежит текущей рабочей копии Compose, поэтому
+        `start` обязан выполнить сборку из репозитория до запуска контейнеров.
+        Это не позволяет существующему образу с прежними Dockerfile/lockfile
+        тихо удовлетворить тот же тег upstream.
+        """
 
         compose, env_file = self._paths(root)
+        deadline = time.monotonic() + timeout_seconds
+
+        def budget(limit: float) -> float:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ToolingError(
+                    ResultCode.TOOLING_TIMEOUT,
+                    "Запуск общих служб MCP превысил общий срок.",
+                )
+            return min(limit, remaining)
+
         missing = self._missing_caller_tokens(env_file)
         if missing:
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Caller tokens общих MCP HTTP services не заданы: "
+                "Токены вызывающего клиента общих HTTP-служб MCP не заданы: "
                 + ", ".join(missing)
                 + ".",
             )
+        image_tag = self._dockerhub_mcp_image_tag(root)
+        compose_environment = {
+            DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY: image_tag
+        }
         self._run_docker(
             root,
             compose,
             env_file,
             "config",
             "--quiet",
-            timeout_seconds=min(60.0, timeout_seconds),
+            timeout_seconds=budget(60.0),
             profiles=(SHARED_MCP_PROFILE,),
+            compose_environment=compose_environment,
+        )
+        self._run_docker(
+            root,
+            compose,
+            env_file,
+            "build",
+            "--pull",
+            "dockerhub-mcp",
+            timeout_seconds=budget(timeout_seconds),
+            profiles=(SHARED_MCP_PROFILE,),
+            compose_environment=compose_environment,
         )
         self._run_docker(
             root,
@@ -625,11 +745,37 @@ class InfrastructureService:
             "up",
             "--detach",
             "--wait",
-            *SHARED_MCP_SERVICES,
-            timeout_seconds=timeout_seconds,
+            "dockerhub-mcp",
+            timeout_seconds=budget(timeout_seconds),
             profiles=(SHARED_MCP_PROFILE,),
+            compose_environment=compose_environment,
         )
-        return self.shared_mcp_status(root)
+        # Остальные services не менялись: Compose должен сохранить их
+        # существующие контейнеры и только подтвердить их readiness.
+        self._run_docker(
+            root,
+            compose,
+            env_file,
+            "up",
+            "--detach",
+            "--wait",
+            "grafana-mcp",
+            "github-mcp",
+            timeout_seconds=budget(timeout_seconds),
+            profiles=(SHARED_MCP_PROFILE,),
+            compose_environment=compose_environment,
+        )
+        status = self.shared_mcp_status(root, timeout_seconds=budget(60.0))
+        return replace(
+            status,
+            build_confirmed=status.state is CapabilityStatus.READY,
+            message=(
+                "Общие внешние HTTP-службы MCP собраны из текущей рабочей "
+                "копии Compose, запущены и исправны."
+                if status.state is CapabilityStatus.READY
+                else status.message
+            ),
+        )
 
     def stop_shared_mcp(
         self, root: Path, *, timeout_seconds: float = 180.0
@@ -731,6 +877,9 @@ class InfrastructureService:
 
 
 __all__ = [
+    "DOCKERHUB_MCP_BUILD_INPUTS",
+    "DOCKERHUB_MCP_BUILD_LABEL",
+    "DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY",
     "SHARED_MCP_PROFILE",
     "SHARED_MCP_SERVICES",
     "InfrastructureInspection",

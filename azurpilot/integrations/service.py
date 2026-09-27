@@ -312,6 +312,7 @@ class IntegrationService:
                 state=outcome.state,
                 services=outcome.services,
                 diagnostics=outcome.diagnostics,
+                build_confirmed=outcome.build_confirmed,
             ),
             evidence=IntegrationEvidenceBundle(generated_at=_now()),
         )

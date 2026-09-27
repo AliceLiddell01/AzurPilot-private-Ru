@@ -61,6 +61,8 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
 - permanent semantic runtime-localization audit: доказанные operator-facing sinks должны оставаться русскими, а runtime identity — только RU/Global/EN;
 - генераторы конфигурации и assets;
 - отсутствие generated diff и незакоммиченных файлов.
+- чистую сборку `dockerhub-mcp` с `--pull --no-cache` и проверку графа
+  production-зависимостей через `npm ls --omit=dev --all`.
 
 Локальный эквивалент среды:
 
@@ -71,6 +73,11 @@ uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
   --base-commit <full-base-sha>
 uv run --locked --no-sync python -m dev_tools.integration_contract_gate
+docker compose --file infrastructure/observability/compose.yaml \
+  --profile external-mcp build --pull --no-cache dockerhub-mcp
+docker compose --file infrastructure/observability/compose.yaml \
+  --profile external-mcp run --rm --no-deps --entrypoint npm dockerhub-mcp \
+  ls --omit=dev --all
 ```
 
 В pull request job передаёт в gate точный `github.event.pull_request.base.sha`;

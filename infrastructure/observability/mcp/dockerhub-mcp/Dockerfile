@@ -22,14 +22,17 @@ COPY package.json package-lock.json .npmrc /pinned/
 WORKDIR /src
 RUN set -eux; \
     echo "${HUBCP_COMMIT}" | grep -Eq '^[0-9a-f]{40}$'; \
-    apk add --no-cache curl; \
+    apk add --no-cache curl git; \
+    git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"; \
+    git config --global --add url."https://github.com/".insteadOf "git@github.com:"; \
     curl -fsSL "https://github.com/docker/hub-mcp/archive/${HUBCP_COMMIT}.tar.gz" -o /tmp/src.tgz; \
     tar -xzf /tmp/src.tgz --strip-components=1 -C /src; \
     rm -f /tmp/src.tgz; \
     cmp /pinned/package.json /src/package.json; \
     cp /pinned/package-lock.json /pinned/.npmrc /src/; \
     npm ci --no-audit --no-fund; \
-    npm run build
+    npm run build; \
+    rm -f /root/.gitconfig
 
 FROM node:24-alpine3.22@sha256:191c9f0080fcbbc6547a85dc0ff7988072214a355aabdc1d2ec55a7dae5eea8a
 
@@ -40,8 +43,13 @@ COPY --from=builder /src/package.json /src/package-lock.json /src/.npmrc ./
 COPY --from=builder /src/dist/ ./dist/
 COPY healthcheck.mjs ./healthcheck.mjs
 
-RUN npm ci --omit=dev --no-audit --no-fund \
+RUN apk add --no-cache git \
+ && git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/" \
+ && git config --global --add url."https://github.com/".insteadOf "git@github.com:" \
+ && npm ci --omit=dev --no-audit --no-fund \
  && npm cache clean --force \
+ && rm -f /root/.gitconfig \
+ && apk del git \
  && chown -R appuser:appgroup /app
 
 USER appuser

@@ -33,6 +33,7 @@ from azurpilot.integrations.config import (
 )
 from azurpilot.integrations.contracts import IntegrationName
 from azurpilot.tooling.infrastructure import (
+    DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY,
     SHARED_MCP_EXTERNAL_READINESS,
     SHARED_MCP_SERVICES,
 )
@@ -397,6 +398,14 @@ def _check_shared_service(
         errors.append(
             f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан использовать "
             "repository-owned build вместо provider image"
+        )
+    if family == "docker-hub" and (
+        not isinstance(image, str)
+        or f"${{{DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY}:-" not in image
+    ):
+        errors.append(
+            f"{_COMPOSE_PATH.as_posix()}: {service_name} обязан связывать image "
+            "с вычисляемым по содержимому тегом сборки"
         )
     arguments = build.get("args") if isinstance(build, Mapping) else None
     commit = (

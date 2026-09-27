@@ -9,6 +9,7 @@ import yaml
 import dev_tools.integration_contract_gate as gate
 from azurpilot.integrations.adapters import DOCKER_HUB_BLOCKED_TOOLS
 from azurpilot.integrations.config import DEFAULTS, SHARED_MCP_ENDPOINTS
+from azurpilot.tooling.infrastructure import DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -28,6 +29,52 @@ def test_permanent_contract_has_no_retired_profile_paths():
         not (REPOSITORY_ROOT / relative).exists()
         for relative in gate.RETIRED_PROFILE_PATHS
     )
+
+
+def test_dockerhub_mcp_lock_transport_is_available_in_both_install_stages():
+    """Закреплённая Git-зависимость доступна в обеих стадиях установки."""
+
+    dockerfile = (
+        REPOSITORY_ROOT
+        / "infrastructure"
+        / "observability"
+        / "mcp"
+        / "dockerhub-mcp"
+        / "Dockerfile"
+    ).read_text(encoding="utf-8")
+    lockfile = (
+        REPOSITORY_ROOT
+        / "infrastructure"
+        / "observability"
+        / "mcp"
+        / "dockerhub-mcp"
+        / "package-lock.json"
+    ).read_text(encoding="utf-8")
+
+    assert "git+ssh://git@github.com/modelcontextprotocol/specification.git#" in lockfile
+    assert dockerfile.count("apk add --no-cache") >= 2
+    assert dockerfile.count("apk add --no-cache curl git") == 1
+    assert dockerfile.count("apk add --no-cache git") == 1
+    assert dockerfile.count("git config --global --add") == 4
+    assert dockerfile.count('insteadOf "ssh://git@github.com/"') == 2
+    assert dockerfile.count('insteadOf "git@github.com:"') == 2
+    assert "npm ci --no-audit --no-fund" in dockerfile
+    assert "npm ci --omit=dev --no-audit --no-fund" in dockerfile
+
+
+def test_dockerhub_mcp_image_uses_content_derived_runtime_tag():
+    """Compose обязан связывать Docker Hub image с текущими входами сборки."""
+
+    document = yaml.safe_load(
+        (REPOSITORY_ROOT / gate._COMPOSE_PATH).read_text(encoding="utf-8")
+    )
+    service = document["services"]["dockerhub-mcp"]
+    image = service["image"]
+    label = service["labels"]["azurpilot.dockerhub-mcp.build-tag"]
+    marker = f"${{{DOCKERHUB_MCP_IMAGE_TAG_ENVIRONMENT_KEY}:-"
+
+    assert marker in image
+    assert marker in label
 
 
 def test_contract_rejects_empty_docker_hub_denylist(tmp_path: Path):
