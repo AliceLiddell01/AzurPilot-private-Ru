@@ -33,9 +33,8 @@ reviews:
         Сообщай каждое применимое correctness, architecture, maintainability, refactor, cleanup и trivial finding
         независимо от severity или nit характера. Перед рекомендацией сверяй version-controlled repository contracts,
         текущий task и scope, а также фактические dependency/runtime versions. Не предлагай изменение, прямо
-        противоречащее authoritative contract; при прямом конфликте явно опиши его. Mandatory review remediation,
-        непосредственно необходимая для actionable finding текущего candidate, разрешена даже если выглядит как
-        refactor или cleanup. Не выдумывай факт при недостатке контекста. Precedence: tracked repository/task/version
+        противоречащее authoritative contract; при прямом конфликте явно опиши его. Не выдумывай факт при недостатке
+        контекста. Precedence: tracked repository/task/version
         contracts выше CodeRabbit learnings; effective organization/workspace Global Overrides могут иметь более высокий
         приоритет, но их фактическое применение не предполагай без evidence.
     - path: "**/*.py"
@@ -93,12 +92,9 @@ reviews:
           поведение должно сохраняться.
 
           Для "Scope: bugfix": разрешены только изменения поведения, тесты и документация, необходимые для заявленного
-          исправления. Изменение, непосредственно необходимое для mandatory review remediation текущего actionable
-          CodeRabbit finding, разрешено независимо от его severity, refactor или cleanup характера. FAIL на реально
-          несвязанные feature, refactor, cleanup или изменения поведения. Если remediation противоречит
-          authoritative task scope, зафиксируй typed disposition `deferred` с
-          `deferral_reason=task_scope`, authoritative source и подробным объяснением, а не называй обязательную
-          remediation scope violation.
+          исправления. FAIL на реально несвязанные feature, refactor, cleanup или изменения поведения. Review finding
+          не расширяет заявленный task scope автоматически: при конфликте опиши его как отдельное наблюдение, а не
+          требуй несвязанную remediation внутри текущего PR.
 
           Для "Scope: feature": разрешены новое или изменённое поведение, тесты и документация, необходимые для
           заявленной функции. FAIL на несвязанные изменения.
