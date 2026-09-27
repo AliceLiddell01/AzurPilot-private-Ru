@@ -40,7 +40,7 @@ def build_plan(
     source_revision: str,
     server_name: str = "azurpilot-dev",
 ) -> FreshMcpClientPlan:
-    """Собрать только canonical contract/catalog и bounded read-only calls."""
+    """Собрать только канонические contract/catalog и ограниченные read-only calls."""
 
     if server_name == "azurpilot-dev":
         expected_contract = contract_payload()
@@ -108,7 +108,7 @@ def _result_payload(result: FreshMcpClientResult) -> dict[str, object]:
 async def accept(
     repository_root: Path, *, allow_dirty: bool = False
 ) -> FreshMcpClientResult:
-    """Провести одну bounded fresh session без Codex task/session state."""
+    """Провести одну ограниченную fresh session без Codex task/session state."""
 
     source_revision, working_tree = git_source_snapshot(repository_root)
     if working_tree == "modified" and not allow_dirty:

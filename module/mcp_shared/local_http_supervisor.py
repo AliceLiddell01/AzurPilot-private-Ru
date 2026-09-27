@@ -320,7 +320,7 @@ class LocalHttpSupervisor:
             )
 
     def _read_token(self, service: LocalHttpService) -> str:
-        """Прочитать token из exact project-local source.
+        """Прочитать token из точного project-local источника.
 
         Ambient environment разрешён только для явно помеченных test runners;
         production supervisor получает credential из защищённого ``.env``.

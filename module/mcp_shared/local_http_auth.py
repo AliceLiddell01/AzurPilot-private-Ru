@@ -1,4 +1,4 @@
-"""Безопасный project-local источник bearer credentials для MCP HTTP."""
+"""Безопасный project-local источник bearer credential для MCP HTTP."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def read_local_mcp_token(repository_root: str | Path, server_name: str) -> str:
 
 
 def local_http_headers(repository_root: str | Path, server_name: str) -> dict[str, str]:
-    """Сформировать authenticated HTTP headers без записи credentials в журнал."""
+    """Сформировать аутентифицированные HTTP-заголовки без записи credential в журнал."""
 
     return {"Authorization": f"Bearer {read_local_mcp_token(repository_root, server_name)}"}
 

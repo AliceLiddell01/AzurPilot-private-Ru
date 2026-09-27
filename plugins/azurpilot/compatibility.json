@@ -2,7 +2,7 @@
   "contract_schema_version": 1,
   "product_family": "AzurPilot",
   "plugin_version": "0.1.0+codex.75310662743474",
-  "bundle_revision": "fd54226728ea5a09a778d148d610f130b0e8fc496969076163e319a10635381a",
+  "bundle_revision": "ba2bd1b68a020d117b0146a861b04c1dcbd6848ca5fddc57d630a81d422eaa16",
   "skill_bundle_revision": "a5c12320c364ee1260ef2478d0058ccac0493a797f56a5a8a366e9333e6806a2",
   "required_mcp_servers": {
     "azurpilot-dev": ">=8.0.4,<9.0.0",
@@ -57,7 +57,7 @@
       },
       "capability_catalog_sha256": "97853974a1f2a8387b6b9578a01dbc25ef463346ad5742bc6304a2b5bb3152d9",
       "contract_revision": "06a1ea3fc6c549a9a4d4de23950c998b7d7916eb6fce2f0e6c8dbf14ff7ebddc",
-      "source_set_digest": "33fe1e43f818274a13a0f6823c112c737b0ff6a3913f586f8d8aae8c6357e483"
+      "source_set_digest": "48f05deac8ad0a617d8134f88ce93b2ab265f8f65af9b8140e94c30ff5a2db03"
     },
     "azurpilot-game": {
       "version": "2.0.27",
@@ -91,7 +91,7 @@
       },
       "capability_catalog_sha256": "115b25b6082846093ff4047d44d7bd82661f713c7bebf00145784ff72fcc24d7",
       "contract_revision": "9d6d071c7b5b41991a567713890af417db55127acbbbafbd3808d6422513eef4",
-      "source_set_digest": "b6e93c9a02af1aea15f2a4e172af0df6a6a5193eb065db89d2ae3a9adc9c0e46"
+      "source_set_digest": "f5e12ef3c7e73ffdc5708f75b9159d819d8ba232ef1b861f1c93cde70666577b"
     }
   },
   "required_feature_flags": {
@@ -237,7 +237,7 @@
   "source_digests": {
     "DEV_MCP_SOURCE_SET": "15a49c19576711baf8e59fd9a9c2e2d64c155ff104c422d4e76edba469c7d31b",
     "GAME_MCP_SOURCE_SET": "1c786248bb48e3352a4cf764cadf0544dfbc28cecb8666c3658c473fd5ad1939",
-    "SHARED_MCP_SOURCE_SET": "f82b7da4d82ce1429cda2b441291d08b390ea3a7dc5505e57095b7e492ca3bf7",
+    "SHARED_MCP_SOURCE_SET": "49480b52b154ce0f17c4cdc5327022e5e8b377a0c72dce8906468e312f9878bd",
     "PLUGIN_BUNDLE_SOURCE_SET": "b687371654e75fef365020b3578bd7341a246e3072141139455c382270c9108f",
     "SKILL_BUNDLE_SOURCE_SET": "a5c12320c364ee1260ef2478d0058ccac0493a797f56a5a8a366e9333e6806a2"
   }
