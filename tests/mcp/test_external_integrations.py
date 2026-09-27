@@ -550,14 +550,6 @@ def test_shared_registration_does_not_discover_provider_process(
     assert outcome.record.evidence.executable is None
 
 
-@pytest.mark.parametrize(
-    ("iterations", "terminal", "allowed"),
-    [(0, False, True), (1, False, True), (2, False, True), (3, False, False), (0, True, False)],
-)
-def test_coderabbit_iteration_policy_is_bounded(iterations, terminal, allowed):
-    assert coderabbit.review_iteration_allowed(iterations, terminal=terminal) is allowed
-
-
 def test_scoped_semgrep_rejects_exact_path_traversal(tmp_path: Path):
     inside = tmp_path / "inside.py"
     inside.write_text("print('ok')\n", encoding="utf-8")
@@ -819,7 +811,7 @@ def test_repository_registration_rejects_untrusted_provider_identity(
         load_integration_config(tmp_path)
 
 
-def test_cli_exposes_typed_integration_leaves():
+def test_cli_exposes_typed_integration_leaves_without_coderabbit():
     parser = build_parser()
     status_args = parser.parse_args(["integrations", "status", "--json"])
     paths_args = parser.parse_args(
@@ -828,34 +820,13 @@ def test_cli_exposes_typed_integration_leaves():
     scan_args = parser.parse_args(
         ["integrations", "semgrep", "scan", "--changed", "--base", "a" * 40]
     )
-    review_args = parser.parse_args(
-        [
-            "integrations",
-            "coderabbit",
-            "review",
-            "--base",
-            "b" * 40,
-            "--task-id",
-            "test-review-task",
-        ]
-    )
-    cycle_args = parser.parse_args(
-        ["integrations", "coderabbit", "cycle", "start", "--base", "c" * 40]
-    )
-    config_args = parser.parse_args(
-        ["integrations", "coderabbit", "config", "validate", "--json"]
-    )
 
     assert status_args.integration_target == "status"
     assert paths_args.paths == ["azurpilot/cli.py"]
     assert scan_args.changed is True
-    assert review_args.base == "b" * 40
-    assert review_args.task_id == "test-review-task"
-    assert cycle_args.integration_action == "cycle"
-    assert cycle_args.coderabbit_cycle_action == "start"
-    assert cycle_args.base == "c" * 40
-    assert config_args.integration_action == "config"
-    assert config_args.coderabbit_config_action == "validate"
+
+    with pytest.raises(CliInvocationError):
+        parser.parse_args(["integrations", "coderabbit", "status"])
 
 
 def test_cli_rejects_ambiguous_semgrep_scope():
@@ -874,7 +845,7 @@ def test_cli_rejects_ambiguous_semgrep_scope():
 def test_integration_finding_rejects_reversed_line_range():
     with pytest.raises(ValueError, match="line_end"):
         IntegrationFinding(
-            kind="coderabbit",
+            kind="semgrep",
             identifier="finding",
             path="module/example.py",
             line=120,
@@ -882,54 +853,3 @@ def test_integration_finding_rejects_reversed_line_range():
             severity="minor",
             message="Некорректный диапазон.",
         )
-
-
-def test_coderabbit_rate_limit_metadata_is_bounded_and_typed():
-    error = coderabbit.CodeRabbitStreamError(
-        "CODERABBIT_RATE_LIMITED",
-        rate_limited=True,
-        retry_not_before="2026-09-16T12:00:00+00:00",
-        retry_source="provider",
-    )
-    assert error.rate_limited is True
-    assert error.retry_not_before == "2026-09-16T12:00:00+00:00"
-    assert error.retry_source == "provider"
-    retry_at, source = coderabbit._parse_provider_retry_metadata(
-        {"metadata": {"retry_after_seconds": 120}},
-        now=datetime(2026, 9, 16, tzinfo=UTC),
-    )
-    assert retry_at == "2026-09-16T00:02:00+00:00"
-    assert source == "provider"
-    stale, stale_source = coderabbit._parse_provider_retry_metadata(
-        {"metadata": {"retry_at": "2026-09-15T23:59:59+00:00"}},
-        now=datetime(2026, 9, 16, tzinfo=UTC),
-    )
-    assert stale is None
-    assert stale_source == "unknown"
-    unknown, unknown_source = coderabbit._parse_provider_retry_metadata(
-        {"metadata": {"retry_after_seconds": 0}},
-        now=datetime(2026, 9, 16, tzinfo=UTC),
-    )
-    assert unknown is None
-    assert unknown_source == "unknown"
-
-
-def test_coderabbit_provider_retry_hint_is_preserved_without_raw_payload():
-    with pytest.raises(coderabbit.CodeRabbitStreamError) as caught:
-        coderabbit.parse_agent_ndjson(
-            [
-                json.dumps(
-                    {
-                        "type": "error",
-                        "code": "429",
-                        "retry_after_seconds": 120,
-                        "secret": "must-not-persist",
-                    }
-                )
-            ]
-        )
-    error = caught.value
-    assert error.rate_limited is True
-    assert error.retry_source == "provider"
-    assert error.retry_not_before is not None
-    assert "secret" not in str(error)
