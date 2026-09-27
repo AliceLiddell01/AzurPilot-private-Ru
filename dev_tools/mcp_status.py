@@ -24,7 +24,10 @@ from pathlib import Path
 import psutil
 
 from azurpilot.integrations import IntegrationName, IntegrationService
-from azurpilot.integrations.mcp_client import accept_fresh_http
+from azurpilot.integrations.mcp_client import (
+    HttpTransportPolicy,
+    accept_fresh_http,
+)
 from azurpilot.tooling.process import safe_environment
 from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
 from module.mcp_shared.local_http_auth import (
@@ -517,6 +520,7 @@ async def _probe_local_http(
         headers=headers,
         plan=build_plan(revision or UNKNOWN_SOURCE_REVISION, server_name),
         timeout_seconds=STATUS_TIMEOUT_SECONDS,
+        transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
     )
     payload = {
         "status": result.state.value.lower(),

@@ -12,6 +12,7 @@ from azurpilot.integrations.contracts import IntegrationState
 from azurpilot.integrations.mcp_client import (
     FreshMcpClientPlan,
     FreshMcpClientResult,
+    HttpTransportPolicy,
     McpCallPlan,
     accept_fresh_http,
 )
@@ -34,6 +35,7 @@ FRESH_ACCEPTANCE_TIMEOUT_SECONDS = 20.0
 REQUIRED_READ_ONLY_CALLS = (
     ("dev_list_smoke_capabilities", {}),
 )
+GAME_REQUIRED_READ_ONLY_CALLS = (("game_list_profiles", {}),)
 
 
 def build_plan(
@@ -51,9 +53,7 @@ def build_plan(
         expected_contract = game_contract_payload()
         tool_descriptors = tuple(game_tool_definitions())
         contract_tool = "game_get_contract"
-        # Contract не зависит от target; profile-bound read calls относятся к
-        # отдельному bounded game acceptance workflow.
-        required_read_only_calls = ()
+        required_read_only_calls = GAME_REQUIRED_READ_ONLY_CALLS
     else:  # pragma: no cover - closed server catalog
         raise ValueError("Неизвестный first-party MCP server")
     expected_contract["source_revision"] = source_revision
@@ -66,11 +66,7 @@ def build_plan(
     required_tools = frozenset(
         {
             contract_tool,
-            *(
-                name
-                for name, _ in REQUIRED_READ_ONLY_CALLS
-                for name, _ in required_read_only_calls
-            ),
+            *(name for name, _ in required_read_only_calls),
         }
     )
     return FreshMcpClientPlan(
@@ -139,6 +135,7 @@ async def accept(
             headers=headers,
             plan=build_plan(source_revision, server_name),
             timeout_seconds=FRESH_ACCEPTANCE_TIMEOUT_SECONDS,
+            transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
         )
     result = results["azurpilot-dev"]
     game_result = results["azurpilot-game"]
@@ -195,4 +192,10 @@ if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
 
 
-__all__ = ["REQUIRED_READ_ONLY_CALLS", "accept", "build_plan", "main"]
+__all__ = [
+    "GAME_REQUIRED_READ_ONLY_CALLS",
+    "REQUIRED_READ_ONLY_CALLS",
+    "accept",
+    "build_plan",
+    "main",
+]

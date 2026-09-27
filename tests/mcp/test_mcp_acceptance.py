@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from azurpilot.integrations.contracts import IntegrationState
-from azurpilot.integrations.mcp_client import FreshMcpClientResult
+from azurpilot.integrations.mcp_client import (
+    FreshMcpClientResult,
+    HttpTransportPolicy,
+    accept_fresh_http,
+)
 from dev_tools import mcp_acceptance
 
 
@@ -12,8 +17,180 @@ def test_game_acceptance_plan_is_target_neutral() -> None:
     plan = mcp_acceptance.build_plan("a" * 40, "azurpilot-game")
 
     assert plan.contract_tool == "game_get_contract"
-    assert plan.required_read_only_calls == ()
-    assert plan.call_plan.required_tools == frozenset({"game_get_contract"})
+    assert plan.required_read_only_calls == (("game_list_profiles", {}),)
+    assert plan.call_plan.required_tools == frozenset(
+        {"game_get_contract", "game_list_profiles"}
+    )
+
+
+class _FreshSession:
+    def __init__(self, plan, *, fail_tool: str | None = None) -> None:
+        self.plan = plan
+        self.fail_tool = fail_tool
+
+    async def initialize(self):
+        contract = self.plan.expected_contract
+        return SimpleNamespace(
+            protocol_version="2025-03-26",
+            server_info=SimpleNamespace(
+                name=contract["server_name"],
+                version=contract["server_version"],
+            ),
+        )
+
+    async def list_tools(self):
+        if self.plan.contract_tool == "game_get_contract":
+            from module.game_mcp.server import tool_definitions
+        else:
+            from module.dev_mcp.server import tool_definitions
+
+        return SimpleNamespace(tools=list(tool_definitions()))
+
+    async def call_tool(self, name: str, _arguments: dict[str, object]):
+        if name == self.fail_tool:
+            return SimpleNamespace(is_error=True, structured_content=None, content=[])
+        if name == self.plan.contract_tool:
+            return SimpleNamespace(
+                is_error=False,
+                structured_content={
+                    "ok": True,
+                    "details": {"contract": self.plan.expected_contract},
+                },
+                content=[],
+            )
+        return SimpleNamespace(
+            is_error=False,
+            structured_content={"ok": True},
+            content=[],
+        )
+
+
+def test_game_acceptance_calls_profile_list_and_records_it(
+    monkeypatch,
+) -> None:
+    plan = mcp_acceptance.build_plan("a" * 40, "azurpilot-game")
+    session = _FreshSession(plan)
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def fake_http_session(**_kwargs):
+        yield session
+
+    monkeypatch.setattr(
+        "azurpilot.integrations.mcp_client._http_session", fake_http_session
+    )
+
+    result = asyncio.run(
+        accept_fresh_http(
+            endpoint="http://127.0.0.1:8776/mcp",
+            headers={"Authorization": "Bearer test"},
+            plan=plan,
+            timeout_seconds=1,
+            transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
+        )
+    )
+
+    assert result.state is IntegrationState.READY
+    assert result.called_tools == ("game_get_contract", "game_list_profiles")
+
+
+def test_game_acceptance_fails_when_profile_list_call_fails(monkeypatch) -> None:
+    plan = mcp_acceptance.build_plan("a" * 40, "azurpilot-game")
+    session = _FreshSession(plan, fail_tool="game_list_profiles")
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def fake_http_session(**_kwargs):
+        yield session
+
+    monkeypatch.setattr(
+        "azurpilot.integrations.mcp_client._http_session", fake_http_session
+    )
+
+    result = asyncio.run(
+        accept_fresh_http(
+            endpoint="http://127.0.0.1:8776/mcp",
+            headers={"Authorization": "Bearer test"},
+            plan=plan,
+            timeout_seconds=1,
+            transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
+        )
+    )
+
+    assert result.state is IntegrationState.UNAVAILABLE
+    assert result.reason_code == "MCP_FRESH_CLIENT_READ_ONLY_CALL_FAILED"
+    assert result.called_tools == ("game_get_contract", "game_list_profiles")
+
+
+def test_dev_acceptance_keeps_its_read_only_call(monkeypatch) -> None:
+    plan = mcp_acceptance.build_plan("a" * 40, "azurpilot-dev")
+    session = _FreshSession(plan)
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def fake_http_session(**_kwargs):
+        yield session
+
+    monkeypatch.setattr(
+        "azurpilot.integrations.mcp_client._http_session", fake_http_session
+    )
+
+    result = asyncio.run(
+        accept_fresh_http(
+            endpoint="http://127.0.0.1:8775/mcp",
+            headers={"Authorization": "Bearer test"},
+            plan=plan,
+            timeout_seconds=1,
+            transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
+        )
+    )
+
+    assert plan.call_plan.required_tools == frozenset(
+        {"dev_get_contract", "dev_list_smoke_capabilities"}
+    )
+    assert result.state is IntegrationState.READY
+    assert result.called_tools == (
+        "dev_get_contract",
+        "dev_list_smoke_capabilities",
+    )
+
+
+def test_combined_acceptance_reports_game_family_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        mcp_acceptance, "git_source_snapshot", lambda _root: ("a" * 40, "clean")
+    )
+    monkeypatch.setattr(
+        mcp_acceptance, "local_http_headers", lambda *_args: {"Authorization": "Bearer test"}
+    )
+
+    async def accept_by_family(**kwargs) -> FreshMcpClientResult:
+        plan = kwargs["plan"]
+        if plan.contract_tool == "game_get_contract":
+            return FreshMcpClientResult(
+                state=IntegrationState.UNAVAILABLE,
+                reason_code="MCP_FRESH_CLIENT_READ_ONLY_CALL_FAILED",
+                called_tools=("game_get_contract", "game_list_profiles"),
+                diagnostics=("game_list_profiles:transport_error",),
+            )
+        return FreshMcpClientResult(
+            state=IntegrationState.READY,
+            reason_code="MCP_FRESH_CLIENT_ACCEPTANCE_READY",
+            called_tools=("dev_get_contract", "dev_list_smoke_capabilities"),
+        )
+
+    monkeypatch.setattr(mcp_acceptance, "accept_fresh_http", accept_by_family)
+
+    result = asyncio.run(mcp_acceptance.accept(tmp_path))
+
+    assert result.state is IntegrationState.UNAVAILABLE
+    assert result.reason_code == "MCP_FRESH_CLIENT_READ_ONLY_CALL_FAILED"
+    assert "azurpilot-dev:ready" in result.diagnostics
+    assert "game_list_profiles:transport_error" in result.diagnostics
 
 
 def test_standalone_acceptance_still_fails_closed_for_dirty_source(

@@ -22,7 +22,10 @@ from azurpilot.integrations.adapters import (
     GrafanaAdapter,
 )
 from azurpilot.integrations.config import load_integration_config
-from azurpilot.integrations.mcp_client import call_http_tool
+from azurpilot.integrations.mcp_client import (
+    HttpTransportPolicy,
+    call_http_tool,
+)
 from azurpilot.tooling.errors import ToolingError
 from tools.paths import REPOSITORY_ROOT
 
@@ -146,6 +149,7 @@ async def _read_only_grafana_tool_call_async(
             arguments=bounded_arguments,
             timeout_seconds=GRAFANA_DIRECT_TIMEOUT_SECONDS,
             plan=adapter.plan,
+            transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
         )
     except ObservabilityMcpError:
         raise

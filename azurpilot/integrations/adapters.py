@@ -42,6 +42,7 @@ from .contracts import (
 from .mcp_client import (
     LOOPBACK_HOSTS,
     HttpEndpointError,
+    HttpTransportPolicy,
     McpCallPlan,
     McpProbeResult,
     probe_http,
@@ -582,6 +583,7 @@ class _HttpMcpAdapter(IntegrationAdapter):
 
     required_tools: frozenset[str]
     plan: McpCallPlan
+    transport_policy: HttpTransportPolicy = HttpTransportPolicy.REMOTE_HTTPS
     requires_credential: bool = False
 
     def _settings(self, config: IntegrationConfig) -> dict[str, object]:
@@ -637,6 +639,7 @@ class _HttpMcpAdapter(IntegrationAdapter):
             timeout_seconds=30,
             credential_configured=bool(token),
             credential_required=self.requires_credential,
+            transport_policy=self.transport_policy,
         )
         if (
             result.state is IntegrationState.READY
@@ -742,6 +745,7 @@ class _SharedHttpMcpAdapter(_HttpMcpAdapter):
 
     blocked_tools: frozenset[str] = frozenset()
     read_only_enforced: bool = True
+    transport_policy = HttpTransportPolicy.ISOLATED_LOOPBACK
 
     def call_route(
         self, config: IntegrationConfig
@@ -855,6 +859,7 @@ class _SharedHttpMcpAdapter(_HttpMcpAdapter):
             timeout_seconds=30,
             credential_configured=True,
             credential_required=True,
+            transport_policy=self.transport_policy,
         )
         return AdapterOutcome(
             _probe_record(

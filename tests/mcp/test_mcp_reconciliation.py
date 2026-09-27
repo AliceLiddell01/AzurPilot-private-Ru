@@ -821,7 +821,9 @@ def test_reconcile_rejects_unknown_restart_postcondition(
     monkeypatch.setattr(
         service,
         "_start_owned",
-        lambda _root, _bundle, *, server_names: (True, {}),
+        lambda _root, _bundle, *, server_names: mcp_tooling._McpStartOutcome(
+            True, {}
+        ),
     )
     monkeypatch.setattr(
         service,
@@ -896,9 +898,9 @@ def test_runtime_reconcile_repairs_only_stale_owned_service(
         _bundle: object,
         *,
         server_names: tuple[str, ...],
-    ) -> tuple[bool, dict[str, object]]:
+    ) -> mcp_tooling._McpStartOutcome:
         started.append(server_names)
-        return True, {}
+        return mcp_tooling._McpStartOutcome(True, {})
 
     monkeypatch.setattr(service, "_start_owned", start_owned)
 
@@ -999,10 +1001,10 @@ def test_runtime_reconcile_fails_closed_for_unowned_stale_service(
         ),
     )
 
-    def start_owned(*_args: object, **_kwargs: object) -> tuple[bool, dict[str, object]]:
+    def start_owned(*_args: object, **_kwargs: object) -> mcp_tooling._McpStartOutcome:
         nonlocal started
         started = True
-        return True, {}
+        return mcp_tooling._McpStartOutcome(True, {})
 
     monkeypatch.setattr(service, "_start_owned", start_owned)
 
@@ -1253,9 +1255,9 @@ def test_runtime_reconcile_starts_stopped_owned_supervisors(
         _bundle: object,
         *,
         server_names: tuple[str, ...],
-    ) -> tuple[bool, dict[str, object]]:
+    ) -> mcp_tooling._McpStartOutcome:
         start_calls.append(server_names)
-        return True, {}
+        return mcp_tooling._McpStartOutcome(True, {})
 
     monkeypatch.setattr(service, "_start_owned", start_owned)
 

@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 from urllib.parse import urlsplit
 
 from .contracts import IntegrationState
@@ -28,6 +29,28 @@ class HttpEndpointError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+class HttpTransportPolicy(StrEnum):
+    """Политика окружения HTTP-клиента для одного типа маршрута."""
+
+    REMOTE_HTTPS = "remote_https"
+    ISOLATED_LOOPBACK = "isolated_loopback"
+
+
+def _http_client_trust_env(endpoint: str, policy: HttpTransportPolicy) -> bool:
+    """Проверить соответствие адреса сервера выбранной транспортной политике."""
+
+    validate_http_endpoint(endpoint)
+    parsed = urlsplit(endpoint)
+    host = (parsed.hostname or "").casefold()
+    if policy is HttpTransportPolicy.ISOLATED_LOOPBACK:
+        if host not in LOOPBACK_HOSTS:
+            raise HttpEndpointError(ENDPOINT_NOT_LOOPBACK_CODE)
+        return False
+    if parsed.scheme != "https":
+        raise HttpEndpointError(ENDPOINT_INVALID_CODE)
+    return True
 
 
 def validate_endpoint(value: str, *, allow_http: bool = False) -> str:
@@ -504,6 +527,7 @@ async def accept_fresh_http(
     headers: Mapping[str, str],
     plan: FreshMcpClientPlan,
     timeout_seconds: float,
+    transport_policy: HttpTransportPolicy,
 ) -> FreshMcpClientResult:
     """Создать независимый Streamable HTTP SDK client и вернуть acceptance evidence."""
 
@@ -513,6 +537,7 @@ async def accept_fresh_http(
             endpoint=endpoint,
             headers=headers,
             timeout_seconds=timeout_seconds,
+            transport_policy=transport_policy,
         ) as session:
             return await _accept_fresh_session(
                 session,
@@ -654,6 +679,7 @@ async def _http_session(
     endpoint: str,
     headers: Mapping[str, str],
     timeout_seconds: float,
+    transport_policy: HttpTransportPolicy,
 ):
     """Открыть одну bounded Streamable HTTP session без redirect и retry."""
 
@@ -661,13 +687,12 @@ async def _http_session(
     from mcp.client.session import ClientSession
     from mcp.client.streamable_http import streamable_http_client
 
+    trust_env = _http_client_trust_env(endpoint, transport_policy)
     async with httpx2.AsyncClient(
         headers=dict(headers),
         timeout=timeout_seconds,
         follow_redirects=False,
-        # Project-local bearer credentials нельзя отправлять в ambient HTTP(S)
-        # proxy при обращении к loopback supervisor.
-        trust_env=False,
+        trust_env=trust_env,
     ) as http_client, streamable_http_client(
         endpoint, http_client=http_client
     ) as (read_stream, write_stream), ClientSession(
@@ -686,6 +711,7 @@ async def call_http_tool(
     arguments: Mapping[str, object],
     timeout_seconds: float,
     plan: McpCallPlan | None = None,
+    transport_policy: HttpTransportPolicy,
 ) -> McpToolCallResult:
     """Выполнить ровно один read-only tool call по Streamable HTTP.
 
@@ -699,6 +725,7 @@ async def call_http_tool(
         endpoint=endpoint,
         headers=headers,
         timeout_seconds=timeout_seconds,
+        transport_policy=transport_policy,
     ) as session:
         await asyncio.wait_for(session.initialize(), timeout=timeout_seconds)
         listed = await asyncio.wait_for(session.list_tools(), timeout=timeout_seconds)
@@ -737,6 +764,7 @@ async def probe_http(
     timeout_seconds: float,
     credential_configured: bool,
     credential_required: bool = False,
+    transport_policy: HttpTransportPolicy,
 ) -> McpProbeResult:
     """Проверить конкретный streamable HTTP server с фиксированным read call."""
 
@@ -748,6 +776,7 @@ async def probe_http(
             arguments=plan.arguments,
             timeout_seconds=timeout_seconds,
             plan=plan,
+            transport_policy=transport_policy,
         )
         if outcome.catalog_reason_code is not None:
             return McpProbeResult(
@@ -791,6 +820,7 @@ __all__ = [
     "FreshMcpClientPlan",
     "FreshMcpClientResult",
     "HttpEndpointError",
+    "HttpTransportPolicy",
     "McpCallPlan",
     "McpProbeResult",
     "McpToolCallResult",

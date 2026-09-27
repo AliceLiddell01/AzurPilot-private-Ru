@@ -1191,6 +1191,7 @@ class McpReconcileDetails(ClosedModel):
     changed_components: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
     affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
     restarted_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    services: tuple[McpServerStatus, ...] = Field(default_factory=tuple, max_length=2)
     session_state: Literal["current", "reload_required", "not_observable", "unknown"]
     reload_required: bool = False
 
