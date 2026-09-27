@@ -245,7 +245,7 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "partially confirmed",
         "false positive",
         "rate limit",
-        "git lifecycle",
+        "git/pr lifecycle",
         "verification matrix",
     ):
         assert required in review_content
