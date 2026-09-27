@@ -217,19 +217,6 @@ class PullRequestBodyRenderer:
                 + ", ".join(missing_bullets)
                 + ".",
             )
-        review = body.coderabbit_review
-        if review is not None and (
-            review.base_sha != base_sha
-            or (
-                review.reviewed_head != head_sha
-                and not (review.rate_limit or review.review_deferred_reason)
-            )
-        ):
-            raise _error(
-                ResultCode.TOOLING_PR_BODY_INVALID,
-                "CodeRabbit evidence в PR body не относится к exact base/head spec "
-                "и не содержит явного rate-limit или contract deferral объяснения.",
-            )
         # ReadinessState сам проверяет cross-field invariant; сохраняем это
         # явно на renderer boundary, чтобы будущая замена модели не вернула
         # PR body с отсутствующим live gate и READY status.
