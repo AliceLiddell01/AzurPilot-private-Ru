@@ -373,6 +373,7 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
         assert (
             "cross-thread continuation" in content
             or "продолжения между задачами" in content
+            or "продолжения между потоками" in content
             or "продолжения задачи между потоками" in content
         )
         assert (
@@ -383,6 +384,7 @@ def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
                 or ("независим" in content and "task/thread" in content)
                 or "единый контракт cross-thread" in content
                 or "продолжения между задачами" in content
+                or "продолжения между потоками" in content
                 or "продолжения задачи между потоками" in content
             )
 
@@ -442,7 +444,7 @@ def test_developer_workflow_delegates_git_and_preserves_terminal_mcp_smoke() -> 
         ),
         "владелец инструментов": (
             "azur mcp sync --base",
-            "exact base",
+            "относительно точной базовой ревизии",
             "azurpilot-git-workflow",
             "read-only",
         ),
@@ -460,7 +462,11 @@ def test_developer_workflow_delegates_git_and_preserves_terminal_mcp_smoke() -> 
             "dev_start_smoke",
             "terminal result",
         ),
-        "справочник маршрутизации плагина": ("azur mcp sync --base", "NO_CHANGES", "fresh-client acceptance"),
+        "справочник маршрутизации плагина": (
+            "azur mcp sync --base",
+            "NO_CHANGES",
+            "приёмку нового клиента",
+        ),
     }
     for owner, path in paths.items():
         content = " ".join(path.read_text(encoding="utf-8").casefold().split())

@@ -154,7 +154,7 @@ def test_python_tooling_context_uses_canonical_integration_inventory() -> None:
     assert "adapter_order" in normalized
     assert "integrationregistry" in normalized
     assert "docker mcp toolkit/gateway" in normalized
-    assert "generic mcp proxy" in normalized
+    assert "универсальный прокси mcp" in normalized
 
 
 def test_cli_live_acceptance_cannot_become_global_gate() -> None:
