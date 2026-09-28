@@ -1,15 +1,16 @@
 ---
 name: azurpilot-development
-description: "Безопасный cross-surface workflow для Development Runtime Control и Universal Smoke Harness AzurPilot."
+description: "Безопасный cross-surface рабочий процесс для Development Runtime Control и Universal Smoke Harness AzurPilot."
 ---
 
 # Рабочий процесс разработки AzurPilot
 
-Этот skill обслуживает Development workflow AzurPilot. В standalone Codex CLI
-он работает с project-scoped `azurpilot-dev` из `.codex/config.toml` через
-first-class local stdio. Codex Desktop также может явно выбрать
-authenticated loopback route `azurpilot_dev`; protocol identity остаётся
-`azurpilot-dev`, а transport route не меняет backend identity. Developer-only capability `Game` доступна только
+Этот skill обслуживает Development workflow AzurPilot. В Codex Desktop и
+других локальных Codex-клиентах используется canonical `azurpilot-dev` из
+`.codex/config.toml` через принадлежащий AzurPilot authenticated loopback
+Streamable HTTP; protocol identity остаётся `azurpilot-dev`, а transport route
+не меняет backend identity. Standalone stdio остаётся только
+compatibility/test entrypoint. Developer-only capability `Game` доступна только
 через односторонний Dev → neutral application bridge, привязанный к target.
 
 Канонический project-owned operator path для MCP lifecycle — буквальная команда
@@ -42,14 +43,14 @@ flags или catalog fingerprints в skill: их source of truth — bundle.
 отсутствующей обязательной возможности результатом является точная причина
 `PLUGIN_RUNTIME_INCOMPATIBLE`. После этого не вызывай mutating tools, не
 подбирай переименованные инструменты и не угадывай схему. Допустимы только
-безопасные read-only диагностика и сообщение о несовместимости.
+безопасная read-only диагностика и сообщение о несовместимости.
 
 После заморозки candidate canonical MCP workflow — один вызов
 `azur mcp sync --base <exact-base-sha>`. `NO_CHANGES` — terminal no-op; `SYNCED`
 включает version calculation от exact base, source/generated checks, readiness
 owned runtime и fresh-client acceptance. После изменения MCP source-set повтори
-sync, чтобы он пересчитал версию от base и текущего candidate. Unknown/foreign
-ownership, port conflict и failure readiness остаются fail-closed. Текущая
+sync, чтобы он пересчитал версию от base и текущего candidate. Неизвестное или
+чужое владение, конфликт порта и ошибка readiness остаются fail-closed. Текущая
 внешняя session не является postcondition; hot reload не предполагается.
 `impact`, `status`, `versions`, `reconcile`, `start`, `stop` и `restart`
 остаются diagnostic/admin capabilities. Не запускай внутренние MCP
@@ -171,14 +172,14 @@ Runtime control не принимает профиль, serial, package, ком�
 
 ## Поверхности подключения
 
-В standalone Codex CLI используй project-scoped `azurpilot-dev` через
-зарегистрированный route в `.codex/config.toml`. В Codex Desktop используй
-только проверенный alias `azurpilot_dev` через loopback local HTTP и требуй
+Используй canonical `azurpilot-dev` через loopback Streamable HTTP и требуй
 `transport=local_http`, `authenticated=true`, `local_authority=true`. Это тот
 же существующий Dev MCP с явно настроенным development target; public HTTPS
 для Codex не нужен. Diagnostic/admin lifecycle проверяй через прямые
 `azur mcp status`, `start` или `restart` только при конкретной необходимости;
-внутренний stdio module не запускай напрямую.
+внутренний stdio module не запускай напрямую. Токен для
+`http_headers_helper` берётся только из project-local `.env`, а не из
+user-level environment.
 
 В ChatGPT используй подключённое приложение, соответствующее этому
 compatibility package, через authenticated public HTTPS endpoint

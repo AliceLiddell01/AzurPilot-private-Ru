@@ -37,6 +37,11 @@ from azurpilot.tooling.process_core import (
     RunningProcess,
     StructuredProcessRunner,
 )
+from module.mcp_shared.local_http_auth import (
+    LocalHttpAuthError,
+    LocalHttpAuthUnknownError,
+    read_local_mcp_token,
+)
 from module.mcp_shared.versioning import SOURCE_REVISION_ENV
 
 logger = logging.getLogger(__name__)
@@ -82,7 +87,7 @@ LOCAL_HTTP_SERVICES = (
 
 
 class LocalHttpSupervisorError(RuntimeError):
-    """Supervisor не может безопасно подтвердить ownership/readiness."""
+    """Supervisor не может безопасно подтвердить владение и readiness."""
 
 
 class LocalHttpSupervisorStopOutcome(StrEnum):
@@ -151,6 +156,23 @@ def _ensure_state_directory(repository_root: Path) -> Path:
         raise LocalHttpSupervisorError(
             "Каталог local MCP supervisor не должен быть ссылкой или junction"
         )
+    return state_directory
+
+
+def _observe_state_directory(repository_root: Path) -> Path:
+    """Разрешить путь состояния для чтения, не создавая каталоги."""
+
+    state_directory = repository_root / _STATE_DIRECTORY
+    for candidate in (
+        repository_root,
+        repository_root / "config",
+        repository_root / "config" / "state",
+        state_directory,
+    ):
+        if os.path.lexists(candidate) and _is_reparse_point(candidate):
+            raise LocalHttpSupervisorError(
+                "Путь local MCP supervisor не должен проходить через ссылку или junction"
+            )
     return state_directory
 
 
@@ -244,6 +266,7 @@ class LocalHttpSupervisor:
         runner: StructuredProcessRunner | None = None,
         state_namespace: str | None = None,
         allow_test_environment: bool = False,
+        create_state_directory: bool = True,
     ) -> None:
         self.repository_root = Path(repository_root).absolute()
         self.services = tuple(services)
@@ -253,14 +276,19 @@ class LocalHttpSupervisor:
             if python_executable
             else self._default_python()
         )
-        state_directory = _ensure_state_directory(self.repository_root)
+        state_directory = (
+            _ensure_state_directory(self.repository_root)
+            if create_state_directory
+            else _observe_state_directory(self.repository_root)
+        )
         if state_namespace is not None:
             if re.fullmatch(r"[a-z][a-z0-9-]{0,63}", state_namespace) is None:
                 raise LocalHttpSupervisorError(
                     "Namespace local MCP supervisor имеет неверный формат"
                 )
             state_directory = state_directory / state_namespace
-            state_directory.mkdir(parents=True, exist_ok=True)
+            if create_state_directory:
+                state_directory.mkdir(parents=True, exist_ok=True)
             if _is_reparse_point(state_directory):
                 raise LocalHttpSupervisorError(
                     "Namespace local MCP supervisor не должен быть ссылкой или junction"
@@ -290,7 +318,7 @@ class LocalHttpSupervisor:
             )
         if not self.python_executable.is_file():
             raise LocalHttpSupervisorError(
-                "Project Python для local MCP supervisor не найден"
+                "Интерпретатор Python проекта для local MCP supervisor не найден"
             )
         if not 1 <= len(self.services) <= 8:
             raise LocalHttpSupervisorError(
@@ -307,16 +335,37 @@ class LocalHttpSupervisor:
                 raise LocalHttpSupervisorError("Каталог local MCP service неполон")
             if not 1 <= service.port <= 65535:
                 raise LocalHttpSupervisorError("Порт local MCP service вне диапазона")
-            if not _bounded_token_present(service.token_env_var):
-                raise LocalHttpSupervisorError(
-                    f"Переменная {service.token_env_var} для local MCP не задана"
-                )
+            self._read_token(service)
             seen_names.add(service.name)
             seen_ports.add(service.port)
         if not 1 <= self.startup_timeout_seconds <= 120:
             raise LocalHttpSupervisorError(
-                "Timeout запуска local MCP supervisor вне диапазона"
+                "Тайм-аут запуска local MCP supervisor вне допустимого диапазона"
             )
+
+    def _read_token(self, service: LocalHttpService) -> str:
+        """Прочитать token из точного project-local источника.
+
+        Ambient environment разрешён только для явно помеченных test runners;
+        production supervisor получает credential из защищённого ``.env``.
+        """
+
+        try:
+            return read_local_mcp_token(self.repository_root, service.name)
+        except LocalHttpAuthUnknownError as exc:
+            raise LocalHttpSupervisorError(
+                "Состояние project-local credential для local MCP service "
+                f"{service.name} ({service.token_env_var}) нельзя подтвердить"
+            ) from exc
+        except LocalHttpAuthError as exc:
+            if self.allow_test_environment:
+                token = os.environ.get(service.token_env_var, "")
+                if _bounded_token_present(service.token_env_var):
+                    return token
+            raise LocalHttpSupervisorError(
+                "Project-local credential для local MCP service "
+                f"{service.name} ({service.token_env_var}) недоступен"
+            ) from exc
 
     def _command(self, service: LocalHttpService) -> list[str]:
         return [
@@ -329,7 +378,7 @@ class LocalHttpSupervisor:
     def _spawn(self, service: LocalHttpService) -> RunningProcess:
         command = self._command(service)
         try:
-            token = os.environ.get(service.token_env_var, "")
+            token = self._read_token(service)
             explicit_env = {
                 service.token_env_var: token,
                 "PYTHONUNBUFFERED": "1",
@@ -434,14 +483,14 @@ class LocalHttpSupervisor:
             for name, service in tuple(pending.items()):
                 if not self._runtime_is_alive(service):
                     raise LocalHttpSupervisorError(
-                        f"Local MCP service {name} завершился до readiness"
+                        f"Локальный MCP service {name} завершился до readiness"
                     )
                 if self._ready(service):
                     del pending[name]
             if pending and time.monotonic() >= deadline:
                 names = ", ".join(sorted(pending))
                 raise LocalHttpSupervisorError(
-                    f"Local MCP services не достигли readiness: {names}"
+                    f"Локальные MCP services не достигли readiness: {names}"
                 )
             if pending:
                 time.sleep(POLL_INTERVAL_SECONDS)
@@ -765,7 +814,7 @@ class LocalHttpSupervisor:
             return LocalHttpSupervisorStopResult(
                 outcome=validated,
                 marker_present=True,
-                detail="Marker ownership/schema не подтверждены.",
+                detail="Владение и схема Marker не подтверждены.",
             )
         supervisor_identity, identities = validated
         exact_live_owner = self._safe_identity_matches(supervisor_identity)
@@ -773,7 +822,7 @@ class LocalHttpSupervisor:
             return LocalHttpSupervisorStopResult(
                 outcome=LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY,
                 marker_present=True,
-                detail="Liveness recorded supervisor нельзя безопасно подтвердить.",
+                detail="Жизнеспособность записанного supervisor нельзя безопасно подтвердить.",
             )
 
         lock: FileLock | None = None
@@ -794,14 +843,14 @@ class LocalHttpSupervisor:
                 return LocalHttpSupervisorStopResult(
                     outcome=current_outcome,
                     marker_present=True,
-                    detail="Marker изменился или стал нечитаемым до cleanup.",
+                    detail="Marker изменился или стал нечитаемым до очистки.",
                 )
             if current is None or current != payload:
                 lock.release()
                 return LocalHttpSupervisorStopResult(
                     outcome=LocalHttpSupervisorStopOutcome.MARKER_CHANGED,
                     marker_present=True,
-                    detail="Marker изменился между read и cleanup.",
+                    detail="Marker изменился между чтением и очисткой.",
                 )
             current_validated = self._validated_marker_identities(current)
             if isinstance(current_validated, LocalHttpSupervisorStopOutcome):
@@ -809,7 +858,7 @@ class LocalHttpSupervisor:
                 return LocalHttpSupervisorStopResult(
                     outcome=current_validated,
                     marker_present=True,
-                    detail="Marker стал invalid/foreign до cleanup.",
+                    detail="Marker стал недействительным или чужим до очистки.",
                 )
             supervisor_identity, identities = current_validated
             if self._safe_identity_matches(supervisor_identity):
@@ -817,7 +866,7 @@ class LocalHttpSupervisor:
                 return LocalHttpSupervisorStopResult(
                     outcome=LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY,
                     marker_present=True,
-                    detail="Recorded supervisor стал exact live owner до cleanup.",
+                    detail="Записанный supervisor стал точным активным владельцем до очистки.",
                 )
 
         try:
@@ -832,7 +881,7 @@ class LocalHttpSupervisor:
                         outcome=LocalHttpSupervisorStopOutcome.TERMINATION_FAILED,
                         marker_present=True,
                         ownership_confirmed=exact_live_owner,
-                        detail="Остановка recorded exact process или postcondition не подтверждена.",
+                        detail="Остановка записанного точного процесса или postcondition не подтверждена.",
                     )
             # При foreign listener marker нужно сохранить и заблокировать
             # recovery; нельзя удалять evidence ownership при port conflict.
@@ -841,7 +890,7 @@ class LocalHttpSupervisor:
                     outcome=LocalHttpSupervisorStopOutcome.PORT_CONFLICT,
                     marker_present=True,
                     ownership_confirmed=exact_live_owner,
-                    detail="После exact cleanup остался port conflict.",
+                    detail="После точной очистки остался конфликт порта.",
                 )
             if not self._remove_recorded_marker(payload):
                 return LocalHttpSupervisorStopResult(
@@ -862,7 +911,7 @@ class LocalHttpSupervisor:
                     marker_present=True,
                     marker_removed=True,
                     ownership_confirmed=exact_live_owner,
-                    detail="STOPPED/no-conflict postcondition не подтверждён.",
+                    detail="Postcondition STOPPED/no-conflict не подтверждён.",
                 )
             return LocalHttpSupervisorStopResult(
                 outcome=(
@@ -875,9 +924,9 @@ class LocalHttpSupervisor:
                 ownership_confirmed=True,
                 postcondition_confirmed=True,
                 detail=(
-                    "Exact live owner остановлен."
+                    "Точный активный владелец остановлен."
                     if exact_live_owner
-                    else "Stale recorded owner безопасно очищен."
+                    else "Устаревший записанный владелец безопасно очищен."
                 ),
             )
         finally:
@@ -1068,7 +1117,7 @@ def _default_repository_root() -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="AzurPilot local MCP HTTP supervisor")
+    parser = argparse.ArgumentParser(description="Локальный HTTP supervisor MCP AzurPilot")
     parser.add_argument(
         "command", choices=("serve", "status", "stop"), nargs="?", default="serve"
     )
@@ -1104,9 +1153,9 @@ def main() -> None:
             )
             return
         if not supervisor.serve():
-            logger.info("Local MCP supervisor уже запущен другим владельцем")
+            logger.info("Локальный MCP supervisor уже запущен другим владельцем")
     except LocalHttpSupervisorError as exc:
-        logger.error("Local MCP supervisor остановлен: %s", exc)
+        logger.error("Локальный MCP supervisor остановлен: %s", exc)
         raise SystemExit(2) from None
 
 

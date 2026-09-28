@@ -40,6 +40,7 @@ from azurpilot.integrations.contracts import (
     IntegrationState,
 )
 from azurpilot.integrations.mcp_client import (
+    HttpTransportPolicy,
     McpCallPlan,
     McpProbeResult,
     validate_tool_catalog,
@@ -521,6 +522,7 @@ def test_shared_probe_asserts_caller_token_and_keeps_provider_secret_on_service(
     assert observed["headers"] == _caller_auth_header(caller_token)
     assert observed["credential_configured"] is True
     assert observed["credential_required"] is True
+    assert observed["transport_policy"] is HttpTransportPolicy.ISOLATED_LOOPBACK
     assert provider_token not in json.dumps(observed["headers"])
     assert outcome.record.state is IntegrationState.READY
 
@@ -546,6 +548,7 @@ def test_shared_probe_for_docker_hub_uses_its_own_caller_token(
 
     assert observed["endpoint"] == SHARED_MCP_ENDPOINTS["docker-hub"]
     assert observed["headers"] == _caller_auth_header(caller_token)
+    assert observed["transport_policy"] is HttpTransportPolicy.ISOLATED_LOOPBACK
     assert outcome.record.state is IntegrationState.READY
 
 
@@ -824,6 +827,7 @@ def test_http_probe_uses_file_credential_value(monkeypatch, tmp_path: Path):
 
     assert observed["headers"] == {"Authorization": f"Bearer {token}"}
     assert observed["credential_configured"] is True
+    assert observed["transport_policy"] is HttpTransportPolicy.REMOTE_HTTPS
     assert outcome.record.state is IntegrationState.READY
     assert token not in outcome.record.model_dump_json()
 

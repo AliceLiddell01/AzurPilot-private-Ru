@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-EnvironmentScope = Literal["postgres", "wsl", "infrastructure"]
+EnvironmentScope = Literal["postgres", "wsl", "infrastructure", "mcp"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +86,23 @@ LOCAL_ENVIRONMENT_REGISTRY = (
     LocalEnvironmentKey("AZURPILOT_OBSERVABILITY_PGADMIN_PORT", "infrastructure"),
     LocalEnvironmentKey("AZURPILOT_CADDY_HOST", "infrastructure"),
     LocalEnvironmentKey("AZURPILOT_GAME_MCP_PUBLIC_HOST", "infrastructure"),
+    LocalEnvironmentKey(
+        "AZURPILOT_GRAFANA_MCP_CALLER_TOKEN",
+        "infrastructure",
+        secret=True,
+    ),
+    LocalEnvironmentKey(
+        "AZURPILOT_DOCKER_HUB_MCP_CALLER_TOKEN",
+        "infrastructure",
+        secret=True,
+    ),
+    LocalEnvironmentKey("DOCKERHUB_USERNAME", "infrastructure"),
+    LocalEnvironmentKey("DOCKERHUB_PAT", "infrastructure", secret=True),
+    LocalEnvironmentKey(
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+        "infrastructure",
+        secret=True,
+    ),
     LocalEnvironmentKey("AZURPILOT_NOTIFICATION_AGENT_BACKEND", "infrastructure"),
     LocalEnvironmentKey("AZURPILOT_NOTIFICATION_AGENT_URL", "infrastructure"),
     LocalEnvironmentKey("AZURPILOT_NOTIFICATION_AGENT_ID", "infrastructure"),
@@ -98,6 +115,16 @@ LOCAL_ENVIRONMENT_REGISTRY = (
     ),
     LocalEnvironmentKey(
         "AZURPILOT_NOTIFICATION_AGENT_CURSOR_FILE", "infrastructure"
+    ),
+    LocalEnvironmentKey(
+        "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
+        "mcp",
+        secret=True,
+    ),
+    LocalEnvironmentKey(
+        "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+        "mcp",
+        secret=True,
     ),
     LocalEnvironmentKey(
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
@@ -145,6 +172,9 @@ INFRASTRUCTURE_ENVIRONMENT_KEYS = frozenset(
     entry.name
     for entry in LOCAL_ENVIRONMENT_REGISTRY
     if entry.scope == "infrastructure"
+)
+MCP_ENVIRONMENT_KEYS = frozenset(
+    entry.name for entry in LOCAL_ENVIRONMENT_REGISTRY if entry.scope == "mcp"
 )
 SECRET_ENVIRONMENT_KEYS = frozenset(
     entry.name for entry in LOCAL_ENVIRONMENT_REGISTRY if entry.secret

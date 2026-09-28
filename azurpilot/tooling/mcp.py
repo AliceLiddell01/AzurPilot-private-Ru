@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import re
 import time
 import tomllib
@@ -24,6 +23,11 @@ from module.mcp_shared.catalog import (
     tool_catalog_sha256_from_tools,
     tool_descriptor_hashes_from_tools,
     tool_names_from_tools,
+)
+from module.mcp_shared.local_http_auth import (
+    LocalHttpAuthError,
+    LocalHttpAuthUnknownError,
+    read_local_mcp_token,
 )
 from module.mcp_shared.versioning import (
     MCP_SOURCE_SET_NAMES,
@@ -65,6 +69,7 @@ from .process import (
     MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS,
     ProcessController,
     ProcessSpec,
+    ProcessStartError,
     StructuredProcessRunner,
 )
 from .repository import RepositoryResolver
@@ -73,6 +78,8 @@ if TYPE_CHECKING:
     from module.mcp_shared.local_http_supervisor import LocalHttpSupervisorStopResult
 
 MCP_SERVER_NAMES = ("azurpilot-dev", "azurpilot-game")
+_McpAuthenticationState = Literal["configured", "unavailable", "unknown"]
+_McpAuthenticationStates = dict[str, _McpAuthenticationState]
 PLUGIN_MANIFEST_PATH = Path("plugins/azurpilot/.codex-plugin/plugin.json")
 PLUGIN_COMPATIBILITY_PATH = Path("plugins/azurpilot/compatibility.json")
 CODEX_CONFIG_PATH = Path(".codex/config.toml")
@@ -251,8 +258,16 @@ class _McpBaseline:
     skill_bundle_revision: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _McpStartOutcome:
+    changed: bool
+    runtime: dict[str, object]
+    auth_unavailable_servers: tuple[str, ...] = ()
+    runtime_unavailable_servers: tuple[str, ...] = ()
+
+
 class McpSourceDriftDetails(BaseModel):
-    """Bounded evidence for one generated MCP artifact mismatch."""
+    """Ограниченное evidence одного расхождения сгенерированного MCP-артефакта."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -843,9 +858,10 @@ def _server_status_from_model(
     observed_version: str | None = None,
     observed_source_revision: str | None = None,
     routes: tuple[Literal["stdio", "loopback_http", "public_https"], ...] = (
-        "stdio",
         "loopback_http",
     ),
+    authentication: Literal["configured", "unavailable", "unknown"] = "unknown",
+    ownership_confirmed: bool = False,
     reason_code: str | None = None,
 ) -> McpServerStatus:
     return McpServerStatus(
@@ -859,6 +875,8 @@ def _server_status_from_model(
         capability_catalog_sha256=server.capability_catalog_sha256,
         contract_revision=server.contract_revision,
         routes=routes,
+        authentication=authentication,
+        ownership_confirmed=ownership_confirmed,
         reason_code=reason_code,
     )
 
@@ -1585,7 +1603,7 @@ class McpService:
         if service is None:  # pragma: no cover - closed MCP server catalog
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Неизвестный first-party MCP server.",
+                "Неизвестный первичный MCP-сервер.",
             )
         return LocalHttpSupervisor(
             root,
@@ -1743,6 +1761,108 @@ class McpService:
             else "ready"
         )
 
+    def _runtime_server_statuses(
+        self,
+        root: Path,
+        bundle: McpBundle,
+        runtime: Mapping[str, object],
+        *,
+        authentication_states: Mapping[str, _McpAuthenticationState] | None = None,
+        auth_unavailable_servers: Iterable[str] = (),
+        runtime_unavailable_servers: Iterable[str] = (),
+        source_ready: bool = True,
+    ) -> tuple[McpServerStatus, ...]:
+        services = {
+            item.get("server_name"): item
+            for item in runtime.get("services", [])
+            if isinstance(item, dict)
+        }
+        supervisors = runtime.get("supervisors", {})
+        auth_unavailable = set(auth_unavailable_servers)
+        runtime_unavailable = set(runtime_unavailable_servers)
+        resolved_authentication = (
+            self._authentication_states(root)
+            if authentication_states is None
+            else authentication_states
+        )
+        statuses: list[McpServerStatus] = []
+        for name in MCP_SERVER_NAMES:
+            server = bundle.servers[name]
+            item = services.get(name, {})
+            supervisor = supervisors.get(name, {})
+            supervisor_code = (
+                str(supervisor.get("code"))
+                if isinstance(supervisor, Mapping)
+                else "LOCAL_MCP_SUPERVISOR_UNKNOWN"
+            )
+            authentication = resolved_authentication.get(name, "unknown")
+            if supervisor_code == "TOOLING_PORT_CONFLICT":
+                status: Literal[
+                    "ready",
+                    "stale",
+                    "stopped",
+                    "unavailable",
+                    "not_configured",
+                    "unknown",
+                    "conflict",
+                ] = "conflict"
+                reason_code = supervisor_code
+            elif name in auth_unavailable:
+                authentication = "unavailable"
+                status = "not_configured"
+                reason_code = ResultCode.MCP_AUTH_NOT_CONFIGURED.value
+            elif name in runtime_unavailable:
+                status = "unavailable"
+                reason_code = ResultCode.MCP_RUNTIME_UNAVAILABLE.value
+            elif item.get("ready") is True:
+                if source_ready:
+                    status = "ready"
+                    reason_code = None
+                else:
+                    status = "unknown"
+                    reason_code = "MCP_SOURCE_NOT_RECONCILED"
+            elif supervisor_code == "LOCAL_MCP_SUPERVISOR_STOPPED":
+                status = "stopped"
+                reason_code = supervisor_code
+            elif supervisor_code in {
+                "LOCAL_MCP_SUPERVISOR_STALE",
+                "LOCAL_MCP_SUPERVISOR_DEGRADED",
+                "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
+                "LOCAL_MCP_SUPERVISOR_OWNERSHIP_MISMATCH",
+            } or item.get("reason_code") == "MCP_RUNTIME_CONTRACT_DRIFT":
+                status = "stale"
+                reason_code = (
+                    item.get("reason_code")
+                    if isinstance(item.get("reason_code"), str)
+                    else supervisor_code
+                )
+            else:
+                status = "unknown"
+                reason_code = str(
+                    item.get("reason_code", "MCP_RUNTIME_UNAVAILABLE")
+                )
+            observed_version = item.get("server_version")
+            statuses.append(
+                _server_status_from_model(
+                    server,
+                    status=status,
+                    observed_version=(
+                        observed_version if isinstance(observed_version, str) else None
+                    ),
+                    observed_source_revision=_safe_source_revision(
+                        item.get("source_revision")
+                    ),
+                    authentication=authentication,
+                    ownership_confirmed=supervisor_code
+                    in {
+                        "LOCAL_MCP_SUPERVISOR_READY",
+                        "LOCAL_MCP_SUPERVISOR_DEGRADED",
+                    },
+                    reason_code=reason_code,
+                )
+            )
+        return tuple(statuses)
+
     def _status_details(
         self,
         root: Path,
@@ -1794,55 +1914,14 @@ class McpService:
             if plugin_source_state == "drift"
             else self._session_state(root, runtime, changed_paths=changed_paths)
         )
-        statuses: list[McpServerStatus] = []
-        ready_services = {
-            item.get("server_name"): item
-            for item in runtime.get("services", [])
-            if isinstance(item, dict)
-        }
-        for name in MCP_SERVER_NAMES:
-            server = bundle.servers[name]
-            runtime_item = ready_services.get(name, {})
-            observed = runtime_item.get("server_version")
-            contract_matches = (
-                observed == server.version
-                and runtime_item.get("tool_catalog_sha256") == server.tool_catalog_sha256
-                and runtime_item.get("capability_catalog_sha256")
-                == server.capability_catalog_sha256
-                and runtime_item.get("contract_revision") == server.contract_revision
-            )
-            ready = (
-                runtime_item.get("ready") is True
-                and runtime_state == "ready"
-                and contract_matches
-            )
-            statuses.append(
-                _server_status_from_model(
-                    server,
-                    status=(
-                        "ready"
-                        if ready and source_state == "ready"
-                        else runtime_state
-                        if runtime_state in {"conflict", "stale", "stopped", "unknown"}
-                        else "unknown"
-                    ),
-                    observed_version=observed if isinstance(observed, str) else None,
-                    observed_source_revision=_safe_source_revision(
-                        runtime_item.get("source_revision")
-                    ),
-                    reason_code=(
-                        None
-                        if ready
-                        else "MCP_RUNTIME_CONTRACT_DRIFT"
-                        if runtime_item.get("ready") is True and not contract_matches
-                        else str(runtime.get("code", "MCP_RUNTIME_UNAVAILABLE"))
-                    ),
-                )
-            )
-        source_reconciled = source_state == "ready" and plugin_source_state == "ready"
-        runtime_ready = runtime_state == "ready" and all(
-            status.status == "ready" for status in statuses
+        statuses = self._runtime_server_statuses(
+            root,
+            bundle,
+            runtime,
+            source_ready=source_state == "ready",
         )
+        source_reconciled = source_state == "ready" and plugin_source_state == "ready"
+        runtime_ready = all(status.status == "ready" for status in statuses)
         return build, runtime_state, runtime, McpStatusDetails(
             action=action,
             source_state=source_state,
@@ -1855,7 +1934,7 @@ class McpService:
             bundle_revision=bundle.bundle_revision,
             plugin_version=bundle.plugin_version,
             skill_bundle_revision=bundle.skill_bundle_revision,
-            servers=tuple(statuses),
+            servers=statuses,
             component_digests=_digest_models(bundle.source_digests),
             changed_components=build.changed_components,
             affected_servers=build.affected_servers,
@@ -1920,7 +1999,7 @@ class McpService:
         *,
         allow_dirty: bool = False,
     ) -> ToolingResult[McpAcceptanceDetails, McpLifecycleDetails]:
-        """Проверить MCP через новый клиент stdio и вернуть типизированный результат."""
+        """Проверить canonical local HTTP через новую SDK-сессию."""
 
         root = self._root(repository_root)
         from dev_tools.mcp_acceptance import accept as accept_fresh_mcp_client
@@ -2109,17 +2188,61 @@ class McpService:
         )
 
     @staticmethod
-    def _auth_ready(server_names: Iterable[str] = MCP_SERVER_NAMES) -> bool:
+    def _auth_ready(
+        repository_root: str | Path,
+        server_names: Iterable[str] = MCP_SERVER_NAMES,
+    ) -> bool:
         names = tuple(server_names)
         if not names or any(name not in MCP_SERVER_NAMES for name in names):
             return False
-        values = [os.environ.get(TOKEN_ENVIRONMENT_KEYS[name], "") for name in names]
-        return bool(values) and all(
-            value
-            and len(value.encode("utf-8")) <= 4096
-            and not any(char.isspace() for char in value)
-            for value in values
+        try:
+            for name in names:
+                read_local_mcp_token(repository_root, name)
+        except LocalHttpAuthUnknownError:
+            raise
+        except LocalHttpAuthError:
+            return False
+        return True
+
+    def _authentication_states(
+        self, repository_root: str | Path
+    ) -> _McpAuthenticationStates:
+        states: _McpAuthenticationStates = {}
+        for name in MCP_SERVER_NAMES:
+            try:
+                auth_ready = self._auth_ready(repository_root, (name,))
+            except LocalHttpAuthUnknownError:
+                states[name] = "unknown"
+            except (OSError, ToolingError):
+                states[name] = "unknown"
+            else:
+                states[name] = "configured" if auth_ready else "unavailable"
+        return states
+
+    def _auth_unavailable_servers(
+        self,
+        repository_root: str | Path,
+        server_names: Iterable[str] = MCP_SERVER_NAMES,
+        *,
+        authentication_states: Mapping[str, _McpAuthenticationState] | None = None,
+    ) -> tuple[str, ...]:
+        names = tuple(server_names)
+        if not names or any(name not in MCP_SERVER_NAMES for name in names):
+            raise ToolingError(
+                ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+                "Список MCP-серверов для проверки учётных данных задан неверно.",
+            )
+        if len(set(names)) != len(names):
+            raise ToolingError(
+                ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+                "Список MCP-серверов для проверки учётных данных содержит повторяющиеся имена.",
+            )
+        states = (
+            self._authentication_states(repository_root)
+            if authentication_states is None
+            else authentication_states
         )
+        return tuple(name for name in names if states.get(name) == "unavailable")
 
     def _start_owned(
         self,
@@ -2127,23 +2250,29 @@ class McpService:
         bundle: McpBundle,
         *,
         server_names: Iterable[str] | None = None,
-    ) -> tuple[bool, dict[str, object]]:
+        authentication_states: _McpAuthenticationStates | None = None,
+    ) -> _McpStartOutcome:
         requested = tuple(server_names or MCP_SERVER_NAMES)
         if not requested or any(name not in MCP_SERVER_NAMES for name in requested):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Список first-party MCP servers для запуска имеет неверный формат.",
+                "Список первичных MCP-серверов для запуска имеет неверный формат.",
             )
         if len(set(requested)) != len(requested):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Список first-party MCP servers содержит повторения.",
+                "Список первичных MCP-серверов содержит повторения.",
             )
+        resolved_authentication = (
+            self._authentication_states(root)
+            if authentication_states is None
+            else authentication_states
+        )
         before_state, before = self._runtime_status(root, bundle)
         if before_state == "conflict":
             raise ToolingError(
                 ResultCode.TOOLING_PORT_CONFLICT,
-                "Порт локального first-party MCP уже занят чужим процессом.",
+                "Порт локального первичного MCP уже занят чужим процессом.",
             )
         service_items = {
             item.get("server_name"): item
@@ -2162,21 +2291,43 @@ class McpService:
             ):
                 raise ToolingError(
                     ResultCode.MCP_RUNTIME_STALE,
-                    "Состояние owned local MCP supervisor нельзя безопасно подтвердить.",
+                    "Не удалось безопасно подтвердить состояние процесса управления локальным MCP.",
                 )
             start_names.append(name)
+        auth_unavailable = set(
+            self._auth_unavailable_servers(
+                root,
+                requested,
+                authentication_states=resolved_authentication,
+            )
+        )
+        runtime_unavailable: set[str] = {
+            name for name in requested if resolved_authentication.get(name) == "unknown"
+        }
         if not start_names:
-            return False, before
-        if not self._auth_ready(start_names):
-            raise ToolingError(
-                ResultCode.MCP_AUTH_NOT_CONFIGURED,
-                "Ожидаемые bearer environment values локального MCP не настроены.",
+            return _McpStartOutcome(
+                False,
+                before,
+                tuple(name for name in requested if name in auth_unavailable),
+                tuple(name for name in requested if name in runtime_unavailable),
+            )
+        launch_names = tuple(
+            name
+            for name in start_names
+            if resolved_authentication.get(name) == "configured"
+        )
+        if not launch_names:
+            return _McpStartOutcome(
+                False,
+                before,
+                tuple(name for name in requested if name in auth_unavailable),
+                tuple(name for name in requested if name in runtime_unavailable),
             )
         python = project_python(root)
         if not python.is_file():
             raise ToolingError(
                 ResultCode.MCP_ENVIRONMENT_STALE,
-                "Project Python локального MCP отсутствует.",
+                "Интерпретатор Python проекта для локального MCP отсутствует.",
             )
         from module.mcp_shared.local_http_supervisor import (
             LOCAL_HTTP_SOURCE_SET_DIGEST_ENV_VARS,
@@ -2186,19 +2337,33 @@ class McpService:
             revision = GitClient(root, self.runner).head()
         except ToolingError:
             revision = source_revision()
-        running = []
+        running: dict[str, object] = {}
         try:
-            for name in start_names:
+            for name in launch_names:
+                if name in auth_unavailable:
+                    continue
+                # Повторить проверку непосредственно перед созданием процесса:
+                # .env может измениться после первичного разделения по семействам.
+                try:
+                    auth_ready = self._auth_ready(root, (name,))
+                except (LocalHttpAuthUnknownError, OSError, ToolingError):
+                    resolved_authentication[name] = "unknown"
+                    runtime_unavailable.add(name)
+                    continue
+                if not auth_ready:
+                    resolved_authentication[name] = "unavailable"
+                    auth_unavailable.add(name)
+                    continue
+                resolved_authentication[name] = "configured"
                 explicit_env = {
-                    TOKEN_ENVIRONMENT_KEYS[name]: os.environ[TOKEN_ENVIRONMENT_KEYS[name]],
                     LOCAL_HTTP_SOURCE_SET_DIGEST_ENV_VARS[name]: bundle.servers[
                         name
                     ].source_set_digest,
                 }
                 if _SHA_RE.fullmatch(revision):
                     explicit_env["AZURPILOT_SOURCE_REVISION"] = revision
-                running.append(
-                    self.runner.start(
+                try:
+                    running[name] = self.runner.start(
                         ProcessSpec(
                             executable=python,
                             argv=(
@@ -2214,36 +2379,70 @@ class McpService:
                             env=explicit_env,
                         )
                     )
-                )
+                except ProcessStartError as error:
+                    if (
+                        error.spawn_state in {"not_spawned", "absent_after_cleanup"}
+                        and error.cleanup_state == "absent"
+                    ):
+                        runtime_unavailable.add(name)
+                        continue
+                    # Без подтверждённой очистки нельзя терять сведения о возможном
+                    # процессе и переходить к запуску следующей группы.
+                    raise
+
             deadline = time.monotonic() + 30
-            while time.monotonic() < deadline:
+            while running and time.monotonic() < deadline:
                 _state, status = self._runtime_status(root, bundle)
                 current = {
                     item.get("server_name"): item
                     for item in status.get("services", [])
                     if isinstance(item, dict)
                 }
-                if all(current.get(name, {}).get("ready") is True for name in start_names):
-                    return True, status
-                if any(process.poll() is not None for process in running):
+                pending = tuple(
+                    name
+                    for name, process in running.items()
+                    if current.get(name, {}).get("ready") is not True
+                    and process.poll() is None  # type: ignore[attr-defined]
+                )
+                if not pending:
                     break
                 time.sleep(0.25)
         finally:
-            _state, _status = self._runtime_status(root, bundle)
-            if not all(
-                any(
-                    item.get("server_name") == name and item.get("ready") is True
-                    for item in _status.get("services", [])
-                    if isinstance(item, dict)
-                )
-                for name in start_names
-            ):
-                for process in running:
-                    if process.poll() is None:
-                        ProcessController.terminate(process.identity)
-        raise ToolingError(
-            ResultCode.MCP_RUNTIME_UNAVAILABLE,
-            "Локальный MCP supervisor не достиг readiness.",
+            _state, final_status = self._runtime_status(root, bundle)
+            current = {
+                item.get("server_name"): item
+                for item in final_status.get("services", [])
+                if isinstance(item, dict)
+            }
+            for name, process in running.items():
+                if current.get(name, {}).get("ready") is True:
+                    continue
+                if process.poll() is None:  # type: ignore[attr-defined]
+                    ProcessController.terminate(process.identity)  # type: ignore[attr-defined]
+                try:
+                    auth_ready = self._auth_ready(root, (name,))
+                except (LocalHttpAuthUnknownError, OSError, ToolingError):
+                    resolved_authentication[name] = "unknown"
+                    runtime_unavailable.add(name)
+                    continue
+                if auth_ready:
+                    resolved_authentication[name] = "configured"
+                    runtime_unavailable.add(name)
+                else:
+                    resolved_authentication[name] = "unavailable"
+                    auth_unavailable.add(name)
+        changed = any(
+            current.get(name, {}).get("ready") is True for name in running
+        )
+        return _McpStartOutcome(
+            changed=changed,
+            runtime=final_status,
+            auth_unavailable_servers=tuple(
+                name for name in requested if name in auth_unavailable
+            ),
+            runtime_unavailable_servers=tuple(
+                name for name in requested if name in runtime_unavailable
+            ),
         )
 
     def _stop_owned_supervisor(
@@ -2259,7 +2458,7 @@ class McpService:
         if result.outcome is LocalHttpSupervisorStopOutcome.PORT_CONFLICT:
             raise ToolingError(
                 ResultCode.TOOLING_PORT_CONFLICT,
-                "Порт локального first-party MCP уже занят чужим процессом.",
+                "Порт локального первичного MCP уже занят чужим процессом.",
             )
         if not result.ok:
             raise ToolingError(
@@ -2273,16 +2472,46 @@ class McpService:
         root = self._root(repository_root)
         self.source.check(root)
         bundle = self._bundle(root)
-        changed, runtime = self._start_owned(root, bundle)
-        details = self._lifecycle_details(bundle, "start", runtime, ownership=True)
+        authentication_states = self._authentication_states(root)
+        outcome = self._start_owned(
+            root, bundle, authentication_states=authentication_states
+        )
+        details = self._lifecycle_details(
+            root,
+            bundle,
+            "start",
+            outcome.runtime,
+            ownership=True,
+            authentication_states=authentication_states,
+            auth_unavailable_servers=outcome.auth_unavailable_servers,
+            runtime_unavailable_servers=outcome.runtime_unavailable_servers,
+        )
+        if any(service.status == "conflict" for service in details.services):
+            raise ToolingError(
+                ResultCode.TOOLING_PORT_CONFLICT,
+                "Порт локального MCP занят процессом без подтверждённого владельца.",
+                details=details,
+            )
+        if outcome.runtime_unavailable_servers:
+            raise ToolingError(
+                ResultCode.MCP_RUNTIME_UNAVAILABLE,
+                "Одна или несколько локальных служб MCP не перешли в состояние готовности.",
+                details=details,
+            )
+        if outcome.auth_unavailable_servers:
+            raise ToolingError(
+                ResultCode.MCP_AUTH_NOT_CONFIGURED,
+                "Для части локальных MCP отсутствуют учётные данные проекта.",
+                details=details,
+            )
         return ToolingResult(
             ok=True,
             code=ResultCode.OK,
             state=OperationState.READY,
             message=(
-                "Owned local MCP supervisor готов."
-                if changed
-                else "Owned local MCP supervisor уже готов; запуск не требовался."
+                "Принадлежащий локальный MCP supervisor готов."
+                if outcome.changed
+                else "Принадлежащий локальный MCP supervisor уже готов; запуск не требовался."
             ),
             details=details,
         )
@@ -2290,6 +2519,7 @@ class McpService:
     def stop(self, repository_root: str | Path | None = None) -> ToolingResult[McpLifecycleDetails, McpLifecycleDetails]:
         root = self._root(repository_root)
         bundle = self._bundle(root)
+        authentication_states = self._authentication_states(root)
         for name in MCP_SERVER_NAMES:
             supervisor = self._supervisor(root, name)
             before = supervisor.status()
@@ -2297,17 +2527,24 @@ class McpService:
                 if supervisor.port_conflicts():
                     raise ToolingError(
                         ResultCode.TOOLING_PORT_CONFLICT,
-                        "Порт локального first-party MCP уже занят чужим процессом.",
+                        "Порт локального первичного MCP уже занят чужим процессом.",
                     )
                 continue
             self._stop_owned_supervisor(root, name)
         _runtime_state, runtime = self._runtime_status(root, bundle)
-        details = self._lifecycle_details(bundle, "stop", runtime, ownership=True)
+        details = self._lifecycle_details(
+            root,
+            bundle,
+            "stop",
+            runtime,
+            ownership=True,
+            authentication_states=authentication_states,
+        )
         return ToolingResult(
             ok=True,
             code=ResultCode.OK,
             state=OperationState.STOPPED,
-            message="Owned local MCP supervisor остановлен.",
+            message="Принадлежащий локальный MCP supervisor остановлен.",
             details=details,
         )
 
@@ -2315,24 +2552,100 @@ class McpService:
         root = self._root(repository_root)
         self.source.check(root)
         bundle = self._bundle(root)
+        authentication_states = self._authentication_states(root)
+        auth_unavailable = set(
+            self._auth_unavailable_servers(
+                root, authentication_states=authentication_states
+            )
+        )
+        runtime_unavailable = {
+            name
+            for name, state in authentication_states.items()
+            if state == "unknown"
+        }
+        supervisors = {}
         for name in MCP_SERVER_NAMES:
             supervisor = self._supervisor(root, name)
             before = supervisor.status()
-            if before.get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED":
+            code = before.get("code")
+            if code == "LOCAL_MCP_SUPERVISOR_STOPPED":
                 if supervisor.port_conflicts():
                     raise ToolingError(
                         ResultCode.TOOLING_PORT_CONFLICT,
-                        "Порт локального first-party MCP уже занят чужим процессом.",
+                        "Порт локального первичного MCP уже занят чужим процессом.",
                     )
+            elif code not in {
+                "LOCAL_MCP_SUPERVISOR_READY",
+                "LOCAL_MCP_SUPERVISOR_DEGRADED",
+                "LOCAL_MCP_SUPERVISOR_STALE",
+            }:
+                raise ToolingError(
+                    ResultCode.MCP_RUNTIME_STALE,
+                    "Не удалось безопасно подтвердить состояние процесса управления локальным MCP.",
+                )
+            supervisors[name] = before
+
+        for name in MCP_SERVER_NAMES:
+            if authentication_states.get(name) != "configured":
                 continue
-            self._stop_owned_supervisor(root, name)
-        _changed, runtime = self._start_owned(root, bundle)
-        details = self._lifecycle_details(bundle, "restart", runtime, ownership=True)
+            if supervisors[name].get("code") != "LOCAL_MCP_SUPERVISOR_STOPPED":
+                self._stop_owned_supervisor(root, name)
+
+        start_names = tuple(
+            name
+            for name in MCP_SERVER_NAMES
+            if authentication_states.get(name) == "configured"
+        )
+        if start_names:
+            outcome = self._start_owned(
+                root,
+                bundle,
+                server_names=start_names,
+                authentication_states=authentication_states,
+            )
+        else:
+            _runtime_state, runtime = self._runtime_status(root, bundle)
+            outcome = _McpStartOutcome(
+                False,
+                runtime,
+                tuple(name for name in MCP_SERVER_NAMES if name in auth_unavailable),
+                tuple(name for name in MCP_SERVER_NAMES if name in runtime_unavailable),
+            )
+        auth_unavailable.update(outcome.auth_unavailable_servers)
+        runtime_unavailable.update(outcome.runtime_unavailable_servers)
+        details = self._lifecycle_details(
+            root,
+            bundle,
+            "restart",
+            outcome.runtime,
+            ownership=True,
+            authentication_states=authentication_states,
+            auth_unavailable_servers=auth_unavailable,
+            runtime_unavailable_servers=runtime_unavailable,
+        )
+        if any(service.status == "conflict" for service in details.services):
+            raise ToolingError(
+                ResultCode.TOOLING_PORT_CONFLICT,
+                "Порт локального MCP занят процессом без подтверждённого владельца.",
+                details=details,
+            )
+        if runtime_unavailable:
+            raise ToolingError(
+                ResultCode.MCP_RUNTIME_UNAVAILABLE,
+                "Одна или несколько локальных служб MCP не перешли в состояние готовности.",
+                details=details,
+            )
+        if auth_unavailable:
+            raise ToolingError(
+                ResultCode.MCP_AUTH_NOT_CONFIGURED,
+                "Для части локальных MCP отсутствуют учётные данные проекта.",
+                details=details,
+            )
         return ToolingResult(
             ok=True,
             code=ResultCode.OK,
             state=OperationState.READY,
-            message="Owned local MCP supervisor перезапущен и готов.",
+            message="Принадлежащий локальный MCP supervisor перезапущен и готов.",
             details=details,
         )
 
@@ -2382,14 +2695,14 @@ class McpService:
         if not project_python(root).is_file():
             raise ToolingError(
                 ResultCode.MCP_ENVIRONMENT_STALE,
-                "Project Python отсутствует; согласование MCP runtime остановлено.",
+                "Интерпретатор Python проекта отсутствует; согласование MCP runtime остановлено.",
             )
         bundle = self._bundle(root)
         runtime_state, runtime = self._runtime_status(root, bundle)
         if runtime_state == "conflict":
             raise ToolingError(
                 ResultCode.TOOLING_PORT_CONFLICT,
-                "Порт first-party local MCP уже занят чужим процессом.",
+                "Порт первичного локального MCP уже занят чужим процессом.",
             )
         session_state: Literal["current", "reload_required", "not_observable", "unknown"] = self._session_state(
             root,
@@ -2402,6 +2715,18 @@ class McpService:
                 ResultCode.MCP_RUNTIME_STALE,
                 "Состояние local MCP runtime нельзя безопасно классифицировать.",
             )
+        authentication_states = self._authentication_states(root)
+        auth_unavailable = set(
+            self._auth_unavailable_servers(
+                root, authentication_states=authentication_states
+            )
+        )
+        runtime_unavailable: set[str] = {
+            name
+            for name, state in authentication_states.items()
+            if state == "unknown"
+        }
+        mutated_servers: set[str] = set()
         if runtime_state in {"stale", "stopped"}:
             service_items = {
                 item.get("server_name"): item
@@ -2426,34 +2751,86 @@ class McpService:
                     ResultCode.MCP_RUNTIME_STALE,
                     "Остановленный или устаревший local MCP runtime не имеет безопасного exact owner.",
                 )
+            repairable: list[str] = []
             for name in repair_names:
+                if authentication_states.get(name) != "configured":
+                    continue
+                repairable.append(name)
+            repairable_names = tuple(repairable)
+            for name in repairable_names:
                 if supervisors[name].get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED":
                     continue
                 self._stop_owned_supervisor(root, name)
-            _changed, runtime = self._start_owned(
-                root, bundle, server_names=repair_names
-            )
-            restarted = repair_names
-            runtime_state, runtime = self._runtime_status(root, bundle)
-            if runtime_state != "ready":
-                raise ToolingError(
-                    ResultCode.MCP_RUNTIME_UNAVAILABLE,
-                    "После start/restart readiness и exact MCP runtime postcondition не подтверждены.",
+                mutated_servers.add(name)
+            if repairable_names:
+                start_outcome = self._start_owned(
+                    root,
+                    bundle,
+                    server_names=repairable_names,
+                    authentication_states=authentication_states,
                 )
-            session_state = self._session_state(root, runtime, changed_paths=changed_paths)
+                auth_unavailable.update(start_outcome.auth_unavailable_servers)
+                runtime_unavailable.update(start_outcome.runtime_unavailable_servers)
+            runtime_state, runtime = self._runtime_status(root, bundle)
+            service_items = {
+                item.get("server_name"): item
+                for item in runtime.get("services", [])
+                if isinstance(item, dict)
+            }
+            restarted = tuple(
+                name
+                for name in repairable_names
+                if service_items.get(name, {}).get("ready") is True
+            )
+            mutated_servers.update(restarted)
+            session_state = self._session_state(
+                root, runtime, changed_paths=changed_paths
+            )
+        services = self._runtime_server_statuses(
+            root,
+            bundle,
+            runtime,
+            authentication_states=authentication_states,
+            auth_unavailable_servers=auth_unavailable,
+            runtime_unavailable_servers=runtime_unavailable,
+        )
+        runtime_ready = runtime_state == "ready" and all(
+            service.status == "ready" for service in services
+        )
         details = McpReconcileDetails(
             mode="runtime",
             source_state="ready",
             runtime_state=runtime_state,
             source_reconciled=True,
-            runtime_ready=runtime_state == "ready",
-            mutation_performed=bool(restarted),
+            runtime_ready=runtime_ready,
+            mutation_performed=bool(mutated_servers),
             changed_components=(),
-            affected_servers=restarted,
+            affected_servers=tuple(
+                name for name in MCP_SERVER_NAMES if name in mutated_servers
+            ),
             restarted_servers=restarted,
+            services=services,
             session_state=session_state,
             reload_required=session_state == "reload_required",
         )
+        if any(service.status == "conflict" for service in services):
+            raise ToolingError(
+                ResultCode.TOOLING_PORT_CONFLICT,
+                "Порт локального MCP занят процессом без подтверждённого владельца.",
+                details=details,
+            )
+        if auth_unavailable:
+            raise ToolingError(
+                ResultCode.MCP_AUTH_NOT_CONFIGURED,
+                "Для части локальных MCP отсутствуют учётные данные проекта.",
+                details=details,
+            )
+        if runtime_unavailable or not runtime_ready:
+            raise ToolingError(
+                ResultCode.MCP_RUNTIME_UNAVAILABLE,
+                "После запуска или перезапуска не подтверждены готовность и ожидаемое состояние среды выполнения MCP.",
+                details=details,
+            )
         if session_state == "reload_required":
             return ToolingResult(
                 ok=False,
@@ -2469,43 +2846,37 @@ class McpService:
             message=(
                 "MCP runtime уже согласован; mutation не потребовалась."
                 if not restarted
-                else "Остановленный или устаревший owned MCP runtime запущен/перезапущен; readiness подтверждён."
+                else "Остановленный или устаревший принадлежащий MCP runtime запущен/перезапущен; readiness подтверждён."
             ),
             details=details,
         )
 
-    @staticmethod
-    def _lifecycle_details(bundle: McpBundle, action: Literal["start", "stop", "restart"], runtime: Mapping[str, object], *, ownership: bool) -> McpLifecycleDetails:
-        ready = runtime.get("code") == "LOCAL_MCP_SUPERVISOR_READY"
-        services = {
-            item.get("server_name"): item
-            for item in runtime.get("services", [])
-            if isinstance(item, dict)
-        }
-        statuses = tuple(
-            _server_status_from_model(
-                bundle.servers[name],
-                status="ready" if ready else "stopped",
-                observed_version=(
-                    services.get(name, {}).get("server_version")
-                    if isinstance(services.get(name), dict)
-                    else None
-                ),
-                observed_source_revision=_safe_source_revision(
-                    services.get(name, {}).get("source_revision")
-                    if isinstance(services.get(name), dict)
-                    else None
-                ),
-                reason_code=None if ready else str(runtime.get("code")),
-            )
-            for name in MCP_SERVER_NAMES
+    def _lifecycle_details(
+        self,
+        root: Path,
+        bundle: McpBundle,
+        action: Literal["start", "stop", "restart"],
+        runtime: Mapping[str, object],
+        *,
+        ownership: bool,
+        authentication_states: Mapping[str, _McpAuthenticationState] | None = None,
+        auth_unavailable_servers: Iterable[str] = (),
+        runtime_unavailable_servers: Iterable[str] = (),
+    ) -> McpLifecycleDetails:
+        statuses = self._runtime_server_statuses(
+            root,
+            bundle,
+            runtime,
+            authentication_states=authentication_states,
+            auth_unavailable_servers=auth_unavailable_servers,
+            runtime_unavailable_servers=runtime_unavailable_servers,
         )
         return McpLifecycleDetails(
             action=action,
             supervisor_code=str(runtime.get("code", "LOCAL_MCP_SUPERVISOR_UNKNOWN")),
             services=statuses,
             ownership_confirmed=ownership,
-            readiness_confirmed=ready,
+            readiness_confirmed=all(status.status == "ready" for status in statuses),
         )
 
 

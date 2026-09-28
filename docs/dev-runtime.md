@@ -29,8 +29,8 @@ MCP client
   → настроенный development target
 ```
 
-Dev MCP для Codex поддерживает два first-class local routes одной backend
-identity: direct stdio и authenticated loopback Streamable HTTP. Для ChatGPT
+Dev MCP для Codex использует единственный канонический local route одной backend
+identity: authenticated loopback Streamable HTTP. Для ChatGPT
 существует отдельный `module.dev_mcp.remote` с authenticated HTTPS на `/mcp`;
 он не переиспользует Game MCP и не монтируется в WebUI. Game MCP остаётся
 отдельным продуктом с собственными tools, scopes и runtime adapters. Запуск
@@ -38,65 +38,38 @@ identity: direct stdio и authenticated loopback Streamable HTTP. Для ChatGPT
 `DevSessionManager`, не читает целевой профиль, не запускает WebUI и не требует
 PostgreSQL, эмулятор или ADB. Менеджер создаётся лениво при первом вызове инструмента.
 
-Регистрация в пределах проекта находится в `.codex/config.toml` и использует
-подготовленное окружение проекта:
+Единственная регистрация в пределах проекта находится в `.codex/config.toml`:
 
 ```toml
 [mcp_servers.azurpilot-dev]
-command = "uv"
-args = ["run", "--locked", "--no-sync", "python", "-m", "module.dev_mcp"]
-cwd = "."
-enabled = true
-required = false
-startup_timeout_sec = 5
-tool_timeout_sec = 180
-```
-
-Для Codex Desktop loopback route выбирается явно и не является аварийным
-fallback для stdio:
-
-```toml
-[mcp_servers.azurpilot_dev]
 url = "http://127.0.0.1:8775/mcp"
-bearer_token_env_var = "AZURPILOT_DEV_LOCAL_MCP_TOKEN"
+http_headers_helper = "uv run --locked --no-sync python -m module.mcp_shared.local_http_auth --server azurpilot-dev"
 enabled = true
 required = false
 startup_timeout_sec = 10
 tool_timeout_sec = 180
 ```
 
-Game MCP регистрируется в том же project-scoped Codex config отдельным
-каноническим entrypoint:
+Game MCP регистрируется в том же project-scoped Codex config через canonical
+loopback HTTP:
 
 ```toml
 [mcp_servers.azurpilot-game]
-command = "uv"
-args = ["run", "--locked", "--no-sync", "python", "-m", "module.game_mcp"]
-cwd = "."
-enabled = true
-required = false
-startup_timeout_sec = 10
-tool_timeout_sec = 180
-```
-
-Game Desktop alias регистрируется отдельно от canonical server identity:
-
-```toml
-[mcp_servers.azurpilot_game]
 url = "http://127.0.0.1:8776/mcp"
-bearer_token_env_var = "AZURPILOT_GAME_LOCAL_MCP_TOKEN"
+http_headers_helper = "uv run --locked --no-sync python -m module.mcp_shared.local_http_auth --server azurpilot-game"
 enabled = true
 required = false
 startup_timeout_sec = 10
 tool_timeout_sec = 180
 ```
 
-`azurpilot-dev`/`azurpilot-game` — protocol identities и canonical stdio
-registration keys standalone route; `azurpilot_dev`/`azurpilot_game` — отдельные
-Codex registration keys first-class local HTTP. Перед запуском Desktop supervisor
+`azurpilot-dev`/`azurpilot-game` — одновременно protocol identities и
+единственные активные Codex registration keys. Перед запуском Desktop supervisor
 `module.mcp_shared.local_http_supervisor` поднимает один Dev endpoint на
 `127.0.0.1:8775` и один Game endpoint на `127.0.0.1:8776`, используя только
-user-level bearer environment. Local HTTP request context обязан сохранять
+project-local `.env` keys `AZURPILOT_DEV_LOCAL_MCP_TOKEN` и
+`AZURPILOT_GAME_LOCAL_MCP_TOKEN`; helper не наследует ambient environment.
+Local HTTP request context обязан сохранять
 `local_authority=true`; public remote HTTP остаётся `remote_http` с
 `local_authority=false`.
 
@@ -123,7 +96,7 @@ registration `azurpilot-dev` и `azurpilot-game` → negotiated MCP discovery ч
 должно оставаться видимым до live acceptance. Collector не сканирует human
 output `codex mcp list` и не подменяет отсутствующее effective evidence
 синтетическим статусом. Connected App, OAuth, authenticated remote surface и
-Reconnect не являются fallback для direct local stdio; они проверяются только
+Reconnect не являются fallback для direct local HTTP; они проверяются только
 для явно выбранного ChatGPT/public маршрута.
 
 Для задач репозитория рядом разрешены direct read-only routes: `docker_docs_direct`
@@ -171,11 +144,12 @@ CodeRabbit использует host-native read-only review adapter текущ�
 `azurpilot.integrations.IntegrationRegistry`; промежуточный MCP-маршрутизатор и
 общий secret owner для них не используются.
 
-Каноническая route policy для AzurPilot фиксирована так: standalone route
-`azurpilot-dev` и `azurpilot-game` использует project-scoped local stdio, а
-Codex Desktop явно выбирает их отдельные first-class local HTTP routes
-`azurpilot_dev` и `azurpilot_game`; внешние documentation, security и
-observability integrations используют свои direct adapters. Configuration
+Каноническая route policy для AzurPilot фиксирована так: Windows Codex route
+`azurpilot-dev` и `azurpilot-game` использует принадлежащие supervisor
+authenticated loopback HTTP endpoints; stdio entrypoints сохраняются только
+для standalone/compatibility tests и не регистрируются в Codex. Внешние
+documentation, security и observability integrations используют свои direct
+adapters. Configuration
 source и effective live registration фиксируются раздельно, а недоступный или
 неподтверждённый provider не маскируется под `ready`.
 
@@ -291,8 +265,8 @@ uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
 Без `--json` вывод предназначен для оператора: сначала показывается таблица
 ожидаемых и наблюдаемых transport surfaces, затем отдельные блоки first-party
 MCP и direct external integrations. Неготовые поверхности получают короткий
-статус `UNKNOWN`, `UNAVAILABLE`, `NOT CONFIGURED` или `PARTIAL`, а точный
-`reason_code` выводится только в компактном блоке `Notes`.
+статус `НЕИЗВЕСТНО`, `НЕДОСТУПНО`, `НЕ НАСТРОЕНО` или `ЧАСТИЧНО`, а точный
+`reason_code` выводится только в компактном блоке «Примечания».
 
 `--strict` возвращает non-zero для подтверждённого drift или недоступной
 обязательной canonical surface. Доступный metadata endpoint без наблюдаемого status
@@ -669,9 +643,9 @@ config mismatch. Вход не принимает SQL, table/column name, dump, 
 произвольный путь; Alembic и schema не изменяются через MCP. Каталог repair
 сейчас честно пуст (`dev_list_database_repairs`), а неизвестный repair даёт
 `DEV_DATABASE_REPAIR_UNAVAILABLE` без mutation. Для подключения Codex
-используй project-scoped local stdio:
-`uv run --locked --no-sync python -m module.dev_mcp`; public/Verified app
-относится к ChatGPT и не является backend этого local live-test.
+используй canonical loopback HTTP route из `.codex/config.toml`; public/Verified
+app относится к ChatGPT и не является backend этого local live-test. Standalone
+stdio entrypoint сохраняется только для compatibility/test сценариев.
 
 ## Public HTTPS для ChatGPT
 
@@ -811,9 +785,9 @@ machine-readable ID — `azurpilot`, а отображаемое имя — `Azu
 repository-level источник регистрации MCP для Codex — `.codex/config.toml`;
 второй MCP implementation и Connected App injection не добавляются.
 
-Standalone Codex CLI использует project-scoped `azurpilot-dev` и
-`azurpilot-game` через local stdio Dev/Game MCP. Codex Desktop использует
-`azurpilot_dev` и `azurpilot_game` через loopback authenticated local HTTP;
+Codex Desktop использует canonical `azurpilot-dev` и `azurpilot-game` через
+loopback authenticated local HTTP; standalone stdio entrypoints сохраняются
+только для compatibility/test сценариев;
 ChatGPT/public использует соответствующее подключённое
 приложение через authenticated public HTTPS `/mcp`; канонический Caddyfile
 хранится в Git, а OAuth/OIDC provider, Caddy runtime state и credentials — вне
@@ -832,8 +806,7 @@ PASS-result, exact source, подтверждённой очистке и пол
 перед нормальным bounded run.
 
 `azurpilot-game-control` предназначен для обычных Game MCP read/control
-операций через canonical `azurpilot-game` local stdio или Desktop alias
-`azurpilot_game`, а
+операций через canonical `azurpilot-game` local HTTP, а
 `azurpilot-troubleshooting` — для проверки direct contract/transport и, только
 для явно выбранной remote surface, подключённого приложения.
 `azurpilot-development` остаётся developer-only интерфейсом Dev Runtime и typed

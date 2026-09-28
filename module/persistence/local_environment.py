@@ -9,14 +9,18 @@ import re
 import shutil
 import stat
 import subprocess
-from collections.abc import MutableMapping
+from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from module.application.errors import StorageConfigurationError
+from module.application.errors import (
+    StorageConfigurationError,
+    StorageConfigurationUnknownError,
+)
 from module.persistence.config import DatabaseSettings
 from module.persistence.local_environment_schema import (
     INFRASTRUCTURE_ENVIRONMENT_KEYS,
+    LOCAL_ENVIRONMENT_KEYS,
     POSTGRES_ENVIRONMENT_KEYS,
     SECRET_ENVIRONMENT_KEYS,
 )
@@ -130,7 +134,7 @@ def _parse_value(raw: str, line_number: int) -> str:
         or " #" in value
     ):
         raise StorageConfigurationError(
-            f"Значение PostgreSQL env в строке {line_number} некорректно."
+            f"Значение локального environment в строке {line_number} некорректно."
         )
     return value
 
@@ -160,9 +164,9 @@ $payload | ConvertTo-Json -Compress -Depth 4
 """
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     environment = os.environ.copy()
+    for key in SECRET_ENVIRONMENT_KEYS:
+        environment.pop(key, None)
     environment.pop("PGPASSWORD", None)
-    environment.pop(_APP_PREFIX + "PASSWORD", None)
-    environment.pop(_MIGRATOR_PREFIX + "PASSWORD", None)
     environment["AZURPILOT_ENV_ACL_PATH"] = str(path)
     try:
         completed = subprocess.run(
@@ -177,27 +181,32 @@ $payload | ConvertTo-Json -Compress -Depth 4
             encoding="utf-8-sig",
         )
         if completed.returncode != 0:
-            return False
+            return None
         payload = json.loads(completed.stdout)
         current_sid = payload["CurrentSid"]
         rules = payload["Rules"]
         if isinstance(rules, dict):
             rules = [rules]
-        if (
-            payload["OwnerSid"] != current_sid
-            or payload["Protected"] is not True
-            or not isinstance(rules, list)
-        ):
+        if not isinstance(rules, list):
+            return None
+        if payload["OwnerSid"] != current_sid or payload["Protected"] is not True:
             return False
         allowed_sids = {current_sid, "S-1-5-18"}
         current_full_control = False
         for rule in rules:
+            if not isinstance(rule, dict) or not {
+                "Sid",
+                "Type",
+                "Inherited",
+                "Rights",
+            }.issubset(rule):
+                return None
+            if not isinstance(rule["Rights"], int):
+                return None
             if (
-                not isinstance(rule, dict)
-                or rule.get("Sid") not in allowed_sids
-                or rule.get("Type") != "Allow"
-                or rule.get("Inherited") is not False
-                or not isinstance(rule.get("Rights"), int)
+                rule["Sid"] not in allowed_sids
+                or rule["Type"] != "Allow"
+                or rule["Inherited"] is not False
             ):
                 return False
             if rule["Sid"] == current_sid and rule["Rights"] & 0x1F01FF == 0x1F01FF:
@@ -211,16 +220,15 @@ $payload | ConvertTo-Json -Compress -Depth 4
         json.JSONDecodeError,
         subprocess.SubprocessError,
     ):
-        return False
+        return None
 
 
 def _require_secure_permissions(path: Path, metadata: os.stat_result) -> None:
     if os.name == "nt":
         secure = _windows_acl_is_restricted(path)
         if secure is None:
-            raise StorageConfigurationError(
-                "ACL локального PostgreSQL env невозможно проверить: "
-                "установите или включите PowerShell."
+            raise StorageConfigurationUnknownError(
+                "ACL локального environment невозможно подтвердить."
             )
     else:
         secure = metadata.st_uid == os.getuid() and stat.S_IMODE(metadata.st_mode) & 0o077 == 0
@@ -230,44 +238,53 @@ def _require_secure_permissions(path: Path, metadata: os.stat_result) -> None:
         )
 
 
-def read_local_postgres_environment(
-    path: str | Path = DEFAULT_LOCAL_ENV_PATH,
-) -> LocalPostgresEnvironment | None:
+def _read_local_environment_values(path: str | Path) -> dict[str, str] | None:
+    """Прочитать registry-ограниченный `.env` без установки его в environment."""
+
     env_path = Path(path)
-    if not env_path.exists():
-        if env_path.is_symlink():
-            raise StorageConfigurationError(
-                "Локальный PostgreSQL env отсутствует или небезопасен."
-            )
-        return None
     try:
-        metadata = env_path.stat()
-        if env_path.is_symlink() or not env_path.is_file() or metadata.st_size > 65_536:
+        metadata = env_path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise StorageConfigurationUnknownError(
+            "Локальный environment невозможно проверить."
+        ) from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        raise StorageConfigurationError(
+            "Локальный environment отсутствует или небезопасен."
+        )
+    try:
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 65_536:
             raise StorageConfigurationError(
-                "Локальный PostgreSQL env отсутствует или небезопасен."
+                "Локальный environment отсутствует или небезопасен."
             )
         _require_secure_permissions(env_path, metadata)
-        lines = env_path.read_text(encoding="utf-8").splitlines()
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        except UnicodeError as exc:
+            raise StorageConfigurationError(
+                "Локальный environment содержит некорректный текст."
+            ) from exc
         final_metadata = env_path.stat()
         if (
-            env_path.is_symlink()
+            stat.S_ISLNK(env_path.lstat().st_mode)
             or metadata.st_dev != final_metadata.st_dev
             or metadata.st_ino != final_metadata.st_ino
             or metadata.st_size != final_metadata.st_size
             or metadata.st_mtime_ns != final_metadata.st_mtime_ns
         ):
-            raise StorageConfigurationError(
-                "Локальный PostgreSQL env изменился во время чтения."
+            raise StorageConfigurationUnknownError(
+                "Локальный environment изменился во время чтения."
             )
     except StorageConfigurationError:
         raise
-    except (OSError, UnicodeError) as exc:
-        raise StorageConfigurationError(
-            "Локальный PostgreSQL env невозможно прочитать."
+    except OSError as exc:
+        raise StorageConfigurationUnknownError(
+            "Локальный environment невозможно прочитать."
         ) from exc
 
     values: dict[str, str] = {}
-    infrastructure_values: dict[str, str] = {}
     seen_keys: set[str] = set()
     for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
@@ -275,26 +292,64 @@ def read_local_postgres_environment(
             continue
         if "=" not in line:
             raise StorageConfigurationError(
-                f"Строка {line_number} локального PostgreSQL env некорректна."
+                f"Строка {line_number} локального environment некорректна."
             )
         key, raw_value = line.split("=", 1)
         key = key.strip()
         if not _KEY_RE.fullmatch(key) or key in seen_keys:
             raise StorageConfigurationError(
-                f"Ключ локального PostgreSQL env в строке {line_number} некорректен."
+                f"Ключ локального environment в строке {line_number} некорректен."
             )
         seen_keys.add(key)
-        if key in _ALLOWED_KEYS:
-            values[key] = _parse_value(raw_value, line_number)
-        elif key in INFRASTRUCTURE_ENVIRONMENT_KEYS:
-            # Compose и боевой PostgreSQL используют один защищённый локальный
-            # файл окружения. Registry перечисляет инфраструктурные ключи
-            # явно: опечатка внутри namespace не должна пройти незамеченной.
-            infrastructure_values[key] = _parse_value(raw_value, line_number)
-        else:
+        if key not in LOCAL_ENVIRONMENT_KEYS:
             raise StorageConfigurationError(
-                f"Ключ локального PostgreSQL env в строке {line_number} некорректен."
+                f"Ключ локального environment в строке {line_number} некорректен."
             )
+        values[key] = _parse_value(raw_value, line_number)
+    return values
+
+
+def read_local_environment_subset(
+    path: str | Path,
+    *,
+    keys: Iterable[str],
+) -> dict[str, str] | None:
+    """Вернуть только заранее разрешённое подмножество локального `.env`.
+
+    Весь файл всё равно проходит registry/duplicate/ACL/race проверки, но
+    вызывающий consumer получает только собственные запрошенные ключи.
+    """
+
+    requested = frozenset(keys)
+    if not requested or not requested.issubset(LOCAL_ENVIRONMENT_KEYS):
+        raise StorageConfigurationError(
+            "Запрошенный subset локального environment не зарегистрирован."
+        )
+    values = _read_local_environment_values(path)
+    if values is None:
+        return None
+    missing = requested.difference(values)
+    if missing:
+        raise StorageConfigurationError(
+            "Локальный environment не содержит обязательный зарегистрированный key."
+        )
+    return {key: values[key] for key in requested}
+
+
+def read_local_postgres_environment(
+    path: str | Path = DEFAULT_LOCAL_ENV_PATH,
+) -> LocalPostgresEnvironment | None:
+    env_path = Path(path)
+    all_values = _read_local_environment_values(path)
+    if all_values is None:
+        return None
+
+    values = {key: all_values[key] for key in _ALLOWED_KEYS if key in all_values}
+    infrastructure_values = {
+        key: value
+        for key, value in all_values.items()
+        if key in INFRASTRUCTURE_ENVIRONMENT_KEYS
+    }
 
     if _ALLOWED_KEYS.difference(values):
         raise StorageConfigurationError(

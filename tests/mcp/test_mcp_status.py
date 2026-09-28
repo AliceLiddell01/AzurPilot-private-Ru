@@ -16,7 +16,9 @@ from azurpilot.integrations.contracts import (
     IntegrationRecord,
     IntegrationState,
 )
+from azurpilot.integrations.mcp_client import FreshMcpClientResult
 from azurpilot.tooling.contracts import ResultCode
+from module.mcp_shared import local_http_auth, local_http_supervisor
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -138,6 +140,10 @@ def test_status_keeps_first_party_contract_and_adds_exactly_six_direct_integrati
         item["local_direct"]["status"] == "ready"
         for item in report["servers"].values()
     )
+    assert all("owned_local_http" in item for item in report["servers"].values())
+    assert all(
+        "legacy_stdio_processes" in item for item in report["servers"].values()
+    )
     assert report["effective_codex_registration"]["status"] == "not_observable"
 
 
@@ -155,6 +161,273 @@ def test_status_timeout_is_bounded_and_fail_closed(monkeypatch):
     assert report["probe"]["status"] == "unavailable"
     assert all(item["state"] == "unavailable" for item in report["integrations"].values())
     assert report["status"] == "partial"
+
+
+def test_status_does_not_create_state_directories_and_reports_auth_oserror_as_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_ready_collectors(monkeypatch)
+
+    def unreadable_token(*_args, **_kwargs):
+        raise PermissionError("synthetic access denial")
+
+    monkeypatch.setattr(local_http_auth, "read_local_mcp_token", unreadable_token)
+    records = tuple(
+        _record(IntegrationName(name)) for name in status.DIRECT_INTEGRATION_NAMES
+    )
+    report = asyncio.run(
+        status.collect_status_async(
+            tmp_path,
+            local_probe=_local_probe,
+            remote_probe=_remote_probe,
+            integration_service=_IntegrationService(records),
+            now=lambda: "2026-01-01T00:00:00Z",
+        )
+    )
+
+    owned_status = report["servers"]["azurpilot-dev"]["owned_local_http"]
+    assert owned_status["status"] == "unknown"
+    assert owned_status["credential"] == "unknown"
+    assert not (tmp_path / "config" / "state").exists()
+
+
+def test_owned_local_http_requires_configured_credential_for_ready(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    service = local_http_supervisor.LOCAL_HTTP_SERVICES[0]
+    monkeypatch.setattr(
+        local_http_supervisor,
+        "LocalHttpSupervisor",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            status=lambda: {"code": "LOCAL_MCP_SUPERVISOR_READY"}
+        ),
+    )
+
+    def unavailable_token(*_args, **_kwargs):
+        raise local_http_auth.LocalHttpAuthError("LOCAL_MCP_AUTH_UNAVAILABLE")
+
+    monkeypatch.setattr(local_http_auth, "read_local_mcp_token", unavailable_token)
+
+    result = status._owned_local_http_status(tmp_path, service.name)
+
+    assert result["status"] == "partial"
+    assert result["credential"] == "unavailable"
+
+
+def test_owned_local_http_keeps_unknown_credential_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    service = local_http_supervisor.LOCAL_HTTP_SERVICES[0]
+    monkeypatch.setattr(
+        local_http_supervisor,
+        "LocalHttpSupervisor",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            status=lambda: {"code": "LOCAL_MCP_SUPERVISOR_READY"}
+        ),
+    )
+
+    def unknown_token(*_args, **_kwargs):
+        raise local_http_auth.LocalHttpAuthUnknownError("LOCAL_MCP_AUTH_UNKNOWN")
+
+    monkeypatch.setattr(local_http_auth, "read_local_mcp_token", unknown_token)
+
+    result = status._owned_local_http_status(tmp_path, service.name)
+
+    assert result["status"] == "unknown"
+    assert result["credential"] == "unknown"
+
+
+def test_local_http_probe_keeps_unknown_credential_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def unknown_headers(*_args, **_kwargs):
+        raise local_http_auth.LocalHttpAuthUnknownError("LOCAL_MCP_AUTH_UNKNOWN")
+
+    monkeypatch.setattr(status, "local_http_headers", unknown_headers)
+    monkeypatch.setattr(
+        status,
+        "accept_fresh_http",
+        lambda **_kwargs: pytest.fail("unknown credentials must block fresh HTTP"),
+    )
+
+    result = asyncio.run(
+        status._probe_local_http("azurpilot-dev", root=tmp_path, revision="a" * 40)
+    )
+
+    assert result["status"] == "unknown"
+    assert result["reason_code"] == "MCP_PROJECT_LOCAL_CREDENTIAL_UNKNOWN"
+
+
+@pytest.mark.parametrize("denied_attribute", ("cmdline", "username", "exe", "cwd"))
+def test_legacy_stdio_status_is_unknown_for_access_denied_attributes(
+    monkeypatch: pytest.MonkeyPatch, denied_attribute: str
+) -> None:
+    current_username = status.psutil.Process().username()
+    info = {
+        "pid": 123,
+        "cmdline": ["python", "-m", status.SERVER_MODULES["azurpilot-dev"][0]],
+        "username": current_username,
+        "exe": "python.exe",
+        "cwd": "C:/AzurPilot",
+    }
+
+    def process_iter(_attrs, *, ad_value):
+        info[denied_attribute] = ad_value
+        return (SimpleNamespace(info=info),)
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "unknown"
+    assert result["reason_code"] == "LEGACY_STDIO_PROCESS_UNOBSERVABLE"
+
+
+def test_legacy_stdio_status_reports_absent_after_complete_unmatched_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_username = status.psutil.Process().username()
+
+    def process_iter(_attrs, *, ad_value):
+        return (
+            SimpleNamespace(
+                info={
+                    "pid": 123,
+                    "cmdline": ["python", "-c", "pass"],
+                    "username": current_username,
+                    "exe": "python.exe",
+                    "cwd": "C:/AzurPilot",
+                }
+            ),
+        )
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
+    assert result["reason_code"] == "LEGACY_STDIO_PROCESS_ABSENT"
+
+
+@pytest.mark.parametrize("denied_attribute", ("exe", "cwd"))
+def test_legacy_stdio_status_ignores_inaccessible_metadata_for_unmatched_process(
+    monkeypatch: pytest.MonkeyPatch, denied_attribute: str
+) -> None:
+    current_username = status.psutil.Process().username()
+    info = {
+        "pid": 123,
+        "cmdline": ["python", "-c", "pass"],
+        "username": current_username,
+        "exe": "python.exe",
+        "cwd": "C:/Windows/System32",
+    }
+
+    def process_iter(attrs, *, ad_value):
+        assert "username" in attrs
+        info[denied_attribute] = ad_value
+        return (SimpleNamespace(info=info),)
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
+
+
+def test_legacy_stdio_status_ignores_matching_process_from_another_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info = {
+        "pid": 123,
+        "cmdline": ["python", "-m", status.SERVER_MODULES["azurpilot-dev"][0]],
+        "username": "another-user",
+    }
+
+    monkeypatch.setattr(
+        status.psutil,
+        "process_iter",
+        lambda _attrs, *, ad_value: (SimpleNamespace(info=info),),
+    )
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
+
+
+def test_legacy_stdio_status_skips_foreign_process_with_unreadable_command_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def process_iter(_attrs, *, ad_value):
+        return (
+            SimpleNamespace(
+                info={
+                    "pid": 123,
+                    "cmdline": ad_value,
+                    "username": "another-user",
+                    "exe": ad_value,
+                    "cwd": ad_value,
+                    "name": ad_value,
+                }
+            ),
+        )
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
+    assert result["reason_code"] == "LEGACY_STDIO_PROCESS_ABSENT"
+
+
+def test_legacy_stdio_status_skips_non_python_process_with_unreadable_command_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_username = status.psutil.Process().username()
+
+    def process_iter(_attrs, *, ad_value):
+        return (
+            SimpleNamespace(
+                info={
+                    "pid": 123,
+                    "cmdline": ad_value,
+                    "username": current_username,
+                    "exe": "C:/Program Files/OpenAI/ChatGPT.exe",
+                    "cwd": ad_value,
+                    "name": "ChatGPT.exe",
+                }
+            ),
+        )
+
+    monkeypatch.setattr(status.psutil, "process_iter", process_iter)
+
+    result = status._legacy_stdio_process_status("azurpilot-dev")
+
+    assert result["status"] == "absent"
+    assert result["reason_code"] == "LEGACY_STDIO_PROCESS_ABSENT"
+
+
+def test_local_http_probe_does_not_claim_authentication_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(status, "local_http_headers", lambda *_args: {"Authorization": "Bearer test"})
+    async def failed_probe(**_kwargs):
+        return _failed_fresh_result()
+
+    monkeypatch.setattr(status, "accept_fresh_http", failed_probe)
+
+    payload = asyncio.run(
+        status._probe_local_http("azurpilot-dev", root=REPOSITORY_ROOT, revision="a" * 40)
+    )
+
+    assert payload["status"] == "unavailable"
+    assert payload["authenticated"] is False
+
+
+def _failed_fresh_result() -> FreshMcpClientResult:
+    return FreshMcpClientResult(
+        state=IntegrationState.UNAVAILABLE,
+        reason_code="MCP_FRESH_CLIENT_HTTP_FAILED",
+    )
 
 
 def test_json_report_and_metric_labels_are_bounded(monkeypatch):
@@ -214,6 +487,35 @@ def test_human_report_mentions_direct_integrations_without_legacy_route(
     assert "docker-hub" in output
     assert "external_direct" not in output
     assert "gateway" not in output
+
+
+def test_human_report_uses_russian_unknown_and_notes_labels(monkeypatch, capsys):
+    report = _ready_report(monkeypatch)
+    report["status"] = None
+    report["servers"]["azurpilot-dev"]["local_direct"]["status"] = "unavailable"
+
+    status._print_human(report, None)
+    output = capsys.readouterr().out
+
+    assert "ИТОГ     НЕИЗВЕСТНО" in output
+    assert "НЕДОСТУПНО" in output
+    assert "Примечания" in output
+    assert "Notes" not in output
+
+
+def test_human_table_expands_status_column_and_keeps_later_columns_aligned(capsys):
+    status._print_human_table(
+        ("СЕРВЕР", "СОСТОЯНИЕ", "ПРИЧИНА"),
+        (
+            ("azurpilot-dev", "НЕИЗВЕСТНО", "CODE_A"),
+            ("azurpilot-game", "НЕДОСТУПНО", "CODE_B"),
+        ),
+    )
+    lines = capsys.readouterr().out.splitlines()
+
+    reason_column = lines[0].index("ПРИЧИНА")
+    assert lines[2].index("CODE_A") == reason_column
+    assert lines[3].index("CODE_B") == reason_column
 
 
 def test_missing_yaml_dependency_is_reported_without_name_error(monkeypatch, tmp_path):
