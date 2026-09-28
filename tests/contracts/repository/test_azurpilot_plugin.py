@@ -40,14 +40,22 @@ _TROUBLESHOOTING_MATRIX_PATH = (
     / "diagnostic-matrix.md"
 )
 _ROUTING_PATH = _PLUGIN_ROOT / "references" / "mcp-routing.md"
-_ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|(?<![A-Za-z0-9/:.`])/(?!/))")
+_ABSOLUTE_LOCAL_PATH = re.compile(
+    r"(?<![\w])(?:[A-Za-z]:[\\/]|\\\\|(?<![.:`])/(?!/))"
+)
 _URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s`]+")
 _SAFE_CONTAINER_PATH = re.compile(r"(?<![A-Za-z0-9])(/etc/caddy/Caddyfile)(?![A-Za-z0-9])")
+_SAFE_MCP_ROUTE = re.compile(
+    r"(?<![\w])/(?:dev/mcp|game/mcp|identity/(?:dev|game)|health|ready)(?![\w])"
+)
 
 
 def _find_absolute_local_path(value: str) -> re.Match[str] | None:
     value_without_urls = _URL.sub("", value)
-    return _ABSOLUTE_LOCAL_PATH.search(_SAFE_CONTAINER_PATH.sub("", value_without_urls))
+    value_without_safe_routes = _SAFE_MCP_ROUTE.sub("", value_without_urls)
+    return _ABSOLUTE_LOCAL_PATH.search(
+        _SAFE_CONTAINER_PATH.sub("", value_without_safe_routes)
+    )
 
 
 def _markdown_subsection(content: str, heading: str) -> str:
@@ -109,21 +117,21 @@ def test_routing_reference_keeps_plugin_and_mcp_registration_separate() -> None:
     routing = _ROUTING_PATH.read_text(encoding="utf-8")
 
     assert re.search(
-        r"(?m)^\| Development \| `azurpilot-dev` \| authenticated loopback Streamable HTTP \| `module\.dev_mcp\.local_http` \| none \|$",
+        r"(?m)^\| Разработка \| `azurpilot-dev` \| аутентифицированный Streamable HTTP через loopback \| `module\.dev_mcp\.local_http` \| нет \|$",
         routing,
     )
     assert re.search(
-        r"(?m)^\| Game \| `azurpilot-game` \| authenticated loopback Streamable HTTP \| `module\.game_mcp\.local_http` \| none \|$",
+        r"(?m)^\| Игра \| `azurpilot-game` \| аутентифицированный Streamable HTTP через loopback \| `module\.game_mcp\.local_http` \| нет \|$",
         routing,
     )
     assert ".codex/config.toml" in routing
-    assert re.search(r"(?is)(trust|доверен).*(untrusted|недоверен)", routing)
+    assert re.search(r"(?is)(trust|доверие|доверен).*(untrusted|недоверен)", routing)
     assert "source_config" in routing
     assert "effective_codex_registration" in routing
     assert re.search(r"(?is)(not[_ ]observable|не наблюдаем)", routing)
-    assert "Connected App" in routing
+    assert "подключённое приложение" in routing
     assert "OAuth" in routing
-    assert re.search(r"(?is)(remote|удалённ).*(fallback|подмен)", routing)
+    assert re.search(r"(?is)(remote|удалённ).*(fallback|подмен|запасн)", routing)
 
 
 def test_plugin_compatibility_matches_runtime_contract() -> None:

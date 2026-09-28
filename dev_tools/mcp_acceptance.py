@@ -1,4 +1,4 @@
-"""Независимая read-only acceptance-сессия first-party Dev/Game MCP."""
+"""Независимая клиентская сессия для приёмки Dev/Game MCP только для чтения."""
 
 from __future__ import annotations
 
@@ -21,18 +21,21 @@ from module.dev_mcp.contract import contract_payload
 from module.dev_mcp.server import tool_definitions as dev_tool_definitions
 from module.game_mcp.contract import contract_payload as game_contract_payload
 from module.game_mcp.server import tool_definitions as game_tool_definitions
+from module.mcp_shared.catalog import contract_revision
 from module.mcp_shared.local_http_auth import (
     LOCAL_HTTP_ENDPOINTS,
     LocalHttpAuthError,
     LocalHttpAuthUnknownError,
     local_http_headers,
 )
+from module.mcp_shared.versioning import server_version
 from tools.paths import REPOSITORY_ROOT
 
 FRESH_ACCEPTANCE_TIMEOUT_SECONDS = 20.0
-# Статус runtime требует пользовательский target profile, который не входит в
-# tracked checkout. Поэтому fresh client protocol gate проверяет target-neutral
-# каталог Smoke, а готовность runtime подтверждается отдельным live workflow.
+# Для проверки состояния среды выполнения нужен целевой профиль пользователя,
+# которого нет в отслеживаемой рабочей копии. Поэтому протокольная проверка новой
+# клиентской сессии сверяет каталог Smoke, не зависящий от профиля, а готовность
+# среды выполнения подтверждается отдельной проверкой в рабочей среде.
 REQUIRED_READ_ONLY_CALLS = (
     ("dev_list_smoke_capabilities", {}),
 )
@@ -43,7 +46,7 @@ def build_plan(
     source_revision: str,
     server_name: str = "azurpilot-dev",
 ) -> FreshMcpClientPlan:
-    """Собрать только канонические contract/catalog и ограниченные read-only calls."""
+    """Собрать канонический контракт, каталог и ограниченные вызовы только для чтения."""
 
     if server_name == "azurpilot-dev":
         expected_contract = contract_payload()
@@ -55,8 +58,14 @@ def build_plan(
         tool_descriptors = tuple(game_tool_definitions())
         contract_tool = "game_get_contract"
         required_read_only_calls = GAME_REQUIRED_READ_ONLY_CALLS
-    else:  # pragma: no cover - closed server catalog
-        raise ValueError("Неизвестный first-party MCP server")
+    else:  # pragma: no cover - закрытый каталог серверов
+        raise ValueError("Неизвестный сервер MCP проекта")
+    # `azur mcp sync` обновляет манифест и перезапускает дочерние серверы,
+    # тогда как модуль контрактов в родительском CLI мог загрузиться раньше.
+    # Для новой сессии берём ожидаемую версию из обновлённого манифеста и
+    # пересчитываем зависящую от неё ревизию без перезагрузки модулей сервера.
+    expected_contract["server_version"] = server_version(server_name)
+    expected_contract["contract_revision"] = contract_revision(expected_contract)
     expected_contract["source_revision"] = source_revision
     expected_tools = frozenset(tool.name for tool in tool_descriptors)
     blocked_tools = frozenset(
@@ -105,7 +114,7 @@ def _result_payload(result: FreshMcpClientResult) -> dict[str, object]:
 async def accept(
     repository_root: Path, *, allow_dirty: bool = False
 ) -> FreshMcpClientResult:
-    """Провести одну ограниченную fresh session без Codex task/session state."""
+    """Провести одну ограниченную сессию без состояния задачи или сессии Codex."""
 
     source_revision, working_tree = git_source_snapshot(repository_root)
     if working_tree == "modified" and not allow_dirty:
@@ -196,7 +205,7 @@ def main() -> int:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     else:
         print(
-            f"Свежий MCP-клиент: {result.state.value} "
+            f"Новая сессия клиента MCP: {result.state.value} "
             f"({result.reason_code}); вызовы={','.join(result.called_tools) or 'нет'}"
         )
     return 0 if result.state.value == "READY" else 1

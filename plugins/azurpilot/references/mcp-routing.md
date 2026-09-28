@@ -1,92 +1,149 @@
-# MCP routing
+# Маршрутизация MCP
 
-Этот пакет распространяет skills и metadata. Он не регистрирует MCP-серверы и
-не загружает Connected App manifest. Единственным project-scoped repository-level
-источником регистрации Codex является `.codex/config.toml`.
+Этот пакет распространяет навыки и метаданные. Он не регистрирует MCP-серверы и
+не загружает манифест подключённого приложения. Единственным источником
+регистрации Codex на уровне проекта и репозитория является `.codex/config.toml`.
 
-## Trust и effective registration
+## Доверие и подтверждённая регистрация
 
-Trust проекта — обязательное предварительное условие для project-scoped route.
-Если checkout имеет состояние `untrusted`, Codex пропускает project-scoped
-`.codex/config.toml`; plugin не выдаёт trust, а диагностика не выполняет
-automatic trust. Поэтому структурно корректный source config ещё не доказывает,
-что route зарегистрирован в текущей Codex-сессии.
+Доверие к проекту — обязательное условие маршрута на уровне проекта. Если
+рабочая копия имеет состояние `untrusted`, Codex пропускает `.codex/config.toml`;
+плагин не выдаёт доверие, а диагностика не включает его автоматически. Поэтому
+структурно корректная конфигурация исходников ещё не доказывает, что маршрут
+зарегистрирован в текущем сеансе Codex.
 
-Read-only порядок проверки такой: trust проекта → выбранный direct route →
-negotiated MCP discovery через официальный SDK → `tools/list` → соответствующий
-backend contract и callable catalog. Обязательный fresh client acceptance
-создаётся как новый SDK process/session и дополнительно выполняет обязательные
-read-only capability calls; для legacy-compatible server SDK сам выполняет
-штатный `initialize` fallback. Plugin не реализует собственный parser и не
-подменяет discovery универсальным handshake.
-`dev_tools.mcp_status` намеренно разделяет поля
-`source_config` (доказательство tracked `.codex/config.toml`) и
-`effective_codex_registration` (только authoritative evidence из новой или
-перезагруженной trusted Codex task). Значение `not_observable` или pending для
-effective registration является честным ограничением наблюдаемости, а не
-`ready`; collector не заменяет это состояние синтетическим CLI scrape.
-Effective Codex registration — отдельная optional integration check. Если
-изменение затрагивает Codex/plugin registration, client-visible schema или
-routing, действует [единый контракт cross-thread continuation](../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md),
-а не ручной новый чат или Connected App fallback. Wrong-HEAD или недоступный
-`create_thread` не блокируют уже успешный fresh MCP client gate.
+Порядок проверки только для чтения: доверие к проекту → выбранный прямой маршрут →
+обнаружение MCP через официальный SDK → `tools/list` → соответствующий контракт
+серверной части и доступный каталог инструментов. Обязательная приёмка новым клиентом
+создаётся как новый процесс или сеанс SDK и дополнительно выполняет обязательные
+вызовы возможностей только для чтения. Для совместимого с прежними версиями
+сервера SDK самостоятельно выполняет предусмотренный запасной вызов `initialize`.
+Плагин не реализует собственный анализатор и не подменяет обнаружение
+универсальным начальным обменом данными.
 
-При этой диагностике нельзя молча переключаться между transport routes и
-использовать Connected App, OAuth или remote surface как fallback для direct
-route. Reconnect и refresh относятся только к явно выбранной remote surface;
-project trust и effective registration должны быть подтверждены отдельно.
+`dev_tools.mcp_status` намеренно разделяет поля `source_config` (свидетельство,
+что `.codex/config.toml` отслеживается Git) и `effective_codex_registration`
+(только достоверные свидетельства из новой или перезагруженной доверенной задачи
+Codex). Значение `not_observable` или `pending` для фактической регистрации —
+честное ограничение наблюдаемости, а не `ready`; сборщик не подменяет это
+состояние синтетическим чтением вывода CLI. Подтверждение регистрации Codex —
+отдельная необязательная интеграционная проверка. Если изменение затрагивает
+регистрацию Codex или плагина, видимую клиенту схему или маршрутизацию, действует
+[единый контракт продолжения между потоками](../../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md),
+а не ручное создание нового чата или запасной путь через подключённое приложение.
+Несовпадение HEAD или недоступный `create_thread` не блокируют уже успешную
+приёмку нового клиента MCP.
 
-| Workflow | Codex route | Transport | Backend implementation | Fallback |
+При диагностике нельзя молча переключаться между маршрутами транспорта и
+использовать подключённое приложение, OAuth или удалённый маршрут как запасной
+путь для прямого маршрута. Повторное подключение и обновление относятся только к
+явно выбранному удалённому маршруту; доверие к проекту и фактическая регистрация
+подтверждаются отдельно.
+
+| Сценарий | Маршрут Codex | Транспорт | Реализация серверной части | Запасной путь |
 | --- | --- | --- | --- | --- |
-| Development | `azurpilot-dev` | authenticated loopback Streamable HTTP | `module.dev_mcp.local_http` | none |
-| Game | `azurpilot-game` | authenticated loopback Streamable HTTP | `module.game_mcp.local_http` | none |
-| Standalone/compatibility | protocol identity `azurpilot-dev` или `azurpilot-game` | stdio | соответствующий `module.*_mcp` | не является Codex Desktop route |
-| Troubleshooting | read-only evidence соответствующего HTTP route | authenticated loopback Streamable HTTP | соответствующий `module.*_mcp.local_http` | none |
-| ChatGPT/public | отдельная remote surface | authenticated HTTPS/remote | соответствующий `module.*_mcp.remote` той же backend family | не является Codex fallback |
+| Разработка | `azurpilot-dev` | аутентифицированный Streamable HTTP через loopback | `module.dev_mcp.local_http` | нет |
+| Игра | `azurpilot-game` | аутентифицированный Streamable HTTP через loopback | `module.game_mcp.local_http` | нет |
+| Отдельный запуск/совместимость | идентификатор протокола `azurpilot-dev` или `azurpilot-game` | stdio | соответствующий `module.*_mcp` | не является маршрутом Codex Desktop |
+| Диагностика | свидетельства только для чтения соответствующего HTTP-маршрута | аутентифицированный Streamable HTTP через loopback | соответствующий `module.*_mcp.local_http` | нет |
+| ChatGPT/общедоступный | отдельный удалённый маршрут | аутентифицированный HTTPS/удалённый | соответствующий `module.*_mcp.remote` того же семейства серверной части | не является запасным маршрутом Codex |
 
-Canonical developer synchronization после candidate freeze:
+Синхронизация MCP после фиксации варианта:
 
 ```text
 azur mcp sync --base <exact-base-sha>
 ```
 
-`NO_CHANGES` — terminal no-op; `SYNCED` включает source/version finalization от
-exact base, generated metadata, восстановление только доказанного owned stale
-runtime, readiness и fresh-client acceptance. После изменения MCP source-set
-повтори sync, который пересчитает версию от base и нового candidate. Неизвестное
-или чужое владение, конфликт порта и ошибка readiness остаются fail-closed.
-Текущая внешняя Codex session не является postcondition; hot reload не
-предполагается. `impact`, `status`, `versions`, `reconcile`, `start`, `stop` и
-`restart` остаются admin/diagnostic capabilities. Внутренние `module.*_mcp` и
-supervisor modules напрямую не запускаются. Если `azur` отсутствует в PATH,
-workflow fail-closed; `uv run`, Python module entrypoint и shell wrapper не
-являются fallback.
+`NO_CHANGES` означает, что синхронизация завершилась без изменений; `SYNCED`
+включает фиксацию исходников и версии относительно точной базы, производные
+метаданные, восстановление только подтверждённой принадлежащей проекту устаревшей
+среды, проверку готовности и приёмку новым клиентом. После изменения набора
+исходников MCP повтори синхронизацию: она пересчитает версию относительно базы и
+нового варианта. Неизвестное или чужое владение, конфликт порта и ошибка проверки
+готовности требуют отказа. Текущий внешний сеанс Codex не является постусловием;
+автоматическая перезагрузка не предполагается. `impact`, `status`, `versions`,
+`reconcile`, `start`, `stop` и `restart` остаются командами администрирования и
+диагностики. Внутренние `module.*_mcp` и модуль управления процессами напрямую не
+запускаются. Если `azur` отсутствует в PATH, выполнение останавливается;
+`uv run`, точка входа модуля Python и оболочка-обёртка не являются запасным путём.
 
-Canonical Codex registrations совпадают с protocol identities:
+Канонические регистрации Codex используют те же идентификаторы протокола:
 `azurpilot-dev` → `http://127.0.0.1:8775/mcp` и
-`azurpilot-game` → `http://127.0.0.1:8776/mcp`. Их `Authorization` headers
+`azurpilot-game` → `http://127.0.0.1:8776/mcp`. Заголовки `Authorization`
 формирует закрытый `http_headers_helper`, который читает только
-зарегистрированный project-local key из `.env`; user-level environment и
-literal token в repository config не используются.
-Supervisor `module.mcp_shared.local_http_supervisor` владеет обоими
-процессами, проверяет `/ready` и завершает только exact-owned children.
+зарегистрированный проектный ключ из `.env`; пользовательские переменные среды
+и буквальное значение токена в конфигурации репозитория не используются.
+Служба управления процессами `module.mcp_shared.local_http_supervisor` владеет
+обоими процессами, проверяет `/ready` и завершает только принадлежащие ей дочерние
+процессы.
+Для отдельного моста предусмотрена команда `azur mcp bridge` с действиями
+`status`, `configure`, `start`, `stop`, `restart` и `accept`; она не меняет
+регистрации Codex и не перезапускает серверные части Dev/Game. `configure --stdin-token`
+записывает отдельные учётные данные вызывающего клиента, не выводя их значения.
+Будущий Linux-клиент должен получить эти учётные данные по отдельному
+доверенному каналу. Типизированные результаты и границы приёмки описаны в
+[контракте инструментов Python](../../../.codex/context/11-PYTHON-TOOLING.md).
 
-Для обычной Codex-сессии отсутствие direct callable catalog или несовместимый
-contract означает fail-closed остановку и диагностику. Reconnect, OAuth или
-Connected App refresh относятся только к явно выбранной ChatGPT/public remote
-surface и не заменяют local HTTP route.
+## Мост Windows для будущего клиента Linux/WSL
 
-## Canonical bundle и lifecycle
+Отдельный `module.mcp_shared.windows_mcp_bridge` предоставляет только два
+фиксированных маршрута на `http://127.0.0.1:8780`:
 
-`config/mcp-versions.toml` — единственный source of truth для first-party
-server identity, API/contract schema, tool/capability fingerprints, source sets,
-plugin version и skill bundle revision. `plugins/azurpilot/compatibility.json`
-является производным snapshot. Normal candidate synchronization выполняется
-через `azur mcp sync --base <exact-base-sha>`. Diagnostic/admin capabilities
-`azur mcp status`, `versions`, `impact`, `reconcile`, `start`, `stop` и
-`restart` остаются доступны; runtime reconcile не редактирует tracked source.
-Backend source sets — bounded explicit mapping реальных MCP application
-dependencies; management-only `azurpilot/tooling/mcp.py` не входит в runtime
-identity. Sync проверяет generated bundle и base-to-candidate compatibility до
-runtime acceptance. Session/plugin reload state остаётся диагностическим
-evidence и не отменяет readiness свежего клиента.
+| Маршрут моста | Единственная серверная часть |
+| --- | --- |
+| `POST/GET/DELETE /dev/mcp` | `http://127.0.0.1:8775/mcp` (`azurpilot-dev`) |
+| `POST/GET/DELETE /game/mcp` | `http://127.0.0.1:8776/mcp` (`azurpilot-game`) |
+
+Мост не регистрируется в `.codex/config.toml` и не добавляет третью группу
+серверов MCP. Клиент не может задать URL или узел серверной части. Он предъявляет
+отдельный bearer-токен из `AZURPILOT_MCP_BRIDGE_CALLER_TOKEN` в защищённом
+`.env` проекта; этот токен отличается от внутренних учётных данных Dev/Game.
+Мост не раскрывает его в ответах; будущий Linux-клиент должен получить токен по
+отдельному доверенному каналу настройки. Мост самостоятельно читает внутренние
+учётные данные через действующий механизм, добавляет свой заголовок
+`Authorization` к запросу серверной части и задаёт канонические значения loopback для
+`Host`/`Origin`. `GET /health` подтверждает доступность процесса кодом состояния;
+`GET /ready` дополнительно публикует только `server_name` и `transport`. Ни один из
+этих ответов не раскрывает идентичность исходников серверных частей Dev/Game. После
+аутентификации клиента доступны фиксированные маршруты и `GET /identity/dev`,
+`GET /identity/game`.
+
+Каждый MCP-запрос должен включать один JSON-заголовок ограниченного размера
+`X-AzurPilot-Expected-Source-Identity`. Его закрытый протокольный контракт
+содержит поля `identity_protocol`, `server_name`, `server_version`,
+`source_revision`, `source_set_digest`, `contract_revision`,
+`tool_catalog_sha256` и `capability_catalog_sha256`; `identity_protocol` должен
+быть равен `azurpilot-mcp-source-identity/v1`. Мост сравнивает все поля с
+идентичностью из `/ready` фактически работающей серверной части Windows, владение
+которой подтверждена службой управления процессами; текущая вершина Git в рабочей копии Windows не
+заменяет сведения о запущенном процессе.
+Отсутствующая, некорректная, неизвестная или несовпадающая идентичность приводит
+к отказу до вызова MCP-приложения на `/mcp`. Ответы различают несовпадение
+идентичности, ошибку аутентификации и недоступность серверной части по ограниченному
+`error.code` и не раскрывают учётные данные или необработанные данные сервера.
+
+Привязка к loopback задаёт конечную точку Windows, но сама по себе не подтверждает
+доступ из WSL. Режим mirrored networking, настройка рабочей копии Linux, DSH и
+сквозная приёмка через WSL относятся к отдельной последующей задаче по интеграции
+и приёмке Linux/WSL.
+
+Для обычного сеанса Codex отсутствие прямого доступного каталога инструментов
+или несовместимый контракт требуют остановки с отказом и диагностики. Повторное
+подключение, OAuth и обновление подключённого приложения относятся только к
+явно выбранному удалённому маршруту ChatGPT и не заменяют локальный HTTP-маршрут.
+
+## Канонический комплект и управление средой
+
+`config/mcp-versions.toml` — единственный источник истины для идентичности
+серверов проекта, схем API и контрактов, отпечатки инструментов и
+возможностей, наборов исходников, версии плагина и ревизии комплекта навыков.
+`plugins/azurpilot/compatibility.json` является производным снимком. Обычная
+синхронизация варианта выполняется через `azur mcp sync --base <exact-base-sha>`.
+Команды диагностики и администрирования `azur mcp status`, `versions`, `impact`,
+`reconcile`, `start`, `stop` и `restart` остаются доступны; синхронизация среды
+выполнения не редактирует отслеживаемые исходники. Наборы исходников серверной части —
+явное ограниченное соответствие реальным зависимостям MCP-приложения;
+управляющий `azurpilot/tooling/mcp.py` не входит в идентичность среды выполнения.
+Синхронизация проверяет производный комплект и совместимость между базой и
+вариантом до приёмки среды выполнения. Состояние перезагрузки сеанса или плагина
+остаётся диагностическим свидетельством и не отменяет готовность нового клиента.

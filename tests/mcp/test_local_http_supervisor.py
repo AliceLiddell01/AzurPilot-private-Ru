@@ -196,6 +196,42 @@ def _supervisor(tmp_path: Path) -> LocalHttpSupervisor:
     )
 
 
+@pytest.mark.parametrize("body", (b"[]", b"null"))
+def test_ready_payload_rejects_non_object_json(
+    monkeypatch: pytest.MonkeyPatch, body: bytes
+) -> None:
+    class FakeResponse:
+        status = 200
+
+        def read(self, _limit: int) -> bytes:
+            return body
+
+    class FakeConnection:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def request(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def getresponse(self) -> FakeResponse:
+            return FakeResponse()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        supervisor_module.http.client, "HTTPConnection", FakeConnection
+    )
+    service = LocalHttpService(
+        name="azurpilot-dev",
+        module="module.dev_mcp.local_http",
+        port=8775,
+        token_env_var=_DEV_TOKEN_ENV,
+    )
+
+    assert LocalHttpSupervisor._ready_payload(service) is None
+
+
 def test_unknown_project_credential_does_not_use_test_environment_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -501,6 +537,7 @@ def test_supervisor_real_services_readiness_status_marker_and_cleanup(
             "azurpilot-game",
         }
         assert all(item["alive"] and item["ready"] for item in status["services"])
+        assert all(item["transport"] == "local_http" for item in status["services"])
         marker = observer.marker_path.read_text(encoding="utf-8")
         assert "dev-test-token" not in marker
         assert "game-test-token" not in marker

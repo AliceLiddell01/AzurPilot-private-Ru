@@ -1,7 +1,7 @@
 {
   "name": "azurpilot",
-  "version": "0.1.0+codex.55913025984661",
-  "description": "Единый workflow для project-scoped Development Runtime и Game MCP AzurPilot.",
+  "version": "0.1.0+codex.17925091187677",
+  "description": "Единый порядок работы с Development Runtime в рамках проекта и Game MCP AzurPilot.",
   "author": {
     "name": "AzurPilot",
     "url": "https://github.com/AliceLiddell01/AzurPilot-private-Ru"
@@ -15,13 +15,13 @@
     "MCP",
     "Smoke Harness",
     "Game MCP",
-    "Diagnostics"
+    "Диагностика"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "AzurPilot",
     "shortDescription": "Безопасная работа с Dev Runtime и Game MCP.",
-    "longDescription": "AzurPilot объединяет три рабочих направления: Development Runtime, Game MCP и диагностику с доказательствами. В Codex оба MCP используют принадлежащие AzurPilot аутентифицированные loopback Streamable HTTP endpoints из .codex/config.toml; пакет поставляет skills и metadata, но не регистрирует MCP и не загружает Connected Apps. ChatGPT/public HTTPS остаётся отдельной аутентифицированной remote surface той же backend family.",
+    "longDescription": "AzurPilot объединяет три рабочих направления: Development Runtime, Game MCP и диагностику с доказательствами. В Codex оба сервера MCP используют аутентифицированные конечные точки Streamable HTTP, принадлежащие AzurPilot и настроенные в .codex/config.toml; пакет поставляет навыки и метаданные, но не регистрирует серверы MCP и не загружает подключённые приложения. Общедоступный HTTPS-интерфейс ChatGPT остаётся отдельной аутентифицированной удалённой точкой доступа к тому же семейству серверной части.",
     "developerName": "AzurPilot",
     "category": "Developer tools",
     "capabilities": [
@@ -32,7 +32,7 @@
     "defaultPrompt": [
       "Проверь контракт AzurPilot Dev MCP без запуска Smoke.",
       "Проверь состояние профиля и доступные Game MCP задачи.",
-      "Разбери mismatch каталога MCP без автоматического retry."
+      "Разбери несовпадение каталога MCP без автоматического повтора."
     ]
   }
 }

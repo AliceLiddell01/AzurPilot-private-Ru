@@ -25,6 +25,29 @@ def test_game_acceptance_plan_is_target_neutral() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("server_name", "version"),
+    (("azurpilot-dev", "8.9.0"), ("azurpilot-game", "2.9.0")),
+)
+def test_acceptance_plan_uses_current_manifest_version(
+    monkeypatch: pytest.MonkeyPatch, server_name: str, version: str
+) -> None:
+    monkeypatch.setattr(
+        mcp_acceptance,
+        "server_version",
+        lambda candidate: version if candidate == server_name else "0.0.0",
+    )
+
+    plan = mcp_acceptance.build_plan("a" * 40, server_name)
+
+    from module.mcp_shared.catalog import contract_revision
+
+    assert plan.expected_contract["server_version"] == version
+    assert plan.expected_contract["contract_revision"] == contract_revision(
+        plan.expected_contract
+    )
+
+
 class _FreshSession:
     def __init__(self, plan, *, fail_tool: str | None = None) -> None:
         self.plan = plan
@@ -215,7 +238,7 @@ def test_combined_acceptance_preserves_unknown_credential_state(
     monkeypatch.setattr(
         mcp_acceptance,
         "accept_fresh_http",
-        lambda **_kwargs: pytest.fail("unknown credentials must block fresh HTTP"),
+        lambda **_kwargs: pytest.fail("при неизвестном состоянии учётных данных новый HTTP-сеанс должен блокироваться"),
     )
 
     result = asyncio.run(mcp_acceptance.accept(tmp_path))
@@ -237,7 +260,7 @@ def test_standalone_acceptance_still_fails_closed_for_dirty_source(
         mcp_acceptance,
         "accept_fresh_http",
         lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("standalone acceptance не должен запускаться из изменённого источника")
+            AssertionError("автономная приёмка не должна запускаться из изменённого исходного дерева")
         ),
     )
 
@@ -336,7 +359,7 @@ def test_sync_acceptance_fails_closed_when_git_snapshot_is_unknown(
         mcp_acceptance,
         "accept_fresh_http",
         lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("неизвестная identity источника не должна запускать клиента")
+            AssertionError("при неизвестной идентичности источника клиент запускаться не должен")
         ),
     )
 

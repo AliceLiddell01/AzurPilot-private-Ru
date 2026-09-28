@@ -1,4 +1,4 @@
-"""Закрытые DTO и стабильные коды Python tooling.
+"""Закрытые DTO и стабильные коды инструментов Python.
 
 Эти модели являются границей между сервисами, CLI и будущими транспортными адаптерами.
 Свободные словари намеренно не используются в данных операции: добавление
@@ -13,6 +13,8 @@ from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from module.mcp_shared.windows_mcp_bridge_contract import BridgeSourceIdentity
 
 from .mcp_contracts import ProcessEvidence
 from .result import ExitCode, OperationState, ResultCode, exit_code_for
@@ -291,7 +293,7 @@ class McpDigest(ClosedModel):
 
 
 class McpImpactPath(ClosedModel):
-    """Связь одного пути итогового diff с набором исходников."""
+    """Связь одного пути в итоговом сравнении изменений с набором исходников."""
 
     path: str = Field(min_length=1, max_length=512)
     source_sets: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
@@ -299,7 +301,7 @@ class McpImpactPath(ClosedModel):
 
 
 class McpImpactDetails(ClosedModel):
-    """Классификация влияния на MCP до публикации кандидата, только для чтения."""
+    """Классификация влияния на MCP до публикации варианта, только для чтения."""
 
     action: Literal["impact"] = "impact"
     base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
@@ -353,7 +355,7 @@ class McpServerStatus(ClosedModel):
 
 
 class McpStatusDetails(ClosedModel):
-    """Сводка исходников, среды выполнения, плагина и сессии слоёв MCP."""
+    """Сводка по исходникам, среде выполнения, плагину и клиентской сессии MCP."""
 
     action: Literal["status", "reconcile", "start", "stop", "restart"]
     source_state: Literal["ready", "drift", "invalid", "unknown"]
@@ -386,7 +388,7 @@ class McpVersionDetails(ClosedModel):
 
 
 class McpLifecycleDetails(ClosedModel):
-    """Ограниченные сведения об операции жизненного цикла локального supervisor."""
+    """Ограниченные сведения об операции жизненного цикла локального процесса управления MCP."""
 
     action: Literal["start", "stop", "restart"]
     supervisor_code: str = Field(min_length=1, max_length=128)
@@ -429,6 +431,48 @@ class McpAcceptanceDetails(ClosedModel):
         if any(len(item) > 240 or any(ord(char) < 32 for char in item) for item in value):
             raise ValueError("diagnostics содержит слишком длинный или управляющий текст")
         return value
+
+
+class McpBridgeProcessStatus(ClosedModel):
+    """Сведения о подтверждённом владении процессом моста для Windows без путей."""
+
+    supervisor_pid: int | None = Field(default=None, ge=1)
+    process_pid: int | None = Field(default=None, ge=1)
+    ownership_confirmed: bool = False
+
+
+class McpBridgeUpstreamStatus(ClosedModel):
+    """Ограниченные сведения о готовности и идентичности целевого сервера."""
+
+    route: Literal["dev", "game"]
+    server_name: Literal["azurpilot-dev", "azurpilot-game"]
+    status: Literal["ready", "stale", "stopped", "unavailable", "unknown", "conflict"]
+    identity: BridgeSourceIdentity | None = None
+    reason_code: str = Field(min_length=1, max_length=128)
+
+
+class McpBridgeStatusDetails(ClosedModel):
+    """Типизированное состояние отдельной возможности моста для Windows."""
+
+    action: Literal["status", "start", "stop", "restart"]
+    state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
+    endpoint: Literal["http://127.0.0.1:8780"]
+    routes: tuple[Literal["/dev/mcp", "/game/mcp"], ...] = Field(
+        min_length=2, max_length=2
+    )
+    caller_authentication: Literal["configured", "unavailable", "unknown"]
+    process: McpBridgeProcessStatus
+    upstreams: tuple[McpBridgeUpstreamStatus, ...] = Field(min_length=2, max_length=2)
+    reason_code: str = Field(min_length=1, max_length=128)
+
+
+class McpBridgeAcceptanceDetails(ClosedModel):
+    """Результат новой клиентской приёмки через оба фиксированных маршрута моста Windows."""
+
+    action: Literal["accept"] = "accept"
+    acceptance_state: Literal["READY", "INCOMPATIBLE", "UNAVAILABLE", "UNKNOWN"]
+    reason_code: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
+    routes: tuple[McpAcceptanceDetails, ...] = Field(min_length=2, max_length=2)
 
 
 class CommissionRecoveryProjection(ClosedModel):
@@ -547,6 +591,10 @@ __all__ = [
     "LifecycleEvidence",
     "LifecycleRecord",
     "McpAcceptanceDetails",
+    "McpBridgeAcceptanceDetails",
+    "McpBridgeProcessStatus",
+    "McpBridgeStatusDetails",
+    "McpBridgeUpstreamStatus",
     "McpDigest",
     "McpImpactDetails",
     "McpImpactPath",

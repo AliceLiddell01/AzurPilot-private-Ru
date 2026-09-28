@@ -1,7 +1,7 @@
-"""Базовые коды результата для среды выполнения и сервисных адаптеров.
+"""Базовые коды результата для процессов и сервисных адаптеров.
 
-Модуль не содержит доменные DTO: его можно безопасно использовать первым
-слоем процессов и среды выполнения без загрузки Docker и контрактов репозитория.
+Модуль не содержит доменных DTO: его можно безопасно использовать на начальном
+этапе работы процессов и служб без загрузки Docker и контрактов репозитория.
 """
 
 from __future__ import annotations
@@ -64,11 +64,14 @@ class ResultCode(StrEnum):
     MCP_ENVIRONMENT_STALE = "MCP_ENVIRONMENT_STALE"
     MCP_AUTH_NOT_CONFIGURED = "MCP_AUTH_NOT_CONFIGURED"
     MCP_RUNTIME_UNAVAILABLE = "MCP_RUNTIME_UNAVAILABLE"
+    MCP_BRIDGE_AUTH_NOT_CONFIGURED = "MCP_BRIDGE_AUTH_NOT_CONFIGURED"
+    MCP_BRIDGE_RUNTIME_UNAVAILABLE = "MCP_BRIDGE_RUNTIME_UNAVAILABLE"
+    MCP_BRIDGE_RUNTIME_STALE = "MCP_BRIDGE_RUNTIME_STALE"
     TOOLING_UNEXPECTED = "TOOLING_UNEXPECTED"
 
 
 class OperationState(StrEnum):
-    """Состояние операции в общем envelope."""
+    """Состояние операции в общем конверте результата."""
 
     READY = "ready"
     RUNNING = "running"
@@ -80,6 +83,7 @@ class OperationState(StrEnum):
     ROLLED_BACK = "rolled_back"
     IN_FLIGHT = "in_flight"
     UNKNOWN = "unknown"
+
 
 def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
     """Преобразовать код результата в стабильную категорию процесса."""
@@ -95,6 +99,7 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
         ResultCode.TOOLING_TRANSACTION_RECOVERY_REQUIRED,
         ResultCode.TOOLING_CLEANUP_UNKNOWN,
         ResultCode.MCP_RUNTIME_STALE,
+        ResultCode.MCP_BRIDGE_RUNTIME_STALE,
         ResultCode.MCP_PLUGIN_RUNTIME_INCOMPATIBLE,
         ResultCode.MCP_RELOAD_REQUIRED,
     }:
@@ -116,6 +121,8 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
         ResultCode.TOOLING_SHORTCUT_FAILED,
         ResultCode.MCP_AUTH_NOT_CONFIGURED,
         ResultCode.MCP_RUNTIME_UNAVAILABLE,
+        ResultCode.MCP_BRIDGE_AUTH_NOT_CONFIGURED,
+        ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
     }:
         return ExitCode.DEPENDENCY_UNAVAILABLE
     if code is ResultCode.TOOLING_APPLY_FAILED_ROLLED_BACK:
@@ -136,6 +143,7 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
     if code is ResultCode.TOOLING_UNEXPECTED:
         return ExitCode.UNEXPECTED
     return ExitCode.PRECONDITION
+
 
 __all__ = [
     "ExitCode",

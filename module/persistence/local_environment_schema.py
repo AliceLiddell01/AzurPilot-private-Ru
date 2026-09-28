@@ -1,4 +1,4 @@
-"""Декларативный registry ключей локального `.env` AzurPilot."""
+"""Декларативный реестр ключей локального файла `.env` AzurPilot."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ EnvironmentScope = Literal["postgres", "wsl", "infrastructure", "mcp"]
 
 @dataclass(frozen=True, slots=True)
 class LocalEnvironmentKey:
-    """Описание одного ключа общего локального environment-файла."""
+    """Описание одного ключа общего локального файла окружения."""
 
     name: str
     scope: EnvironmentScope
@@ -127,6 +127,11 @@ LOCAL_ENVIRONMENT_REGISTRY = (
         secret=True,
     ),
     LocalEnvironmentKey(
+        "AZURPILOT_MCP_BRIDGE_CALLER_TOKEN",
+        "mcp",
+        secret=True,
+    ),
+    LocalEnvironmentKey(
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
         "infrastructure",
     ),
@@ -159,7 +164,7 @@ LOCAL_ENVIRONMENT_REGISTRY = (
 
 _REGISTRY_BY_NAME = {entry.name: entry for entry in LOCAL_ENVIRONMENT_REGISTRY}
 if len(_REGISTRY_BY_NAME) != len(LOCAL_ENVIRONMENT_REGISTRY):
-    raise RuntimeError("Registry локального environment содержит дублирующийся ключ.")
+    raise RuntimeError("Реестр локального окружения содержит повторяющийся ключ.")
 
 LOCAL_ENVIRONMENT_KEYS = frozenset(_REGISTRY_BY_NAME)
 POSTGRES_ENVIRONMENT_KEYS = frozenset(
@@ -180,8 +185,8 @@ SECRET_ENVIRONMENT_KEYS = frozenset(
     entry.name for entry in LOCAL_ENVIRONMENT_REGISTRY if entry.secret
 )
 
-# Эти значения нужны только operator boundary Redis и не должны пересекать
-# application runtime boundary даже при общем локальном source `.env`.
+# Эти значения нужны только операторской границе Redis и не должны попадать
+# в среду выполнения приложения даже при общем локальном источнике `.env`.
 APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS = frozenset(
     {
         "AZURPILOT_REDIS_ADMIN_PASSWORD",
@@ -189,7 +194,7 @@ APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS = frozenset(
     }
 )
 if not APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS.issubset(LOCAL_ENVIRONMENT_KEYS):
-    raise RuntimeError("Registry локального environment не описывает operator-only keys.")
+    raise RuntimeError("В реестре локального окружения не описаны ключи, доступные только оператору.")
 
 REDIS_APPLICATION_USERNAME = "azurpilot_app"
 REDIS_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -205,35 +210,35 @@ def validate_redis_application_contract(
     password: str,
     allow_service_transport: bool = False,
 ) -> int:
-    """Проверить общий Redis app contract и вернуть нормализованный port."""
+    """Проверить общий контракт приложения для Redis и вернуть нормализованный порт."""
 
     try:
         port_value = int(port)
     except (TypeError, ValueError) as exc:
-        raise ValueError("Локальный Docker env содержит некорректный Redis port.") from exc
+        raise ValueError("Локальное окружение Docker содержит неверный порт Redis.") from exc
     service_transport = (
         allow_service_transport
         and host == REDIS_SERVICE_HOST
         and port_value == REDIS_SERVICE_PORT
     )
     if not (host in REDIS_LOOPBACK_HOSTS or service_transport):
-        raise ValueError("Локальный Docker env использует недопустимый Redis host.")
+        raise ValueError("Локальное окружение Docker содержит недопустимый адрес Redis.")
     if not 1 <= port_value <= 65_535:
-        raise ValueError("Локальный Docker env содержит некорректный Redis port.")
+        raise ValueError("Локальное окружение Docker содержит неверный порт Redis.")
     if username != REDIS_APPLICATION_USERNAME:
-        raise ValueError("Локальный Docker env не соответствует Redis app contract.")
+        raise ValueError("Локальная конфигурация Docker не соответствует контракту приложения Redis.")
     if not password or any(character in password for character in "\x00\r\n"):
-        raise ValueError("Локальный Docker env содержит пустой Redis contract value.")
+        raise ValueError("Локальная конфигурация Docker содержит пустое значение контракта Redis.")
     return port_value
 
 
 def filter_application_runtime_environment(payload: bytes) -> bytes:
-    """Удалить operator-only Redis values из application runtime payload."""
+    """Удалить значения Redis только для оператора из данных среды выполнения приложения."""
 
     try:
         text = payload.decode("utf-8")
     except UnicodeError as exc:
-        raise RuntimeError("Локальный Docker env невозможно безопасно прочитать.") from exc
+        raise RuntimeError("Файл .env для Docker невозможно безопасно прочитать.") from exc
     lines: list[str] = []
     seen: set[str] = set()
     for raw_line in text.splitlines(keepends=True):
@@ -245,7 +250,7 @@ def filter_application_runtime_environment(payload: bytes) -> bytes:
         key = key.strip()
         if key in APPLICATION_RUNTIME_OPERATOR_ONLY_KEYS:
             if key in seen:
-                raise RuntimeError("Локальный Docker env содержит дублирующийся operator key.")
+                raise RuntimeError("Локальная конфигурация Docker содержит повторяющийся ключ оператора.")
             seen.add(key)
             continue
         lines.append(raw_line)
@@ -253,6 +258,6 @@ def filter_application_runtime_environment(payload: bytes) -> bytes:
 
 
 def get_local_environment_key(name: str) -> LocalEnvironmentKey | None:
-    """Вернуть точное описание ключа или ``None`` для неизвестного имени."""
+    """Вернуть описание ключа или ``None``, если такое имя неизвестно."""
 
     return _REGISTRY_BY_NAME.get(name)
