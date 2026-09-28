@@ -61,10 +61,11 @@ fallback или source of truth. Если нужный direct server или tool
 
 1. Определи intended route: `Development`, `Game` или проблема именно
    package/catalog/remote app.
-2. Для обычного Codex workflow проверь project-scoped route из
-   `.codex/config.toml`: `azurpilot-dev` → `module.dev_mcp` или
-   `azurpilot-game` → `module.game_mcp`, оба через first-class local stdio;
-   Desktop loopback route выбирается явно и не является silent fallback. Выполни
+2. Для обычного Codex workflow проверь canonical HTTP route из
+   `.codex/config.toml`: `azurpilot-dev` → `module.dev_mcp.local_http` или
+   `azurpilot-game` → `module.game_mcp.local_http`, оба через принадлежащий
+   supervisor loopback runtime. Standalone stdio остаётся только
+   compatibility/test entrypoint и не является silent fallback. Выполни
    минимальное read-only наблюдение на соответствующей direct surface.
    Если `game_get_contract`
    отсутствует или не поддерживается client catalog, зафиксируй
@@ -174,7 +175,7 @@ capability gap, а не доказанный stale client. Зафиксируй 
 1. intent и выбранный workflow;
 2. skill routing;
 3. project `.codex/config.toml` и выбранный direct route;
-4. local stdio process;
+4. owned local HTTP supervisor/process;
 5. MCP negotiated discovery/`tools/list` (официальный SDK сам поддерживает
    legacy-compatible `initialize` fallback);
 6. callable tool catalog клиента;
@@ -327,8 +328,8 @@ read-only tools; новый Smoke не запускай автоматическ
 ## Маршрутизация после диагноза
 
 ```text
-обычный Dev workflow → azurpilot-development → `azurpilot-dev` → local stdio
-обычный Game workflow → azurpilot-game-control → `azurpilot-game` → local stdio
+обычный Dev workflow → azurpilot-development → `azurpilot-dev` → local HTTP
+обычный Game workflow → azurpilot-game-control → `azurpilot-game` → local HTTP
 ошибка catalog/plugin/auth/runtime/postcondition → этот skill → соответствующий workflow
 явный ChatGPT/public workflow → соответствующее Connected App → authenticated remote
 ```

@@ -44,8 +44,8 @@ MCP-инструменты делятся на read-only и меняющие с�
 - необработанные логи с identifiers;
 - screenshot с чувствительными данными.
 
-Dev MCP для локальной Codex-интеграции находится в `module/dev_mcp` и работает
-через stdio. Для ChatGPT есть отдельный `module.dev_mcp.remote` с HTTPS
+Dev MCP для локальной Codex-интеграции находится в `module.dev_mcp` и работает
+через принадлежащий supervisor authenticated loopback Streamable HTTP. Для ChatGPT есть отдельный `module.dev_mcp.remote` с HTTPS
 Streamable HTTP `/mcp`; оба entrypoint-а используют один тонкий adapter к
 существующим `DevSessionManager` и отдельным `RuntimeControlManager` с target,
 разрешённым каноническим registry (default policy применяется только при
@@ -75,11 +75,11 @@ Plugin Creator. Его machine-readable ID — `azurpilot`, display name —
 содержит ChatGPT app state, tunnel profile, credentials, screenshots, archives
 или runtime cache и не регистрирует второй MCP implementation.
 
-Standalone Codex CLI использует project-scoped `azurpilot-dev` и
-`azurpilot-game` через прямой local stdio и соответственно `module.dev_mcp` и
-`module.game_mcp`. Codex Desktop при Windows stdio bootstrap failure использует
-отдельные loopback aliases `azurpilot_dev` и `azurpilot_game` с bearer token из
-user environment и `transport=local_http`; protocol identities не меняются.
+Codex Desktop использует canonical `azurpilot-dev` и `azurpilot-game` через
+loopback HTTP `module.dev_mcp.local_http` и `module.game_mcp.local_http` с
+`http_headers_helper`, читающим project-local `.env`; protocol identities и
+registration keys совпадают. Standalone stdio entrypoints остаются только для
+compatibility/test сценариев и не являются Windows Codex route.
 Единственный repository-level источник регистрации — `.codex/config.toml`.
 ChatGPT использует
 явно выбранное подключённое приложение с

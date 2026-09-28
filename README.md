@@ -117,10 +117,11 @@ git fetch
 ### First-party MCP
 
 Dev и Game MCP используют один canonical bundle в
-`config/mcp-versions.toml`. Прямой project-scoped stdio и authenticated
-loopback HTTP для Codex Desktop являются равноправными transport routes одной
-backend identity; public и third-party MCP surfaces остаются отдельными и не
-подменяют их. Производные plugin metadata проверяются и согласуются через
+`config/mcp-versions.toml`. Windows Codex Desktop подключается к единственным
+authenticated loopback HTTP routes, принадлежащим общему supervisor; stdio
+остаётся только standalone/compatibility entrypoint и не является активным
+Codex route. Public и third-party MCP surfaces остаются отдельными и не
+подменяют его. Производные plugin metadata проверяются и согласуются через
 `azur mcp`, а успешный `azur update` автоматически выполняет обязательную
 проверку postcondition без изменения tracked source. Ошибка canonical bundle,
 runtime, ownership, port или readiness не маскируется предупреждением и делает

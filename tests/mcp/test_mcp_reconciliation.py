@@ -221,7 +221,6 @@ def test_mcp_sync_runs_source_runtime_and_acceptance_in_order(
 
     def check_base(_root, *, base_commit, build):
         calls.append(("base", (base_commit, build)))
-        return None
 
     def reconcile_runtime(_root):
         calls.append(("runtime", None))
@@ -623,6 +622,7 @@ def test_plugin_change_requires_session_reload_without_backend_restart(
     service = mcp_tooling.McpService()
     bundle = load_mcp_bundle(REPOSITORY_ROOT)
     monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(service, "_auth_ready", lambda _root, _names: True)
     monkeypatch.setattr(
         service,
         "_runtime_status",
@@ -816,11 +816,14 @@ def test_reconcile_rejects_unknown_restart_postcondition(
         runtime_state_index += 1
         return result
     monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(service, "_auth_ready", lambda _root, _names: True)
     monkeypatch.setattr(service, "_runtime_status", runtime_status)
     monkeypatch.setattr(
         service,
         "_start_owned",
-        lambda _root, _bundle, *, server_names: (True, {}),
+        lambda _root, _bundle, *, server_names, **_kwargs: mcp_tooling._McpStartOutcome(
+            True, {}
+        ),
     )
     monkeypatch.setattr(
         service,
@@ -875,6 +878,7 @@ def test_runtime_reconcile_repairs_only_stale_owned_service(
     started: list[tuple[str, ...]] = []
 
     monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(service, "_auth_ready", lambda _root, _names: True)
     monkeypatch.setattr(
         service,
         "_runtime_status",
@@ -894,9 +898,10 @@ def test_runtime_reconcile_repairs_only_stale_owned_service(
         _bundle: object,
         *,
         server_names: tuple[str, ...],
-    ) -> tuple[bool, dict[str, object]]:
+        **_kwargs: object,
+    ) -> mcp_tooling._McpStartOutcome:
         started.append(server_names)
-        return True, {}
+        return mcp_tooling._McpStartOutcome(True, {})
 
     monkeypatch.setattr(service, "_start_owned", start_owned)
 
@@ -909,6 +914,48 @@ def test_runtime_reconcile_repairs_only_stale_owned_service(
     assert result.details.runtime_ready is True
     assert result.details.restarted_servers == (stale_name,)
     assert result.details.session_state == "not_observable"
+
+
+def test_runtime_reconcile_checks_credentials_before_stopping_stale_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    stale_name = "azurpilot-dev"
+    stopped: list[str] = []
+
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: (
+            "stale",
+            {
+                "services": [
+                    {"server_name": stale_name, "ready": False},
+                    {"server_name": "azurpilot-game", "ready": True},
+                ],
+                "supervisors": {
+                    stale_name: {"code": "LOCAL_MCP_SUPERVISOR_STALE"},
+                    "azurpilot-game": {"code": "LOCAL_MCP_SUPERVISOR_READY"},
+                },
+            },
+        ),
+    )
+    monkeypatch.setattr(service, "_auth_ready", lambda _root, _names: False)
+    monkeypatch.setattr(
+        service,
+        "_supervisor",
+        lambda _root, name: SimpleNamespace(
+            stop_result=lambda: stopped.append(name) or _stale_recovery_stop_result()
+        ),
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service.reconcile(REPOSITORY_ROOT)
+
+    assert error.value.code is ResultCode.MCP_AUTH_NOT_CONFIGURED
+    assert stopped == []
 
 
 @pytest.mark.parametrize(
@@ -955,10 +1002,10 @@ def test_runtime_reconcile_fails_closed_for_unowned_stale_service(
         ),
     )
 
-    def start_owned(*_args: object, **_kwargs: object) -> tuple[bool, dict[str, object]]:
+    def start_owned(*_args: object, **_kwargs: object) -> mcp_tooling._McpStartOutcome:
         nonlocal started
         started = True
-        return True, {}
+        return mcp_tooling._McpStartOutcome(True, {})
 
     monkeypatch.setattr(service, "_start_owned", start_owned)
 
@@ -970,7 +1017,7 @@ def test_runtime_reconcile_fails_closed_for_unowned_stale_service(
     assert started is False
 
 
-def test_shared_registration_model_reports_stdio_and_loopback_routes() -> None:
+def test_shared_registration_model_reports_one_canonical_http_route() -> None:
     registration = first_party_source_registration(REPOSITORY_ROOT)
 
     assert registration["status"] == "ready"
@@ -1098,11 +1145,168 @@ def test_explicit_bump_can_raise_a_proven_change_without_auto_major_guess() -> N
 
 
 def test_auth_readiness_is_scoped_to_servers_being_started(monkeypatch) -> None:
-    monkeypatch.setenv("AZURPILOT_DEV_LOCAL_MCP_TOKEN", "dev-token")
-    monkeypatch.delenv("AZURPILOT_GAME_LOCAL_MCP_TOKEN", raising=False)
+    def read_token(_root, server_name):
+        if server_name == "azurpilot-dev":
+            return "dev-token"
+        raise mcp_tooling.LocalHttpAuthError("LOCAL_MCP_AUTH_UNAVAILABLE")
 
-    assert mcp_tooling.McpService._auth_ready(("azurpilot-dev",))
-    assert not mcp_tooling.McpService._auth_ready()
+    monkeypatch.setattr(mcp_tooling, "read_local_mcp_token", read_token)
+
+    assert mcp_tooling.McpService._auth_ready(REPOSITORY_ROOT, ("azurpilot-dev",))
+    assert not mcp_tooling.McpService._auth_ready(REPOSITORY_ROOT)
+
+
+def test_authentication_state_preserves_unobservable_credential_as_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unknown_token(*_args, **_kwargs):
+        raise mcp_tooling.LocalHttpAuthUnknownError("LOCAL_MCP_AUTH_UNKNOWN")
+
+    monkeypatch.setattr(mcp_tooling, "read_local_mcp_token", unknown_token)
+
+    states = mcp_tooling.McpService()._authentication_states(REPOSITORY_ROOT)
+
+    assert states == {name: "unknown" for name in mcp_tooling.MCP_SERVER_NAMES}
+
+
+def test_restart_fails_closed_when_authentication_state_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    runtime = {
+        "services": [
+            {"server_name": name, "ready": True}
+            for name in mcp_tooling.MCP_SERVER_NAMES
+        ],
+        "supervisors": {
+            name: {"code": "LOCAL_MCP_SUPERVISOR_READY"}
+            for name in mcp_tooling.MCP_SERVER_NAMES
+        },
+    }
+    monkeypatch.setattr(service.source, "check", lambda _root: None)
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_authentication_states",
+        lambda _root: {
+            "azurpilot-dev": "unknown",
+            "azurpilot-game": "configured",
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_supervisor",
+        lambda _root, _name: SimpleNamespace(
+            status=lambda: {"code": "LOCAL_MCP_SUPERVISOR_STOPPED"},
+            port_conflicts=lambda: (),
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_start_owned",
+        lambda *_args, **_kwargs: mcp_tooling._McpStartOutcome(True, runtime),
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service.restart(REPOSITORY_ROOT)
+
+    assert error.value.code is ResultCode.MCP_RUNTIME_UNAVAILABLE
+    assert error.value.details is not None
+    dev_status = next(
+        item
+        for item in error.value.details.services
+        if item.server_name == "azurpilot-dev"
+    )
+    assert dev_status.status == "unavailable"
+
+
+def test_runtime_server_statuses_use_supplied_authentication_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    runtime = {
+        "services": [
+            {"server_name": name, "ready": False} for name in mcp_tooling.MCP_SERVER_NAMES
+        ],
+        "supervisors": {
+            name: {"code": "LOCAL_MCP_SUPERVISOR_STOPPED"}
+            for name in mcp_tooling.MCP_SERVER_NAMES
+        },
+    }
+    authentication_states = {
+        "azurpilot-dev": "configured",
+        "azurpilot-game": "unknown",
+    }
+    monkeypatch.setattr(
+        service,
+        "_auth_ready",
+        lambda *_args: pytest.fail("authentication snapshot must avoid rereading credentials"),
+    )
+
+    statuses = service._runtime_server_statuses(
+        REPOSITORY_ROOT,
+        bundle,
+        runtime,
+        authentication_states=authentication_states,
+    )
+
+    assert tuple(item.authentication for item in statuses) == (
+        "configured",
+        "unknown",
+    )
+
+
+def test_start_rechecks_auth_immediately_before_spawn_and_updates_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    server_name = "azurpilot-dev"
+    runtime = {
+        "services": [{"server_name": server_name, "ready": False}],
+        "supervisors": {
+            server_name: {"code": "LOCAL_MCP_SUPERVISOR_STOPPED"}
+        },
+    }
+    python = tmp_path / "python.exe"
+    python.write_text("", encoding="utf-8")
+    authentication_reads: list[tuple[str, ...]] = []
+    process_starts: list[object] = []
+    authentication_states = {
+        "azurpilot-dev": "configured",
+        "azurpilot-game": "configured",
+    }
+
+    monkeypatch.setattr(service, "_runtime_status", lambda *_args: ("stopped", runtime))
+    monkeypatch.setattr(mcp_tooling, "project_python", lambda _root: python)
+    monkeypatch.setattr(
+        mcp_tooling,
+        "GitClient",
+        lambda *_args: SimpleNamespace(head=lambda: "a" * 40),
+    )
+
+    def auth_ready(_root: Path, names: tuple[str, ...]) -> bool:
+        authentication_reads.append(names)
+        return False
+
+    monkeypatch.setattr(service, "_auth_ready", auth_ready)
+    monkeypatch.setattr(
+        service.runner, "start", lambda spec: process_starts.append(spec)
+    )
+
+    outcome = service._start_owned(
+        REPOSITORY_ROOT,
+        bundle,
+        server_names=(server_name,),
+        authentication_states=authentication_states,
+    )
+
+    assert authentication_reads == [(server_name,)]
+    assert process_starts == []
+    assert authentication_states[server_name] == "unavailable"
+    assert outcome.auth_unavailable_servers == (server_name,)
 
 
 @pytest.mark.parametrize(
@@ -1192,6 +1396,7 @@ def test_runtime_reconcile_starts_stopped_owned_supervisors(
     start_calls: list[tuple[str, ...]] = []
 
     monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(service, "_auth_ready", lambda _root, _names: True)
     monkeypatch.setattr(
         service,
         "_runtime_status",
@@ -1204,9 +1409,10 @@ def test_runtime_reconcile_starts_stopped_owned_supervisors(
         _bundle: object,
         *,
         server_names: tuple[str, ...],
-    ) -> tuple[bool, dict[str, object]]:
+        **_kwargs: object,
+    ) -> mcp_tooling._McpStartOutcome:
         start_calls.append(server_names)
-        return True, {}
+        return mcp_tooling._McpStartOutcome(True, {})
 
     monkeypatch.setattr(service, "_start_owned", start_owned)
 

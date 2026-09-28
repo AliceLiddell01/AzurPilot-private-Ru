@@ -13,12 +13,12 @@ redacted config, sanitized logs или screenshot, получить справк
 запустить или остановить профиль, поставить поддерживаемую scheduler task, изменить
 разрешённый параметр или выполнить опубликованное runtime-control действие.
 
-В standalone Codex CLI источник действий — project-scoped `azurpilot-game`,
-зарегистрированный в `.codex/config.toml` как direct local stdio route; lifecycle этого route проверяется и
-восстанавливается только через буквальные `azur mcp ...` команды из PATH. Не
-запускай `module.game_mcp` или другой внутренний module напрямую. Codex Desktop также явно
-поддерживает first-class authenticated loopback route `azurpilot_game`; protocol
-identity остаётся `azurpilot-game`. Проверяй фактический
+Источник действий — canonical `azurpilot-game`, зарегистрированный в
+`.codex/config.toml` как authenticated loopback Streamable HTTP route; lifecycle
+этого route проверяется и восстанавливается только через буквальные
+`azur mcp ...` команды из PATH. Не запускай `module.game_mcp` или другой
+внутренний module напрямую. Standalone stdio остаётся только compatibility/test
+entrypoint. Protocol identity остаётся `azurpilot-game`. Проверяй фактический
 MCP callable catalog текущей сессии. Этот skill не добавляет MCP-сервер, не
 вызывает Dev MCP через MCP и не превращается в произвольный shell/ADB или GUI
 automation слой.
@@ -157,7 +157,7 @@ Dashboard `limit`/displayed `MAX` — soft/displayed value, а не абсолю
 `STOP WRITES` и передай выполнение в `azurpilot-troubleshooting`; не продолжай
 без подтверждённых scopes и preconditions из актуального contract.
 
-Для Desktop сначала проверь, что `azurpilot_game` отвечает через local HTTP с
+Для Desktop сначала проверь, что `azurpilot-game` отвечает через local HTTP с
 `transport=local_http`, `authenticated=true` и `local_authority=true`; remote
 `codex_apps` не является заменой. Перед control action проверь профиль, требуемый scope и precondition из
 contract. Выполняй одну осознанную mutation за раз, с явным `<profile>` и без

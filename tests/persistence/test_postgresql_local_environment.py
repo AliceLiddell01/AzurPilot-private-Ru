@@ -1,18 +1,26 @@
 from __future__ import annotations
 
+import json
 import os
+import stat
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from module.application.errors import StorageConfigurationError
+from module.application.errors import (
+    StorageConfigurationError,
+    StorageConfigurationUnknownError,
+)
 from module.persistence import local_environment as local_environment_module
 from module.persistence.config import DatabaseSettings
 from module.persistence.local_environment import (
     LocalPostgresEnvironment,
     load_local_postgres_environment,
+    read_local_environment_subset,
 )
+from module.persistence.local_environment_schema import SECRET_ENVIRONMENT_KEYS
 
 
 def _document() -> str:
@@ -334,30 +342,108 @@ def test_local_env_rejects_broad_permissions(tmp_path: Path, monkeypatch):
         load_local_postgres_environment(path, environment={})
 
 
+def test_local_env_read_failure_is_an_unknown_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / ".env"
+    _write_env(path, _document())
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            PermissionError("synthetic access denial")
+        ),
+    )
+
+    with pytest.raises(StorageConfigurationUnknownError):
+        local_environment_module._read_local_environment_values(path)
+
+
+def test_local_env_read_race_is_an_unknown_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / ".env"
+    _write_env(path, _document())
+    original_read_text = Path.read_text
+
+    def read_and_change(candidate: Path, *args, **kwargs):
+        contents = original_read_text(candidate, *args, **kwargs)
+        if candidate == path:
+            path.write_text(contents + "\n# changed during read", encoding="utf-8")
+        return contents
+
+    monkeypatch.setattr(Path, "read_text", read_and_change)
+
+    with pytest.raises(StorageConfigurationUnknownError, match="изменился во время чтения"):
+        read_local_environment_subset(path, keys=("AZURPILOT_POSTGRES_HOST",))
+
+
+def test_windows_acl_probe_does_not_inherit_registered_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for key in SECRET_ENVIRONMENT_KEYS:
+        monkeypatch.setenv(key, f"test-only-{key}")
+    monkeypatch.setenv("PGPASSWORD", "test-only-PGPASSWORD")
+    original_values = {
+        key: os.environ[key] for key in (*SECRET_ENVIRONMENT_KEYS, "PGPASSWORD")
+    }
+    captured: dict[str, str] = {}
+    current_sid = "S-1-5-21-1000"
+
+    def run(_args, **kwargs):
+        captured.update(kwargs["env"])
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "CurrentSid": current_sid,
+                    "OwnerSid": current_sid,
+                    "Protected": True,
+                    "Rules": [
+                        {
+                            "Sid": current_sid,
+                            "Rights": 0x1F01FF,
+                            "Type": "Allow",
+                            "Inherited": False,
+                        }
+                    ],
+                }
+            ),
+        )
+
+    monkeypatch.setattr(
+        local_environment_module.shutil, "which", lambda _name: "powershell.exe"
+    )
+    monkeypatch.setattr(local_environment_module.subprocess, "run", run)
+
+    assert local_environment_module._windows_acl_is_restricted(tmp_path / ".env")
+
+    assert set(SECRET_ENVIRONMENT_KEYS).isdisjoint(captured)
+    assert "PGPASSWORD" not in captured
+    assert captured["AZURPILOT_ENV_ACL_PATH"] == str(tmp_path / ".env")
+    assert {key: os.environ[key] for key in original_values} == original_values
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows ACL gate")
 def test_local_env_reports_unavailable_acl_inspection(tmp_path: Path, monkeypatch):
     path = tmp_path / ".env"
     _write_env(path, _document())
     monkeypatch.setattr(local_environment_module.shutil, "which", lambda _name: None)
 
-    with pytest.raises(StorageConfigurationError, match="PowerShell"):
+    with pytest.raises(StorageConfigurationUnknownError, match="невозможно подтвердить"):
         load_local_postgres_environment(path, environment={})
 
 
 def test_missing_local_env_rejects_broken_symlink_alias(tmp_path: Path, monkeypatch):
     path = tmp_path / ".env"
-    original_exists = Path.exists
-    original_is_symlink = Path.is_symlink
-    monkeypatch.setattr(
-        Path,
-        "exists",
-        lambda candidate: False if candidate == path else original_exists(candidate),
-    )
-    monkeypatch.setattr(
-        Path,
-        "is_symlink",
-        lambda candidate: True if candidate == path else original_is_symlink(candidate),
-    )
+    original_lstat = Path.lstat
+
+    def lstat(candidate: Path):
+        if candidate == path:
+            return SimpleNamespace(st_mode=stat.S_IFLNK | 0o777)
+        return original_lstat(candidate)
+
+    monkeypatch.setattr(Path, "lstat", lstat)
 
     with pytest.raises(StorageConfigurationError, match="небезопасен"):
         load_local_postgres_environment(path, environment={})

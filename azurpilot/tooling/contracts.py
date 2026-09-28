@@ -90,7 +90,7 @@ class ClosedModel(BaseModel):
 
 
 class RepositoryIdentity(ClosedModel):
-    """Transport-neutral identity hosted repository."""
+    """Не зависящая от транспорта identity размещённого репозитория."""
 
     host: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$")
     owner: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
@@ -148,7 +148,7 @@ class AnalysisScope(ClosedModel):
 
 
 class GitSnapshot(ClosedModel):
-    """Bounded snapshot Git-состояния перед mutating delivery."""
+    """Ограниченный снимок Git-состояния перед изменяющей доставкой."""
 
     repository: RepositoryIdentity
     root_identity: str = Field(pattern=r"^[0-9a-f]{16,64}$")
@@ -197,7 +197,7 @@ class DeliveryChange(ClosedModel):
 
 
 class DeliveryManifest(ClosedModel):
-    """Immutable closed-schema request для working-tree delivery."""
+    """Неизменяемый запрос закрытой схемы для доставки из working tree."""
 
     schema_version: Literal[1] = 1
     repository: RepositoryIdentity
@@ -764,6 +764,8 @@ class McpServerStatus(ClosedModel):
     routes: tuple[Literal["stdio", "loopback_http", "public_https"], ...] = Field(
         default_factory=tuple, max_length=3
     )
+    authentication: Literal["configured", "unavailable", "unknown"] = "unknown"
+    ownership_confirmed: bool = False
     reason_code: str | None = Field(default=None, max_length=128)
 
 
@@ -884,6 +886,7 @@ class McpReconcileDetails(ClosedModel):
     changed_components: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
     affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
     restarted_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    services: tuple[McpServerStatus, ...] = Field(default_factory=tuple, max_length=2)
     session_state: Literal["current", "reload_required", "not_observable", "unknown"]
     reload_required: bool = False
 
@@ -962,9 +965,9 @@ __all__ = [
     "FRESH_MCP_ACCEPTANCE_GATE_NAME",
     "AnalysisScope",
     "ApplicationStateDetails",
-    "BranchIdentity",
     "BotRuntimeDetails",
     "BotRuntimeWorker",
+    "BranchIdentity",
     "BuildDetails",
     "BuildEvidence",
     "CapabilityCheck",

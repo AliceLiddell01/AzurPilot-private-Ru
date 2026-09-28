@@ -2,7 +2,6 @@
 
 from re import fullmatch
 
-
 _NOTIFICATION_REASON_CODE_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}"
 
 
@@ -109,6 +108,12 @@ class StorageConfigurationError(StorageError):
     """Структурная конфигурация подключения некорректна."""
 
     code = "storage_configuration_invalid"
+
+
+class StorageConfigurationUnknownError(StorageConfigurationError):
+    """Состояние конфигурационного источника нельзя безопасно подтвердить."""
+
+    code = "storage_configuration_unknown"
 
 
 class IncompatibleSchemaError(StorageError):
