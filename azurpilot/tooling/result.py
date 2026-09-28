@@ -1,7 +1,7 @@
-"""Базовые коды результата для runtime и сервисных adapters.
+"""Базовые коды результата для среды выполнения и сервисных адаптеров.
 
 Модуль не содержит доменные DTO: его можно безопасно использовать первым
-process/runtime слоем без загрузки delivery, Docker, PR и repository contracts.
+слоем процессов и среды выполнения без загрузки Docker и контрактов репозитория.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ class ExitCode(IntEnum):
 
 
 class ResultCode(StrEnum):
-    """Стабильные machine-readable причины результата."""
+    """Стабильные машиночитаемые причины результата."""
 
     OK = "OK"
     TOOLING_INVALID_INVOCATION = "TOOLING_INVALID_INVOCATION"
@@ -51,25 +51,10 @@ class ResultCode(StrEnum):
     TOOLING_APPLY_FAILED_ROLLED_BACK = "TOOLING_APPLY_FAILED_ROLLED_BACK"
     TOOLING_REPAIR_REQUIRED = "TOOLING_REPAIR_REQUIRED"
     TOOLING_REPAIR_FAILED = "TOOLING_REPAIR_FAILED"
-    TOOLING_UPDATE_DIRTY = "TOOLING_UPDATE_DIRTY"
-    TOOLING_UPDATE_LOCAL_AHEAD = "TOOLING_UPDATE_LOCAL_AHEAD"
-    TOOLING_UPDATE_DIVERGED = "TOOLING_UPDATE_DIVERGED"
     TOOLING_GIT_FAILED = "TOOLING_GIT_FAILED"
     TOOLING_ROLLBACK_UNKNOWN = "TOOLING_ROLLBACK_UNKNOWN"
     TOOLING_VERIFICATION_UNKNOWN = "TOOLING_VERIFICATION_UNKNOWN"
-    TOOLING_MANIFEST_INVALID = "TOOLING_MANIFEST_INVALID"
-    TOOLING_DELIVERY_SCOPE_INVALID = "TOOLING_DELIVERY_SCOPE_INVALID"
-    TOOLING_SECRET_SCAN_FAILED = "TOOLING_SECRET_SCAN_FAILED"
-    TOOLING_SECRET_SCANNER_UNAVAILABLE = "TOOLING_SECRET_SCANNER_UNAVAILABLE"
-    TOOLING_PUSH_UNKNOWN = "TOOLING_PUSH_UNKNOWN"
-    TOOLING_REMOTE_REF_CONFLICT = "TOOLING_REMOTE_REF_CONFLICT"
-    TOOLING_AD_HOC_REMOTE_TOPOLOGY = "TOOLING_AD_HOC_REMOTE_TOPOLOGY"
-    TOOLING_STACKED_PARENT_UNPUBLISHED = "TOOLING_STACKED_PARENT_UNPUBLISHED"
-    TOOLING_PR_BODY_INVALID = "TOOLING_PR_BODY_INVALID"
-    TOOLING_PR_IDENTITY_MISMATCH = "TOOLING_PR_IDENTITY_MISMATCH"
-    TOOLING_PR_PUBLICATION_UNKNOWN = "TOOLING_PR_PUBLICATION_UNKNOWN"
     TOOLING_PROVIDER_UNAVAILABLE = "TOOLING_PROVIDER_UNAVAILABLE"
-    TOOLING_PROVIDER_FAILED = "TOOLING_PROVIDER_FAILED"
     MCP_SOURCE_BUNDLE_INVALID = "MCP_SOURCE_BUNDLE_INVALID"
     MCP_SOURCE_BUNDLE_DRIFT = "MCP_SOURCE_BUNDLE_DRIFT"
     MCP_VERSION_BUMP_REQUIRED = "MCP_VERSION_BUMP_REQUIRED"
@@ -106,13 +91,7 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
     if code in {
         ResultCode.TOOLING_OPERATION_CONFLICT,
         ResultCode.TOOLING_PORT_CONFLICT,
-        ResultCode.TOOLING_UPDATE_LOCAL_AHEAD,
-        ResultCode.TOOLING_UPDATE_DIVERGED,
         ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
-        ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
-        ResultCode.TOOLING_REMOTE_REF_CONFLICT,
-        ResultCode.TOOLING_AD_HOC_REMOTE_TOPOLOGY,
-        ResultCode.TOOLING_PR_IDENTITY_MISMATCH,
         ResultCode.TOOLING_TRANSACTION_RECOVERY_REQUIRED,
         ResultCode.TOOLING_CLEANUP_UNKNOWN,
         ResultCode.MCP_RUNTIME_STALE,
@@ -123,15 +102,12 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
     if code in {
         ResultCode.TOOLING_TIMEOUT,
         ResultCode.TOOLING_CANCELLED,
-        ResultCode.TOOLING_PUSH_UNKNOWN,
-        ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN,
     }:
         return ExitCode.TIMEOUT
     if code in {
         ResultCode.TOOLING_DEPENDENCY_UNAVAILABLE,
         ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
         ResultCode.TOOLING_CAPABILITY_UNSUPPORTED,
-        ResultCode.TOOLING_SECRET_SCANNER_UNAVAILABLE,
         ResultCode.TOOLING_PROVIDER_UNAVAILABLE,
         ResultCode.TOOLING_BACKUP_REQUIRED,
         ResultCode.TOOLING_BACKUP_FAILED,
@@ -153,7 +129,6 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
     if code in {
         ResultCode.TOOLING_ROLLBACK_UNKNOWN,
         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-        ResultCode.TOOLING_SECRET_SCAN_FAILED,
     }:
         return ExitCode.ROLLBACK_UNKNOWN
     if code is ResultCode.MCP_ENVIRONMENT_STALE:

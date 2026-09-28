@@ -16,9 +16,7 @@
 | CLI | `azurpilot.cli` | parsing/rendering отделены от service logic; import не запускает operations |
 | Типизированная модель результата | `azurpilot.tooling.contracts` | закрытые модели Pydantic, стабильные result/state/reason codes, ограниченные evidence |
 | Примитивы репозитория/процессов | `azurpilot.tooling` | точная identity, подтверждённое владение path/process, ограниченные операции, fail-closed при неоднозначности |
-| Lifecycle/build/repair/update | соответствующие сервисы в `azurpilot.tooling` | CLI является adapter; платформенно-зависимое поведение не размножается в renderer |
-| Git delivery | `azurpilot.tooling.delivery` | in-memory typed intent, exact refs, allowlist, journal, обычный push/read-back |
-| Публикация pull request | `azurpilot.tooling.pull_request` | типизированный PR spec/body, явная identity провайдера, draft/read-back contract |
+| Lifecycle/build/repair | соответствующие сервисы в `azurpilot.tooling` | CLI является adapter; платформенно-зависимое поведение не размножается в renderer |
 | Внешние интеграции | `azurpilot.integrations` | прямые типизированные adapters, ограниченная граница credentials/evidence |
 | MCP status/compatibility | tooling + существующие MCP contract gates | состояние source не выдаётся за фактическую регистрацию клиента |
 | Пути совместимости Windows/оператора | проектные PowerShell scripts/modules | не удаляются без доказанной эквивалентности и миграции вызывающих компонентов |
@@ -74,58 +72,18 @@ PowerShell/cmd wrapper являются обходом operator path и запр
 - timeout/unknown external mutation не превращается в success по предположению;
 - диагностическая/read-only команда не получает скрытый mutating fallback.
 
-## 4. Git delivery
+## 4. Git evidence и агентская публикация
 
-Граница delivery публикует только доказанное состояние Git.
+`GitClient` — минимальная read-only граница для doctor, MCP source impact и
+Semgrep: HEAD, status, staged/changed paths, blobs и repository identity.
+Внутренние tooling capabilities используют Git только как входное evidence.
+Публичный `azur` не изменяет Git и не публикует PR.
 
-Normal path — `azur delivery publish --message <commit-message>` с
-необязательным explicit `--path`. Сервис сам строит закрытый in-memory
-`DeliveryManifest` из exact repository, branch/head, опубликованного base и
-remote refs, candidate paths и preimage/postimage. Внешний JSON-файл является
-только диагностическим input для `delivery validate`, а не prerequisite
-публикации. Transaction journal живёт в repository state area только пока
-требуется recovery и удаляется после подтверждённого push, в том числе после
-read-only recovery неоднозначного ответа.
-
-Правила публикации:
-
-- staged allowlist строится из exact candidate snapshot; `git add .` как скрытый
-  fallback запрещён;
-- force/force-with-lease и destructive cleanup не используются;
-- push обычный и проверяется exact remote SHA;
-- unknown/timeout mutation сохраняется во внешнем journal как неоднозначное
-  состояние, recovery сначала делает read-only verification;
-- Gitleaks evidence относится к staged/committed scope, определённому operation,
-  а не заменяется случайным regex search.
-- remote mutation публикует только реальную `expected_branch` через typed
-  lifecycle; temporary/scratch/transport/helper refs и `codex/base-*` запрещены;
-- если stacked parent local HEAD отличается от parent remote HEAD, typed delivery
-  возвращает `TOOLING_STACKED_PARENT_UNPUBLISHED` и ждёт canonical publication
-  parent branch; вспомогательный remote ref не создаётся.
-- по умолчанию все changed candidate paths входят в один task commit, включая
-  актуальные generated MCP artifacts; отдельное MCP-only staging/commit не нужно.
-
-Git lifecycle, ветки и разрешение merge принадлежат
-`.codex/context/GIT-WORKFLOW.md`, а не этому документу.
-
-## 5. Публикация pull request
-
-`PullRequestService` работает через типизированный publication spec и renderer body.
-
-PR contract:
-
-- repository/base/head задаются явно;
-- read-back провайдера подтверждает identity репозитория, refs/SHAs и draft state;
-- duplicate, cross-repository, wrong-head и provider-unknown состояния
-  fail-closed;
-- body строится из structured model, а не shell string;
-- операторский body — содержательный русскоязычный отчёт; technical
-  identifiers сохраняются без перевода;
-- состояние внешней проверки в body остаётся общим reviewer status и не создаёт
-  provider-specific schema внутри PR tooling.
-
-Создание draft PR не даёт разрешение на merge. Lifecycle после публикации
-определяет `GIT-WORKFLOW.md`.
+Git/PR procedure автоматически маршрутизируется к
+[azurpilot-git-workflow](../../.agents/skills/azurpilot-git-workflow/SKILL.md).
+Он напрямую использует native git, gh и доступное structured GitHub MCP чтение.
+Python не владеет commit/push, PR body/rendering или recovery публикации.
+Policy принадлежит `GIT-WORKFLOW.md`, проверки — `08-VERIFICATION.md`.
 
 ## 6. Внешние интеграции
 
@@ -253,7 +211,7 @@ invocation и bounded filesystem/Git primitives.
 
 ## 9. Граница совместимости PowerShell
 
-В поддерживаемой product scope владельцем Start/Stop/Update/Repair/Build является
+В поддерживаемой product scope владельцем Start/Stop/Repair/Build является
 Python tooling. PowerShell остаётся только runner glue; legacy shell допустим
 лишь для external native hooks и CI glue, а не как второй project-owned operator
 path. Удаление legacy-пути требует одновременно:
@@ -308,7 +266,7 @@ client запускается на modified candidate, а совпадение M
 проверяется до и после acceptance; отдельный `azur mcp accept` остаётся
 fail-closed на dirty checkout.
 
-Для Windows tooling change запускаются Python CLI/lifecycle/shortcut/update/
+Для Windows tooling change запускаются Python CLI/lifecycle/shortcut/
 repair/build checks. PowerShell остаётся только runner glue и не является
 production operator implementation.
 

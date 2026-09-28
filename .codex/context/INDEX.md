@@ -26,9 +26,9 @@ AzurPilot Private RU. Она не является снимком текущег
 | `08-VERIFICATION.md` | общая матрица проверок, CI, этапы независимой проверки и критерии готовности |
 | `09-SOURCES-MAINTENANCE.md` | качество и поддержка этой папки |
 | `10-GLOSSARY.md` | краткие термины |
-| `11-PYTHON-TOOLING.md` | `azurpilot.tooling`, внешние интеграции, CLI и публикация |
+| `11-PYTHON-TOOLING.md` | `azurpilot.tooling`, внешние интеграции, CLI и read-only Git evidence |
 | `12-SUBAGENT-ORCHESTRATION.md` | постоянная политика делегирования, ролей и независимой проверки |
-| `GIT-WORKFLOW.md` | Git, ветки, PR, upstream, слияние, откат и очистка |
+| `GIT-WORKFLOW.md` | Git/PR policy и routing к repository skill |
 | `MIGRATION-MAP.md` | историческая справка о старом AI-контексте; не читать в обычной задаче |
 
 Постоянный контракт CI дополнительно описан в `docs/ci.md`.

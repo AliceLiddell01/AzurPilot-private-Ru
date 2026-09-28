@@ -101,8 +101,8 @@ def _contains_prohibited_operator_launcher(text: str) -> bool:
 _OPERATOR_POLICY_MARKER_OWNERS = {
     "source_reconciled": Path(".codex/context/11-PYTHON-TOOLING.md"),
     "runtime_ready": Path(".codex/context/11-PYTHON-TOOLING.md"),
-    "TOOLING_STACKED_PARENT_UNPUBLISHED": Path(
-        ".codex/context/11-PYTHON-TOOLING.md"
+    "родительская ветка должна быть реально опубликована": Path(
+        ".agents/skills/azurpilot-git-workflow/SKILL.md"
     ),
     "codex/base-*": Path(".codex/context/GIT-WORKFLOW.md"),
 }

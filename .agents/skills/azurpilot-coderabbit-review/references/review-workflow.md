@@ -114,8 +114,8 @@ codegenInstructions, suggestions, comment и другие фактические
 `.codex/context/08-VERIFICATION.md`. Не копируй verification matrix сюда.
 
 Если после fix появился новый commit, публикуй его по
-`.codex/context/GIT-WORKFLOW.md`. Для обычной project-owned публикации
-используй установленный там канонический путь; CodeRabbit skill не создаёт
+`azurpilot-git-workflow` по policy `.codex/context/GIT-WORKFLOW.md`.
+Он владеет каноническим путём публикации; CodeRabbit skill не создаёт
 отдельный Git transport.
 
 Следующая CodeRabbit iteration начинается только после того, как exact новый HEAD

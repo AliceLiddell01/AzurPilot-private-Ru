@@ -67,7 +67,7 @@ def test_final_review_policy_is_model_neutral() -> None:
     workflow = _text(CONTEXT_ROOT / "GIT-WORKFLOW.md")
     verification = _text(CONTEXT_ROOT / "08-VERIFICATION.md")
     sections = {
-        "merge": _normalized(_section(workflow, "### Слияние", "## 21.")),
+        "merge": _normalized(_section(workflow, "### Слияние", "## После слияния и откат")),
         "ready": _normalized(
             _section(
                 verification,

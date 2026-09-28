@@ -1,4 +1,4 @@
-"""Публичный `azur` CLI: argparse parser и presentation adapter."""
+"""Публичный `azur` CLI: разбор аргументов argparse и адаптер представления."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ from .tooling.bot_runtime import BotRuntimeService
 from .tooling.contracts import (
     AnalysisScope,
     CapabilityStatus,
-    DeliveryPhase,
     GitRange,
     McpImpactDetails,
     McpLifecycleDetails,
@@ -35,15 +34,12 @@ from .tooling.contracts import (
     WarningCode,
     exit_code_for,
 )
-from .tooling.delivery import DeliveryService
 from .tooling.docker import DockerDeploymentService
 from .tooling.doctor import DoctorService
 from .tooling.errors import ToolingError
 from .tooling.lifecycle import LifecycleService
 from .tooling.mcp import McpService
-from .tooling.pull_request import PullRequestService
 from .tooling.repair import RepairService
-from .tooling.update import UpdateService
 
 
 class CliInvocationError(Exception):
@@ -63,10 +59,7 @@ class ServiceContainer:
     lifecycle: LifecycleService
     build: BuildService
     repair: RepairService
-    update: UpdateService
-    delivery: DeliveryService
     docker: DockerDeploymentService
-    pull_request: PullRequestService
     mcp: McpService
     application_state: ApplicationStateService
     integrations: IntegrationService
@@ -81,10 +74,7 @@ class ServiceContainer:
             lifecycle=LifecycleService(),
             build=BuildService(),
             repair=RepairService(),
-            update=UpdateService(mcp_service=mcp),
-            delivery=DeliveryService(),
             docker=DockerDeploymentService(),
-            pull_request=PullRequestService(),
             mcp=mcp,
             application_state=ApplicationStateService(),
             integrations=integrations,
@@ -160,7 +150,7 @@ def _add_webui_start_options(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
         prog="azur",
-        description="Безопасное кроссплатформенное управление checkout AzurPilot.",
+        description="Безопасное кроссплатформенное управление рабочей копией AzurPilot.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     _add_common_options(parser)
@@ -173,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument(
         "--full",
         action="store_true",
-        help="добавить дорогую read-only проверку внешних интеграций",
+        help="добавить дорогую проверку только для чтения внешних интеграций",
     )
 
     start = subparsers.add_parser(
@@ -194,12 +184,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="срок остановки",
     )
 
-    bot = subparsers.add_parser("bot", help="управлять headless Bot Runtime")
+    bot = subparsers.add_parser("bot", help="управлять среда выполнения бота без графического интерфейса")
     _add_common_options(bot, suppress_defaults=True)
     bot_actions = bot.add_subparsers(dest="bot_command", required=True)
     for action, help_text, default_timeout in (
-        ("start", "запустить Bot Runtime без WebUI", 30.0),
-        ("stop", "штатно остановить Bot Runtime и его workers", 120.0),
+        ("start", "запустить среда выполнения бота без WebUI", 30.0),
+        ("stop", "штатно остановить среда выполнения бота и его рабочие процессы", 120.0),
     ):
         action_parser = bot_actions.add_parser(action, help=help_text)
         _add_common_options(action_parser, suppress_defaults=True)
@@ -210,7 +200,7 @@ def build_parser() -> argparse.ArgumentParser:
             metavar="SECONDS",
             help="общий ограниченный срок операции",
         )
-    bot_status = bot_actions.add_parser("status", help="прочитать состояние Bot Runtime")
+    bot_status = bot_actions.add_parser("status", help="прочитать состояние среда выполнения бота")
     _add_common_options(bot_status, suppress_defaults=True)
 
     webui = subparsers.add_parser("webui", help="управлять только WebUI")
@@ -228,11 +218,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="срок штатной остановки WebUI",
     )
-    webui_status = webui_actions.add_parser("status", help="прочитать только WebUI lifecycle")
+    webui_status = webui_actions.add_parser("status", help="прочитать только жизненный цикл WebUI")
     _add_common_options(webui_status, suppress_defaults=True)
 
     build = subparsers.add_parser(
-        "build", help="подготовить окружение Python без Git update"
+        "build", help="подготовить окружение Python без обновления Git"
     )
     _add_common_options(build, suppress_defaults=True)
     build.add_argument(
@@ -286,28 +276,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="общий срок восстановления",
     )
 
-    update = subparsers.add_parser(
-        "update", help="выполнить только проверенный fast-forward из upstream"
-    )
-    _add_common_options(update, suppress_defaults=True)
-    update.add_argument(
-        "--expected-branch", default=None, help="ожидаемая рабочая ветка"
-    )
-    update.add_argument("--remote", default=None, help="имя Git remote")
-    update.add_argument("--remote-branch", default=None, help="имя ветки remote")
-    update.add_argument(
-        "--expected-origin-url",
-        default=None,
-        help="ожидаемая каноническая идентичность настроенного remote",
-    )
-    update.add_argument(
-        "--timeout",
-        type=float,
-        default=30 * 60,
-        metavar="SECONDS",
-        help="общий срок обновления",
-    )
-
     deploy = subparsers.add_parser(
         "deploy", help="выполнить явное типизированное развёртывание"
     )
@@ -346,75 +314,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="срок подтверждения готовности контейнера",
     )
 
-    delivery = subparsers.add_parser(
-        "delivery", help="проверить или опубликовать allowlisted Git delivery"
-    )
-    delivery_subparsers = delivery.add_subparsers(
-        dest="delivery_command", required=True, metavar="ACTION"
-    )
-    delivery_validate = delivery_subparsers.add_parser(
-        "validate", help="только проверить manifest и exact repository state"
-    )
-    _add_common_options(delivery_validate, suppress_defaults=True)
-    delivery_validate.add_argument("manifest", metavar="MANIFEST")
-    delivery_publish = delivery_subparsers.add_parser(
-        "publish", help="собрать текущий Git candidate, проверить, commit и ordinary push"
-    )
-    _add_common_options(delivery_publish, suppress_defaults=True)
-    delivery_publish.add_argument(
-        "--message", required=True, help="сообщение коммита"
-    )
-    delivery_publish.add_argument(
-        "--path",
-        action="append",
-        dest="paths",
-        help=(
-            "путь относительно репозитория; по умолчанию используются все "
-            "изменённые пути кандидата"
-        ),
-    )
-    delivery_publish.add_argument(
-        "--base-branch",
-        default="personal/stable",
-        help="опубликованная base branch (по умолчанию personal/stable)",
-    )
-    for action in ("status", "recover"):
-        delivery_status = delivery_subparsers.add_parser(
-            action,
-            help=(
-                "прочитать delivery journal"
-                if action == "status"
-                else "выполнить только read-only recovery push state"
-            ),
-        )
-        _add_common_options(delivery_status, suppress_defaults=True)
-        delivery_status.add_argument("operation_id", metavar="OPERATION_ID")
-
-    pr = subparsers.add_parser(
-        "pr", help="подготовить, опубликовать или проверить draft PR"
-    )
-    pr_subparsers = pr.add_subparsers(
-        dest="pr_command", required=True, metavar="ACTION"
-    )
-    pr_prepare = pr_subparsers.add_parser(
-        "prepare", help="проверить spec, Git identity и structured PR body"
-    )
-    _add_common_options(pr_prepare, suppress_defaults=True)
-    pr_prepare.add_argument("spec", metavar="SPEC")
-    pr_publish = pr_subparsers.add_parser(
-        "publish", help="создать или подтвердить draft PR через gh"
-    )
-    _add_common_options(pr_publish, suppress_defaults=True)
-    pr_publish.add_argument("spec", metavar="SPEC")
-    pr_verify = pr_subparsers.add_parser(
-        "verify", help="прочитать PR и подтвердить exact identity/body"
-    )
-    _add_common_options(pr_verify, suppress_defaults=True)
-    pr_verify.add_argument("number", type=int, metavar="PR_NUMBER")
-    pr_verify.add_argument("--spec", required=True, metavar="SPEC")
-
     mcp = subparsers.add_parser(
-        "mcp", help="проверить и согласовать first-party MCP source/runtime"
+        "mcp", help="проверить и согласовать исходники и среду выполнения MCP проекта"
     )
     mcp_subparsers = mcp.add_subparsers(
         dest="mcp_command", required=True, metavar="ACTION"
@@ -423,39 +324,39 @@ def build_parser() -> argparse.ArgumentParser:
         command = mcp_subparsers.add_parser(
             action,
             help={
-                "status": "прочитать source, runtime, plugin и session state",
-                "versions": "прочитать canonical MCP bundle versions и hashes",
-                "accept": "проверить MCP новой независимой read-only client session",
-                "start": "запустить owned loopback MCP supervisor",
-                "stop": "остановить owned loopback MCP supervisor",
-                "restart": "перезапустить owned loopback MCP supervisor",
+                "status": "прочитать состояние исходников, среды выполнения, плагина и сессии",
+                "versions": "прочитать версии и хеши канонического комплекта MCP",
+                "accept": "проверить MCP новой независимой клиентской сессией только для чтения",
+                "start": "запустить принадлежащий проекту MCP supervisor на loopback",
+                "stop": "остановить принадлежащий проекту MCP supervisor на loopback",
+                "restart": "перезапустить принадлежащий проекту MCP supervisor на loopback",
             }[action],
         )
         _add_common_options(command, suppress_defaults=True)
     impact = mcp_subparsers.add_parser(
-        "impact", help="классифицировать MCP impact effective candidate diff"
+        "impact", help="определить влияние итогового набора изменений на MCP"
     )
     _add_common_options(impact, suppress_defaults=True)
-    impact.add_argument("--base", required=True, help="exact base SHA")
+    impact.add_argument("--base", required=True, help="точный SHA базы")
     sync = mcp_subparsers.add_parser(
-        "sync", help="завершить MCP source, owned runtime и fresh-client acceptance"
+        "sync", help="согласовать исходники MCP, среду выполнения проекта и приёмку новым клиентом"
     )
     _add_common_options(sync, suppress_defaults=True)
-    sync.add_argument("--base", required=True, help="exact base SHA candidate")
+    sync.add_argument("--base", required=True, help="точный SHA базы проверяемого варианта")
     reconcile = mcp_subparsers.add_parser(
-        "reconcile", help="согласовать source bundle или owned runtime"
+        "reconcile", help="согласовать комплект исходников или среду выполнения проекта"
     )
     _add_common_options(reconcile, suppress_defaults=True)
     reconcile.add_argument(
         "--source",
         action="store_true",
-        help="обновить tracked canonical manifest и derived plugin metadata",
+        help="обновить отслеживаемый канонический манифест и производные метаданные плагина",
     )
     reconcile.add_argument(
         "--bump",
         choices=("auto", "patch", "minor", "major"),
         default=None,
-        help="явная политика server SemVer для доказанного contract change",
+        help="явная политика SemVer сервера для подтверждённого изменения контракта",
     )
 
     app = subparsers.add_parser(
@@ -483,20 +384,20 @@ def build_parser() -> argparse.ArgumentParser:
             help=(
                 "прочитать конфигурацию и доступность интеграций"
                 if action == "status"
-                else "выполнить bounded read-only probes интеграций"
+                else "выполнить ограниченные проверки интеграций только для чтения"
             ),
         )
         _add_common_options(command, suppress_defaults=True)
     shared_mcp = integration_subparsers.add_parser(
-        "shared-mcp", help="управлять общими внешними MCP HTTP services"
+        "shared-mcp", help="управлять общими внешними службами MCP HTTP"
     )
     shared_mcp_subparsers = shared_mcp.add_subparsers(
         dest="integration_shared_mcp_action", required=True, metavar="ACTION"
     )
     for action, action_help in (
-        ("status", "прочитать состояние общих MCP HTTP services"),
-        ("start", "запустить общие MCP HTTP services"),
-        ("stop", "остановить общие MCP HTTP services"),
+        ("status", "прочитать состояние общих служб MCP HTTP"),
+        ("start", "запустить общие службы MCP HTTP"),
+        ("stop", "остановить общие службы MCP HTTP"),
     ):
         command = shared_mcp_subparsers.add_parser(action, help=action_help)
         _add_common_options(command, suppress_defaults=True)
@@ -513,27 +414,27 @@ def build_parser() -> argparse.ArgumentParser:
                 help=(
                     "прочитать конфигурацию"
                     if action == "status"
-                    else "выполнить bounded read-only probe"
+                    else "выполнить ограниченную проверку только для чтения"
                 ),
             )
             _add_common_options(command, suppress_defaults=True)
         if name is IntegrationName.SEMGREP:
             scan = provider_subparsers.add_parser(
-                "scan", help="выполнить только явно ограниченный Semgrep scan"
+                "scan", help="выполнить только явно ограниченное сканирование Semgrep"
             )
             _add_common_options(scan, suppress_defaults=True)
             scope_group = scan.add_mutually_exclusive_group(required=False)
             scope_group.add_argument(
-                "--staged", action="store_true", help="взять только staged paths"
+                "--staged", action="store_true", help="взять только пути из индекса Git"
             )
             scope_group.add_argument(
-                "--changed", action="store_true", help="взять paths из base..HEAD"
+                "--changed", action="store_true", help="взять пути из base..HEAD"
             )
             scan.add_argument(
                 "--base",
                 dest="scan_base",
                 default=None,
-                help="exact base SHA для --changed",
+                help="точный SHA базы для --changed",
             )
             scope_group.add_argument(
                 "--paths",
@@ -596,61 +497,6 @@ def _short_sha(value: str | None) -> str:
 
 
 
-def _render_delivery_validation_preview(
-    console: Any, result: ToolingResult[BaseModel, BaseModel]
-) -> bool:
-    """Показать bounded read-only preview для успешного delivery validate."""
-
-    details = result.details
-    evidence = result.evidence
-    snapshot = getattr(evidence, "snapshot", None)
-    changes = tuple(getattr(details, "changes", ()))
-    if (
-        not result.ok
-        or getattr(details, "phase", None) is not DeliveryPhase.VALIDATED
-        or snapshot is None
-        or not changes
-    ):
-        return False
-
-    from rich.panel import Panel
-    from rich.table import Table
-    from rich.text import Text
-
-    summary = Table.grid(expand=True, padding=(0, 1))
-    summary.add_column(no_wrap=True)
-    summary.add_column(overflow="fold")
-    summary.add_row(
-        Text("Репозиторий"), Text(snapshot.repository.slug)
-    )
-    summary.add_row(Text("Ветка"), Text(snapshot.branch))
-    summary.add_row(Text("Local HEAD"), Text(_short_sha(snapshot.head_sha)))
-    summary.add_row(
-        Text("Base"),
-        Text(f"{snapshot.base_branch} @ {_short_sha(snapshot.base_sha)}"),
-    )
-    remote_label = f"{snapshot.remote_name}/{snapshot.remote_branch} @ {_short_sha(snapshot.remote_sha)}"
-    summary.add_row(Text("Remote"), Text(remote_label))
-    summary.add_row(
-        Text("Файлы"),
-        Text(str(getattr(details, "target_count", len(changes)))),
-    )
-    summary.add_row(Text("SHA-256"), Text("подтверждён"))
-    summary.add_row(Text("Состояние Git"), Text("совместимо"))
-    console.print(Panel(summary, title="Delivery Package", expand=True))
-
-    console.print(Text("Изменения:"))
-    preview_limit = 20
-    for change in changes[:preview_limit]:
-        console.print(Text(f"  {change.change} {change.path}"))
-    target_count = int(getattr(details, "target_count", len(changes)))
-    hidden_count = max(0, target_count - preview_limit)
-    if hidden_count:
-        console.print(Text(f"  … ещё {hidden_count} target paths."))
-    console.print(Text("Изменения не применены."))
-    return True
-
-
 def _render_human(
     result: ToolingResult[BaseModel, BaseModel],
     stdout: TextIO,
@@ -658,7 +504,6 @@ def _render_human(
     *,
     no_color: bool,
     verbose: bool,
-    delivery_validation_preview: bool = False,
 ) -> None:
     stream = stdout if result.ok else stderr
 
@@ -842,13 +687,13 @@ def _render_human(
 
                 details = result.details
                 console.print(
-                    f"MCP impact: {details.status} "
+                    f"Влияние MCP: {details.status} "
                     f"(base={details.base_sha}, head={details.head_sha})"
                 )
                 table = Table(title="Кандидатные пути → наборы исходников MCP", expand=True)
-                table.add_column("Path", overflow="fold")
-                table.add_column("Source sets", overflow="fold")
-                table.add_column("Affected servers", overflow="fold")
+                table.add_column("Путь", overflow="fold")
+                table.add_column("Наборы исходников", overflow="fold")
+                table.add_column("Затронутые серверы", overflow="fold")
                 for item in details.path_impacts:
                     table.add_row(
                         item.path,
@@ -874,11 +719,11 @@ def _render_human(
                 from rich.table import Table
 
                 table = Table(title="AzurPilot MCP", expand=True)
-                table.add_column("Backend", no_wrap=True)
+                table.add_column("Сервер", no_wrap=True)
                 table.add_column("Версия", no_wrap=True)
                 table.add_column("Состояние", no_wrap=True)
-                table.add_column("Transport", overflow="fold")
-                table.add_column("Revision", no_wrap=True)
+                table.add_column("Транспорт", overflow="fold")
+                table.add_column("Ревизия", no_wrap=True)
                 for server in servers:
                     table.add_row(
                         str(getattr(server, "server_name", "unknown")),
@@ -892,13 +737,13 @@ def _render_human(
                     )
                 console.print(table)
                 for field, label in (
-                    ("source_state", "Source"),
-                    ("runtime_state", "Runtime"),
-                    ("source_reconciled", "Source reconciled"),
-                    ("runtime_ready", "Runtime ready"),
-                    ("plugin_state", "Plugin"),
-                    ("plugin_source_state", "Plugin source"),
-                    ("session_state", "Session"),
+                    ("source_state", "Исходники"),
+                    ("runtime_state", "Среда выполнения"),
+                    ("source_reconciled", "Исходники согласованы"),
+                    ("runtime_ready", "Среда выполнения готова"),
+                    ("plugin_state", "Плагин"),
+                    ("plugin_source_state", "Исходники плагина"),
+                    ("session_state", "Сессия"),
                 ):
                     value = getattr(result.details, field, None)
                     if value is not None:
@@ -906,9 +751,6 @@ def _render_human(
                             value = "да" if value else "нет"
                         console.print(f"{label}: {value}")
                 console.print(f"{'✓' if result.ok else '✗'} {result.message}")
-            elif delivery_validation_preview:
-                console.print(f"{'✓' if result.ok else '✗'} {result.message}")
-                _render_delivery_validation_preview(console, result)
             else:
                 console.print(f"{'✓' if result.ok else '✗'} {result.message}")
 
@@ -996,15 +838,6 @@ def _dispatch(
             shortcut_only=getattr(args, "shortcut_only", False),
             timeout_seconds=args.timeout,
         )
-    if command == "update":
-        return services.update.update(
-            root,
-            expected_branch=args.expected_branch,
-            remote_name=args.remote,
-            remote_branch=args.remote_branch,
-            expected_origin_url=args.expected_origin_url,
-            timeout_seconds=args.timeout,
-        )
     if command == "deploy" and args.deploy_command == "docker":
         return services.docker.deploy(
             root,
@@ -1016,27 +849,6 @@ def _dispatch(
             timeout_seconds=args.timeout,
             readiness_timeout_seconds=args.readiness_timeout,
         )
-    if command == "delivery":
-        if args.delivery_command == "validate":
-            return services.delivery.validate(args.manifest, root)
-        if args.delivery_command == "publish":
-            return services.delivery.publish(
-                args.message,
-                root,
-                paths=args.paths,
-                base_branch=args.base_branch,
-            )
-        if args.delivery_command == "status":
-            return services.delivery.status(args.operation_id, root)
-        if args.delivery_command == "recover":
-            return services.delivery.recover(args.operation_id, root)
-    if command == "pr":
-        if args.pr_command == "prepare":
-            return services.pull_request.prepare(args.spec, root)
-        if args.pr_command == "publish":
-            return services.pull_request.publish(args.spec, root)
-        if args.pr_command == "verify":
-            return services.pull_request.verify(args.number, args.spec, root)
     if command == "mcp":
         if args.mcp_command == "impact":
             return services.mcp.impact(root, base_commit=args.base)
@@ -1094,13 +906,13 @@ def _dispatch(
                 )
             if scope_count > 1:
                 raise CliInvocationError(
-                    "Semgrep scan принимает только один scope: --staged, --changed или --paths."
+                    "Semgrep scan принимает только один область изменений: --staged, --changed или --paths."
                 )
             if args.scan_base and not args.changed:
                 raise CliInvocationError("--base разрешён только вместе с --changed.")
             if args.changed:
                 if not args.scan_base:
-                    raise CliInvocationError("--changed требует --base с exact SHA.")
+                    raise CliInvocationError("--changed требует --base с точный SHA.")
                 from .tooling.git import GitClient
 
                 end_sha = GitClient(integration_root).head()
@@ -1188,7 +1000,7 @@ def main(
             state=OperationState.UNKNOWN,
             message="Операция прервана пользователем; итоговое состояние требует проверки.",
         )
-    except Exception as error:  # noqa: BLE001 - CLI обязан вернуть ограниченный envelope ошибки
+    except Exception as error:  # noqa: BLE001 - CLI обязан вернуть ограниченный конверт результата ошибки
         result = _unexpected_result(type(error).__name__)
 
     if json_mode:
@@ -1200,10 +1012,6 @@ def main(
             stderr,
             no_color=bool(getattr(args, "no_color", False)),
             verbose=verbose,
-            delivery_validation_preview=(
-                args.command == "delivery"
-                and args.delivery_command == "validate"
-            ),
         )
     return int(exit_code_for(result.code, result.ok))
 

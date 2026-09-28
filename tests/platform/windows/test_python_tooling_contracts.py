@@ -14,7 +14,7 @@ ROOT = REPOSITORY_ROOT
 
 def test_windows_operator_surface_is_python_cli_owned():
     parser = build_parser()
-    for command in ("build", "repair", "update", "start", "stop"):
+    for command in ("build", "repair", "start", "stop"):
         parsed = parser.parse_args([command])
         assert parsed.command == command
     docker = parser.parse_args(["deploy", "docker", "--replace"])

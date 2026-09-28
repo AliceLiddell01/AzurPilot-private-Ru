@@ -20,14 +20,13 @@ Workflow публикует три стабильных status contexts:
 
 Активный repository ruleset `Protect personal/stable` (ID `20179789`) применяется к `refs/heads/personal/stable` и требует именно эти три context со strict-проверкой актуальности ветки. Старые исторически зависимые required contexts отсутствуют. Ruleset также запрещает удаление ветки и non-fast-forward updates, требует pull request и разрешения review threads. Имена jobs являются публичным контрактом; переименование требует согласованного изменения ruleset.
 
-## Git delivery и draft PR
+## Git и черновой PR
 
-Git publication, journal recovery, draft PR, merge и cleanup имеют одного
-владельца — [GIT-WORKFLOW.md](../.codex/context/GIT-WORKFLOW.md). Normal
-publication выполняется одной командой `azur delivery publish --message ...`;
-tooling формирует typed intent in-memory, включает текущий candidate scope,
-выполняет существующие secret/scope checks и удаляет transaction journal после
-подтверждённого push. CI ниже описывает только gates и их фактические команды.
+Политика публикации находится в [GIT-WORKFLOW.md](../.codex/context/GIT-WORKFLOW.md),
+процедура — в [azurpilot-git-workflow](../.agents/skills/azurpilot-git-workflow/SKILL.md).
+Публикация использует native git и gh с локальным Markdown body и read-back;
+Python tooling не является владельцем Git mutations. CI описывает gates и их
+фактические команды, включая проверку секретов текущих исходников и exact range.
 
 Workflow также публикует дополнительную проверку `macOS core tooling` на
 `macos-14`. Она не входит в текущий required ruleset, но выполняет exact-head

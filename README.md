@@ -72,7 +72,6 @@ azur build
 azur start
 azur stop
 azur repair [--diagnostic-only|--repair-shortcut|--shortcut-only]
-azur update
 ```
 
 Для машинной интеграции добавьте `--json`: stdout содержит ровно один JSON
@@ -91,28 +90,14 @@ CWD сам по себе не считается доказательством 
 
 Обычный запуск не зависит от `alas-launcher.exe` и не выполняет скрытое обновление.
 
-### Один владелец обновления
+### Обновление через native Git
 
-Обновление пользовательской установки выполняет только сервис `azur update`.
-
-Из WebUI и Python runtime удалены:
-
-- встроенная страница обновления;
-- автоматические проверки и запуск обновления;
-- самостоятельные Git-операции;
-- удалённая команда обновления через MCP;
-- legacy installer, geo redirect и Git-over-CDN runtime;
-- workflows и upload scripts для публикации Git-over-CDN artifacts.
-
-Разрешённая схема обновления:
-
-```text
-git fetch
-→ проверка истории
-→ git merge --ff-only
-```
-
-Локальные изменения и собственные commits не удаляются автоматически.
+Обновление checkout и Git/PR lifecycle выполняются через
+[repository skill](.agents/skills/azurpilot-git-workflow/SKILL.md).
+Публичный `azur` не изменяет Git. WebUI и runtime не запускают обновление;
+локальные изменения и собственные commits не удаляются автоматически.
+Проверка истории и FF-only принадлежат skill; подготовка зависимостей и
+восстановление остаются в `azur build` и `azur repair`.
 
 ### First-party MCP
 
@@ -122,10 +107,8 @@ authenticated loopback HTTP routes, принадлежащим общему supe
 остаётся только standalone/compatibility entrypoint и не является активным
 Codex route. Public и third-party MCP surfaces остаются отдельными и не
 подменяют его. Производные plugin metadata проверяются и согласуются через
-`azur mcp`, а успешный `azur update` автоматически выполняет обязательную
-проверку postcondition без изменения tracked source. Ошибка canonical bundle,
-runtime, ownership, port или readiness не маскируется предупреждением и делает
-Update неуспешным.
+`azur mcp`. После обновления checkout агент отдельно проверяет совместимость
+MCP и применимые runtime postconditions; Git не выполняет эту приёмку автоматически.
 
 ```text
 azur mcp status
@@ -246,13 +229,11 @@ azur start --browser
 
 ## Обслуживание установки
 
-Перед Update, Repair или Build полностью остановите AzurPilot.
+Перед обновлением checkout, Repair или Build полностью остановите AzurPilot.
 
 ### Обновление
 
-```text
-azur update
-```
+Используйте [Git skill](.agents/skills/azurpilot-git-workflow/SKILL.md).
 
 ### Диагностика и восстановление
 
@@ -279,15 +260,15 @@ azur repair --shortcut-only
 azur build
 ```
 
-Windows lifecycle, update, repair, build и shortcut acceptance выполняются
+Проверки Windows lifecycle, repair, build и shortcut выполняются
 через те же typed Python services, что и `azur` CLI.
 
 ## Основные гарантии
 
 - Обновления принимаются только из `origin/personal/stable`.
 - Разрешён только fast-forward без переписывания истории.
-- Перед любым изменением `azur update` подтверждает каноническую идентичность Git и
-  внешнюю проверенную логическую резервную копию PostgreSQL в формате `pg_dump -Fc`.
+- Перед обновлением проверьте идентичность Git и применимость резервного
+  копирования PostgreSQL по контракту обслуживания.
 - `Start`, `Repair` и `Build` не обновляют Git.
 - `Repair` использует резервную копию, журнал и откат.
 - `Build` проверяет bootstrap-артефакты по SHA-256.

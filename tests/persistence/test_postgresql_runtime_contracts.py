@@ -769,9 +769,6 @@ def test_python_services_encode_postgresql_and_lifecycle_ownership():
     lifecycle = (ROOT / "azurpilot" / "tooling" / "lifecycle.py").read_text(
         encoding="utf-8"
     )
-    update = (ROOT / "azurpilot" / "tooling" / "update.py").read_text(
-        encoding="utf-8"
-    )
     repair = (ROOT / "azurpilot" / "tooling" / "repair.py").read_text(
         encoding="utf-8"
     )
@@ -781,9 +778,6 @@ def test_python_services_encode_postgresql_and_lifecycle_ownership():
 
     assert "InfrastructureService" in lifecycle
     assert "ensure_started" in lifecycle
-    assert "fetch_branch" in update
-    assert "merge_ff_only" in update
-    assert "PostgreSqlBackupService" in update
     repair_tree = ast.parse(repair)
     git_calls = [
         node

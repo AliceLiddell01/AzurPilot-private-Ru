@@ -1,7 +1,7 @@
 """Закрытые DTO и стабильные коды Python tooling.
 
-Эти модели являются границей между сервисами, CLI и будущими transport adapters.
-Свободные словари намеренно не используются в operation payload: добавление
+Эти модели являются границей между сервисами, CLI и будущими транспортными адаптерами.
+Свободные словари намеренно не используются в данных операции: добавление
 неизвестного поля должно быть заметно в тестах и при чтении машинного вывода.
 """
 
@@ -38,29 +38,6 @@ class RootSource(StrEnum):
     INSTALLATION = "installation"
 
 
-class PublicationIntent(StrEnum):
-    """Разрешённый объём delivery-операции."""
-
-    VALIDATE_ONLY = "validate_only"
-    COMMIT_AND_PUSH = "commit_and_push"
-
-
-class DeliveryPhase(StrEnum):
-    """Фазы публикации, сохраняемые для read-only recovery."""
-
-    VALIDATED = "validated"
-    STAGED = "staged"
-    PRE_COMMIT_SCANNED = "pre_commit_scanned"
-    COMMITTED = "committed"
-    COMMITTED_RANGE_SCANNED = "committed_range_scanned"
-    PUSH_IN_FLIGHT = "push_in_flight"
-    DELIVERED = "delivered"
-    PUSH_NOT_DELIVERED = "push_not_delivered"
-    UNKNOWN = "unknown"
-    FAILED = "failed"
-
-
-
 class WarningCode(StrEnum):
     """Ограниченные предупреждения, не меняющие основной код результата."""
 
@@ -74,9 +51,6 @@ class WarningCode(StrEnum):
     TOOLING_BROWSER_NOT_OPENED = "TOOLING_BROWSER_NOT_OPENED"
     TOOLING_OUTPUT_TRUNCATED = "TOOLING_OUTPUT_TRUNCATED"
     TOOLING_LEGACY_COMPATIBILITY = "TOOLING_LEGACY_COMPATIBILITY"
-    TOOLING_DELIVERY_JOURNAL_CLEANUP_FAILED = (
-        "TOOLING_DELIVERY_JOURNAL_CLEANUP_FAILED"
-    )
 
 
 class ClosedModel(BaseModel):
@@ -89,50 +63,15 @@ class ClosedModel(BaseModel):
     )
 
 
-class RepositoryIdentity(ClosedModel):
-    """Не зависящая от транспорта identity размещённого репозитория."""
-
-    host: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$")
-    owner: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
-    repository: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
-
-    @property
-    def slug(self) -> str:
-        return f"{self.owner}/{self.repository}"
-
-
-class RemoteIdentity(ClosedModel):
-    """Подтверждённая identity настроенного Git remote."""
-
-    name: str = Field(min_length=1, max_length=80)
-    fetch_url: str = Field(min_length=1, max_length=256)
-    push_url: str | None = Field(default=None, max_length=256)
-    repository: RepositoryIdentity
-
-
-class BranchIdentity(ClosedModel):
-    """Имя ветки и подтверждённый commit без подмены SHA именем."""
-
-    name: str = Field(min_length=1, max_length=120)
-    sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-
-
-class CommitIdentity(ClosedModel):
-    """Commit и его подтверждённый родитель."""
-
-    sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    parent_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-
-
 class GitRange(ClosedModel):
-    """Точный диапазон Git для scoped analysis."""
+    """Точный диапазон Git для ограниченного анализа."""
 
     start_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     end_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
 
 
 class AnalysisScope(ClosedModel):
-    """Allowlist путей и/или exact Git range для security-анализатора."""
+    """Список разрешённых путей и/или точный диапазон Git для анализатора безопасности."""
 
     paths: tuple[str, ...] = Field(default_factory=tuple, max_length=128)
     git_range: GitRange | None = None
@@ -141,123 +80,10 @@ class AnalysisScope(ClosedModel):
     @model_validator(mode="after")
     def validate_mode(self) -> AnalysisScope:
         if self.mode == "committed_range" and self.git_range is None:
-            raise ValueError("committed_range требует exact Git range")
+            raise ValueError("committed_range требует точный диапазон Git")
         if self.mode == "staged" and self.git_range is not None:
-            raise ValueError("staged не принимает Git range")
+            raise ValueError("staged не принимает диапазон Git")
         return self
-
-
-class GitSnapshot(ClosedModel):
-    """Ограниченный снимок Git-состояния перед изменяющей доставкой."""
-
-    repository: RepositoryIdentity
-    root_identity: str = Field(pattern=r"^[0-9a-f]{16,64}$")
-    branch: str = Field(min_length=1, max_length=120)
-    head_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    base_branch: str = Field(default="personal/stable", min_length=1, max_length=256)
-    remote_name: str = Field(min_length=1, max_length=80)
-    remote_branch: str = Field(min_length=1, max_length=256)
-    remote_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
-    upstream: str | None = Field(default=None, max_length=256)
-    dirty_paths: tuple[str, ...] = Field(default_factory=tuple, max_length=128)
-    staged_paths: tuple[str, ...] = Field(default_factory=tuple, max_length=128)
-    active_operation: bool
-
-
-class FileState(ClosedModel):
-    """Ожидаемое содержимое одного allowlisted файла."""
-
-    exists: bool
-    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    size: int | None = Field(default=None, ge=0, le=16 * 1024 * 1024)
-
-    @model_validator(mode="after")
-    def validate_hash_presence(self) -> FileState:
-        if self.exists and self.sha256 is None:
-            raise ValueError("для существующего файла требуется SHA-256")
-        if not self.exists and (self.sha256 is not None or self.size is not None):
-            raise ValueError("для отсутствующего файла нельзя указывать содержимое")
-        return self
-
-
-class DeliveryTarget(ClosedModel):
-    """Одна repository-relative пара preimage/postimage."""
-
-    path: str = Field(min_length=1, max_length=512)
-    preimage: FileState
-    postimage: FileState
-
-
-class DeliveryChange(ClosedModel):
-    """Безопасное обозначение изменения allowlisted target для adapters."""
-
-    path: str = Field(min_length=1, max_length=512)
-    change: Literal["A", "M", "D"]
-
-
-class DeliveryManifest(ClosedModel):
-    """Неизменяемый запрос закрытой схемы для доставки из working tree."""
-
-    schema_version: Literal[1] = 1
-    repository: RepositoryIdentity
-    expected_branch: str = Field(min_length=1, max_length=120)
-    expected_local_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    expected_base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    base_remote_name: str = Field(default="origin", min_length=1, max_length=80)
-    base_branch: str = Field(default="personal/stable", min_length=1, max_length=256)
-    remote_name: str = Field(min_length=1, max_length=80)
-    remote_branch: str = Field(min_length=1, max_length=256)
-    expected_remote_sha: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{40,64}$"
-    )
-    targets: tuple[DeliveryTarget, ...] = Field(min_length=1, max_length=128)
-    commit_message: str = Field(min_length=1, max_length=240)
-    publication_intent: PublicationIntent
-
-
-class DeliveryJournal(ClosedModel):
-    """Внешнее состояние delivery для status/recover без повторной мутации."""
-
-    schema_version: Literal[1] = 1
-    operation_id: str = Field(min_length=8, max_length=80)
-    repository_root_identity: str = Field(pattern=r"^[0-9a-f]{16,64}$")
-    phase: DeliveryPhase
-    branch: str = Field(min_length=1, max_length=120)
-    remote_name: str = Field(min_length=1, max_length=80)
-    remote_branch: str = Field(min_length=1, max_length=256)
-    expected_local_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    expected_base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    expected_remote_sha: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{40,64}$"
-    )
-    target_paths: tuple[str, ...] = Field(min_length=1, max_length=128)
-    changes: tuple[DeliveryChange, ...] = Field(default_factory=tuple, max_length=128)
-    commit_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
-    updated_at: str = Field(min_length=1, max_length=40)
-    last_error_code: ResultCode | None = None
-    last_error_message: str | None = Field(default=None, max_length=300)
-
-
-class DeliveryDetails(ClosedModel):
-    """Краткий operator/machine результат delivery."""
-
-    phase: DeliveryPhase
-    target_paths: tuple[str, ...] = Field(max_length=128)
-    target_count: int = Field(default=0, ge=0, le=128)
-    changes: tuple[DeliveryChange, ...] = Field(default_factory=tuple, max_length=128)
-    commit_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
-    remote_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
-    recovery_required: bool = False
-
-
-class DeliveryEvidence(ClosedModel):
-    snapshot: GitSnapshot
-    commit: CommitIdentity | None = None
-    scans: tuple[AnalysisScope, ...] = Field(default_factory=tuple, max_length=4)
-    publication_remote: RemoteIdentity | None = None
-    base_remote: RemoteIdentity | None = None
-    branch: BranchIdentity | None = None
 
 
 class DockerDeploymentDetails(ClosedModel):
@@ -289,7 +115,7 @@ class DockerDeploymentDetails(ClosedModel):
 
 
 class DockerDeploymentEvidence(ClosedModel):
-    """Ограниченное evidence развёртывания без секретов и public-IP discovery."""
+    """Ограниченные сведения о развёртывании без секретов и обнаружения публичного IP."""
 
     docker_cli: str = Field(min_length=1, max_length=80)
     capability: CapabilityStatus
@@ -310,221 +136,6 @@ class DockerDeploymentEvidence(ClosedModel):
     redis_compose_service: str = "redis"
     redis_network: str = Field(default="", max_length=256)
     redis_endpoint: Literal["redis:6379"] = "redis:6379"
-
-
-class PullRequestIdentity(ClosedModel):
-    """Полная repository-qualified identity PR."""
-
-    repository: RepositoryIdentity
-    number: int = Field(ge=1)
-    state: str = Field(min_length=1, max_length=32)
-    draft: bool
-    base_repository: RepositoryIdentity
-    base_ref: str = Field(min_length=1, max_length=256)
-    base_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
-    head_repository: RepositoryIdentity
-    head_ref: str = Field(min_length=1, max_length=256)
-    head_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-
-
-
-class MandatoryGateState(StrEnum):
-    """Terminal semantic state обязательного product/verification gate."""
-
-    PASS = "PASS"
-    FAIL = "FAIL"
-    BLOCKED_PRECONDITION = "BLOCKED_PRECONDITION"
-    NOT_REQUIRED = "NOT_REQUIRED"
-
-
-FRESH_MCP_ACCEPTANCE_GATE_NAME = "fresh_mcp_client_acceptance"
-
-
-class MandatoryGate(ClosedModel):
-    """Один обязательный или неприменимый gate с bounded evidence."""
-
-    name: str = Field(min_length=1, max_length=80)
-    state: MandatoryGateState
-    required: bool = True
-    evidence: str = Field(min_length=1, max_length=1000)
-    evidence_kind: Literal[
-        "source", "runtime", "fresh_mcp_client", "other"
-    ] = "other"
-
-    @model_validator(mode="after")
-    def validate_required_state(self) -> MandatoryGate:
-        if not self.required and self.state is not MandatoryGateState.NOT_REQUIRED:
-            raise ValueError("необязательный gate должен иметь state NOT_REQUIRED")
-        if self.name == FRESH_MCP_ACCEPTANCE_GATE_NAME and (
-            not self.required or self.state is MandatoryGateState.NOT_REQUIRED
-        ):
-            raise ValueError(
-                "fresh MCP client acceptance не может быть NOT_REQUIRED"
-            )
-        return self
-
-
-class IntegrationCheckState(StrEnum):
-    """Наблюдаемое состояние необязательной внешней integration check."""
-
-    PASS = "PASS"
-    FAIL = "FAIL"
-    BLOCKED_PRECONDITION = "BLOCKED_PRECONDITION"
-    NOT_REQUIRED = "NOT_REQUIRED"
-
-
-class IntegrationCheck(ClosedModel):
-    """Отдельная bounded evidence-проверка, не являющаяся product gate."""
-
-    name: str = Field(min_length=1, max_length=80)
-    state: IntegrationCheckState
-    evidence: str = Field(min_length=1, max_length=1000)
-    evidence_kind: Literal["codex_registration", "other"] = "other"
-
-
-class ReadinessState(ClosedModel):
-    """Непротиворечивое состояние реализации, gates и lifecycle readiness."""
-
-    implementation_status: Literal["IN_PROGRESS", "COMPLETE", "BLOCKED"] = "IN_PROGRESS"
-    mandatory_gates: tuple[MandatoryGate, ...] = Field(default_factory=tuple, max_length=32)
-    integration_checks: tuple[IntegrationCheck, ...] = Field(
-        default_factory=tuple, max_length=32
-    )
-    # Readiness builders обязаны явно классифицировать MCP impact до lifecycle
-    # validation; пропуск должен fail closed, а не обходить fresh gate.
-    mcp_impact: Literal["NOT_REQUIRED", "REQUIRED"]
-    external_reviewer_status: Literal[
-        "NOT_RUN", "SUBSTANTIVE", "LIMITED", "RATE_LIMITED"
-    ] = "NOT_RUN"
-    reviewer_limitation: str | None = Field(default=None, max_length=1000)
-    overall_outcome: Literal["IN_PROGRESS", "BLOCKED", "READY"] = "IN_PROGRESS"
-    ready_for_chatgpt_review: bool = False
-    merge_ready: bool = False
-
-    @model_validator(mode="after")
-    def validate_lifecycle(self) -> ReadinessState:
-        gate_names = tuple(gate.name for gate in self.mandatory_gates)
-        if len(gate_names) != len(set(gate_names)):
-            raise ValueError("mandatory gates должны иметь уникальные имена")
-        integration_names = tuple(check.name for check in self.integration_checks)
-        if len(integration_names) != len(set(integration_names)):
-            raise ValueError("integration checks должны иметь уникальные имена")
-        if self.external_reviewer_status == "NOT_RUN":
-            if self.reviewer_limitation:
-                raise ValueError(
-                    "NOT_RUN не может маскироваться под limitation внешнего reviewer"
-                )
-        elif self.external_reviewer_status == "SUBSTANTIVE" and self.reviewer_limitation:
-            raise ValueError(
-                "SUBSTANTIVE external reviewer не может одновременно иметь limitation"
-            )
-        fresh_gates = tuple(
-            gate
-            for gate in self.mandatory_gates
-            if gate.name == FRESH_MCP_ACCEPTANCE_GATE_NAME
-        )
-        if self.mcp_impact == "REQUIRED":
-            if len(fresh_gates) != 1:
-                raise ValueError(
-                    "MCP impact REQUIRED требует ровно один mandatory fresh MCP gate"
-                )
-            fresh_gate = fresh_gates[0]
-            if fresh_gate.state is MandatoryGateState.NOT_REQUIRED:
-                raise ValueError(
-                    "MCP impact REQUIRED запрещает NOT_REQUIRED для fresh MCP gate"
-                )
-            if (
-                fresh_gate.state is MandatoryGateState.PASS
-                and fresh_gate.evidence_kind != "fresh_mcp_client"
-            ):
-                raise ValueError(
-                    "PASS fresh MCP gate требует evidence независимой MCP client session"
-                )
-        blocking = any(
-            gate.required
-            and gate.state
-            in {MandatoryGateState.FAIL, MandatoryGateState.BLOCKED_PRECONDITION}
-            for gate in self.mandatory_gates
-        )
-        if blocking and (
-            self.overall_outcome != "BLOCKED"
-            or self.ready_for_chatgpt_review
-            or self.merge_ready
-        ):
-            raise ValueError(
-                "FAIL/BLOCKED_PRECONDITION mandatory gate требует overall_outcome BLOCKED "
-                "и запрещает readiness/merge"
-            )
-        if self.merge_ready and not self.ready_for_chatgpt_review:
-            raise ValueError("merge_ready требует ready_for_chatgpt_review")
-        if self.overall_outcome == "READY" and (
-            self.implementation_status != "COMPLETE"
-            or not self.ready_for_chatgpt_review
-            or any(
-                gate.required
-                and gate.state not in {MandatoryGateState.PASS, MandatoryGateState.NOT_REQUIRED}
-                for gate in self.mandatory_gates
-            )
-        ):
-            raise ValueError("READY требует complete implementation и PASS/NOT_REQUIRED gates")
-        if self.external_reviewer_status in {"LIMITED", "RATE_LIMITED"} and not self.reviewer_limitation:
-            raise ValueError("ограничение внешнего reviewer требует reviewer_limitation")
-        return self
-
-
-class PullRequestBody(ClosedModel):
-    """Структурированное тело PR с обязательными durable разделами."""
-
-    goal: str = Field(min_length=1, max_length=4000)
-    scope: str = Field(min_length=1, max_length=4000)
-    implementation: str = Field(min_length=1, max_length=8000)
-    checks: str = Field(min_length=1, max_length=8000)
-    ci: str = Field(min_length=1, max_length=4000)
-    security_secret_scan: str = Field(min_length=1, max_length=4000)
-    readiness: ReadinessState = Field(
-        default_factory=lambda: ReadinessState(mcp_impact="NOT_REQUIRED")
-    )
-    migration_rollback: str = Field(min_length=1, max_length=4000)
-    limitations: str = Field(min_length=1, max_length=4000)
-    merge_method: Literal["squash", "merge", "rebase"] = "squash"
-
-
-
-class PrPublicationSpec(ClosedModel):
-    """Immutable closed-schema request для create/update draft PR."""
-
-    schema_version: Literal[1] = 1
-    repository: RepositoryIdentity
-    base_ref: str = Field(min_length=1, max_length=256)
-    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    head_ref: str = Field(min_length=1, max_length=256)
-    head_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    remote_name: str = Field(default="origin", min_length=1, max_length=80)
-    title: str = Field(min_length=1, max_length=160)
-    draft: bool = True
-    body: PullRequestBody
-    pr_number: int | None = Field(default=None, ge=1)
-
-
-class PrPreparationDetails(ClosedModel):
-    """Подтверждённая read-only подготовка PR без provider mutation."""
-
-    repository: RepositoryIdentity
-    base_ref: str = Field(min_length=1, max_length=256)
-    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    head_ref: str = Field(min_length=1, max_length=256)
-    head_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    body_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class PullRequestDetails(ClosedModel):
-    identity: PullRequestIdentity
-    body_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-
-class PullRequestEvidence(ClosedModel):
-    body_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    body_sections: tuple[str, ...] = Field(min_length=1, max_length=16)
 
 
 class ToolingWarning(ClosedModel):
@@ -553,7 +164,7 @@ class CapabilityCheck(ClosedModel):
 
 
 class IntegrationSummary(ClosedModel):
-    """Внешняя integration summary, добавляемая read-only Doctor."""
+    """Внешняя сводка интеграций, добавляемая только для чтения Doctor."""
 
     name: str = Field(min_length=1, max_length=80)
     status: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,31}$")
@@ -576,16 +187,6 @@ class DoctorEvidence(ClosedModel):
     platform: str = Field(min_length=1, max_length=80)
 
 
-class RemoteIdentityEvidence(ClosedModel):
-    """Безопасное доказательство канонической идентичности без публикации учётных данных URL."""
-
-    configured: str = Field(min_length=1, max_length=256)
-    actual: str = Field(min_length=1, max_length=256)
-    equivalent: bool
-    tracking: str = Field(min_length=1, max_length=256)
-    upstream_push_policy: str = Field(min_length=1, max_length=80)
-
-
 class PostgreSqlBackupEvidence(ClosedModel):
     """Минимальные сведения о логической резервной копии; абсолютный путь намеренно не хранится."""
 
@@ -599,7 +200,7 @@ class PostgreSqlBackupEvidence(ClosedModel):
 
 
 class LifecycleRecord(ClosedModel):
-    """Внутренний файл состояния lifecycle, содержащий полную идентичность владения."""
+    """Внутренний файл состояния жизненного цикла, содержащий полную идентичность владения."""
 
     schema_version: int = Field(default=1, ge=1, le=1)
     root_identity: str = Field(
@@ -682,33 +283,15 @@ class RepairEvidence(ClosedModel):
     transaction_id: str | None = Field(default=None, max_length=80)
 
 
-class UpdateDetails(ClosedModel):
-    status: OperationState
-    branch: str = Field(min_length=1, max_length=120)
-    remote: str = Field(min_length=1, max_length=80)
-    dependency_changed: bool
-    fast_forwarded: bool
-    backup_required: bool = False
-    backup_validated: bool = False
-    transaction_phase: str | None = Field(default=None, max_length=40)
-    recovery_action: str | None = Field(default=None, max_length=120)
-    mcp_reconciliation: Literal["not_required", "ready", "restarted", "failed"] = "not_required"
-    mcp_restarted_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
-    mcp_session_state: Literal[
-        "current", "not_observable", "reload_required", "unknown"
-    ] = "not_observable"
-    mcp_reload_required: bool = False
-
-
 class McpDigest(ClosedModel):
-    """Именованный SHA-256 component digest."""
+    """Именованный SHA-256 компонента."""
 
     name: str = Field(min_length=1, max_length=128)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class McpImpactPath(ClosedModel):
-    """Одна path-to-source-set связь effective candidate diff."""
+    """Связь одного пути итогового diff с набором исходников."""
 
     path: str = Field(min_length=1, max_length=512)
     source_sets: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
@@ -716,7 +299,7 @@ class McpImpactPath(ClosedModel):
 
 
 class McpImpactDetails(ClosedModel):
-    """Read-only классификация MCP impact до публикации candidate."""
+    """Классификация влияния на MCP до публикации кандидата, только для чтения."""
 
     action: Literal["impact"] = "impact"
     base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
@@ -734,13 +317,13 @@ class McpImpactDetails(ClosedModel):
 
     @property
     def fresh_acceptance_required(self) -> bool:
-        """Механическая связь impact classification с mandatory acceptance."""
+        """Связь классификации влияния с обязательной приёмкой."""
 
         return self.status == "REQUIRED"
 
 
 class McpServerStatus(ClosedModel):
-    """Transport-neutral status одной first-party backend family."""
+    """Не зависящее от транспорта состояние одного семейства серверов проекта."""
 
     server_name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")
     expected_version: str = Field(min_length=5, max_length=128)
@@ -770,7 +353,7 @@ class McpServerStatus(ClosedModel):
 
 
 class McpStatusDetails(ClosedModel):
-    """Сводка source/runtime/plugin/session слоёв MCP."""
+    """Сводка исходников, среды выполнения, плагина и сессии слоёв MCP."""
 
     action: Literal["status", "reconcile", "start", "stop", "restart"]
     source_state: Literal["ready", "drift", "invalid", "unknown"]
@@ -792,7 +375,7 @@ class McpStatusDetails(ClosedModel):
 
 
 class McpVersionDetails(ClosedModel):
-    """Полная bounded version/revision сводка canonical bundle."""
+    """Полная ограниченная сводка версий и ревизий канонического пакета."""
 
     action: Literal["versions"] = "versions"
     bundle_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -803,7 +386,7 @@ class McpVersionDetails(ClosedModel):
 
 
 class McpLifecycleDetails(ClosedModel):
-    """Bounded evidence lifecycle-операции loopback supervisor."""
+    """Ограниченные сведения об операции жизненного цикла локального supervisor."""
 
     action: Literal["start", "stop", "restart"]
     supervisor_code: str = Field(min_length=1, max_length=128)
@@ -874,7 +457,7 @@ class ApplicationStateDetails(ClosedModel):
 
 
 class McpReconcileDetails(ClosedModel):
-    """Раздельный результат source reconciliation и live runtime readiness."""
+    """Раздельный результат согласования исходников и готовности среды выполнения."""
 
     action: Literal["reconcile"] = "reconcile"
     mode: Literal["source", "runtime"]
@@ -892,7 +475,7 @@ class McpReconcileDetails(ClosedModel):
 
 
 class McpSyncDetails(ClosedModel):
-    """Итог синхронизации MCP-исходников, runtime и клиента с учётом base."""
+    """Итог синхронизации MCP-исходников, среды выполнения и клиента с учётом базы."""
 
     action: Literal["sync"] = "sync"
     terminal: Literal["NO_CHANGES", "SYNCED", "FAILED"]
@@ -903,23 +486,6 @@ class McpSyncDetails(ClosedModel):
     generated_artifacts: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
     runtime: McpReconcileDetails | None = None
     acceptance: McpAcceptanceDetails | None = None
-
-
-class UpdateEvidence(ClosedModel):
-    repository: RepositoryRootEvidence
-    pre_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    post_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    remote_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    transaction_id: str | None = Field(default=None, max_length=80)
-    remote_identity: RemoteIdentityEvidence | None = None
-    postgres_backup: PostgreSqlBackupEvidence | None = None
-
-
-class GitEvidence(ClosedModel):
-    branch: str = Field(min_length=1, max_length=120)
-    remote: str = Field(min_length=1, max_length=80)
-    pre_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
-    remote_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
 
 
 class TransactionJournal(ClosedModel):
@@ -948,7 +514,7 @@ class TransactionJournal(ClosedModel):
 
 
 class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
-    """Общий закрытый envelope для human и machine adapters."""
+    """Общий закрытый конверт результата для человекочитаемых и машинных адаптеров."""
 
     schema_version: int = Field(default=1, ge=1, le=1)
     ok: bool
@@ -962,41 +528,24 @@ class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
 
 
 __all__ = [
-    "FRESH_MCP_ACCEPTANCE_GATE_NAME",
     "AnalysisScope",
     "ApplicationStateDetails",
     "BotRuntimeDetails",
     "BotRuntimeWorker",
-    "BranchIdentity",
     "BuildDetails",
     "BuildEvidence",
     "CapabilityCheck",
     "CapabilityStatus",
     "ClosedModel",
     "CommissionRecoveryProjection",
-    "CommitIdentity",
-    "DeliveryChange",
-    "DeliveryDetails",
-    "DeliveryEvidence",
-    "DeliveryJournal",
-    "DeliveryManifest",
-    "DeliveryPhase",
-    "DeliveryTarget",
     "DoctorDetails",
     "DoctorEvidence",
     "ExitCode",
-    "FileState",
-    "GitEvidence",
     "GitRange",
-    "GitSnapshot",
-    "IntegrationCheck",
-    "IntegrationCheckState",
     "IntegrationSummary",
     "LifecycleDetails",
     "LifecycleEvidence",
     "LifecycleRecord",
-    "MandatoryGate",
-    "MandatoryGateState",
     "McpAcceptanceDetails",
     "McpDigest",
     "McpImpactDetails",
@@ -1009,29 +558,16 @@ __all__ = [
     "McpVersionDetails",
     "OperationState",
     "PostgreSqlBackupEvidence",
-    "PrPreparationDetails",
-    "PrPublicationSpec",
     "ProcessEvidence",
-    "PublicationIntent",
-    "PullRequestBody",
-    "PullRequestDetails",
-    "PullRequestEvidence",
-    "PullRequestIdentity",
-    "ReadinessState",
-    "RemoteIdentity",
-    "RemoteIdentityEvidence",
     "RepairDetails",
     "RepairEvidence",
     "RepositoryDetails",
-    "RepositoryIdentity",
     "RepositoryRootEvidence",
     "ResultCode",
     "RootSource",
     "ToolingResult",
     "ToolingWarning",
     "TransactionJournal",
-    "UpdateDetails",
-    "UpdateEvidence",
     "WarningCode",
     "exit_code_for",
 ]

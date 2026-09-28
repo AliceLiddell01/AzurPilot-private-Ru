@@ -40,7 +40,7 @@ class LegacyInstallerRemovalTests(unittest.TestCase):
     def test_operator_cutover_has_one_python_owner(self):
         assert_no_legacy_operator_surfaces(ROOT)
         self.assertTrue((ROOT / 'azurpilot/tooling/lifecycle.py').is_file())
-        self.assertTrue((ROOT / 'azurpilot/tooling/update.py').is_file())
+        self.assertTrue((ROOT / '.agents/skills/azurpilot-git-workflow/SKILL.md').is_file())
         self.assertTrue((ROOT / 'azurpilot/tooling/repair.py').is_file())
         self.assertTrue((ROOT / 'azurpilot/tooling/bootstrap.py').is_file())
 

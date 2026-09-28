@@ -54,7 +54,7 @@ class _RollbackAssessment:
 
 
 class RepairService:
-    """Repair не меняет Git, config или PostgreSQL и не обходит active Update."""
+    """Repair не меняет Git, конфигурацию или PostgreSQL и не обходит незавершённое обслуживание окружения."""
 
     def __init__(
         self,
@@ -365,7 +365,7 @@ class RepairService:
                     )
                 raise ToolingError(
                     ResultCode.TOOLING_OPERATION_CONFLICT,
-                    "Незавершённая транзакция блокирует Repair; используйте diagnostic-only или восстановление Update.",
+                    "Незавершённая транзакция блокирует Repair; используйте --diagnostic-only и сохраните состояние для проверки восстановления.",
                     operation_id=operation_id,
                 )
             if shortcut_only:

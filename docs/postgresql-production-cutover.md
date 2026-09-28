@@ -72,9 +72,11 @@ passfiles. Migrator выбирается только maintenance-команда
   `AZURPILOT_GAME_MCP_PUBLIC_HOST` он также поднимает Caddy profile
   `remote-ingress`. Если Dev host удалён, он останавливает только Caddy этого
   Compose project. Затем проверяются marker, app auth и head до GUI.
-- `azur update` после graceful stop создаёт новый Docker `pg_dump -Fc`, затем
-  применяет reviewed Alembic код отдельным migrator и проверяет app health.
-  Ошибка backup блокирует update; автоматического pruning нет.
+- Перед обновлением рабочей копии останови среду штатно и отдельно создай
+  резервную копию Docker `pg_dump -Fc`. Git обновляется через
+  `azurpilot-git-workflow`; проверенный код Alembic применяется отдельным
+  migrator с последующей проверкой здоровья приложения. Ошибка резервного
+  копирования блокирует изменение данных; автоматической очистки копий нет.
 - `azur repair` диагностирует Docker Compose service/auth/head,
   loopback binding, SCRAM и разобранные HBA rules; он не меняет HBA, роли,
   database или пароль.

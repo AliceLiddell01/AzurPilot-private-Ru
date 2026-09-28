@@ -10,9 +10,8 @@ from pathlib import Path
 from typing import Any
 
 _MAX_INPUT_BYTES = 128 * 1024
-_MAX_STATE_BYTES = 128 * 1024
-_MAX_TRANSACTIONS = 128
-_RECOVERY_PHASES = frozenset({"push_in_flight", "unknown"})
+_MAX_STATE_BYTES = 4096
+_OPERATIONS = frozenset({"push", "pr-create", "pr-edit", "pr-ready", "pr-draft", "pr-merge"})
 
 
 def _is_link(path: Path) -> bool:
@@ -51,68 +50,30 @@ def _repository_root(cwd: object) -> Path | None:
     return None
 
 
-def _state_base() -> Path | None:
-    configured = os.environ.get("AZURPILOT_STATE_HOME")
-    if configured:
-        try:
-            path = Path(configured).expanduser()
-        except (OSError, RuntimeError, ValueError):
-            return None
-        return path if path.is_absolute() else None
-    if os.name == "nt":
-        base = os.environ.get("LOCALAPPDATA") or os.environ.get("PROGRAMDATA")
-        return Path(base) / "AzurPilot" if base else None
-    configured = os.environ.get("XDG_STATE_HOME")
-    if configured:
-        return Path(configured).expanduser() / "azurpilot"
-    try:
-        return Path.home() / ".local" / "state" / "azurpilot"
-    except RuntimeError:
-        return None
-
-
 def _repository_identity(root: Path) -> str:
     identity = os.path.normcase(str(root.resolve())).encode("utf-8")
     return hashlib.sha256(identity).hexdigest()
 
 
-def _state_directory(root: Path) -> Path | None:
-    base = _state_base()
-    if base is None:
-        return None
-    directory = base / _repository_identity(root)[:24]
-    try:
-        if _is_link(directory) or (directory.exists() and not directory.is_dir()):
-            return None
-    except OSError:
-        return None
-    return directory
-
-
-def _unfinished_delivery(state_directory: Path, root_identity: str) -> bool:
-    transactions = state_directory / "transactions"
-    if _is_link(transactions) or not transactions.is_dir():
+def _unfinished_publication(root: Path) -> bool:
+    directory = root / ".codex" / "local"
+    if _is_link(root / ".codex") or _is_link(directory):
         return False
-    try:
-        entries = [
-            item
-            for item in transactions.iterdir()
-            if item.name.startswith("delivery-")
-        ][:_MAX_TRANSACTIONS]
-    except OSError:
+    payload = _read_json(directory / "git-publication.json")
+    if payload is None or set(payload) != {
+        "workflow", "repository_root_identity", "operation", "head_sha"
+    }:
         return False
-    for entry in entries:
-        if _is_link(entry) or not entry.is_dir():
-            continue
-        payload = _read_json(entry / "state.json")
-        if (
-            payload is not None
-            and payload.get("operation_id") == entry.name
-            and payload.get("repository_root_identity") == root_identity
-            and payload.get("phase") in _RECOVERY_PHASES
-        ):
-            return True
-    return False
+    head = payload.get("head_sha")
+    return (
+        payload.get("workflow") == "azurpilot-git-workflow"
+        and payload.get("repository_root_identity") == _repository_identity(root)
+        and isinstance(payload.get("operation"), str)
+        and payload["operation"] in _OPERATIONS
+        and isinstance(head, str)
+        and len(head) in {40, 64}
+        and all(char in "0123456789abcdef" for char in head)
+    )
 
 
 def process_event(event: object) -> dict[str, str] | None:
@@ -125,17 +86,13 @@ def process_event(event: object) -> dict[str, str] | None:
     root = _repository_root(event.get("cwd"))
     if root is None:
         return {}
-    state_directory = _state_directory(root)
-    if state_directory is None or not _unfinished_delivery(
-        state_directory,
-        _repository_identity(root),
-    ):
+    if not _unfinished_publication(root):
         return {}
     return {
         "decision": "block",
         "reason": (
-            "WORKFLOW_CONTINUATION_REQUIRED: проверьте ambiguous delivery "
-            "через azur delivery status/recover."
+            "WORKFLOW_CONTINUATION_REQUIRED: восстановите фактическое состояние удалённого репозитория "
+            "по azurpilot-git-workflow и подтвердите постусловие публикации."
         ),
     }
 
