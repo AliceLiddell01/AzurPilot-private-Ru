@@ -150,7 +150,7 @@ def test_cli_human_output_uses_russian_operator_presentation() -> None:
 
     assert main(["doctor"], services=services, stdout=stdout, stderr=stderr) == 0
     assert "✓" in stdout.getvalue()
-    assert "AzurPilot Doctor" in stdout.getvalue()
+    assert "Диагностика AzurPilot" in stdout.getvalue()
     assert "[OK]" not in stdout.getvalue()
     assert stderr.getvalue() == ""
 
