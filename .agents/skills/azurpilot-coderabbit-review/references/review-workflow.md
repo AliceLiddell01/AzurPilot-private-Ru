@@ -46,17 +46,18 @@ coderabbit config validate
 
 ## 3. Выбрать review scope
 
-Для agent-readable результата используй native interface:
+Для agent-readable review опубликованного committed candidate используй native
+interface с явно указанной базой:
 
 ```bash
-coderabbit review --agent
+coderabbit review --agent --committed --base-commit <exact-base-sha>
 ```
 
-Для review опубликованного committed candidate сначала проверь
-`coderabbit review --help`, затем используй публичный committed scope текущего
-CLI: `-t committed`. При необходимости задай точную базу через
-`--base <branch>` или `--base-commit <sha>`. Не придумывай alias вроде
-`--committed`, если его нет в фактическом help установленной версии.
+Перед каждым cycle проверь `coderabbit review --help`: пример выше использует
+флаги установленного CLI `--committed` и `--base-commit`. Если интерфейс версии
+отличается, используй только явно документированные эквиваленты committed scope
+и точной базы; если нужной capability нет, сообщи ограничение. Не угадывай имена
+флагов и не полагайся на неявную базу.
 
 Если пользователь явно запросил deep/focus/другой режим, сначала проверь наличие
 этой capability в установленной версии. Не подменяй её обычным review молча.
