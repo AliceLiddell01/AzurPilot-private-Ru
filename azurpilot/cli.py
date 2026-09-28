@@ -184,12 +184,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="срок остановки",
     )
 
-    bot = subparsers.add_parser("bot", help="управлять среда выполнения бота без графического интерфейса")
+    bot = subparsers.add_parser("bot", help="управлять средой выполнения бота без графического интерфейса")
     _add_common_options(bot, suppress_defaults=True)
     bot_actions = bot.add_subparsers(dest="bot_command", required=True)
     for action, help_text, default_timeout in (
-        ("start", "запустить среда выполнения бота без WebUI", 30.0),
-        ("stop", "штатно остановить среда выполнения бота и его рабочие процессы", 120.0),
+        ("start", "запустить среду выполнения бота без WebUI", 30.0),
+        ("stop", "штатно остановить среду выполнения бота и его рабочие процессы", 120.0),
     ):
         action_parser = bot_actions.add_parser(action, help=help_text)
         _add_common_options(action_parser, suppress_defaults=True)
@@ -200,7 +200,7 @@ def build_parser() -> argparse.ArgumentParser:
             metavar="SECONDS",
             help="общий ограниченный срок операции",
         )
-    bot_status = bot_actions.add_parser("status", help="прочитать состояние среда выполнения бота")
+    bot_status = bot_actions.add_parser("status", help="прочитать состояние среды выполнения бота")
     _add_common_options(bot_status, suppress_defaults=True)
 
     webui = subparsers.add_parser("webui", help="управлять только WebUI")
@@ -906,13 +906,13 @@ def _dispatch(
                 )
             if scope_count > 1:
                 raise CliInvocationError(
-                    "Semgrep scan принимает только один область изменений: --staged, --changed или --paths."
+                    "Semgrep scan принимает только одну область изменений: --staged, --changed или --paths."
                 )
             if args.scan_base and not args.changed:
                 raise CliInvocationError("--base разрешён только вместе с --changed.")
             if args.changed:
                 if not args.scan_base:
-                    raise CliInvocationError("--changed требует --base с точный SHA.")
+                    raise CliInvocationError("--changed требует --base с точным SHA.")
                 from .tooling.git import GitClient
 
                 end_sha = GitClient(integration_root).head()
