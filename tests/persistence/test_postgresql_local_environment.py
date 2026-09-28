@@ -323,7 +323,10 @@ def test_local_env_requires_matching_app_and_migrator_endpoint(tmp_path: Path):
             "AZURPILOT_POSTGRES_MIGRATOR_DATABASE=other",
         ),
     )
-    with pytest.raises(StorageConfigurationError, match="конечные точки PostgreSQL"):
+    with pytest.raises(
+        StorageConfigurationError,
+        match="параметры подключения PostgreSQL.*должны совпадать",
+    ):
         load_local_postgres_environment(path, environment={})
 
 
@@ -424,7 +427,7 @@ def test_windows_acl_probe_does_not_inherit_registered_secrets(
     assert {key: os.environ[key] for key in original_values} == original_values
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows ACL gate")
+@pytest.mark.skipif(os.name != "nt", reason="проверка ACL Windows")
 def test_local_env_reports_unavailable_acl_inspection(tmp_path: Path, monkeypatch):
     path = tmp_path / ".env"
     _write_env(path, _document())

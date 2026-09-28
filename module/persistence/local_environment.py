@@ -581,7 +581,7 @@ def read_local_postgres_environment(
     ):
         if values[_APP_PREFIX + field_name] != values[_MIGRATOR_PREFIX + field_name]:
             raise StorageConfigurationError(
-                "Приложение и роль миграции должны использовать разные конечные точки PostgreSQL."
+                "Общие параметры подключения PostgreSQL у приложения и роли миграции должны совпадать."
             )
     return LocalPostgresEnvironment(
         path=env_path,

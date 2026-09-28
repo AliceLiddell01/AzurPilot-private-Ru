@@ -750,17 +750,25 @@ def _render_human(
                 from rich.table import Table
 
                 table = Table(title="Приёмка моста Windows MCP", expand=True)
+                table.add_column("Режим", no_wrap=True)
                 table.add_column("Сервер", no_wrap=True)
+                table.add_column("Протокол", no_wrap=True)
                 table.add_column("Состояние", no_wrap=True)
                 table.add_column("Вызовы только для чтения", overflow="fold")
                 table.add_column("Причина", overflow="fold")
-                for route in result.details.routes:
-                    table.add_row(
-                        route.server_name or "не определён",
-                        route.acceptance_state,
-                        ", ".join(route.called_tools) or "—",
-                        route.reason_code,
-                    )
+                for mode, routes in (
+                    ("Совместимость", result.details.routes),
+                    ("Современный (auto)", result.details.modern_routes),
+                ):
+                    for route in routes:
+                        table.add_row(
+                            mode,
+                            route.server_name or "не определён",
+                            route.protocol_version or "не определён",
+                            route.acceptance_state,
+                            ", ".join(route.called_tools) or "—",
+                            route.reason_code,
+                        )
                 console.print(table)
                 console.print(f"{'✓' if result.ok else '✗'} {result.message}")
             if isinstance(result.details, McpImpactDetails):

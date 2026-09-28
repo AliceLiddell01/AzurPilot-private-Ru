@@ -1,4 +1,4 @@
-"""Ограниченный MCP transport для типизированных read-only адаптеров."""
+"""Ограниченный транспорт MCP для типизированных адаптеров с операциями только для чтения."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .contracts import IntegrationState
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _MAX_TOOLS = 256
-# Plain HTTP допускается только для endpoint общего сервиса на loopback: это
+# Обычный HTTP допускается только для конечной точки общего сервиса на loopback: это
 # адрес машины-владельца, а не расширение доступа за её пределы. Владелец
 # проверки один — этот модуль, остальные вызывающие стороны её переиспользуют.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -24,7 +24,7 @@ ENDPOINT_NOT_LOOPBACK_CODE = "INTEGRATION_SHARED_ENDPOINT_NOT_LOOPBACK"
 
 
 class HttpEndpointError(ValueError):
-    """Типизированный отказ проверки HTTP MCP endpoint общего сервиса."""
+    """Типизированный отказ при проверке конечной точки общего HTTP-сервиса MCP."""
 
     def __init__(self, code: str) -> None:
         self.code = code
@@ -39,7 +39,7 @@ class HttpTransportPolicy(StrEnum):
 
 
 def _http_client_trust_env(endpoint: str, policy: HttpTransportPolicy) -> bool:
-    """Проверить соответствие адреса сервера выбранной транспортной политике."""
+    """Проверить соответствие адреса сервера выбранной политике транспорта."""
 
     validate_http_endpoint(endpoint)
     parsed = urlsplit(endpoint)
@@ -54,24 +54,24 @@ def _http_client_trust_env(endpoint: str, policy: HttpTransportPolicy) -> bool:
 
 
 def validate_endpoint(value: str, *, allow_http: bool = False) -> str:
-    """Проверить endpoint без допуска URL credentials или control characters."""
+    """Проверить конечную точку без учётных данных в URL и управляющих символов."""
 
     try:
         parsed = urlsplit(value)
     except ValueError as exc:
-        raise ValueError("endpoint имеет неверный формат") from exc
+        raise ValueError("Адрес сервера имеет неверный формат.") from exc
     schemes = {"https", "http"} if allow_http else {"https"}
     if parsed.scheme not in schemes or not parsed.hostname:
-        raise ValueError("endpoint должен использовать разрешённую схему")
+        raise ValueError("Адрес сервера должен использовать разрешённую схему.")
     if parsed.username or parsed.password or any(ord(char) < 32 for char in value):
-        raise ValueError("endpoint не должен содержать credentials или управляющие символы")
+        raise ValueError("Адрес сервера не должен содержать учётные данные или управляющие символы.")
     if len(value) > 512:
-        raise ValueError("endpoint превышает ограниченный размер")
+        raise ValueError("Адрес сервера превышает допустимый размер.")
     return value
 
 
 def validate_http_endpoint(value: str) -> str:
-    """Проверить endpoint HTTP MCP: plain HTTP допускается только на loopback."""
+    """Проверить конечную точку HTTP MCP: обычный HTTP разрешён только на loopback."""
 
     try:
         validate_endpoint(value, allow_http=True)
@@ -85,7 +85,7 @@ def validate_http_endpoint(value: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class McpCallPlan:
-    """План одной заранее известной read-only операции адаптера."""
+    """План одной заранее известной операции адаптера только для чтения."""
 
     required_tools: frozenset[str]
     probe_tool: str
@@ -102,7 +102,7 @@ class McpCallPlan:
         if self.probe_tool not in self.required_tools:
             raise ValueError("probe_tool должен входить в required_tools")
         if self.probe_tool in self.blocked_tools:
-            raise ValueError("probe_tool не может быть write tool")
+            raise ValueError("probe_tool не может быть инструментом записи.")
         if not self.tempo_tools.issubset(self.required_tools):
             raise ValueError("tempo_tools должны входить в required_tools")
         if self.expected_tools and not self.required_tools.issubset(self.expected_tools):
@@ -121,11 +121,11 @@ class McpProbeResult:
 
 @dataclass(frozen=True, slots=True)
 class McpToolCallResult:
-    """Bounded результат одной read-only операции в Streamable HTTP session.
+    """Ограниченный результат операции только для чтения в сессии Streamable HTTP.
 
-    Negotiated catalog остаётся валидированным: `catalog_reason_code` заполняется
-    только тогда, когда catalog не совпал с переданным `McpCallPlan`. Ошибки
-    transport сюда не превращаются в data, их типизируют вызывающие стороны.
+    Согласованный каталог остаётся проверенным: `catalog_reason_code` заполняется
+    только при несовпадении каталога с переданным `McpCallPlan`. Ошибки транспорта
+    здесь не преобразуются в данные; вызывающие стороны задают для них тип.
     """
 
     tool_names: tuple[str, ...] = ()
@@ -137,7 +137,7 @@ class McpToolCallResult:
 
     @property
     def has_content(self) -> bool:
-        """Сообщить, наблюдаем ли bounded результат без raw payload."""
+        """Сообщить, содержит ли ограниченный результат исходные данные."""
 
         if self.structured_content:
             return True
@@ -146,7 +146,7 @@ class McpToolCallResult:
 
 @dataclass(frozen=True, slots=True)
 class FreshMcpClientPlan:
-    """Ограниченный read-only контракт одной независимой MCP client session."""
+    """Ограниченный контракт одной независимой сессии клиента MCP только для чтения."""
 
     call_plan: McpCallPlan
     contract_tool: str
@@ -157,23 +157,23 @@ class FreshMcpClientPlan:
         if not _IDENTIFIER_RE.fullmatch(self.contract_tool):
             raise ValueError("contract_tool имеет небезопасное имя")
         if self.call_plan.probe_tool != self.contract_tool:
-            raise ValueError("contract_tool должен быть probe_tool call plan")
+            raise ValueError("contract_tool должен совпадать с probe_tool в плане вызовов.")
         if not isinstance(self.expected_contract, Mapping) or not self.expected_contract:
-            raise ValueError("expected_contract должен быть непустым mapping")
+            raise ValueError("expected_contract должен быть непустым словарём.")
         for tool_name, arguments in self.required_read_only_calls:
             if not _IDENTIFIER_RE.fullmatch(tool_name):
-                raise ValueError("required read-only tool имеет небезопасное имя")
+                raise ValueError("Обязательный инструмент только для чтения имеет небезопасное имя.")
             if tool_name not in self.call_plan.required_tools:
-                raise ValueError("required read-only tool отсутствует в required_tools")
+                raise ValueError("Обязательный инструмент только для чтения отсутствует в required_tools.")
             if tool_name in self.call_plan.blocked_tools:
-                raise ValueError("required read-only tool не может быть write tool")
+                raise ValueError("Обязательный инструмент только для чтения не может быть инструментом записи.")
             if not isinstance(arguments, dict):
-                raise TypeError("arguments read-only tool должны быть dict")
+                raise TypeError("Аргументы инструмента только для чтения должны быть словарём.")
 
 
 @dataclass(frozen=True, slots=True)
 class FreshMcpClientResult:
-    """Bounded evidence независимой SDK-сессии без raw MCP payload."""
+    """Ограниченные сведения о независимой сессии SDK без исходных данных MCP."""
 
     state: IntegrationState
     reason_code: str
@@ -212,7 +212,7 @@ def _tool_names(items: object) -> tuple[str, ...] | None:
 def validate_tool_catalog(
     plan: McpCallPlan, names: tuple[str, ...]
 ) -> tuple[str, str] | None:
-    """Проверить negotiated catalog до любого вызова read-only tool."""
+    """Проверить согласованный каталог до вызова инструмента только для чтения."""
 
     actual = set(names)
     missing = set(plan.expected_tools).difference(actual)
@@ -258,7 +258,7 @@ def _bounded_result_diagnostic(
     result: object,
     payload: Mapping[str, object] | None,
 ) -> str:
-    """Вернуть только безопасный код результата для bounded acceptance evidence."""
+    """Вернуть только безопасный код результата для ограниченных данных приёмки."""
 
     if payload is None:
         return f"{tool_name}:transport_error" if _result_has_error(result) else f"{tool_name}:structured_payload_missing"
@@ -276,16 +276,40 @@ async def _accept_fresh_session(
     *,
     plan: FreshMcpClientPlan,
     timeout_seconds: float,
+    initialize_session: bool = True,
+    required_protocol_version: str | None = None,
 ) -> FreshMcpClientResult:
-    """Провести initialize/catalog/contract/read-only checks в одной новой session."""
+    """Проверить `initialize`, каталог, контракт и вызовы только для чтения в новой сессии."""
 
-    initialized = await asyncio.wait_for(session.initialize(), timeout=timeout_seconds)  # type: ignore[attr-defined]
-    initialized_info = getattr(initialized, "server_info", None)
+    if initialize_session:
+        initialized_response = await asyncio.wait_for(
+            session.initialize(), timeout=timeout_seconds  # type: ignore[attr-defined]
+        )
+        initialized_info = getattr(initialized_response, "server_info", None)
+        protocol_version = getattr(initialized_response, "protocol_version", None)
+        if protocol_version is None:
+            protocol_version = getattr(session, "protocol_version", None)
+        session_initialized = True
+    else:
+        initialized_info = getattr(session, "server_info", None)
+        protocol_version = getattr(session, "protocol_version", None)
+        session_initialized = protocol_version != required_protocol_version
+
     server_name = getattr(initialized_info, "name", None)
     server_version = getattr(initialized_info, "version", None)
-    protocol_version = getattr(initialized, "protocol_version", None)
-    if protocol_version is None:
-        protocol_version = getattr(session, "protocol_version", None)
+    if (
+        required_protocol_version is not None
+        and protocol_version != required_protocol_version
+    ):
+        return FreshMcpClientResult(
+            IntegrationState.INCOMPATIBLE,
+            "MCP_FRESH_CLIENT_MODERN_PROTOCOL_REQUIRED",
+            initialized=session_initialized,
+            protocol_version=protocol_version,
+            server_name=server_name,
+            server_version=server_version,
+            diagnostics=("modern_protocol_not_negotiated",),
+        )
 
     listed = await asyncio.wait_for(session.list_tools(), timeout=timeout_seconds)  # type: ignore[attr-defined]
     items = getattr(listed, "tools", None)
@@ -294,7 +318,7 @@ async def _accept_fresh_session(
         return FreshMcpClientResult(
             IntegrationState.INCOMPATIBLE,
             "MCP_FRESH_CLIENT_TOOL_CATALOG_INVALID",
-            initialized=True,
+            initialized=session_initialized,
             protocol_version=protocol_version,
         )
     catalog_error = validate_tool_catalog(plan.call_plan, names)
@@ -303,7 +327,7 @@ async def _accept_fresh_session(
         return FreshMcpClientResult(
             IntegrationState.INCOMPATIBLE,
             f"MCP_FRESH_CLIENT_{reason_code}",
-            initialized=True,
+            initialized=session_initialized,
             protocol_version=protocol_version,
             server_name=server_name,
             server_version=server_version,
@@ -319,7 +343,7 @@ async def _accept_fresh_session(
         return FreshMcpClientResult(
             IntegrationState.UNAVAILABLE,
             "MCP_FRESH_CLIENT_CONTRACT_CALL_FAILED",
-            initialized=True,
+            initialized=session_initialized,
             protocol_version=protocol_version,
             server_name=server_name,
             server_version=server_version,
@@ -333,7 +357,7 @@ async def _accept_fresh_session(
         return FreshMcpClientResult(
             IntegrationState.INCOMPATIBLE,
             "MCP_FRESH_CLIENT_CONTRACT_PAYLOAD_INVALID",
-            initialized=True,
+            initialized=session_initialized,
             protocol_version=protocol_version,
             server_name=server_name,
             server_version=server_version,
@@ -349,7 +373,7 @@ async def _accept_fresh_session(
         return FreshMcpClientResult(
             IntegrationState.INCOMPATIBLE,
             "MCP_FRESH_CLIENT_TOOL_CATALOG_INVALID",
-            initialized=True,
+            initialized=session_initialized,
             protocol_version=protocol_version,
             server_name=server_name,
             server_version=server_version,
@@ -375,7 +399,7 @@ async def _accept_fresh_session(
         return FreshMcpClientResult(
             IntegrationState.INCOMPATIBLE,
             "MCP_FRESH_CLIENT_CONTRACT_DRIFT",
-            initialized=True,
+            initialized=session_initialized,
             protocol_version=protocol_version,
             server_name=server_name,
             server_version=server_version,
@@ -415,7 +439,7 @@ async def _accept_fresh_session(
             return FreshMcpClientResult(
                 IntegrationState.UNAVAILABLE,
                 "MCP_FRESH_CLIENT_READ_ONLY_CALL_FAILED",
-                initialized=True,
+                initialized=session_initialized,
                 protocol_version=protocol_version,
                 server_name=server_name,
                 server_version=server_version,
@@ -444,7 +468,7 @@ async def _accept_fresh_session(
     return FreshMcpClientResult(
         IntegrationState.READY,
         "MCP_FRESH_CLIENT_ACCEPTANCE_READY",
-        initialized=True,
+        initialized=session_initialized,
         protocol_version=protocol_version,
         server_name=server_name or (
             contract.get("server_name")
@@ -486,7 +510,7 @@ async def accept_fresh_stdio(
     plan: FreshMcpClientPlan,
     timeout_seconds: float,
 ) -> FreshMcpClientResult:
-    """Создать независимый stdio SDK client и вернуть bounded acceptance evidence."""
+    """Создать независимый клиент SDK через stdio и вернуть ограниченные данные приёмки."""
 
     from mcp.client.session import ClientSession
     from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -513,7 +537,7 @@ async def accept_fresh_stdio(
             )
     except TimeoutError:
         return FreshMcpClientResult(IntegrationState.UNAVAILABLE, "MCP_FRESH_CLIENT_TIMEOUT")
-    except Exception as error:  # noqa: BLE001 - boundary exposes only type.
+    except Exception as error:  # noqa: BLE001 - граница раскрывает только тип исключения.
         return FreshMcpClientResult(
             IntegrationState.UNAVAILABLE,
             "MCP_FRESH_CLIENT_FAILED",
@@ -529,7 +553,7 @@ async def accept_fresh_http(
     timeout_seconds: float,
     transport_policy: HttpTransportPolicy,
 ) -> FreshMcpClientResult:
-    """Создать независимый Streamable HTTP SDK client и вернуть acceptance evidence."""
+    """Создать независимый клиент SDK через Streamable HTTP и вернуть данные приёмки."""
 
     try:
         validate_http_endpoint(endpoint)
@@ -546,7 +570,56 @@ async def accept_fresh_http(
             )
     except TimeoutError:
         return FreshMcpClientResult(IntegrationState.UNAVAILABLE, "MCP_FRESH_CLIENT_TIMEOUT")
-    except Exception as error:  # noqa: BLE001 - boundary exposes only type.
+    except Exception as error:  # noqa: BLE001 - граница раскрывает только тип исключения.
+        return FreshMcpClientResult(
+            IntegrationState.UNAVAILABLE,
+            "MCP_FRESH_CLIENT_HTTP_FAILED",
+            diagnostics=(_safe_type_name(error),),
+        )
+
+
+async def accept_fresh_http_modern(
+    *,
+    endpoint: str,
+    headers: Mapping[str, str],
+    plan: FreshMcpClientPlan,
+    timeout_seconds: float,
+    transport_policy: HttpTransportPolicy,
+) -> FreshMcpClientResult:
+    """Проверить современный транспорт Streamable HTTP с клиентом SDK `Client` в `mode="auto"`."""
+
+    try:
+        import httpx2
+        from mcp import Client
+        from mcp.client.streamable_http import streamable_http_client
+        from mcp.types.version import LATEST_MODERN_VERSION
+
+        validate_http_endpoint(endpoint)
+        trust_env = _http_client_trust_env(endpoint, transport_policy)
+        async with httpx2.AsyncClient(
+            headers=dict(headers),
+            timeout=timeout_seconds,
+            trust_env=trust_env,
+            follow_redirects=False,
+        ) as http_client:
+            transport = streamable_http_client(endpoint, http_client=http_client)
+            async with Client(
+                transport,
+                mode="auto",
+                read_timeout_seconds=timeout_seconds,
+            ) as client:
+                return await _accept_fresh_session(
+                    client,
+                    plan=plan,
+                    timeout_seconds=timeout_seconds,
+                    initialize_session=False,
+                    required_protocol_version=LATEST_MODERN_VERSION,
+                )
+    except TimeoutError:
+        return FreshMcpClientResult(
+            IntegrationState.UNAVAILABLE, "MCP_FRESH_CLIENT_TIMEOUT"
+        )
+    except Exception as error:  # noqa: BLE001 - граница раскрывает только тип исключения.
         return FreshMcpClientResult(
             IntegrationState.UNAVAILABLE,
             "MCP_FRESH_CLIENT_HTTP_FAILED",
@@ -561,7 +634,7 @@ def _call_state(
     credential_configured: bool,
     credential_required: bool = False,
 ) -> tuple[IntegrationState, str, bool | None]:
-    """Типизировать исход одного read-only вызова без raw payload."""
+    """Задать тип результата одного вызова только для чтения без исходных данных."""
 
     if not is_error:
         if has_content:
@@ -605,7 +678,7 @@ async def probe_stdio(
     credential_configured: bool,
     credential_required: bool = False,
 ) -> McpProbeResult:
-    """Проверить конкретный stdio server через SDK без generic tool dispatch."""
+    """Проверить указанный сервер stdio через SDK без общего диспетчера инструментов."""
 
     from mcp.client.session import ClientSession
     from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -665,7 +738,7 @@ async def probe_stdio(
                 )
     except TimeoutError:
         return McpProbeResult(IntegrationState.UNAVAILABLE, "MCP_PROBE_TIMEOUT")
-    except Exception as error:  # noqa: BLE001 - boundary exposes only type.
+    except Exception as error:  # noqa: BLE001 - граница раскрывает только тип исключения.
         return McpProbeResult(
             IntegrationState.UNAVAILABLE,
             "MCP_PROBE_FAILED",
@@ -681,7 +754,7 @@ async def _http_session(
     timeout_seconds: float,
     transport_policy: HttpTransportPolicy,
 ):
-    """Открыть одну bounded Streamable HTTP session без redirect и retry."""
+    """Открыть одну ограниченную сессию Streamable HTTP без перенаправлений и повторных попыток."""
 
     import httpx2
     from mcp.client.session import ClientSession
@@ -713,11 +786,11 @@ async def call_http_tool(
     plan: McpCallPlan | None = None,
     transport_policy: HttpTransportPolicy,
 ) -> McpToolCallResult:
-    """Выполнить ровно один read-only tool call по Streamable HTTP.
+    """Выполнить ровно один вызов инструмента только для чтения через Streamable HTTP.
 
-    Helper остаётся bounded: одна session, один negotiate catalog и один вызов
-    tool. Если передан `plan`, negotiated catalog проверяется до вызова, а его
-    несовпадение возвращается типизированным кодом вместо вызова tool.
+    Вспомогательная функция ограничена: одна сессия, один согласованный каталог и
+    один вызов инструмента. Если передан `plan`, каталог проверяется до вызова,
+    а несовпадение возвращается типизированным кодом без вызова инструмента.
     """
 
     validate_http_endpoint(endpoint)
@@ -766,7 +839,7 @@ async def probe_http(
     credential_required: bool = False,
     transport_policy: HttpTransportPolicy,
 ) -> McpProbeResult:
-    """Проверить конкретный streamable HTTP server с фиксированным read call."""
+    """Проверить указанный сервер Streamable HTTP фиксированным вызовом только для чтения."""
 
     try:
         outcome = await call_http_tool(
@@ -805,7 +878,7 @@ async def probe_http(
         )
     except TimeoutError:
         return McpProbeResult(IntegrationState.UNAVAILABLE, "MCP_PROBE_TIMEOUT")
-    except Exception as error:  # noqa: BLE001 - boundary exposes only type.
+    except Exception as error:  # noqa: BLE001 - граница раскрывает только тип исключения.
         return McpProbeResult(
             IntegrationState.UNAVAILABLE,
             "MCP_HTTP_PROBE_FAILED",
@@ -825,6 +898,7 @@ __all__ = [
     "McpProbeResult",
     "McpToolCallResult",
     "accept_fresh_http",
+    "accept_fresh_http_modern",
     "accept_fresh_stdio",
     "call_http_tool",
     "probe_http",

@@ -41,6 +41,10 @@ from module.mcp_shared.windows_mcp_bridge_contract import (
     BRIDGE_CONCURRENCY_TIMEOUT_SECONDS,
     BRIDGE_EXPECTED_IDENTITY_HEADER,
     BRIDGE_MAX_CONCURRENT_REQUESTS,
+    BRIDGE_MAX_MCP_PARAM_HEADERS,
+    BRIDGE_MAX_MCP_PARAM_HEADER_NAME_BYTES,
+    BRIDGE_MAX_MCP_PARAM_HEADER_VALUE_BYTES,
+    BRIDGE_MAX_MCP_PARAM_HEADERS_BYTES,
     BRIDGE_MAX_REQUEST_BODY_BYTES,
     BRIDGE_NAME,
     BRIDGE_PORT,
@@ -66,8 +70,12 @@ _MCP_HEADER_ALLOWLIST = (
     "content-type",
     "mcp-session-id",
     "mcp-protocol-version",
+    "mcp-method",
+    "mcp-name",
     "last-event-id",
 )
+_MCP_PARAM_HEADER_PREFIX = b"mcp-param-"
+_MCP_PARAM_HEADER_TOKEN_CHARS = frozenset("!#$%&'*+-.^_`|~")
 _RESPONSE_HEADER_ALLOWLIST = (
     "cache-control",
     "content-length",
@@ -484,6 +492,49 @@ def _forward_headers(request: Request, route: BridgeRoute) -> dict[str, str]:
             continue
         value = values[0]
         if len(value.encode("latin-1")) > 512 or _CONTROL_RE.search(value):
+            raise BridgeRequestError("BRIDGE_REQUEST_INVALID", 400)
+        result[name] = value
+
+    parameter_headers: dict[str, list[str]] = {}
+    parameter_header_count = 0
+    for raw_name, raw_value in request.scope.get("headers", []):
+        if not raw_name.lower().startswith(_MCP_PARAM_HEADER_PREFIX):
+            continue
+        parameter_header_count += 1
+        if parameter_header_count > BRIDGE_MAX_MCP_PARAM_HEADERS:
+            raise BridgeRequestError("BRIDGE_REQUEST_INVALID", 400)
+        try:
+            name = raw_name.decode("ascii").lower()
+        except UnicodeDecodeError as exc:
+            raise BridgeRequestError("BRIDGE_REQUEST_INVALID", 400) from exc
+        token = name[len(_MCP_PARAM_HEADER_PREFIX) :]
+        if (
+            len(name.encode("ascii")) > BRIDGE_MAX_MCP_PARAM_HEADER_NAME_BYTES
+            or not token
+            or any(
+                not character.isascii()
+                or not (
+                    character.isalnum()
+                    or character in _MCP_PARAM_HEADER_TOKEN_CHARS
+                )
+                for character in token
+            )
+        ):
+            raise BridgeRequestError("BRIDGE_REQUEST_INVALID", 400)
+        parameter_headers.setdefault(name, []).append(raw_value.decode("latin-1"))
+
+    total_parameter_header_bytes = 0
+    for name, values in parameter_headers.items():
+        if len(values) != 1:
+            raise BridgeRequestError("BRIDGE_REQUEST_INVALID", 400)
+        value = values[0]
+        value_bytes = len(value.encode("latin-1"))
+        total_parameter_header_bytes += len(name.encode("ascii")) + value_bytes
+        if (
+            value_bytes > BRIDGE_MAX_MCP_PARAM_HEADER_VALUE_BYTES
+            or _CONTROL_RE.search(value)
+            or total_parameter_header_bytes > BRIDGE_MAX_MCP_PARAM_HEADERS_BYTES
+        ):
             raise BridgeRequestError("BRIDGE_REQUEST_INVALID", 400)
         result[name] = value
     return result

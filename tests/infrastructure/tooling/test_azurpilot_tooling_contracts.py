@@ -181,7 +181,7 @@ def test_cli_human_output_renders_mcp_lifecycle_services() -> None:
                 ok=True,
                 code=ResultCode.OK,
                 state=OperationState.READY,
-                message="MCP supervisor запущен.",
+                message="Служба управления процессами MCP запущена.",
                 details=details,
             )
 
@@ -232,7 +232,7 @@ def test_unknown_capability_has_closed_json_and_human_representation() -> None:
             CapabilityCheck(
                 name="runtime",
                 status=CapabilityStatus.UNKNOWN,
-                message="Владение runtime нельзя подтвердить.",
+                message="Владение средой выполнения нельзя подтвердить.",
             ),
         ),
         healthy=False,
@@ -343,7 +343,7 @@ def test_lifecycle_keeps_state_when_termination_is_not_confirmed(
         tooling_lifecycle.ProcessController,
         "terminate",
         lambda _identity, timeout_seconds=15.0, *, include_children=True: (
-            pytest.fail("WebUI Stop не должен завершать дерево worker-процессов")
+            pytest.fail("Остановка WebUI не должна завершать дерево рабочих процессов")
             if include_children
             else False
         ),
@@ -453,7 +453,7 @@ def test_lifecycle_stop_succeeds_when_cleanup_proves_process_already_exited(
         tooling_lifecycle.ProcessController,
         "terminate",
         lambda _identity, timeout_seconds=15.0, *, include_children=True: (
-            pytest.fail("WebUI Stop не должен завершать дерево worker-процессов")
+            pytest.fail("Остановка WebUI не должна завершать дерево рабочих процессов")
             if include_children
             else False
         ),

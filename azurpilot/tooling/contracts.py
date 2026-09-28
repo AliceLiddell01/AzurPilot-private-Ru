@@ -444,11 +444,27 @@ class McpBridgeProcessStatus(ClosedModel):
 class McpBridgeUpstreamStatus(ClosedModel):
     """Ограниченные сведения о готовности и идентичности целевого сервера."""
 
-    route: Literal["dev", "game"]
-    server_name: Literal["azurpilot-dev", "azurpilot-game"]
+    route: str = Field(min_length=1, max_length=32)
+    server_name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")
     status: Literal["ready", "stale", "stopped", "unavailable", "unknown", "conflict"]
     identity: BridgeSourceIdentity | None = None
     reason_code: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_canonical_route(self) -> McpBridgeUpstreamStatus:
+        from module.mcp_shared import windows_mcp_bridge_contract
+
+        canonical_route = windows_mcp_bridge_contract.BRIDGE_ROUTES.get(self.route)
+        if (
+            canonical_route is None
+            or canonical_route.server_name != self.server_name
+            or (
+                self.identity is not None
+                and self.identity.server_name != self.server_name
+            )
+        ):
+            raise ValueError("route и server_name должны соответствовать каноническому маршруту моста")
+        return self
 
 
 class McpBridgeStatusDetails(ClosedModel):
@@ -456,14 +472,32 @@ class McpBridgeStatusDetails(ClosedModel):
 
     action: Literal["status", "start", "stop", "restart"]
     state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
-    endpoint: Literal["http://127.0.0.1:8780"]
-    routes: tuple[Literal["/dev/mcp", "/game/mcp"], ...] = Field(
-        min_length=2, max_length=2
-    )
+    endpoint: str = Field(min_length=1, max_length=512)
+    routes: tuple[str, ...] = Field(min_length=1, max_length=16)
     caller_authentication: Literal["configured", "unavailable", "unknown"]
     process: McpBridgeProcessStatus
-    upstreams: tuple[McpBridgeUpstreamStatus, ...] = Field(min_length=2, max_length=2)
+    upstreams: tuple[McpBridgeUpstreamStatus, ...] = Field(min_length=1, max_length=16)
     reason_code: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_canonical_bridge_contract(self) -> McpBridgeStatusDetails:
+        from module.mcp_shared import windows_mcp_bridge_contract
+
+        routes = windows_mcp_bridge_contract.BRIDGE_ROUTES
+        canonical_paths = tuple(route.path for route in routes.values())
+        canonical_upstreams = tuple(
+            (family, route.server_name) for family, route in routes.items()
+        )
+        actual_upstreams = tuple(
+            (upstream.route, upstream.server_name) for upstream in self.upstreams
+        )
+        if (
+            self.endpoint != windows_mcp_bridge_contract.bridge_endpoint()
+            or self.routes != canonical_paths
+            or actual_upstreams != canonical_upstreams
+        ):
+            raise ValueError("Сведения должны соответствовать каноническому контракту моста")
+        return self
 
 
 class McpBridgeAcceptanceDetails(ClosedModel):
@@ -472,7 +506,42 @@ class McpBridgeAcceptanceDetails(ClosedModel):
     action: Literal["accept"] = "accept"
     acceptance_state: Literal["READY", "INCOMPATIBLE", "UNAVAILABLE", "UNKNOWN"]
     reason_code: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
-    routes: tuple[McpAcceptanceDetails, ...] = Field(min_length=2, max_length=2)
+    routes: tuple[McpAcceptanceDetails, ...] = Field(min_length=1, max_length=16)
+    modern_routes: tuple[McpAcceptanceDetails, ...] = Field(min_length=1, max_length=16)
+
+    @model_validator(mode="after")
+    def validate_route_acceptance(self) -> McpBridgeAcceptanceDetails:
+        from module.mcp_shared import windows_mcp_bridge_contract
+
+        expected_server_names = tuple(
+            route.server_name
+            for route in windows_mcp_bridge_contract.BRIDGE_ROUTES.values()
+        )
+        for mode_results in (self.routes, self.modern_routes):
+            actual_server_names = tuple(
+                result.server_name for result in mode_results
+            )
+            if len(actual_server_names) != len(expected_server_names) or any(
+                actual is not None and actual != expected
+                for actual, expected in zip(
+                    actual_server_names, expected_server_names, strict=True
+                )
+            ):
+                raise ValueError("Результаты должны соответствовать каноническим маршрутам моста")
+
+        results = (*self.routes, *self.modern_routes)
+        expected_state = (
+            "READY"
+            if all(item.acceptance_state == "READY" for item in results)
+            else "INCOMPATIBLE"
+            if any(item.acceptance_state == "INCOMPATIBLE" for item in results)
+            else "UNKNOWN"
+            if any(item.acceptance_state == "UNKNOWN" for item in results)
+            else "UNAVAILABLE"
+        )
+        if self.acceptance_state != expected_state:
+            raise ValueError("Состояние приёмки должно соответствовать результатам маршрутов")
+        return self
 
 
 class CommissionRecoveryProjection(ClosedModel):

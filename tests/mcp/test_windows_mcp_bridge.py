@@ -398,6 +398,113 @@ def test_bridge_forwards_exact_identity_to_fixed_upstream_with_internal_auth() -
     asyncio.run(scenario())
 
 
+def test_bridge_preserves_modern_mcp_transport_headers_without_forwarding_caller_auth() -> None:
+    async def scenario() -> None:
+        identity = _identity()
+        app, upstream, observed, internal_token_reads = _make_app(
+            upstream_identity=lambda _route: identity
+        )
+
+        async with _bridge_client(app) as client:
+            response = await client.post(
+                "/dev/mcp",
+                headers={
+                    **_caller_headers(expected_identity=identity),
+                    "Origin": "http://127.0.0.1:8780",
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                    "Mcp-Protocol-Version": "2026-07-28",
+                    "Mcp-Method": "tools/call",
+                    "Mcp-Name": "dev_get_contract",
+                    "Mcp-Param-profile": "default",
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "dev_get_contract", "arguments": {}},
+                },
+            )
+
+        assert response.status_code == 200
+        assert observed == [BRIDGE_ROUTES["dev"]]
+        assert internal_token_reads == ["azurpilot-dev"]
+        assert len(upstream.requests) == 1
+        headers = upstream.requests[0].headers
+        assert headers["mcp-protocol-version"] == "2026-07-28"
+        assert headers["mcp-method"] == "tools/call"
+        assert headers["mcp-name"] == "dev_get_contract"
+        assert headers["mcp-param-profile"] == "default"
+        assert headers["Authorization"] == "Bearer internal-azurpilot-dev-secret"
+        assert "bridge-caller-secret" not in headers.values()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "extra_headers",
+    (
+        (("Mcp-Method", "tools/call"), ("mcp-method", "tools/call")),
+        (("Mcp-Param-profile", "default"), ("mcp-param-profile", "other")),
+        (("Mcp-Name", "x" * 513),),
+        (("Mcp-Param-profile", "x" * 513),),
+    ),
+)
+def test_bridge_rejects_duplicate_or_oversized_mcp_transport_headers(
+    extra_headers: tuple[tuple[str, str], ...],
+) -> None:
+    async def scenario() -> None:
+        identity = _identity()
+        app, upstream, observed, internal_token_reads = _make_app(
+            upstream_identity=lambda _route: identity
+        )
+        headers = [
+            *_caller_headers(expected_identity=identity).items(),
+            ("Origin", "http://127.0.0.1:8780"),
+            ("Content-Type", "application/json"),
+            ("Mcp-Protocol-Version", "2026-07-28"),
+            *extra_headers,
+        ]
+
+        async with _bridge_client(app) as client:
+            response = await client.post(
+                "/dev/mcp",
+                headers=headers,
+                json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "BRIDGE_REQUEST_INVALID"
+        assert observed == []
+        assert internal_token_reads == []
+        assert upstream.requests == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "raw_headers",
+    (
+        ((b"mcp-param-bad name", b"value"),),
+        ((b"mcp-param-" + b"a" * 120, b"value"),),
+        ((b"mcp-param-a", b"one"), (b"MCP-PARAM-A", b"two")),
+        ((b"mcp-param-a", b"value\r\ninjected: yes"),),
+        (tuple((b"mcp-param-k" + str(index).encode(), b"v") for index in range(33))),
+        tuple(
+            (b"mcp-param-k" + str(index).encode(), b"v" * 512)
+            for index in range(8)
+        ),
+    ),
+)
+def test_bridge_header_policy_rejects_invalid_parameter_header_shape(
+    raw_headers: tuple[tuple[bytes, bytes], ...],
+) -> None:
+    request = Request({"type": "http", "headers": list(raw_headers)})
+
+    with pytest.raises(bridge_module.BridgeRequestError):
+        bridge_module._forward_headers(request, BRIDGE_ROUTES["dev"])
+
+
 def test_bridge_does_not_forward_shared_upstream_cookie_jar_between_routes() -> None:
     async def scenario() -> None:
         app, upstream, _, _ = _make_app()

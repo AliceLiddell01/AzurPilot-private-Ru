@@ -2888,9 +2888,8 @@ class McpService:
         from module.mcp_shared.local_http_supervisor import LocalHttpSupervisorError
         from module.mcp_shared.windows_mcp_bridge import _bridge_route_status
         from module.mcp_shared.windows_mcp_bridge_contract import (
-            BRIDGE_BIND_HOST,
-            BRIDGE_PORT,
             BRIDGE_ROUTES,
+            bridge_endpoint,
         )
 
         service: dict[str, object] | None = None
@@ -3006,8 +3005,8 @@ class McpService:
         details = McpBridgeStatusDetails(
             action=action,
             state=state,
-            endpoint=f"http://{BRIDGE_BIND_HOST}:{BRIDGE_PORT}",
-            routes=("/dev/mcp", "/game/mcp"),
+            endpoint=bridge_endpoint(),
+            routes=tuple(route.path for route in BRIDGE_ROUTES.values()),
             caller_authentication=caller_authentication,
             process=process,
             upstreams=tuple(upstreams),
@@ -3254,6 +3253,7 @@ class McpService:
         from azurpilot.integrations.mcp_client import (
             HttpTransportPolicy,
             accept_fresh_http,
+            accept_fresh_http_modern,
         )
         from dev_tools.mcp_acceptance import build_plan
         from dev_tools.mcp_status import git_source_snapshot
@@ -3296,11 +3296,10 @@ class McpService:
             ) from error
 
         bundle = self._bundle(root)
-        results: list[McpAcceptanceDetails] = []
-        for family, server_name in (
-            ("dev", "azurpilot-dev"),
-            ("game", "azurpilot-game"),
-        ):
+        legacy_results: list[McpAcceptanceDetails] = []
+        modern_results: list[McpAcceptanceDetails] = []
+        for family, route in BRIDGE_ROUTES.items():
+            server_name = route.server_name
             server = bundle.servers[server_name]
             expected = BridgeSourceIdentity(
                 identity_protocol=BRIDGE_IDENTITY_PROTOCOL,
@@ -3312,48 +3311,53 @@ class McpService:
                 tool_catalog_sha256=server.tool_catalog_sha256,
                 capability_catalog_sha256=server.capability_catalog_sha256,
             )
-            try:
-                result = asyncio.run(
-                    accept_fresh_http(
-                        endpoint=BRIDGE_ROUTES[family].bridge_url,
-                        headers={
-                            "Authorization": f"Bearer {caller_token}",
-                            BRIDGE_EXPECTED_IDENTITY_HEADER: serialize_identity(
-                                expected
-                            ),
-                        },
-                        plan=build_plan(revision, server_name),
-                        timeout_seconds=20.0,
-                        transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
+            for accept_client, target_results in (
+                (accept_fresh_http, legacy_results),
+                (accept_fresh_http_modern, modern_results),
+            ):
+                try:
+                    result = asyncio.run(
+                        accept_client(
+                            endpoint=route.bridge_url,
+                            headers={
+                                "Authorization": f"Bearer {caller_token}",
+                                BRIDGE_EXPECTED_IDENTITY_HEADER: serialize_identity(
+                                    expected
+                                ),
+                            },
+                            plan=build_plan(revision, server_name),
+                            timeout_seconds=20.0,
+                            transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
+                        )
+                    )
+                except RuntimeError as error:
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "Не удалось создать независимую сессию приёмки моста.",
+                        details=status.details,
+                    ) from error
+                target_results.append(
+                    McpAcceptanceDetails(
+                        acceptance_state=result.state.value,
+                        reason_code=result.reason_code,
+                        initialized=result.initialized,
+                        protocol_version=result.protocol_version,
+                        server_name=result.server_name,
+                        server_version=result.server_version,
+                        source_revision=result.source_revision,
+                        tool_count=result.tool_count,
+                        tool_catalog_sha256=result.tool_catalog_sha256,
+                        capability_catalog_sha256=result.capability_catalog_sha256,
+                        contract_revision=result.contract_revision,
+                        called_tools=result.called_tools,
+                        diagnostics=result.diagnostics,
                     )
                 )
-            except RuntimeError as error:
-                raise ToolingError(
-                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Не удалось создать независимую сессию приёмки моста.",
-                    details=status.details,
-                ) from error
-            results.append(
-                McpAcceptanceDetails(
-                    acceptance_state=result.state.value,
-                    reason_code=result.reason_code,
-                    initialized=result.initialized,
-                    protocol_version=result.protocol_version,
-                    server_name=result.server_name,
-                    server_version=result.server_version,
-                    source_revision=result.source_revision,
-                    tool_count=result.tool_count,
-                    tool_catalog_sha256=result.tool_catalog_sha256,
-                    capability_catalog_sha256=result.capability_catalog_sha256,
-                    contract_revision=result.contract_revision,
-                    called_tools=result.called_tools,
-                    diagnostics=result.diagnostics,
-                )
-            )
 
-        all_ready = all(item.acceptance_state == "READY" for item in results)
+        all_results = (*legacy_results, *modern_results)
+        all_ready = all(item.acceptance_state == "READY" for item in all_results)
         first_failure = next(
-            (item for item in results if item.acceptance_state != "READY"), None
+            (item for item in all_results if item.acceptance_state != "READY"), None
         )
         reason_code = (
             "WINDOWS_MCP_BRIDGE_ACCEPTANCE_READY"
@@ -3367,20 +3371,21 @@ class McpService:
                 "READY"
                 if all_ready
                 else "INCOMPATIBLE"
-                if any(item.acceptance_state == "INCOMPATIBLE" for item in results)
+                if any(item.acceptance_state == "INCOMPATIBLE" for item in all_results)
                 else "UNKNOWN"
-                if any(item.acceptance_state == "UNKNOWN" for item in results)
+                if any(item.acceptance_state == "UNKNOWN" for item in all_results)
                 else "UNAVAILABLE"
             ),
             reason_code=reason_code,
-            routes=tuple(results),
+            routes=tuple(legacy_results),
+            modern_routes=tuple(modern_results),
         )
         if all_ready:
             return ToolingResult(
                 ok=True,
                 code=ResultCode.OK,
                 state=OperationState.READY,
-                message="Новые сеансы MCP только для чтения подтвердили маршруты моста Windows MCP для Dev и Game.",
+                message="Сеансы в режиме совместимости и современном режиме MCP 2026-07-28 подтвердили оба маршрута моста Windows MCP вызовами только для чтения.",
                 details=details,
             )
         code = (

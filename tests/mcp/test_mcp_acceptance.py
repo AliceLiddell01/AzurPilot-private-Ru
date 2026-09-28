@@ -11,6 +11,7 @@ from azurpilot.integrations.mcp_client import (
     FreshMcpClientResult,
     HttpTransportPolicy,
     accept_fresh_http,
+    accept_fresh_http_modern,
 )
 from dev_tools import mcp_acceptance
 
@@ -181,6 +182,137 @@ def test_dev_acceptance_keeps_its_read_only_call(monkeypatch) -> None:
         "dev_get_contract",
         "dev_list_smoke_capabilities",
     )
+
+
+def test_modern_http_acceptance_uses_auto_discovery_and_never_calls_initialize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mcp
+    from mcp.client import streamable_http as streamable_http_module
+
+    plan = mcp_acceptance.build_plan("a" * 40, "azurpilot-dev")
+    session = _FreshSession(plan)
+    session.protocol_version = "2026-07-28"
+    session.server_info = SimpleNamespace(
+        name=plan.expected_contract["server_name"],
+        version=plan.expected_contract["server_version"],
+    )
+    session.initialize = lambda: pytest.fail(
+        "Современная приёмка не должна вызывать initialize."
+    )
+    captured: dict[str, object] = {}
+
+    class FakeHttpClient:
+        def __init__(self, **kwargs) -> None:
+            captured["http_client_options"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+    class FakeClient:
+        def __init__(self, transport, *, mode, read_timeout_seconds) -> None:
+            captured["transport"] = transport
+            captured["mode"] = mode
+            captured["read_timeout_seconds"] = read_timeout_seconds
+
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+    class FakeTransport:
+        pass
+
+    def make_transport(endpoint: str, *, http_client):
+        captured["endpoint"] = endpoint
+        captured["transport_http_client"] = http_client
+        return FakeTransport()
+
+    monkeypatch.setattr("httpx2.AsyncClient", FakeHttpClient)
+    monkeypatch.setattr(mcp, "Client", FakeClient)
+    monkeypatch.setattr(
+        streamable_http_module, "streamable_http_client", make_transport
+    )
+
+    result = asyncio.run(
+        accept_fresh_http_modern(
+            endpoint="http://127.0.0.1:8780/dev/mcp",
+            headers={"Authorization": "Bearer test"},
+            plan=plan,
+            timeout_seconds=2,
+            transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
+        )
+    )
+
+    assert result.state is IntegrationState.READY
+    assert result.protocol_version == "2026-07-28"
+    assert result.initialized is False
+    assert result.called_tools == ("dev_get_contract", "dev_list_smoke_capabilities")
+    assert captured["mode"] == "auto"
+    assert captured["endpoint"] == "http://127.0.0.1:8780/dev/mcp"
+    assert captured["http_client_options"] == {
+        "headers": {"Authorization": "Bearer test"},
+        "timeout": 2,
+        "trust_env": False,
+        "follow_redirects": False,
+    }
+
+
+def test_modern_http_acceptance_rejects_auto_fallback_to_legacy(monkeypatch) -> None:
+    import mcp
+    from mcp.client import streamable_http as streamable_http_module
+
+    plan = mcp_acceptance.build_plan("a" * 40, "azurpilot-dev")
+    session = _FreshSession(plan)
+    session.protocol_version = "2025-11-25"
+    session.server_info = SimpleNamespace(name="azurpilot-dev", version="8.9.0")
+
+    class FakeHttpClient:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+    class FakeClient:
+        def __init__(self, _transport, *, mode, read_timeout_seconds) -> None:
+            assert mode == "auto"
+            assert read_timeout_seconds == 2
+
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+    monkeypatch.setattr("httpx2.AsyncClient", FakeHttpClient)
+    monkeypatch.setattr(mcp, "Client", FakeClient)
+    monkeypatch.setattr(
+        streamable_http_module,
+        "streamable_http_client",
+        lambda *_args, **_kwargs: object(),
+    )
+
+    result = asyncio.run(
+        accept_fresh_http_modern(
+            endpoint="http://127.0.0.1:8780/dev/mcp",
+            headers={},
+            plan=plan,
+            timeout_seconds=2,
+            transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
+        )
+    )
+
+    assert result.state is IntegrationState.INCOMPATIBLE
+    assert result.reason_code == "MCP_FRESH_CLIENT_MODERN_PROTOCOL_REQUIRED"
+    assert result.protocol_version == "2025-11-25"
 
 
 def test_combined_acceptance_reports_game_family_failure(

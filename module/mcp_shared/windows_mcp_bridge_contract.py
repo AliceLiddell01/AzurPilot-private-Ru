@@ -20,6 +20,10 @@ BRIDGE_IDENTITY_PROTOCOL = "azurpilot-mcp-source-identity/v1"
 BRIDGE_EXPECTED_IDENTITY_HEADER = "x-azurpilot-expected-source-identity"
 BRIDGE_BACKEND_IDENTITY_HEADER = "x-azurpilot-backend-source-identity"
 BRIDGE_MAX_IDENTITY_HEADER_BYTES = 2048
+BRIDGE_MAX_MCP_PARAM_HEADERS = 32
+BRIDGE_MAX_MCP_PARAM_HEADER_NAME_BYTES = 128
+BRIDGE_MAX_MCP_PARAM_HEADER_VALUE_BYTES = 512
+BRIDGE_MAX_MCP_PARAM_HEADERS_BYTES = 4096
 BRIDGE_MAX_REQUEST_BODY_BYTES = 1024 * 1024
 BRIDGE_MAX_CONCURRENT_REQUESTS = 8
 BRIDGE_CONCURRENCY_TIMEOUT_SECONDS = 2.0
@@ -79,7 +83,13 @@ class BridgeRoute:
 
     @property
     def bridge_url(self) -> str:
-        return f"http://{BRIDGE_BIND_HOST}:{BRIDGE_PORT}{self.path}"
+        return f"{bridge_endpoint()}{self.path}"
+
+
+def bridge_endpoint() -> str:
+    """Вернуть каноническую базовую точку входа моста."""
+
+    return f"http://{BRIDGE_BIND_HOST}:{BRIDGE_PORT}"
 
 
 BRIDGE_ROUTES = MappingProxyType(
@@ -228,6 +238,10 @@ __all__ = (
     "BRIDGE_IDENTITY_PROTOCOL",
     "BRIDGE_MAX_CONCURRENT_REQUESTS",
     "BRIDGE_MAX_IDENTITY_HEADER_BYTES",
+    "BRIDGE_MAX_MCP_PARAM_HEADERS",
+    "BRIDGE_MAX_MCP_PARAM_HEADER_NAME_BYTES",
+    "BRIDGE_MAX_MCP_PARAM_HEADER_VALUE_BYTES",
+    "BRIDGE_MAX_MCP_PARAM_HEADERS_BYTES",
     "BRIDGE_MAX_REQUEST_BODY_BYTES",
     "BRIDGE_NAME",
     "BRIDGE_PORT",
@@ -239,6 +253,7 @@ __all__ = (
     "BridgeIdentityError",
     "BridgeRoute",
     "BridgeSourceIdentity",
+    "bridge_endpoint",
     "identity_from_ready_payload",
     "identity_mismatch_fields",
     "parse_expected_identity",

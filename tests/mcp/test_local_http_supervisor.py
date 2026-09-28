@@ -345,7 +345,7 @@ def _wait_until(predicate, timeout: float = 8.0) -> None:
     deadline = time.monotonic() + timeout
     while not predicate():
         if time.monotonic() >= deadline:
-            raise AssertionError("Ожидаемое состояние supervisor не наступило")
+            raise AssertionError("Ожидаемое состояние службы управления процессами не наступило")
         time.sleep(0.05)
 
 
@@ -421,8 +421,8 @@ def _finish_process(process: subprocess.Popen[str]) -> tuple[str, str]:
 def _cleanup_running_supervisor(
     process: subprocess.Popen[str], observer: LocalHttpSupervisor
 ) -> None:
-    # Marker может остаться даже после неожиданного завершения launcher;
-    # cleanup должен идти по exact identity, а не зависеть от poll().
+    # Маркер может остаться после неожиданного завершения процесса запуска;
+    # очистка должна проверять точную идентичность процесса, а не зависеть от poll().
     observer.stop()
     _finish_process(process)
 
