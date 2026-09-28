@@ -121,8 +121,8 @@ PR contract:
 - body строится из structured model, а не shell string;
 - операторский body — содержательный русскоязычный отчёт; technical
   identifiers сохраняются без перевода;
-- CodeRabbit evidence в body должно соответствовать exact base/head, если оно
-  заявлено.
+- состояние внешней проверки в body остаётся общим reviewer status и не создаёт
+  provider-specific schema внутри PR tooling.
 
 Создание draft PR не даёт разрешение на merge. Lifecycle после публикации
 определяет `GIT-WORKFLOW.md`.
@@ -184,53 +184,20 @@ typed allowlist. Жизненным циклом владеет Compose, опе�
 Используют прямой HTTP/MCP adapter с bounded discovery/calls. Наличие anonymous
 или credentialed режима определяется adapter/config, а не hardcoded секретом.
 
-### CodeRabbit
+### CodeRabbit как repository skill
 
-CodeRabbit — консультативный reviewer, а не источник истины.
+CodeRabbit не входит в каталог `IntegrationName`, `IntegrationRegistry` и
+публичный `azur integrations` CLI. Это development reviewer, которым владеет
+repository skill `.agents/skills/azurpilot-coderabbit-review/`.
 
-Текущая граница:
+Skill вызывает установленный native CodeRabbit CLI напрямую, проверяет фактический
+interface текущей версии и независимо разбирает findings. Репозиторий не создаёт
+для CodeRabbit отдельный adapter, state machine, persistent review state, triage
+manifest или backlog. `.coderabbit.yaml` остаётся конфигурацией самого
+CodeRabbit.
 
-- adapter выбирает доказанный host-native executable текущей OS (`coderabbit.exe`
-  на Windows и `coderabbit` на POSIX);
-- provider запускается в том же canonical checkout, что прошёл exact
-  repository/root/head и clean-candidate preflight;
-- review scope — exact committed head/base; implementation checkout не
-  подменяется другим checkout;
-- pre/post candidate fingerprint должен совпасть; mutation в checkout во время
-  active review не допускается;
-- provider finding не равен verified finding disposition;
-- до classification каждый finding проходит individual exact-head triage по
-  affected code, call sites, ближайшим tests, relevant contracts и заявленному
-  impact;
-- `insufficient evidence` удалён из disposition model; provider не может
-  автоматически назначить ни эту, ни любую другую verified classification;
-- triage фиксируется typed manifest-ом через прямой `azur integrations
-  coderabbit triage`; provider findings до этого остаются `triage_required`;
-- `confirmed`/`partially confirmed` требуют fix и нового exact-head review;
-  технически правдоподобный finding вне scope получает отдельный `deferred`
-  с `task_scope`, а не `false positive`, и сохраняется в ignored
-  `.codex/local/coderabbit-deferred-findings.json`;
-- если после individual triage actionable findings нет, текущий cycle terminal
-  без no-op commit и нового review; backlog читается через
-  `azur integrations coderabbit backlog`, максимум substantive budget — `3/3`;
-- repository `.coderabbit.yaml` является auto-discovered repository source;
-  `--config .coderabbit.yaml` не является обязательным и не должен добавляться
-  ради включения этого файла. Project-owned `config validate` проверяет сам
-  файл, а effective Global Override provenance считается неизвестной без
-  native evidence;
-- ограниченный цикл review ограничивает substantive iterations и сохраняет типизированное
-  state;
-- pre-spawn reservation не расходует budget: доказанный `not_spawned`/`absent_after_cleanup`
-  очищает state для retry, а `alive`/`unknown` сохраняет точное ownership для recovery;
-- provider rate limit/cooldown не расходует substantive iteration и не запускает
-  blind retry;
-- text/location/title провайдера нормализуются в ограниченное evidence;
-- machine path, username, auth/config directory и executable path не
-  хардкодятся в tracked source.
-
-Подробный workflow для человека хранится в
-`.agents/skills/azurpilot-coderabbit-review/`, а Git lifecycle — в
-`GIT-WORKFLOW.md`.
+Git lifecycle принадлежит `GIT-WORKFLOW.md`, а общая verification matrix —
+`08-VERIFICATION.md`; CodeRabbit skill не дублирует их.
 
 ## 7. Граница MCP
 

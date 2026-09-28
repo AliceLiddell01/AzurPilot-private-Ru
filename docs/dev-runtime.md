@@ -138,11 +138,11 @@ Compose, Dockerfile, lockfile и остальных входов образа; �
 не может пройти проверку под новым тегом. Результат `status` дополнительно
 подтверждает этот тег, health и caller auth; `build_confirmed` отражается только
 в результате успешного `start`.
-CodeRabbit использует host-native read-only review adapter текущей ОС — Windows
-или POSIX — в canonical checkout с exact candidate pre/postcondition. Все
-шесть поверхностей собираются общим
-`azurpilot.integrations.IntegrationRegistry`; промежуточный MCP-маршрутизатор и
-общий secret owner для них не используются.
+CodeRabbit не входит в runtime-каталог внешних интеграций AzurPilot:
+CodeRabbit-review выполняет repository skill напрямую через установленный native
+CLI. `azurpilot.integrations.IntegrationRegistry` содержит пять продуктовых
+development-интеграций; CodeRabbit adapter и `azur integrations coderabbit`
+отсутствуют.
 
 Каноническая route policy для AzurPilot фиксирована так: Windows Codex route
 `azurpilot-dev` и `azurpilot-game` использует принадлежащие supervisor
@@ -276,7 +276,7 @@ source сохраняются как `source_status=modified` и дают `PARTI
 
 Collector выполняет negotiated local discovery/`tools/list` и
 `dev_get_contract`/`game_get_contract`, а `IntegrationRegistry` — bounded
-direct probes для шести внешних adapters с их отдельными transport/config
+direct probes для пяти внешних adapters с их отдельными transport/config
 evidence. Статическое описание server или endpoint не считается runtime
 readiness. В JSON не попадают URL credentials, headers, secrets, paths или
 полное окружение. Состояние `effective_codex_registration` намеренно может

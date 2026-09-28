@@ -483,7 +483,7 @@ def test_human_report_mentions_direct_integrations_without_legacy_route(
     output = capsys.readouterr().out.casefold()
 
     assert "внешние интеграции" in output
-    assert "coderabbit" in output
+    assert "semgrep" in output
     assert "docker-hub" in output
     assert "external_direct" not in output
     assert "gateway" not in output

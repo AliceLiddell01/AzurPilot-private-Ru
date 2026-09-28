@@ -269,9 +269,9 @@ def test_contract_rejects_registration_without_caller_token(tmp_path: Path):
         ("Канонический launcher: UV RUN python -m azurpilot", True),
         ("UV RUN и python -m azurpilot запрещены как обход", False),
         ("Используй azur mcp; uv run разрешён для тестов", False),
-        ("uv run --locked azur integrations coderabbit status", True),
+        ("uv run --locked azur integrations semgrep status", True),
         ("uv run pytest -k azurpilot-development", False),
-        ("uv run\npython -m azurpilot integrations coderabbit status", False),
+        ("uv run\npython -m azurpilot integrations semgrep status", False),
     ],
 )
 def test_operator_launcher_detection_uses_tokens_and_negation(

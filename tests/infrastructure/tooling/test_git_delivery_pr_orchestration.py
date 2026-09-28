@@ -12,17 +12,11 @@ import pytest
 
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling.contracts import (
-    CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME,
     FRESH_MCP_ACCEPTANCE_GATE_NAME,
-    CodeRabbitFinding,
-    CodeRabbitFindingTriage,
-    CodeRabbitReview,
     DeliveryChange,
     DeliveryDetails,
     DeliveryEvidence,
     DeliveryPhase,
-    FindingDisposition,
-    FindingSeverity,
     GitSnapshot,
     IntegrationCheck,
     IntegrationCheckState,
@@ -200,7 +194,7 @@ def test_delivery_rejects_ad_hoc_remote_topology(
         identity,
         base_sha=base_sha,
         branch="cli/fixture-delivery",
-        base_branch="codex/base-coderabbit-native-windows-boundary",
+        base_branch="codex/base-temporary-review-boundary",
         targets=[
             {
                 "path": "README.md",
@@ -1563,7 +1557,7 @@ def test_head_repository_identity_rejects_missing_expected_gh_fields(
     assert error.value.code is ResultCode.TOOLING_PR_IDENTITY_MISMATCH
 
 
-def test_structured_pr_body_contains_required_sections_and_exact_review_head() -> None:
+def test_structured_pr_body_contains_required_provider_neutral_sections() -> None:
     body = PullRequestBody(
         goal=(
             "Добавить безопасную fail-closed публикацию Git-изменений и draft PR.\n\n"
@@ -1618,8 +1612,7 @@ def test_structured_pr_body_contains_required_sections_and_exact_review_head() -
             "Ограничения текущего checkpoint:\n"
             "- PR остаётся Draft до финального ChatGPT review пользователя; merge не выполняется;\n"
             "- physical device, MuMu, ADB и игровой acceptance в scope не входят;\n"
-            "- CodeRabbit является внешним review checkpoint через host-native provider "
-            "в canonical checkout;\n"
+            "- Внешний reviewer запускается только по явному запросу и не является product gate;\n"
             "- provider требует GitHub CLI `gh >= 2.63.0` для поля `baseRefOid`."
         ),
     )
@@ -1649,120 +1642,6 @@ def test_structured_pr_body_rejects_thin_operator_report() -> None:
         PullRequestBodyRenderer.render(body, base_sha="a" * 40, head_sha="b" * 40)
 
     assert error.value.code is ResultCode.TOOLING_PR_BODY_INVALID
-
-
-def test_structured_pr_body_renders_each_coderabbit_decision_with_evidence() -> None:
-    triage_common = {
-        "reviewed_head": "b" * 40,
-        "affected_code": "Проверен parser и сохранение typed provider evidence.",
-        "call_sites": "Проверены adapter, service и CLI call sites.",
-        "nearest_tests": "Проверены targeted parser, migration и renderer tests.",
-        "relevant_contracts": "Сверены repository contract и текущий task scope.",
-        "claimed_impact": "Наблюдаемое влияние подтверждено по exact candidate.",
-    }
-    fixed_triage = CodeRabbitFindingTriage(
-        disposition=FindingDisposition.CONFIRMED,
-        decision_reason="Finding подтверждён сравнением provider claim с текущим кодом.",
-        change_summary="Добавлена remediation и regression coverage на этом exact head.",
-        **triage_common,
-    )
-    rejected_triage = CodeRabbitFindingTriage(
-        disposition=FindingDisposition.FALSE_POSITIVE,
-        decision_reason="Рекомендация прямо нарушает обязательный repository contract.",
-        change_summary="Изменение отклонено только по доказанному contract conflict.",
-        conflict_kind="repository_contract_conflict",
-        authoritative_source=".codex/context/GIT-WORKFLOW.md: merge policy",
-        **triage_common,
-    )
-    review = CodeRabbitReview(
-        reviewed_head="b" * 40,
-        base_sha="a" * 40,
-        findings=(
-            CodeRabbitFinding(
-                severity=FindingSeverity.MAJOR,
-                path="azurpilot/integrations/coderabbit.py",
-                line=12,
-                line_end=14,
-                title="Потеря provider context",
-                impact="Official agent context не публикуется в typed finding.",
-                resolution="Сохранить codegenInstructions и показать его оператору.",
-                codegen_instructions="Добавьте bounded agent fix context в DTO и renderer.",
-                suggestions=("Добавьте regression test.",),
-                disposition=FindingDisposition.CONFIRMED,
-                fix_head="c" * 40,
-                triage=fixed_triage,
-            ),
-            CodeRabbitFinding(
-                severity=FindingSeverity.MINOR,
-                path=".coderabbit.yaml",
-                title="Конфликт policy",
-                impact="Provider предложил нарушить repository review policy.",
-                resolution="Изменить policy согласно provider recommendation.",
-                disposition=FindingDisposition.FALSE_POSITIVE,
-                triage=rejected_triage,
-            ),
-        ),
-    )
-    body = PullRequestBody(
-        goal=(
-            "Цель изменения — сохранить полный CodeRabbit evidence и сделать каждое решение аудируемым. "
-            "Operator должен видеть provider claim, independent conclusion и точный fix head. "
-            "Это позволяет воспроизвести решение на exact candidate и отличить remediation от rejection. " * 2
-        ),
-        scope=(
-            "В scope входят typed CodeRabbit protocol, triage, state migration и PR rendering.\n"
-            "- Provider payload и independent evidence.\n"
-            "- Strict disposition и conflict basis.\n"
-            "- Exact reviewed head и bounded audit trail по каждому provider finding.\n" * 2
-        ),
-        implementation=(
-            "Adapter сохраняет official fields, state migration удаляет terminal authority legacy result, "
-            "а renderer публикует отдельный блок для каждого finding.\n"
-            "- codegenInstructions является основным fix context.\n"
-            "- conflict rejection содержит source и decision reason.\n"
-            "- Fixed finding сохраняет change summary и fix head для последующей проверки.\n" * 2
-        ),
-        checks=(
-            "Проверены parser, typed triage, renderer и exact-head invariants.\n"
-            "- Targeted tests покрывают valid, incomplete и rejected payload.\n"
-            "- Renderer regression проверяет оба disposition.\n"
-            "- Legacy migration не может выдать старый provider result за terminal clean state.\n" * 2
-        ),
-        ci=(
-            "Exact-head CI проверяет Python, Windows и Security jobs.\n"
-            "- Каждый обязательный context сверяется с текущим commit.\n"
-            "- Review и security status не подменяют друг друга.\n" * 2
-        ),
-        security_secret_scan=(
-            "Secret scan ограничен source и staged content.\n"
-            "- Provider payload остаётся bounded и untrusted.\n"
-            "- Секреты, команды и непроверенный raw output не исполняются автоматически.\n" * 2
-        ),
-        coderabbit_review=review,
-        migration_rollback=(
-            "State migration сохраняет historical evidence без terminal authority.\n"
-            "- Rollback выполняется через согласованный Git workflow.\n"
-            "- Новый logical cycle стартует только через project-owned boundary.\n" * 2
-        ),
-        limitations=(
-            "Effective organization override provenance не раскрывается native surface.\n"
-            "- Merge и Ready lifecycle остаются отдельным решением.\n"
-            "- Отсутствие provenance evidence не заменяется предположением об effective config.\n" * 2
-        ),
-    )
-
-    rendered = PullRequestBodyRenderer.render(
-        body,
-        base_sha="a" * 40,
-        head_sha="b" * 40,
-    )
-
-    assert rendered.count("### Finding ") == 2
-    assert "Добавьте bounded agent fix context" in rendered
-    assert "Fix head: `" + "c" * 40 in rendered
-    assert "repository_contract_conflict" in rendered
-    assert ".codex/context/GIT-WORKFLOW.md: merge policy" in rendered
-    assert "Изменение отклонено только по доказанному contract conflict." in rendered
 
 
 def test_readiness_state_blocks_ready_when_mandatory_gate_is_blocked() -> None:
@@ -1817,22 +1696,6 @@ def test_readiness_rate_limit_is_independent_from_product_gate() -> None:
     assert readiness.overall_outcome == "READY"
 
 
-def test_readiness_rejects_coderabbit_as_mandatory_gate() -> None:
-    with pytest.raises(ValueError, match="external reviewer limitation"):
-        ReadinessState(
-            implementation_status="COMPLETE",
-            mcp_impact="NOT_REQUIRED",
-            mandatory_gates=(
-                MandatoryGate(
-                    name=CODERABBIT_EXACT_HEAD_CHECKPOINT_NAME,
-                    state=MandatoryGateState.BLOCKED_PRECONDITION,
-                    evidence="Текущий provider checkpoint не выполнен.",
-                ),
-            ),
-            overall_outcome="BLOCKED",
-        )
-
-
 def test_readiness_allows_unrequested_reviewer_but_rejects_false_limitation() -> None:
     product_gate = MandatoryGate(
         name="product_gate",
@@ -1858,99 +1721,6 @@ def test_readiness_allows_unrequested_reviewer_but_rejects_false_limitation() ->
             reviewer_limitation="Provider недоступен.",
             overall_outcome="BLOCKED",
         )
-
-
-def test_pr_body_rejects_actionable_coderabbit_findings_when_ready() -> None:
-    finding = CodeRabbitFinding(
-        severity=FindingSeverity.MINOR,
-        path="azurpilot/tooling/contracts.py",
-        impact="Provider finding требует отдельного triage.",
-        resolution="Проверить finding и применить remediation.",
-    )
-    with pytest.raises(ValueError, match="actionable CodeRabbit findings"):
-        PullRequestBody(
-            goal="Цель",
-            scope="Scope",
-            implementation="Реализация",
-            checks="Проверки",
-            ci="CI",
-            security_secret_scan="Security",
-            coderabbit_review=CodeRabbitReview(
-                reviewed_head="b" * 40,
-                base_sha="a" * 40,
-                findings=(finding,),
-            ),
-            readiness=ReadinessState(
-                implementation_status="COMPLETE",
-                mcp_impact="NOT_REQUIRED",
-                mandatory_gates=(
-                    MandatoryGate(
-                        name="product_gate",
-                        state=MandatoryGateState.PASS,
-                        evidence="Product gate пройден.",
-                    ),
-                ),
-                external_reviewer_status="SUBSTANTIVE",
-                overall_outcome="READY",
-                ready_for_chatgpt_review=True,
-            ),
-            migration_rollback="Rollback",
-            limitations="Ограничения",
-        )
-
-
-def test_pr_body_allows_fixed_confirmed_coderabbit_finding_when_ready() -> None:
-    finding = CodeRabbitFinding(
-        severity=FindingSeverity.MINOR,
-        path="azurpilot/tooling/contracts.py",
-        impact="Provider finding исправлен на exact head.",
-        resolution="Добавлена remediation.",
-        disposition=FindingDisposition.CONFIRMED,
-        fix_head="c" * 40,
-        triage=CodeRabbitFindingTriage(
-            disposition=FindingDisposition.CONFIRMED,
-            reviewed_head="b" * 40,
-            affected_code="Проверена модель readiness.",
-            call_sites="Проверены renderer и contract tests.",
-            nearest_tests="Запущен targeted readiness test.",
-            relevant_contracts="Сверен exact-head workflow.",
-            claimed_impact="Fixed finding не блокирует readiness.",
-            decision_reason="Finding подтверждён и исправлен.",
-            change_summary="Remediation зафиксирована в fix_head.",
-        ),
-    )
-
-    body = PullRequestBody(
-        goal="Цель",
-        scope="Scope",
-        implementation="Реализация",
-        checks="Проверки",
-        ci="CI",
-        security_secret_scan="Security",
-        coderabbit_review=CodeRabbitReview(
-            reviewed_head="b" * 40,
-            base_sha="a" * 40,
-            findings=(finding,),
-        ),
-        readiness=ReadinessState(
-            implementation_status="COMPLETE",
-            mcp_impact="NOT_REQUIRED",
-            mandatory_gates=(
-                MandatoryGate(
-                    name="product_gate",
-                    state=MandatoryGateState.PASS,
-                    evidence="Product gate пройден.",
-                ),
-            ),
-            external_reviewer_status="SUBSTANTIVE",
-            overall_outcome="READY",
-            ready_for_chatgpt_review=True,
-        ),
-        migration_rollback="Rollback",
-        limitations="Ограничения",
-    )
-
-    assert body.coderabbit_review is not None
 
 
 def test_required_mcp_impact_requires_fresh_mcp_client_gate() -> None:
@@ -2037,7 +1807,26 @@ def test_codex_registration_failure_is_separate_from_mcp_readiness() -> None:
     assert readiness.integration_checks[0].state is IntegrationCheckState.BLOCKED_PRECONDITION
 
 
-def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> None:
+@pytest.mark.parametrize(
+    ("reviewer_status", "reviewer_limitation", "expected_fragment"),
+    [
+        (
+            "RATE_LIMITED",
+            "Provider rate limit; содержательная внешняя проверка текущего head не завершена.",
+            "Provider rate limit",
+        ),
+        (
+            "SUBSTANTIVE",
+            None,
+            "Содержательная внешняя проверка выполнена",
+        ),
+    ],
+)
+def test_structured_pr_body_reports_external_reviewer_status(
+    reviewer_status: str,
+    reviewer_limitation: str | None,
+    expected_fragment: str,
+) -> None:
     body = PullRequestBody(
         goal=(
             "Цель описана достаточно подробно, чтобы оператор понимал причину и ожидаемый результат изменения delivery orchestration. "
@@ -2077,11 +1866,13 @@ def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> No
             "- отсутствие секретов и credentials в diff.\n"
             "- machine-readable Gitleaks report разбирается, а не заменяется одним exit code.\n" * 2
         ),
-        coderabbit_review=CodeRabbitReview(
-            reviewed_head="c" * 40,
-            base_sha="a" * 40,
-            findings=(),
-            rate_limit="Повторный review текущего head временно недоступен из-за provider rate limit.",
+        readiness=ReadinessState(
+            implementation_status="COMPLETE",
+            mcp_impact="NOT_REQUIRED",
+            external_reviewer_status=reviewer_status,
+            reviewer_limitation=reviewer_limitation,
+            overall_outcome="READY",
+            ready_for_chatgpt_review=True,
         ),
         migration_rollback=(
             "Миграций данных нет; rollback до merge выполняется закрытием Draft PR и удалением ветки после отдельного решения.\n"
@@ -2091,7 +1882,7 @@ def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> No
         limitations=(
             "PR остаётся Draft до финального review:\n"
             "- physical device и игровой acceptance не входят в этот scope;\n"
-            "- текущий CodeRabbit head требует отдельного повторного запуска после снятия rate limit.\n"
+            "- внешний reviewer требует отдельного повторного запуска после снятия rate limit.\n"
             "- provider rate limit не трактуется как product approval или как успешный review.\n" * 2
         ),
     )
@@ -2102,9 +1893,9 @@ def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> No
         head_sha="b" * 40,
     )
 
-    assert "Последний проверенный head: `" + "c" * 40 in rendered
-    assert "Текущий head: `" + "b" * 40 in rendered
-    assert "rate limit" in rendered
+    assert "## Внешняя проверка" in rendered
+    assert reviewer_status in rendered
+    assert expected_fragment in rendered
 
 
 def test_nested_cli_parser_exposes_delivery_and_pr_actions() -> None:

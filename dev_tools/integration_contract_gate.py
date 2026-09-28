@@ -40,9 +40,6 @@ from azurpilot.tooling.infrastructure import (
 )
 
 EXPECTED_FAMILIES = tuple(name.value for name in IntegrationName)
-_CODEX_FAMILIES = frozenset(
-    name.value for name in IntegrationName if name is not IntegrationName.CODERABBIT
-)
 
 RETIRED_PROFILE_PATHS = (
     Path(".docker/azurpilot-development-profile.json"),
@@ -85,13 +82,6 @@ _OPERATOR_LAUNCHER_TOKENS = re.compile(
 _UV_RUN_TOKEN = re.compile(r"(?i)\buv\s+run\b")
 _OPERATOR_LAUNCHER_NEGATION = re.compile(
     r"(?i)\b(?:запрещ\w*|forbidden|prohibited|disallowed|not\s+allowed)\b"
-)
-_CODERABBIT_RETIRED_MARKERS = (
-    "direct_wsl_agent",
-    "coderabbit-runtime.json",
-    "managed review clone",
-    "wsl.exe --list",
-    "pgrep -x coderabbit",
 )
 
 
@@ -176,7 +166,7 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
         errors.append(".codex/config.toml: обнаружена устаревшая toolkit registration")
 
     entries = _direct_entries(servers, errors)
-    missing = _CODEX_FAMILIES.difference(entries)
+    missing = frozenset(EXPECTED_FAMILIES).difference(entries)
     if missing:
         errors.append(
             ".codex/config.toml: отсутствуют direct registrations: "
@@ -671,31 +661,6 @@ def _check_retired_paths(root: Path, errors: list[str]) -> None:
             )
 
 
-def _check_coderabbit_native_boundary(root: Path, errors: list[str]) -> None:
-    """Проверить, что CodeRabbit policy не возвращается к retired topology."""
-
-    if DEFAULTS.get("coderabbit", {}).get("route") != "direct_native_agent":
-        errors.append("coderabbit: canonical route должен быть direct_native_agent")
-    config_source = root / "azurpilot" / "integrations" / "config.py"
-    adapter_source = root / "azurpilot" / "integrations" / "coderabbit.py"
-    for path in (config_source, adapter_source):
-        try:
-            raw = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            errors.append(f"{_relative(root, path)}: native boundary source не прочитан")
-            continue
-        content = raw.casefold()
-        for marker in _CODERABBIT_RETIRED_MARKERS:
-            if marker in content:
-                errors.append(f"{_relative(root, path)}: найден retired CodeRabbit marker {marker}")
-        if "coderabbit_native_windows_required" in content:
-            errors.append(
-                f"{_relative(root, path)}: host-native CodeRabbit boundary ошибочно ограничен Windows"
-            )
-        if "azurpilot_coderabbit_wsl_distribution" in content or (
-            "azurpilot_coderabbit_review_clone" in content
-        ):
-            errors.append("coderabbit: retired host environment overrides остаются активными")
 
 
 def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:
@@ -756,10 +721,6 @@ def check(root: Path) -> dict[str, object]:
         _run_check(
             "retired_paths",
             lambda errors: _check_retired_paths(repository_root, errors),
-        ),
-        _run_check(
-            "coderabbit_native_boundary",
-            lambda errors: _check_coderabbit_native_boundary(repository_root, errors),
         ),
         _run_check(
             "operator_workflow_boundary",

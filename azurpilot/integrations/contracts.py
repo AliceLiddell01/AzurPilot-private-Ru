@@ -16,19 +16,13 @@ from azurpilot.tooling.contracts import (
     AnalysisScope,
     CapabilityStatus,
     ClosedModel,
-    CodeRabbitDeferredBacklog,
 )
 
-MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE = 3
-MAX_RETAINED_REVIEW_CYCLES = 8
-CYCLE_ID_PATTERN = r"^(?:coderabbit-cycle|legacy-coderabbit)-[0-9a-f]{16,64}$|^not-started$"
-TASK_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
 
 
 class IntegrationName(StrEnum):
-    """Ровно шесть поддерживаемых продуктовых семейств."""
+    """Ровно пять поддерживаемых продуктовых семейств."""
 
-    CODERABBIT = "coderabbit"
     SEMGREP = "semgrep"
     GRAFANA = "grafana"
     CONTEXT7 = "context7"
@@ -130,44 +124,15 @@ class IntegrationFinding(ClosedModel):
         return self
 
 
-class CodeRabbitCycleSummary(ClosedModel):
-    """Безопасная сводка текущего CodeRabbit review cycle."""
-
-    cycle_id: str = Field(pattern=CYCLE_ID_PATTERN)
-    task_id: str | None = Field(default=None, pattern=TASK_ID_PATTERN)
-    cycle_status: str = Field(min_length=1, max_length=80)
-    substantive_iterations: int = Field(
-        ge=0, le=MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE
-    )
-    substantive_budget: int = Field(
-        default=MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE,
-        ge=MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE,
-        le=MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE,
-    )
-    provider_state: str = Field(min_length=1, max_length=80)
-    rate_limited_at: str | None = Field(default=None, max_length=80)
-    retry_not_before: str | None = Field(default=None, max_length=80)
-    retry_source: Literal["provider", "unknown"] = "unknown"
-    last_reviewed_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
-    previous_cycles_retained: int = Field(ge=0, le=MAX_RETAINED_REVIEW_CYCLES)
-    findings_count: int = Field(ge=0, le=128)
-    triaged_findings_count: int = Field(default=0, ge=0, le=128)
-    triage_required: bool = False
-    historical_non_authoritative_count: int = Field(default=0, ge=0, le=128)
-    terminal: bool
-    active: bool
-
 
 class IntegrationDetails(ClosedModel):
     """Операционный payload CLI."""
 
     action: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,31}$")
-    integrations: tuple[IntegrationRecord, ...] = Field(min_length=1, max_length=6)
+    integrations: tuple[IntegrationRecord, ...] = Field(min_length=1, max_length=5)
     target: IntegrationName | None = None
     scope: AnalysisScope | None = None
     findings: tuple[IntegrationFinding, ...] = Field(default_factory=tuple, max_length=128)
-    coderabbit_cycle: CodeRabbitCycleSummary | None = None
-    coderabbit_backlog: CodeRabbitDeferredBacklog | None = None
 
 
 class SharedMcpDetails(ClosedModel):
@@ -191,12 +156,6 @@ class IntegrationEvidenceBundle(ClosedModel):
 
 
 __all__ = [
-    "CYCLE_ID_PATTERN",
-    "MAX_RETAINED_REVIEW_CYCLES",
-    "MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE",
-    "TASK_ID_PATTERN",
-    "CodeRabbitCycleSummary",
-    "CodeRabbitDeferredBacklog",
     "CredentialRef",
     "CredentialSource",
     "IntegrationDetails",

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from azurpilot.cli import CliInvocationError, build_parser
-from azurpilot.integrations import IntegrationRegistry, coderabbit
+from azurpilot.cli import CliInvocationError, _render_human, build_parser
+from azurpilot.integrations import IntegrationRegistry
 from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
     DOCKER_HUB_READ_ONLY_TOOLS,
@@ -19,6 +19,7 @@ from azurpilot.integrations.adapters import (
     GRAFANA_REQUIRED_READ_ONLY_TOOLS,
     GRAFANA_TEMPO_READ_ONLY_TOOLS,
     Context7Adapter,
+    DockerDocsAdapter,
     DockerHubAdapter,
     GrafanaAdapter,
     SemgrepAdapter,
@@ -33,6 +34,7 @@ from azurpilot.integrations.config import (
 )
 from azurpilot.integrations.contracts import (
     CredentialSource,
+    IntegrationDetails,
     IntegrationEvidence,
     IntegrationFinding,
     IntegrationName,
@@ -53,9 +55,10 @@ from azurpilot.integrations.service import (
 from azurpilot.tooling.contracts import (
     AnalysisScope,
     CapabilityStatus,
-    CodeRabbitFindingTriage,
-    FindingDisposition,
     GitRange,
+    OperationState,
+    ResultCode,
+    ToolingResult,
 )
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.infrastructure import InfrastructureService, SharedMcpOutcome
@@ -91,17 +94,28 @@ def isolate_integration_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(variable, raising=False)
 
 
-def test_registry_is_closed_to_exactly_six_typed_families():
+def test_registry_is_closed_to_exactly_five_typed_families():
     registry = IntegrationRegistry()
 
     assert tuple(adapter.name for adapter in registry.adapters) == (
-        IntegrationName.CODERABBIT,
         IntegrationName.SEMGREP,
         IntegrationName.GRAFANA,
         IntegrationName.CONTEXT7,
         IntegrationName.DOCKER_DOCS,
         IntegrationName.DOCKER_HUB,
     )
+
+
+def test_registry_rejects_incomplete_adapter_catalog() -> None:
+    with pytest.raises(ValueError, match="ровно пять adapters"):
+        IntegrationRegistry(
+            adapters=(
+                SemgrepAdapter(),
+                GrafanaAdapter(),
+                Context7Adapter(),
+                DockerDocsAdapter(),
+            )
+        )
 
 
 def test_grafana_defaults_use_only_direct_credential_boundaries():
@@ -171,312 +185,6 @@ def test_shared_mcp_stop_requires_proven_not_configured_state(
     assert result.details.state is state
 
 
-def test_coderabbit_defaults_use_only_native_host_route():
-    settings = IntegrationConfig().provider("coderabbit")
-
-    assert settings["route"] == "direct_native_agent"
-    assert "wsl_distribution" not in settings
-    assert "review_clone" not in settings
-    assert "command" not in settings
-
-
-def test_coderabbit_executable_validation_follows_host_native_name():
-    assert (
-        _validate_value(
-            "coderabbit", "executable", "coderabbit", host_os="posix"
-        )
-        == "coderabbit"
-    )
-    assert (
-        _validate_value(
-            "coderabbit", "executable", "coderabbit.exe", host_os="nt"
-        )
-        == "coderabbit.exe"
-    )
-    with pytest.raises(ToolingError):
-        _validate_value("coderabbit", "executable", "coderabbit.exe", host_os="posix")
-    with pytest.raises(ToolingError):
-        _validate_value("coderabbit", "executable", "coderabbit", host_os="unsupported")
-
-
-def test_agent_ndjson_parses_status_finding_and_complete():
-    parsed = coderabbit.parse_agent_ndjson(
-        [
-            json.dumps({"type": "review_context"}),
-            json.dumps({"type": "status", "message": "running"}),
-            json.dumps(
-                {
-                    "type": "finding",
-                    "finding": {
-                        "path": "azurpilot/integrations/service.py",
-                        "severity": "major",
-                        "comment": "Содержательное замечание о границе.",
-                        "classification": "confirmed",
-                    },
-                }
-            ),
-            json.dumps({"type": "complete"}),
-        ]
-    )
-
-    assert parsed.complete is True
-    assert len(parsed.findings) == 1
-    assert parsed.findings[0].disposition is None
-    assert parsed.findings[0].triage is None
-    assert parsed.findings[0].path.endswith("service.py")
-    assert "Содержательное замечание" in parsed.findings[0].impact
-    assert parsed.unknown_events == ("review_context", "status")
-
-
-def test_agent_ndjson_accepts_complete_finding_count():
-    parsed = coderabbit.parse_agent_ndjson(
-        [
-            json.dumps(
-                {
-                    "type": "finding",
-                    "finding": {
-                        "path": "azurpilot/integrations/service.py",
-                        "severity": "major",
-                        "message": "Проверить границу.",
-                    },
-                }
-            ),
-            json.dumps({"type": "complete", "findings": 1}),
-        ]
-    )
-
-    assert parsed.complete is True
-    assert len(parsed.findings) == 1
-
-
-def test_agent_ndjson_preserves_top_level_finding_comment():
-    parsed = coderabbit.parse_agent_ndjson(
-        [
-            json.dumps(
-                {
-                    "type": "finding",
-                    "comment": "Комментарий находится на уровне события.",
-                    "finding": {
-                        "path": "azurpilot/integrations/coderabbit.py",
-                        "severity": "minor",
-                    },
-                }
-            ),
-            json.dumps({"type": "complete", "findings": 1}),
-        ]
-    )
-
-    assert "уровне события" in parsed.findings[0].impact
-
-
-def test_agent_ndjson_preserves_official_codegen_instructions_shape():
-    parsed = coderabbit.parse_agent_ndjson(
-        [
-            json.dumps(
-                {
-                    "type": "finding",
-                    "finding": {
-                        "fileName": "azurpilot/integrations/coderabbit.py",
-                        "severity": "trivial",
-                        "codegenInstructions": "Сделайте bounded typed mapping и добавьте regression test.",
-                    },
-                }
-            ),
-            json.dumps({"type": "complete", "findings": 1}),
-        ]
-    )
-
-    finding = parsed.findings[0]
-    assert finding.path.endswith("coderabbit.py")
-    assert finding.codegen_instructions == finding.resolution
-    assert "regression test" in finding.impact
-    assert finding.disposition is None
-
-
-def test_agent_ndjson_preserves_official_suggestions_and_comment_fallback():
-    parsed = coderabbit.parse_agent_ndjson(
-        [
-            json.dumps(
-                {
-                    "type": "finding",
-                    "finding": {
-                        "fileName": "azurpilot/tooling/contracts.py",
-                        "severity": "minor",
-                        "comment": "Проверьте typed contract перед сериализацией.",
-                        "suggestions": [
-                            "Добавьте проверку schema.",
-                            {"text": "Добавьте тест на invalid state."},
-                        ],
-                    },
-                }
-            ),
-            json.dumps({"type": "complete", "findings": 1}),
-        ]
-    )
-
-    finding = parsed.findings[0]
-    assert finding.codegen_instructions is None
-    assert finding.resolution == finding.impact
-    assert finding.suggestions == (
-        "Добавьте проверку schema.",
-        "Добавьте тест на invalid state.",
-    )
-
-
-def test_agent_ndjson_rejects_incomplete_mixed_findings_without_budget_claim():
-    lines = [
-        json.dumps(
-            {
-                "type": "finding",
-                "finding": {
-                    "fileName": "azurpilot/tooling/contracts.py",
-                    "severity": "major",
-                    "comment": "Содержательный provider claim.",
-                },
-            }
-        ),
-        json.dumps(
-            {
-                "type": "finding",
-                "finding": {
-                    "fileName": "azurpilot/tooling/contracts.py",
-                    "severity": "minor",
-                },
-            }
-        ),
-        json.dumps({"type": "complete", "findings": 2}),
-    ]
-
-    with pytest.raises(coderabbit.CodeRabbitStreamError, match="CODERABBIT_FINDING_INCOMPLETE"):
-        coderabbit.parse_agent_ndjson(lines)
-
-
-def _coderabbit_triage_common() -> dict[str, str]:
-    return {
-        "reviewed_head": "a" * 40,
-        "affected_code": "затронутая реализация",
-        "call_sites": "ближайшие call sites",
-        "nearest_tests": "ближайшие тесты",
-        "relevant_contracts": "контракт репозитория",
-        "claimed_impact": "независимый анализ влияния",
-        "decision_reason": "Решение основано на независимой проверке контракта.",
-        "change_summary": "Применимое исправление отслеживается для этого head.",
-    }
-
-
-def test_coderabbit_triage_rejects_legacy_or_untyped_rejection():
-    common = _coderabbit_triage_common()
-    with pytest.raises(ValidationError):
-        CodeRabbitFindingTriage(
-            disposition=FindingDisposition.FALSE_POSITIVE,
-            **common,
-        )
-    with pytest.raises(ValidationError):
-        CodeRabbitFindingTriage(
-            disposition="insufficient evidence",
-            **common,
-        )
-
-
-def test_coderabbit_triage_accepts_typed_conflict_rejection():
-    rejected = CodeRabbitFindingTriage(
-        disposition=FindingDisposition.FALSE_POSITIVE,
-        conflict_kind="repository_contract_conflict",
-        authoritative_source=".codex/context/GIT-WORKFLOW.md",
-        **_coderabbit_triage_common(),
-    )
-    assert rejected.conflict_kind.value == "repository_contract_conflict"
-
-
-def test_agent_ndjson_preserves_coderabbit_issue_and_suggested_fix_text():
-    parsed = coderabbit.parse_agent_ndjson(
-        [
-            json.dumps(
-                {
-                    "type": "finding",
-                    "finding": {
-                        "fileName": "azurpilot/integrations/coderabbit.py",
-                        "severity": "major",
-                        "issue": "Провайдерский issue должен быть виден оператору.",
-                        "suggested_fix": "Покажите bounded summary после complete.",
-                    },
-                }
-            ),
-            json.dumps({"type": "complete", "findings": 1}),
-        ]
-    )
-
-    finding = parsed.findings[0]
-    assert "виден оператору" in finding.impact
-    assert "bounded summary" in finding.resolution
-    assert "требует независимой проверки" not in finding.impact
-
-
-def test_provider_findings_output_preserves_full_comment_and_location():
-    parsed = coderabbit.parse_provider_findings_output(
-        """
-  major [Functional Correctness]
-  → dev_tools/observability_mcp.py:74-77
-
-  Не изменяйте аргументы вызова функцией санитизации вывода.
-
-  Отклоняйте такие аргументы fail-closed вместо молчаливой подмены.
-
-
-  🔒 Предлагаемое исправление
-
-  result != dict(arguments)
-────────────────────────────────────────────────────────────────────────
-"""
-    )
-
-    assert len(parsed) == 1
-    assert parsed[0].severity.value == "major"
-    assert parsed[0].path == "dev_tools/observability_mcp.py"
-    assert parsed[0].title == "Functional Correctness"
-    assert parsed[0].line == 74
-    assert parsed[0].line_end == 77
-    assert "Отклоняйте такие аргументы" in parsed[0].impact
-    assert "result != dict(arguments)" in parsed[0].resolution
-    assert parsed[0].impact != "CodeRabbit finding требует независимой проверки."
-
-
-def test_agent_ndjson_unknown_event_is_diagnostic_not_finding():
-    parsed = coderabbit.parse_agent_ndjson(
-        [json.dumps({"type": "future_status"}), json.dumps({"type": "complete"})]
-    )
-
-    assert parsed.findings == ()
-    assert parsed.unknown_events == ("future_status",)
-
-
-def test_agent_ndjson_rejects_malformed_truncated_and_rate_limited_streams():
-    with pytest.raises(coderabbit.CodeRabbitStreamError, match="CODERABBIT_NDJSON_INVALID"):
-        coderabbit.parse_agent_ndjson(["not-json"])
-    with pytest.raises(coderabbit.CodeRabbitStreamError, match="CODERABBIT_STREAM_TRUNCATED"):
-        coderabbit.parse_agent_ndjson([json.dumps({"type": "status"})])
-    with pytest.raises(coderabbit.CodeRabbitStreamError, match="CODERABBIT_RATE_LIMITED"):
-        coderabbit.parse_agent_ndjson([json.dumps({"type": "error", "code": "429"})])
-
-
-def test_agent_ndjson_does_not_classify_unrelated_rate_text_as_rate_limit():
-    with pytest.raises(coderabbit.CodeRabbitStreamError) as error:
-        coderabbit.parse_agent_ndjson(
-            [json.dumps({"type": "error", "message": "rate window is unavailable"})]
-        )
-
-    assert error.value.code == "CODERABBIT_AGENT_ERROR"
-    assert error.value.rate_limited is False
-
-
-def test_agent_ndjson_rejects_unsafe_finding_path():
-    with pytest.raises(coderabbit.CodeRabbitStreamError, match="CODERABBIT_FINDING_PATH_INVALID"):
-        coderabbit.parse_agent_ndjson(
-            [
-                json.dumps({"type": "finding", "path": "../outside.py"}),
-                json.dumps({"type": "complete"}),
-            ]
-        )
 def test_grafana_file_credential_is_bounded_and_not_serialized(
     tmp_path: Path,
 ):
@@ -863,14 +571,6 @@ def test_shared_registration_does_not_discover_provider_process(
     assert outcome.record.evidence.executable is None
 
 
-@pytest.mark.parametrize(
-    ("iterations", "terminal", "allowed"),
-    [(0, False, True), (1, False, True), (2, False, True), (3, False, False), (0, True, False)],
-)
-def test_coderabbit_iteration_policy_is_bounded(iterations, terminal, allowed):
-    assert coderabbit.review_iteration_allowed(iterations, terminal=terminal) is allowed
-
-
 def test_scoped_semgrep_rejects_exact_path_traversal(tmp_path: Path):
     inside = tmp_path / "inside.py"
     inside.write_text("print('ok')\n", encoding="utf-8")
@@ -1132,7 +832,7 @@ def test_repository_registration_rejects_untrusted_provider_identity(
         load_integration_config(tmp_path)
 
 
-def test_cli_exposes_typed_integration_leaves():
+def test_cli_exposes_typed_integration_leaves_without_coderabbit():
     parser = build_parser()
     status_args = parser.parse_args(["integrations", "status", "--json"])
     paths_args = parser.parse_args(
@@ -1141,34 +841,88 @@ def test_cli_exposes_typed_integration_leaves():
     scan_args = parser.parse_args(
         ["integrations", "semgrep", "scan", "--changed", "--base", "a" * 40]
     )
-    review_args = parser.parse_args(
-        [
-            "integrations",
-            "coderabbit",
-            "review",
-            "--base",
-            "b" * 40,
-            "--task-id",
-            "test-review-task",
-        ]
-    )
-    cycle_args = parser.parse_args(
-        ["integrations", "coderabbit", "cycle", "start", "--base", "c" * 40]
-    )
-    config_args = parser.parse_args(
-        ["integrations", "coderabbit", "config", "validate", "--json"]
-    )
 
     assert status_args.integration_target == "status"
     assert paths_args.paths == ["azurpilot/cli.py"]
     assert scan_args.changed is True
-    assert review_args.base == "b" * 40
-    assert review_args.task_id == "test-review-task"
-    assert cycle_args.integration_action == "cycle"
-    assert cycle_args.coderabbit_cycle_action == "start"
-    assert cycle_args.base == "c" * 40
-    assert config_args.integration_action == "config"
-    assert config_args.coderabbit_config_action == "validate"
+
+    with pytest.raises(CliInvocationError):
+        parser.parse_args(["integrations", "coderabbit", "status"])
+
+
+def test_status_one_uses_generic_integration_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        IntegrationService,
+        "resolve_root",
+        lambda _self, _root=None: tmp_path,
+    )
+
+    result = IntegrationService().status_one(IntegrationName.SEMGREP, tmp_path)
+
+    assert result.details is not None
+    assert result.details.target is IntegrationName.SEMGREP
+    assert result.details.integrations[0].name is IntegrationName.SEMGREP
+
+
+def test_human_integration_finding_uses_provider_neutral_recommendation_label() -> None:
+    record = IntegrationRecord(
+        name=IntegrationName.SEMGREP,
+        state=IntegrationState.READY,
+        reason_code="SEMGREP_TEST_READY",
+        message="Semgrep готов.",
+        evidence=IntegrationEvidence(route="direct_local_cli"),
+    )
+    finding = IntegrationFinding(
+        kind="semgrep",
+        identifier="python.test.rule",
+        path="module/example.py",
+        line=3,
+        severity="minor",
+        message="Тестовое замечание.",
+        resolution="Исправить тестовое замечание.",
+        disposition="untriaged",
+        decision_reason="Тестовая причина решения.",
+        change_summary="Тестовая сводка изменения.",
+        conflict_kind="stale",
+        deferral_reason="out_of_scope",
+        authoritative_source="Тестовый источник.",
+    )
+    result = ToolingResult(
+        ok=True,
+        code=ResultCode.OK,
+        state=OperationState.READY,
+        message="Проверка завершена.",
+        details=IntegrationDetails(
+            action="scan",
+            integrations=(record,),
+            target=IntegrationName.SEMGREP,
+            findings=(finding,),
+        ),
+    )
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    _render_human(
+        result,
+        stdout,
+        stderr,
+        no_color=True,
+        verbose=False,
+    )
+
+    rendered = stdout.getvalue()
+    assert "Рекомендация" in rendered
+    assert "Исправить тестовое замечание." in rendered
+    assert "Рекомендация CodeRabbit" not in rendered
+    assert "Причина решения" not in rendered
+    assert "Сводка изменения" not in rendered
+    assert "Тип конфликта" not in rendered
+    assert "Причина отложения" not in rendered
+    assert "Авторитетный источник" not in rendered
+    assert "Независимая классификация" not in rendered
+    assert "Принятое решение" not in rendered
 
 
 def test_cli_rejects_ambiguous_semgrep_scope():
@@ -1184,10 +938,12 @@ def test_cli_rejects_ambiguous_semgrep_scope():
                 "azurpilot/cli.py",
             ]
         )
+
+
 def test_integration_finding_rejects_reversed_line_range():
     with pytest.raises(ValueError, match="line_end"):
         IntegrationFinding(
-            kind="coderabbit",
+            kind="semgrep",
             identifier="finding",
             path="module/example.py",
             line=120,
@@ -1195,54 +951,3 @@ def test_integration_finding_rejects_reversed_line_range():
             severity="minor",
             message="Некорректный диапазон.",
         )
-
-
-def test_coderabbit_rate_limit_metadata_is_bounded_and_typed():
-    error = coderabbit.CodeRabbitStreamError(
-        "CODERABBIT_RATE_LIMITED",
-        rate_limited=True,
-        retry_not_before="2026-09-16T12:00:00+00:00",
-        retry_source="provider",
-    )
-    assert error.rate_limited is True
-    assert error.retry_not_before == "2026-09-16T12:00:00+00:00"
-    assert error.retry_source == "provider"
-    retry_at, source = coderabbit._parse_provider_retry_metadata(
-        {"metadata": {"retry_after_seconds": 120}},
-        now=datetime(2026, 9, 16, tzinfo=UTC),
-    )
-    assert retry_at == "2026-09-16T00:02:00+00:00"
-    assert source == "provider"
-    stale, stale_source = coderabbit._parse_provider_retry_metadata(
-        {"metadata": {"retry_at": "2026-09-15T23:59:59+00:00"}},
-        now=datetime(2026, 9, 16, tzinfo=UTC),
-    )
-    assert stale is None
-    assert stale_source == "unknown"
-    unknown, unknown_source = coderabbit._parse_provider_retry_metadata(
-        {"metadata": {"retry_after_seconds": 0}},
-        now=datetime(2026, 9, 16, tzinfo=UTC),
-    )
-    assert unknown is None
-    assert unknown_source == "unknown"
-
-
-def test_coderabbit_provider_retry_hint_is_preserved_without_raw_payload():
-    with pytest.raises(coderabbit.CodeRabbitStreamError) as caught:
-        coderabbit.parse_agent_ndjson(
-            [
-                json.dumps(
-                    {
-                        "type": "error",
-                        "code": "429",
-                        "retry_after_seconds": 120,
-                        "secret": "must-not-persist",
-                    }
-                )
-            ]
-        )
-    error = caught.value
-    assert error.rate_limited is True
-    assert error.retry_source == "provider"
-    assert error.retry_not_before is not None
-    assert "secret" not in str(error)

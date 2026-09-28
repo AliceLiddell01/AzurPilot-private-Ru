@@ -15,7 +15,6 @@ from typing import Any, TextIO
 from pydantic import BaseModel
 
 from .integrations import IntegrationService
-from .integrations.coderabbit import CodeRabbitProgress
 from .integrations.contracts import IntegrationName, SharedMcpDetails
 from .tooling.application_state import ApplicationStateService
 from .tooling.bootstrap import BuildService
@@ -543,98 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
                 metavar="PATH",
                 help="явный repository-relative файл; параметр можно повторять",
             )
-        if name is IntegrationName.CODERABBIT:
-            config = provider_subparsers.add_parser(
-                "config", help="проверить repository CodeRabbit configuration"
-            )
-            config_subparsers = config.add_subparsers(
-                dest="coderabbit_config_action", required=True, metavar="ACTION"
-            )
-            config_validate = config_subparsers.add_parser(
-                "validate", help="проверить `.coderabbit.yaml` по official schema"
-            )
-            _add_common_options(config_validate, suppress_defaults=True)
-            review = provider_subparsers.add_parser(
-                "review", help="запустить advisory CodeRabbit review"
-            )
-            _add_common_options(review, suppress_defaults=True)
-            review.add_argument("--base", required=True, help="exact base SHA")
-            review.add_argument(
-                "--head", default=None, help="exact review HEAD; по умолчанию текущий HEAD"
-            )
-            review.add_argument(
-                "--task-id",
-                required=True,
-                help="opaque logical task identity; сохраняет cycle между head commits",
-            )
-            findings = provider_subparsers.add_parser(
-                "findings", help="получить сохранённые findings без запуска review"
-            )
-            _add_common_options(findings, suppress_defaults=True)
-            findings.add_argument("--base", required=True, help="exact base SHA")
-            findings.add_argument("--head", required=True, help="exact reviewed HEAD")
-            triage = provider_subparsers.add_parser(
-                "triage", help="зафиксировать individual triage exact findings"
-            )
-            _add_common_options(triage, suppress_defaults=True)
-            triage.add_argument(
-                "--manifest", required=True, metavar="MANIFEST", help="абсолютный JSON triage manifest"
-            )
-            backlog = provider_subparsers.add_parser(
-                "backlog", help="прочитать repository-local deferred CodeRabbit backlog"
-            )
-            _add_common_options(backlog, suppress_defaults=True)
-            backlog_subparsers = backlog.add_subparsers(
-                dest="coderabbit_backlog_action", metavar="ACTION"
-            )
-            backlog_resolve = backlog_subparsers.add_parser(
-                "resolve", help="закрыть deferred finding после exact fix"
-            )
-            _add_common_options(backlog_resolve, suppress_defaults=True)
-            backlog_resolve.add_argument(
-                "--id", required=True, dest="backlog_id", help="стабильный идентификатор deferred backlog"
-            )
-            backlog_resolve.add_argument(
-                "--fix-head", required=True, help="точный commit HEAD исправления"
-            )
-            backlog_resolve.add_argument(
-                "--resolution",
-                required=True,
-                dest="resolution_summary",
-                help="bounded summary фактического ремонта",
-            )
-            cycle = provider_subparsers.add_parser(
-                "cycle", help="управлять bounded CodeRabbit review cycles"
-            )
-            cycle_subparsers = cycle.add_subparsers(
-                dest="coderabbit_cycle_action", required=True, metavar="ACTION"
-            )
-            cycle_recover = cycle_subparsers.add_parser(
-                "recover", help="восстановить доказанно прерванную попытку"
-            )
-            _add_common_options(cycle_recover, suppress_defaults=True)
-            cycle_abandon = cycle_subparsers.add_parser(
-                "abandon", help="закрыть неизвестную reservation по подтверждению оператора"
-            )
-            _add_common_options(cycle_abandon, suppress_defaults=True)
-            cycle_abandon.add_argument(
-                "--confirm",
-                action="store_true",
-                dest="confirm_abandon",
-                help="подтвердить очистку ownership без provider identity",
-            )
-            cycle_start = cycle_subparsers.add_parser(
-                "start", help="создать новый cycle без запуска provider review"
-            )
-            _add_common_options(cycle_start, suppress_defaults=True)
-            cycle_start.add_argument(
-                "--base", default=None, help="необязательный exact base SHA"
-            )
-            cycle_start.add_argument(
-                "--task-id",
-                default=None,
-                help="opaque logical task identity для нового cycle",
-            )
+
     return parser
 
 
@@ -686,60 +594,6 @@ def _short_sha(value: str | None) -> str:
         return "не создан"
     return value[:12] + "…"
 
-
-def _short_cycle_id(value: str) -> str:
-    """Показать различимый короткий идентификатор цикла."""
-
-    if value.startswith(("coderabbit-cycle-", "legacy-coderabbit-")):
-        return "CR:" + value.rsplit("-", 1)[-1][:8]
-    return value[:16]
-
-
-def _elapsed_label(seconds: int) -> str:
-    seconds = max(0, int(seconds))
-    return f"{seconds // 60:02d}:{seconds % 60:02d}"
-
-
-def _coderabbit_progress_callback(stream: TextIO):
-    """Создать Rich-представление bounded heartbeat CodeRabbit."""
-
-    try:
-        from rich.console import Console
-        from rich.text import Text
-
-        console = Console(file=stream, no_color=True, force_terminal=False, highlight=False)
-    except (ImportError, OSError, RuntimeError, TypeError, ValueError):
-        console = None
-
-    phase_labels = {
-        "preflight": "предпроверка",
-        "clone_ready": "clone готов",
-        "provider_preflight": "предпроверка provider",
-        "provider_started": "provider запущен",
-        "provider_running": "provider выполняется",
-        "provider_finished": "provider завершён",
-        "timeout": "тайм-аут",
-        "output_truncated": "вывод усечён",
-        "rate_limited": "ограничение provider",
-        "provider_failed": "ошибка provider",
-        "parse_failed": "ошибка разбора",
-        "complete": "завершено",
-    }
-
-    def emit(event: CodeRabbitProgress) -> None:
-        line = (
-            f"CodeRabbit | этап {phase_labels.get(event.phase, event.phase)} | "
-            f"цикл {_short_cycle_id(event.cycle_id)} | "
-            f"попытка {event.attempt} | завершено {event.substantive_iterations}/3 | "
-            f"время {_elapsed_label(event.elapsed_seconds)} | {event.message}"
-        )
-        if console is not None:
-            console.print(Text(line), end="\r")
-        else:
-            stream.write("\r" + line)
-            stream.flush()
-
-    return emit
 
 
 def _render_delivery_validation_preview(
@@ -909,35 +763,7 @@ def _render_human(
                     str(getattr(item, "message", "Состояние не подтверждено.")),
                 )
             console.print(table)
-            cycle = getattr(result.details, "coderabbit_cycle", None)
-            if cycle is not None:
-                cycle_table = Table(title="Цикл ревью CodeRabbit", expand=True)
-                cycle_table.add_column("Поле", no_wrap=True)
-                cycle_table.add_column("Значение", overflow="fold")
-                cycle_rows = (
-                    ("цикл", cycle.cycle_id),
-                    ("статус", cycle.cycle_status),
-                    (
-                        "бюджет",
-                        f"{cycle.substantive_iterations}/{cycle.substantive_budget}",
-                    ),
-                    ("provider", cycle.provider_state),
-                    ("ограничение с", cycle.rate_limited_at or "не наблюдалось"),
-                    ("повторить не ранее", cycle.retry_not_before or "не задано"),
-                    ("источник retry", cycle.retry_source),
-                    (
-                        "последний проверенный head",
-                        cycle.last_reviewed_head or "не наблюдался",
-                    ),
-                    ("сохранённых циклов", str(cycle.previous_cycles_retained)),
-                    (
-                        "исторические findings без авторитетного подтверждения",
-                        str(cycle.historical_non_authoritative_count),
-                    ),
-                )
-                for label, value in cycle_rows:
-                    cycle_table.add_row(Text(str(label)), Text(str(value)))
-                console.print(cycle_table)
+
             findings = tuple(getattr(result.details, "findings", ()))
             if findings:
                 severity_labels = {
@@ -947,16 +773,8 @@ def _render_human(
                     "trivial": "незначительный",
                     "info": "информация",
                 }
-                disposition_labels = {
-                    "confirmed": "подтверждено",
-                    "partially confirmed": "частично подтверждено",
-                    "false positive": "отклонено по conflict",
-                    "deferred": "отложено вне scope",
-                    "untriaged": "не проверено",
-                }
                 for index, finding in enumerate(findings, start=1):
                     severity = str(getattr(finding, "severity", "info"))
-                    disposition = str(getattr(finding, "disposition", None) or "untriaged")
                     location = str(getattr(finding, "path", "не указан"))
                     line = getattr(finding, "line", None)
                     line_end = getattr(finding, "line_end", None)
@@ -978,7 +796,7 @@ def _render_human(
                     finding_table.add_row("Заголовок", Text(str(getattr(finding, "title", None) or "не указано")))
                     finding_table.add_row("Воздействие", Text(str(getattr(finding, "message", "не указано"))))
                     resolution = getattr(finding, "resolution", None)
-                    finding_table.add_row("Рекомендация CodeRabbit", Text(str(resolution or "не указано")))
+                    finding_table.add_row("Рекомендация", Text(str(resolution or "не указано")))
                     codegen_instructions = getattr(finding, "codegen_instructions", None)
                     if codegen_instructions:
                         finding_table.add_row(
@@ -991,57 +809,8 @@ def _render_human(
                             "Предложения",
                             Text("\n".join(str(item) for item in suggestions)),
                         )
-                    for field, label in (
-                        ("decision_reason", "Причина решения"),
-                        ("change_summary", "Сводка изменения"),
-                        ("conflict_kind", "Тип конфликта"),
-                        ("deferral_reason", "Причина отложения"),
-                        ("authoritative_source", "Авторитетный источник"),
-                    ):
-                        value = getattr(finding, field, None)
-                        if value:
-                            finding_table.add_row(label, Text(str(value)))
-                    finding_table.add_row("Независимая классификация", Text(disposition_labels.get(disposition, disposition or "не классифицировано")))
-                    accepted = (
-                        "принято"
-                        if disposition in {"confirmed", "partially confirmed"}
-                        else "отложено"
-                        if disposition == "deferred"
-                        else "не принято"
-                    )
-                    finding_table.add_row("Принятое решение", Text(accepted))
                     console.print(finding_table)
-            backlog = getattr(result.details, "coderabbit_backlog", None)
-            if backlog is not None:
-                backlog_table = Table(
-                    title="Deferred CodeRabbit backlog",
-                    expand=True,
-                )
-                backlog_table.add_column("ID", no_wrap=True)
-                backlog_table.add_column("Статус", no_wrap=True)
-                backlog_table.add_column("Впервые замечено", no_wrap=True)
-                backlog_table.add_column("Ветка / HEAD", overflow="fold")
-                backlog_table.add_column("Серьёзность", no_wrap=True)
-                backlog_table.add_column("Путь", overflow="fold")
-                backlog_table.add_column("Заголовок", overflow="fold")
-                for entry in getattr(backlog, "findings", ()):
-                    backlog_table.add_row(
-                        str(entry.backlog_id),
-                        str(entry.status),
-                        str(entry.first_seen_at),
-                        f"{entry.reviewed_branch} / {_short_sha(entry.reviewed_head)}",
-                        str(entry.severity.value),
-                        (
-                            f"{entry.path}:{entry.line}"
-                            if entry.line is not None
-                            else str(entry.path)
-                        ),
-                        str(entry.title or "не указано"),
-                    )
-                if getattr(backlog, "findings", ()):
-                    console.print(backlog_table)
-                else:
-                    console.print("Deferred CodeRabbit backlog пуст.")
+
             console.print(f"{'✓' if result.ok else '✗'} {result.message}")
         elif checks is not None:
             from rich.table import Table
@@ -1343,75 +1112,7 @@ def _dispatch(
             else:
                 scope = AnalysisScope(paths=paths, mode="staged")
             return services.integrations.scan(scope, root)
-        if target == IntegrationName.CODERABBIT.value and action == "review":
-            integration_root = services.integrations.resolve_root(root)
-            head = args.head
-            if head is None:
-                from .tooling.git import GitClient
 
-                head = GitClient(integration_root).head()
-            return services.integrations.review(
-                base_sha=args.base,
-                head_sha=head,
-                task_id=getattr(args, "task_id", None),
-                repository_root=root,
-                progress_callback=(
-                    _coderabbit_progress_callback(progress_stream or sys.stderr)
-                    if not getattr(args, "json", False)
-                    else None
-                ),
-            )
-        if (
-            target == IntegrationName.CODERABBIT.value
-            and action == "config"
-            and args.coderabbit_config_action == "validate"
-        ):
-            return services.integrations.validate_coderabbit_config(repository_root=root)
-        if target == IntegrationName.CODERABBIT.value and action == "findings":
-            return services.integrations.findings(
-                base_sha=args.base,
-                head_sha=args.head,
-                repository_root=root,
-            )
-        if target == IntegrationName.CODERABBIT.value and action == "triage":
-            return services.integrations.triage(
-                manifest_path=args.manifest,
-                repository_root=root,
-            )
-        if target == IntegrationName.CODERABBIT.value and action == "backlog":
-            if getattr(args, "coderabbit_backlog_action", None) == "resolve":
-                return services.integrations.resolve_coderabbit_backlog(
-                    backlog_id=args.backlog_id,
-                    fix_head=args.fix_head,
-                    resolution_summary=args.resolution_summary,
-                    repository_root=root,
-                )
-            return services.integrations.backlog(repository_root=root)
-        if (
-            target == IntegrationName.CODERABBIT.value
-            and action == "cycle"
-            and args.coderabbit_cycle_action == "recover"
-        ):
-            return services.integrations.recover_coderabbit_review(repository_root=root)
-        if (
-            target == IntegrationName.CODERABBIT.value
-            and action == "cycle"
-            and args.coderabbit_cycle_action == "abandon"
-        ):
-            return services.integrations.abandon_coderabbit_review(
-                confirmed=args.confirm_abandon,
-                repository_root=root,
-            )
-        if (
-            target == IntegrationName.CODERABBIT.value
-            and action == "cycle"
-            and args.coderabbit_cycle_action == "start"
-        ):
-            return services.integrations.start_coderabbit_cycle(
-                base_sha=args.base,
-                task_id=getattr(args, "task_id", None),
-                repository_root=root,
-            )
         if action == "status":
             return services.integrations.status_one(target, root)
         if action == "doctor" or action == "probe":

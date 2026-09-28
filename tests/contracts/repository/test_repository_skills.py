@@ -122,35 +122,43 @@ def test_development_description_has_positive_and_negative_routing() -> None:
         assert boundary in description
 
 
-def test_coderabbit_description_routes_review_requests() -> None:
-    frontmatter, _ = _frontmatter(_SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md")
-    description = str(frontmatter["description"]).lower()
-    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "host-native"):
+def test_coderabbit_description_routes_direct_cli_review_requests() -> None:
+    frontmatter, content = _frontmatter(
+        _SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md"
+    )
+    description = " ".join(str(frontmatter["description"]).lower().split())
+    normalized = " ".join(content.lower().split())
+
+    for trigger in ("coderabbit", "review", "текущего checkout", "cli", "явном coderabbit intent"):
         assert trigger in description
-    for delegated_trigger in ("делегации", "canonical", "checkpoint"):
-        assert delegated_trigger in description
-    assert "подготовка pr к финальному ревью" not in description
+    for required in (
+        "coderabbit review --agent",
+        "не использует и не создаёт",
+        "azur integrations coderabbit",
+        "state machine",
+        "persistent review state",
+        "provider finding не является доказанным defect",
+    ):
+        assert required in normalized
+    assert "generic code review" in description
 
 
-def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
+def test_coderabbit_delegation_keeps_git_and_verification_owners() -> None:
     review_skill = _SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md"
     development_skill = _SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md"
     review_content = " ".join(review_skill.read_text(encoding="utf-8").lower().split())
     development_content = " ".join(development_skill.read_text(encoding="utf-8").lower().split())
 
     for required in (
-        "явном запросе coderabbit/code review",
-        "внутренней делегации",
-        "windows использует `coderabbit.exe`",
-        "posix host — `coderabbit`",
-        "обычной разработки вне такого checkpoint",
+        ".codex/context/git-workflow.md",
+        ".codex/context/08-verification.md",
+        "не создавай пустой marker commit",
     ):
         assert required in review_content
     for required in (
         "проверку coderabbit запускай только по явному запросу пользователя",
         "явно передай её соседнему навыку",
         "`azurpilot-coderabbit-review`",
-        "ограничения частоты, повторов и разбора результатов",
     ):
         assert required in development_content
 
@@ -224,32 +232,35 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         assert duplicated_policy not in normalized
 
     review_dir = _SKILLS_ROOT / "azurpilot-coderabbit-review"
-    review_content = " ".join((review_dir / "SKILL.md").read_text(encoding="utf-8").split())
+    review_content = " ".join(
+        (review_dir / "SKILL.md").read_text(encoding="utf-8").lower().split()
+    )
     review_reference = review_dir / "references" / "review-workflow.md"
     assert review_reference.is_file()
     assert "references/review-workflow.md" in review_content
-    assert "доведение PR до точки внешнего финального ревью" not in review_content
+
     for required in (
-        "exact commit",
-        "если PR существует",
-        "partially confirmed",
-        "typed conflict",
-        "host-native",
-        "false positive",
+        "coderabbit review --agent",
+        "provider suggestions",
         "rate limit",
-        "provider finding не является verified finding disposition",
-        "individual triage",
-        "CODERABBIT_TRIAGE_REQUIRED",
+        "git/pr lifecycle",
+        "verification matrix",
     ):
-        assert required.lower() in review_content.lower()
-    workflow_content = " ".join(review_reference.read_text(encoding="utf-8").split())
+        assert required in review_content
+
+    workflow_content = " ".join(
+        review_reference.read_text(encoding="utf-8").lower().split()
+    )
     for required in (
-        "provider finding и verified finding disposition — разные сущности",
-        "для каждого finding до любой classification",
-        "заявленный provider impact",
-        "azur integrations coderabbit triage",
+        "coderabbit review --agent",
+        "ndjson stream",
+        "независимый triage findings",
+        "partially confirmed",
+        "false positive",
+        "не переключайся на самописный adapter",
     ):
-        assert required.lower() in workflow_content.lower()
+        assert required in workflow_content
+    assert "не восстанавливай старый `azur integrations coderabbit` wrapper" in workflow_content
 
 
 def test_cross_thread_mcp_continuation_has_one_canonical_contract() -> None:
@@ -566,7 +577,7 @@ def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
         "если навык coderabbit вернул `rate_limited`",
         "жизненный цикл git может достичь `ready_for_chatgpt_review`",
         "это не отменяет обязательные ci, проверку безопасности и секретов, обязательную приёмку продукта или блокирующие обсуждения",
-        "правила ожидания, повторного запуска и разбора результатов сервиса описаны в соответствующем навыке и справочнике",
+        "правила ожидания, повторного запуска и разбора результатов coderabbit описаны его repository skill и reference-файлом",
     ):
         assert required in workflow_flat
 

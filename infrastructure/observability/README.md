@@ -727,11 +727,10 @@ bindings и внешним endpoint в deployment-specific настройках,
 
 ## Прямые внешние интеграции и MCP status
 
-Developer tooling использует шесть типизированных direct integrations:
+Developer tooling использует пять типизированных direct integrations:
 
 | Семейство | Канонический transport | Credential и граница |
 | --- | --- | --- |
-| CodeRabbit | host-native agent Windows/POSIX в canonical checkout | exact executable, auth/syntax readiness и clean candidate; agent review advisory |
 | Semgrep | локальный CLI | только явно заданный staged/committed/path scope |
 | Grafana | официальный контейнерный MCP server, stdio | явный endpoint и credential; read-only server flags |
 | Context7 | официальный streamable HTTP endpoint | user-scoped credential, без repository secret |
@@ -755,8 +754,6 @@ provenance, факт настройки, authenticated/not_observable и bounded
 
 Проверка одного семейства использует только typed leaves:
 
-    azur integrations coderabbit status
-    azur integrations coderabbit doctor
     azur integrations semgrep status
     azur integrations semgrep scan --staged
     azur integrations semgrep scan --changed --base <exact-sha>
@@ -772,7 +769,7 @@ Committed scan требует exact base commit; текущий HEAD опред�
 Git и не подменяется историческим evidence.
 
 azur doctor по умолчанию выполняет дешёвую локальную диагностику; флаг
-`azur doctor --full` добавляет шесть внешних integration summaries. Оба режима
+`azur doctor --full` добавляет пять внешних integration summaries. Оба режима
 read-only: они не создают credential, не запускают full scan и не изменяют
 Compose или runtime. dev_tools.mcp_status использует тот же
 IntegrationService и публикует только bounded status, source/runtime
@@ -785,35 +782,9 @@ provenance и machine-readable reason codes:
     uv run --locked --no-sync python -m dev_tools.mcp_status --watch --interval-seconds 60
 
 --strict fail-closed требует clean source, согласованный first-party contract
-и READY для всех шести direct integrations. `effective_codex_registration`
+и READY для всех пяти direct integrations. `effective_codex_registration`
 остаётся `not_observable` и проверяется отдельной live acceptance; это
 состояние не маскируется под READY.
-
-### CodeRabbit
-
-CodeRabbit выполняется только через host-native executable текущей OS в canonical
-checkout. Перед review проверяются exact repository/root identity, clean index и
-worktree, committed HEAD, explicit base SHA, auth/syntax readiness и отсутствие
-другой active operation:
-
-    azur integrations coderabbit status
-    azur integrations coderabbit doctor
-    azur integrations coderabbit review --base <exact-base-sha> --head <exact-head-sha> --task-id <opaque-task-id>
-
-Agent NDJSON разбирается с bounded size/line limits. Findings получают одну из
-классификаций confirmed, partially confirmed, false positive или deferred.
-Адаптер не исполняет provider snippets или codegen instructions;
-первые две категории только становятся candidates для отдельного исправления.
-Review budget ограничен тремя содержательными итерациями. Rate limit или
-недоступная credential фиксируются как RATE_LIMITED/UNAUTHENTICATED и не
-превращаются в бесконечный retry.
-
-Provider запускается прямым process invocation без shell wrapper, другого host,
-clone или temporary worktree. Adapter сразу сохраняет exact
-PID/start/executable/argv/cwd, держит bounded heartbeat и после terminal event
-повторно подтверждает тот же candidate. Изменение candidate делает результат
-non-authoritative и не расходует substantive budget. Legacy state не считается
-active native operation без новой доказанной identity.
 
 ### Семантика direct MCP adapters
 
@@ -932,7 +903,6 @@ UNAUTHENTICATED или UNAVAILABLE.
   подтверждённом caller auth и отказе 401 без него;
 - отказ `azur integrations shared-mcp start` без caller tokens в `.env`;
 - Compose health и сохранность observability volumes;
-- CodeRabbit dogfood review с canonical native-checkout evidence.
 
 Каждая поверхность имеет собственный READY/NOT_CONFIGURED/UNAVAILABLE/
 UNAUTHENTICATED/RATE_LIMITED/INCOMPATIBLE/DEGRADED/UNKNOWN state. Public
