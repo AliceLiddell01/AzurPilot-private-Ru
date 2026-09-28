@@ -54,8 +54,8 @@ acceptance. Чужое или неизвестное владение, конф�
 завершаются fail-closed. Состояние текущей внешней Codex session не является
 postcondition, hot reload не предполагается. `impact`, `status`, `versions`,
 `reconcile`, `start`, `stop` и `restart` остаются diagnostic/admin operations.
-После успешного `azur update` MCP reconciliation выполняется автоматически и
-остаётся обязательным postcondition Update.
+После обновления checkout проверку MCP выполняют отдельно через `azur mcp`;
+Git procedure принадлежит repository skill `azurpilot-git-workflow`.
 
 Публикуемые данные должны оставаться workflow-only. Не добавляй в checkout
 ChatGPT app state, tunnel profiles, control-plane keys, screenshots, archives,

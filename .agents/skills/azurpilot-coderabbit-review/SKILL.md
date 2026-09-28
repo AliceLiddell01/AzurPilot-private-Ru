@@ -26,7 +26,7 @@ Skill владеет только процедурой CodeRabbit-review тек�
 - независимо проверить findings по текущему repository state;
 - исправить подтверждённые проблемы в разрешённом scope;
 - выполнить применимую verification проекта;
-- при изменении кода опубликовать новый HEAD по `.codex/context/GIT-WORKFLOW.md`;
+- при изменении кода делегировать публикацию нового HEAD [azurpilot-git-workflow](../azurpilot-git-workflow/SKILL.md);
 - при необходимости повторить review на новом HEAD.
 
 CodeRabbit — development reviewer, а не runtime/integration capability AzurPilot.
@@ -77,7 +77,7 @@ skill также не является запросом немедленно з�
 → независимая перепроверка findings
 → исправление confirmed и partially confirmed
 → применимая repository verification
-→ публикация нового HEAD по GIT-WORKFLOW.md, если были изменения
+→ публикация нового HEAD через azurpilot-git-workflow, если были изменения
 ```
 
 Rate limit, auth failure, network/provider failure, malformed/incomplete output,
@@ -101,7 +101,8 @@ review без actionable fixes, HEAD остаётся неизменным.
 - Не публикуй секреты и не отправляй в review незапрошенные файлы с credentials.
 - `.coderabbit.yaml` остаётся repository-owned конфигурацией CodeRabbit и не
   мутируется как побочный эффект review.
-- Общий Git/PR lifecycle принадлежит `.codex/context/GIT-WORKFLOW.md`.
+- Процедура Git/PR принадлежит `azurpilot-git-workflow`; политика —
+  `.codex/context/GIT-WORKFLOW.md`.
 - Общая verification matrix принадлежит `.codex/context/08-VERIFICATION.md`.
 - Версионно-зависимые flags не считаются вечным контрактом: перед cycle проверяй
   фактический `coderabbit review --help`.

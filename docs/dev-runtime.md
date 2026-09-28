@@ -242,9 +242,8 @@ readiness и fresh-client acceptance. `impact`, `status`, `versions`, `reconcile
 admin-командами. Source
 reconciliation обновляет только производные metadata; runtime reconciliation не
 редактирует tracked source. Состояние текущей Codex session не является
-postcondition sync, hot reload не предполагается. Успешный
-`azur update` автоматически выполняет обязательную reconciliation и завершает
-Update неуспешно при неизвестном или нарушенном MCP postcondition. Status и
+postcondition sync, hot reload не предполагается. После обновления рабочей копии через `azurpilot-git-workflow` отдельно выполни
+`azur mcp sync --base <exact-base-sha>` и проверь его конечные постусловия. Status и
 reconcile разделяют `source_state`, `runtime_state`, `plugin_source_state` и
 `session_state`; при подтверждённом plugin/skill drift возвращается
 `MCP_RELOAD_REQUIRED`, а hot reload не имитируется.

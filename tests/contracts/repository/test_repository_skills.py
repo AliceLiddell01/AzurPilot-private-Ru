@@ -14,8 +14,9 @@ _PLUGIN_SKILL_PATH = _REPOSITORY_ROOT / "plugins" / "azurpilot" / "skills" / "az
 _SKILL_NAMES = (
     "azurpilot-repository-development",
     "azurpilot-coderabbit-review",
+    "azurpilot-git-workflow",
 )
-_ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![\w/:.`])(?:[A-Za-z]:[\\/]|\\\\|/(?!/))")
+_ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![\w/:.`>])(?:[A-Za-z]:[\\/]|\\\\|/(?![/\s]))")
 _URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s`]+")
 _SECRET = re.compile(
     r"(?i)(?:\b(?:sk|rk|xox[baprs])-[A-Za-z0-9_-]{12,}|\b(?:ghp|github_pat)_[A-Za-z0-9_]{12,})"
@@ -243,7 +244,7 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "coderabbit review --agent",
         "provider suggestions",
         "rate limit",
-        "git/pr lifecycle",
+        "процедура git/pr",
         "verification matrix",
     ):
         assert required in review_content
@@ -407,7 +408,7 @@ def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -
     assert "каноническая codex-команда: uv run" not in development_skill
 
 
-def test_developer_workflow_uses_terminal_mcp_sync_smoke_run_and_intent_delivery() -> None:
+def test_developer_workflow_delegates_git_and_preserves_terminal_mcp_smoke() -> None:
     paths = {
         "навык репозитория": (
             _REPOSITORY_ROOT
@@ -431,25 +432,25 @@ def test_developer_workflow_uses_terminal_mcp_sync_smoke_run_and_intent_delivery
             "приёмка новым клиентом",
             "dev_run_smoke",
             "dev_start_smoke",
-            "delivery publish --message",
+            "azurpilot-git-workflow",
         ),
         "владелец проверок": (
             "azur mcp sync --base",
             "NO_CHANGES",
             "заморозки варианта изменений",
-            "delivery publish --message",
+            "azurpilot-git-workflow",
         ),
         "владелец инструментов": (
             "azur mcp sync --base",
             "exact base",
-            "delivery publish --message",
-            "in-memory",
+            "azurpilot-git-workflow",
+            "read-only",
         ),
         "владелец Git": (
             "azur mcp sync --base",
             "SYNCED",
-            "delivery publish",
-            "preimage/postimage",
+            "azurpilot-git-workflow",
+            "--body-file",
         ),
         "навык разработки плагина": (
             "azur mcp sync --base",
@@ -482,8 +483,7 @@ def test_developer_workflow_uses_terminal_mcp_sync_smoke_run_and_intent_delivery
     )
     assert "dev_start_smoke" in normal_contract
     assert "dev_capture_smoke_game_checkpoint" not in normal_contract
-    assert "не запускай validate manifest перед обычной публикацией" in normal_contract
-    assert "вызови validate manifest перед обычной публикацией" not in normal_contract
+    assert "azur delivery" not in normal_contract
     plugin_skill = paths["навык разработки плагина"].read_text(encoding="utf-8")
     assert "dev_validate_smoke` оставлен для необязательной read-only проверки" in " ".join(
         plugin_skill.split()
@@ -507,7 +507,7 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     )
-    raw_merge_section = _section(workflow, "### Слияние", "## 21.")
+    raw_merge_section = _section(workflow, "### Слияние", "## После слияния и откат")
     merge_section = _normalize_contract(raw_merge_section)
     items = _numbered_contract_items(raw_merge_section)
     assert len(items) >= 3
@@ -549,15 +549,14 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     assert "ready_for_chatgpt_review" in merge_section
     assert "merge-authorized" in merge_section
 
-def test_new_capability_branch_contract_does_not_restore_codex_default() -> None:
+def test_capability_branch_contract_respects_task_and_codex_policy() -> None:
     workflow = (
         _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md"
     ).read_text(encoding="utf-8")
     normalized = _normalize_contract(workflow)
     assert "<domain>/<unique-capability-name>" in normalized
     assert "codex/*" in normalized
-    assert "прежним пространством имён" in normalized
-    assert "новые обычные задачи это пространство имён не используют" in normalized
+    assert "по контракту задачи" in normalized
     assert "sync/*" in normalized
 
 
@@ -565,7 +564,7 @@ def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     ).lower()
-    fast_track = workflow.split("### быстрый режим", maxsplit=1)[1].split("### стандартный", maxsplit=1)[0]
+    fast_track = workflow.split("### быстрый режим", maxsplit=1)[1].split("### стандартный и расширенный режимы", maxsplit=1)[0]
     assert "ready_for_chatgpt_review" in fast_track
     assert "остановка" in fast_track
     assert "не даёт разрешения на слияние" in fast_track
@@ -577,7 +576,7 @@ def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
         "если навык coderabbit вернул `rate_limited`",
         "жизненный цикл git может достичь `ready_for_chatgpt_review`",
         "это не отменяет обязательные ci, проверку безопасности и секретов, обязательную приёмку продукта или блокирующие обсуждения",
-        "правила ожидания, повторного запуска и разбора результатов coderabbit описаны его repository skill и reference-файлом",
+        "повторы coderabbit принадлежат его навыку и справочнику",
     ):
         assert required in workflow_flat
 
@@ -586,8 +585,8 @@ def test_rate_limit_cannot_reopen_merge_authorized_or_merged_lifecycle() -> None
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     )
-    workflow_post_merge = workflow.split("## 23. После слияния и откат", maxsplit=1)[1].split(
-        "## 24. Защита веток", maxsplit=1
+    workflow_post_merge = workflow.split("## После слияния и откат", maxsplit=1)[1].split(
+        "## Отчёт", maxsplit=1
     )[0]
     normalized = _normalize_contract(workflow)
     assert "merge-authorized" in normalized
@@ -601,7 +600,8 @@ def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow(
         encoding="utf-8"
     ).lower().split())
     assert "git-workflow.md" in agents_content
-    assert "для любых git/pr-операций следуй только" in agents_content
+    assert "для любых git/pr-операций политика принадлежит" in agents_content
+    assert "repository skill `azurpilot-git-workflow`" in agents_content
     assert "параллельная разработка" not in agents_content
     assert "опасный reproduction/experiment" not in agents_content
     for exception in (
@@ -651,3 +651,49 @@ def test_ci_contract_runs_for_any_pr_and_stable_push() -> None:
     assert {"Python", "Windows", "Security"} <= job_names
     for invariant in ("текущее продуктовое поведение", "historical SHA", "stage-specific"):
         assert invariant.lower() in ci_doc.lower()
+
+
+def test_git_skill_auto_routing_and_review_boundaries() -> None:
+    frontmatter, content = _frontmatter(_SKILLS_ROOT / "azurpilot-git-workflow/SKILL.md")
+    routing = _normalize_contract(str(frontmatter["description"]) + " " + str(frontmatter["metadata"]["whenToUse"]))
+    for trigger in ("branch", "staging", "commit", "push", "pr", "draft/ready", "ci/reviews", "конфликт", "merge", "cleanup", "продолжени"):
+        assert trigger in routing
+    for boundary in ("автоматически", "без явного", "объяснения git/github без mutation", "generic code review", "coderabbit review"):
+        assert boundary in routing
+    metadata = yaml.safe_load((_SKILLS_ROOT / "azurpilot-git-workflow/agents/openai.yaml").read_text(encoding="utf-8"))
+    assert metadata["policy"]["allow_implicit_invocation"] is True
+    for sibling in ("azurpilot-repository-development", "azurpilot-coderabbit-review"):
+        assert "azurpilot-git-workflow" in (_SKILLS_ROOT / sibling / "SKILL.md").read_text(encoding="utf-8")
+    references = re.findall(r"\]\((references/[^)]+\.md)\)", content)
+    assert set(references) == {p.relative_to(_SKILLS_ROOT / "azurpilot-git-workflow").as_posix() for p in (_SKILLS_ROOT / "azurpilot-git-workflow/references").glob("*.md")}
+    assert all((_SKILLS_ROOT / "azurpilot-git-workflow" / ref).is_file() for ref in references)
+
+
+def test_pr_body_file_precedes_create_and_readback_and_cannot_be_bypassed() -> None:
+    _, content = _frontmatter(_SKILLS_ROOT / "azurpilot-git-workflow/SKILL.md")
+    procedure = _section(content, "## PR: сначала файл, потом GitHub", "## Проверка, конфликты и завершение")
+    ordered = ("Собери факты", "Создай gitignored", "Перечитай файл", "gh pr create", "Прочитай опубликованный PR")
+    positions = [procedure.index(step) for step in ordered]
+    assert positions == sorted(positions)
+    assert "--body-file <file>" in procedure and "gh pr edit" in procedure
+    assert all(flag in procedure for flag in ("--repo", "--base", "--head", "--draft"))
+    assert "Запрещены `gh pr create --body`, `gh pr edit --body`, `--body-file -`" in procedure
+    assert "GitHub MCP `body` write" in procedure
+    assert "Сверь полный body" in procedure and "CRLF/LF" in procedure
+    body = (_SKILLS_ROOT / "azurpilot-git-workflow/references/pr-body.md").read_text(encoding="utf-8")
+    for section in ("Цель", "Область изменений", "Реализация", "Проверки", "CI", "Безопасность / проверка секретов", "Внешняя проверка", "Готовность", "Миграция / откат", "Ограничения"):
+        assert section in body
+    assert "квот" in body
+    assert not re.search(r">=\s*\d+\s*chars", body)
+
+
+def test_git_skill_transport_conflict_and_uncertain_publication_contract() -> None:
+    content = (_SKILLS_ROOT / "azurpilot-git-workflow/SKILL.md").read_text(encoding="utf-8")
+    assert all(owner in content for owner in ("Штатный `git`", "`gh` — канонический", "GitHub MCP — предпочтительное"))
+    assert "Ошибка записи через `gh` не разрешает молчаливый переход к записи через MCP" in content
+    conflicts = (_SKILLS_ROOT / "azurpilot-git-workflow/references/conflicts-and-merge.md").read_text(encoding="utf-8")
+    for invariant in ("намерения", "канонический генератор", "--match-head-commit", "инвалидирует", "--ours", "--theirs", "без force"):
+        assert invariant in conflicts
+    publication = (_SKILLS_ROOT / "azurpilot-git-workflow/references/publication.md").read_text(encoding="utf-8")
+    for invariant in ("git-publication.json", "4096", "Срока истечения нет", "Не создавай дубль", "git ls-remote --refs", "доказанный успех", "repository_root_identity"):
+        assert invariant in publication

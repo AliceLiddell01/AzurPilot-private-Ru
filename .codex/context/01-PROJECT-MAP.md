@@ -13,7 +13,9 @@ AzurPilot автоматизирует Azur Lane через цикл распо�
 - `module/game_mcp/` — отдельная игровая Game MCP read/control поверхность.
 - `module/dev_mcp/` — Dev MCP для development runtime и smoke/evidence.
 - `module/mcp_shared/` — нейтральные общие компоненты authenticated MCP transport.
-- `azurpilot/` — repository-owned Python tooling: typed CLI/services, Git delivery/PR orchestration и прямые external integrations; это не gameplay layer.
+- `azurpilot/` — принадлежащие репозиторию типизированные CLI/сервисы и прямые
+  внешние интеграции; Git здесь используется только для чтения свидетельств.
+- `.agents/skills/azurpilot-git-workflow/` — процедура Git/PR через штатные Git и gh.
 
 ### Базовый слой
 
