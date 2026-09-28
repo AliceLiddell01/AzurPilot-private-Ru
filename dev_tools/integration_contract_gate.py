@@ -40,7 +40,6 @@ from azurpilot.tooling.infrastructure import (
 )
 
 EXPECTED_FAMILIES = tuple(name.value for name in IntegrationName)
-_CODEX_FAMILIES = frozenset(name.value for name in IntegrationName)
 
 RETIRED_PROFILE_PATHS = (
     Path(".docker/azurpilot-development-profile.json"),
@@ -167,7 +166,7 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
         errors.append(".codex/config.toml: обнаружена устаревшая toolkit registration")
 
     entries = _direct_entries(servers, errors)
-    missing = _CODEX_FAMILIES.difference(entries)
+    missing = frozenset(EXPECTED_FAMILIES).difference(entries)
     if missing:
         errors.append(
             ".codex/config.toml: отсутствуют direct registrations: "

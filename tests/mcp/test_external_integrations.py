@@ -882,6 +882,12 @@ def test_human_integration_finding_uses_provider_neutral_recommendation_label() 
         severity="minor",
         message="Тестовое замечание.",
         resolution="Исправить тестовое замечание.",
+        disposition="untriaged",
+        decision_reason="Тестовая причина решения.",
+        change_summary="Тестовая сводка изменения.",
+        conflict_kind="stale",
+        deferral_reason="out_of_scope",
+        authoritative_source="Тестовый источник.",
     )
     result = ToolingResult(
         ok=True,
@@ -910,6 +916,13 @@ def test_human_integration_finding_uses_provider_neutral_recommendation_label() 
     assert "Рекомендация" in rendered
     assert "Исправить тестовое замечание." in rendered
     assert "Рекомендация CodeRabbit" not in rendered
+    assert "Причина решения" not in rendered
+    assert "Сводка изменения" not in rendered
+    assert "Тип конфликта" not in rendered
+    assert "Причина отложения" not in rendered
+    assert "Авторитетный источник" not in rendered
+    assert "Независимая классификация" not in rendered
+    assert "Принятое решение" not in rendered
 
 
 def test_cli_rejects_ambiguous_semgrep_scope():

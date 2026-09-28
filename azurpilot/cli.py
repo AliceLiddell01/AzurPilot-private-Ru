@@ -773,16 +773,8 @@ def _render_human(
                     "trivial": "незначительный",
                     "info": "информация",
                 }
-                disposition_labels = {
-                    "confirmed": "подтверждено",
-                    "partially confirmed": "частично подтверждено",
-                    "false positive": "отклонено по conflict",
-                    "deferred": "отложено вне scope",
-                    "untriaged": "не проверено",
-                }
                 for index, finding in enumerate(findings, start=1):
                     severity = str(getattr(finding, "severity", "info"))
-                    disposition = str(getattr(finding, "disposition", None) or "untriaged")
                     location = str(getattr(finding, "path", "не указан"))
                     line = getattr(finding, "line", None)
                     line_end = getattr(finding, "line_end", None)
@@ -817,25 +809,6 @@ def _render_human(
                             "Предложения",
                             Text("\n".join(str(item) for item in suggestions)),
                         )
-                    for field, label in (
-                        ("decision_reason", "Причина решения"),
-                        ("change_summary", "Сводка изменения"),
-                        ("conflict_kind", "Тип конфликта"),
-                        ("deferral_reason", "Причина отложения"),
-                        ("authoritative_source", "Авторитетный источник"),
-                    ):
-                        value = getattr(finding, field, None)
-                        if value:
-                            finding_table.add_row(label, Text(str(value)))
-                    finding_table.add_row("Независимая классификация", Text(disposition_labels.get(disposition, disposition or "не классифицировано")))
-                    accepted = (
-                        "принято"
-                        if disposition in {"confirmed", "partially confirmed"}
-                        else "отложено"
-                        if disposition == "deferred"
-                        else "не принято"
-                    )
-                    finding_table.add_row("Принятое решение", Text(accepted))
                     console.print(finding_table)
 
             console.print(f"{'✓' if result.ok else '✗'} {result.message}")
