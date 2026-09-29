@@ -214,8 +214,9 @@ Dev MCP и Game MCP остаются отдельными продуктами:
 Мост Windows имеет отдельный узкий операторский интерфейс
 `azur mcp bridge status|configure|start|stop|restart|accept`, принадлежащий
 `McpService`. `configure --stdin-token` безопасно сохраняет отдельный токен
-вызывающего клиента из stdin в защищённый `.env`; тот же токен настраивается для
-будущего Linux-клиента по отдельному доверенному каналу.
+вызывающего клиента из stdin в защищённый `.env`; клиент Linux читает то же
+значение тем же каноническим владельцем во время подготовки генерации и получает
+его только через окружение процесса.
 `status` возвращает закрытый `McpBridgeStatusDetails`: состояние моста
 (`ready`, `stale`, `stopped`, `unknown`, `conflict`), конечную точку и фиксированные
 маршруты, состояние аутентификации клиента (`configured`, `unavailable`,
@@ -232,8 +233,19 @@ Dev MCP и Game MCP остаются отдельными продуктами:
 `dev_list_smoke_capabilities`, `game_get_contract` и `game_list_profiles`.
 Команду выполняют только из чистой рабочей копии. Результат имеет состояние
 `READY`, `INCOMPATIBLE`, `UNAVAILABLE` или `UNKNOWN`. Эта приёмка на Windows
-проверяет сам мост, но не подтверждает состояние рабочей копии Linux, DSH или сквозной доступ
-через WSL.
+проверяет сам мост и не заменяет приёмку клиента Linux.
+
+Клиентскую границу DeepSeek Harness владеет `azurpilot.tooling.dsh`:
+`azur dsh prepare` собирает генерацию сессии и до старта Harness выполняет приёмку
+обоих маршрутов тем же каноническим клиентом, `azur dsh launch` заменяет процесс
+обычным запуском `npx @deepseek-ai/dsh` с отслеживаемым overlay, а
+`azur dsh verify` сверяет текущий checkout с генерацией работающей сессии.
+Ожидаемую идентичность источника вычисляет общий владелец
+`azurpilot.tooling.mcp_source_identity`; значения `/identity/dev` и
+`/identity/game` остаются только диагностикой. Генерация живёт только в окружении
+процесса Harness, поэтому буквальный токен и изменяемая идентичность не попадают
+ни в профиль Harness, ни в общий файл. Обычная сессия DeepSeek Harness без этого
+overlay от моста не зависит.
 
 Для необязательной проверки регистрации Codex используй [единый контракт
 продолжения между задачами](../../.agents/skills/azurpilot-repository-development/references/cross-thread-task-delegation.md);
