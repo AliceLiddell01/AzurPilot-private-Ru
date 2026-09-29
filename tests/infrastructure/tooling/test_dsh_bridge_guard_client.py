@@ -57,6 +57,8 @@ pytestmark = [
 ]
 
 REVISION = "3" * 40
+#: Окно наблюдения за фоновой проверкой: не короче её периода (5 с).
+GUARD_WATCHDOG_PROBE_MS = 6500
 HARNESS = """
 import { pathToFileURL } from 'node:url'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -103,9 +105,19 @@ counts.push(callsAt())
 for (let index = 0; index < 3; index += 1) decide('mcp__azurpilot-dev__dev_get_contract')
 counts.push(callsAt())
 
-for (const dispose of disposers) dispose()
-await new Promise((resolve) => setTimeout(resolve, 500))
-counts.push(callsAt())
+if (spec.watchdog_probe_ms > 0) {
+  // Наблюдение за фоновой проверкой: до остановки плагина она обязана сработать,
+  // после остановки — не запускать владельца проверки вовсе.
+  await new Promise((resolve) => setTimeout(resolve, spec.watchdog_probe_ms))
+  counts.push(callsAt())
+  for (const dispose of disposers) dispose()
+  await new Promise((resolve) => setTimeout(resolve, spec.watchdog_probe_ms))
+  counts.push(callsAt())
+} else {
+  for (const dispose of disposers) dispose()
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  counts.push(callsAt())
+}
 
 const document = spec.attestation
 let attestation = null
@@ -153,6 +165,7 @@ def _run_guard(
     ),
     environment: bool = True,
     readiness_timeout_ms: int | None = None,
+    watchdog_probe_ms: int = 0,
 ) -> dict[str, object]:
     """Запустить настоящий страж в node с подставным владельцем проверки."""
 
@@ -179,6 +192,7 @@ def _run_guard(
                 "tools": list(tools),
                 "counter": str(counter),
                 "attestation": str(attestation),
+                "watchdog_probe_ms": watchdog_probe_ms,
             }
         ),
         encoding="utf-8",
@@ -389,6 +403,7 @@ def test_guard_verifies_outside_the_call_path_and_stops_on_dispose(
             ("azurpilot-dev", "ready"),
             ("azurpilot-game", "ready"),
         ),
+        watchdog_probe_ms=GUARD_WATCHDOG_PROBE_MS,
     )
 
     counts = outcome["counts"]
@@ -397,8 +412,11 @@ def test_guard_verifies_outside_the_call_path_and_stops_on_dispose(
     # Решения guard синхронные: три дополнительных вызова ничего не запускают.
     assert counts[1] == counts[0]
     assert counts[2] == counts[0]
-    # После остановки плагина фоновый watchdog не продолжает работу.
-    assert counts[3] == counts[0]
+    # Окно наблюдения длиннее периода фоновой проверки, поэтому до остановки
+    # плагина она обязана сработать: иначе следующая проверка была бы вакуумной.
+    assert counts[3] > counts[2]
+    # После остановки плагина фоновая проверка не запускается вовсе.
+    assert counts[4] == counts[3]
 
 
 def test_guard_attestation_is_accepted_by_the_launcher(tmp_path: Path) -> None:
@@ -437,6 +455,12 @@ def test_guard_attestation_is_accepted_by_the_launcher(tmp_path: Path) -> None:
     )
     service = DshBridgeService()
     document = (tmp_path / "ready.json").read_text(encoding="utf-8")
+    payload = json.loads(document)
+    assert payload["guard_installed"] is True
+    assert payload["verification"] == "ready"
+    # Семейства в аттестации — наблюдение каталога инструментов сессии, а не
+    # константа требований: запускатель сверяет с ней собственное ожидание.
+    assert payload["mcp_families"] == ["azurpilot-dev", "azurpilot-game"]
 
     service._require_readiness(channel, generation, document)
 

@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -21,7 +22,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn, TextIO
+from typing import Any, NoReturn, TextIO
 
 from pydantic import BaseModel, ValidationError
 
@@ -97,6 +98,10 @@ DEFAULT_DSH_PACKAGE = "@deepseek-ai/dsh@0.1.7-rc.2"
 AZUR_COMMAND = "azur"
 NPX_COMMAND = "npx"
 BRIDGE_PROBE_TIMEOUT_SECONDS = 20.0
+#: Сколько ждать мягкого завершения сессии, прежде чем снимать группу жёстко.
+TERMINATION_TIMEOUT_SECONDS = 5.0
+#: Шаг ожидания группы процессов при остановке сессии.
+_TERMINATION_POLL_SECONDS = 0.2
 COMPOSITION_PREFLIGHT_TIMEOUT_SECONDS = 120.0
 READINESS_TIMEOUT_SECONDS = 60.0
 READINESS_GUARD_LEAD_SECONDS = 10.0
@@ -189,7 +194,6 @@ class DshBridgeService:
         *,
         profile: str = DEFAULT_DSH_PROFILE,
         dsh_package: str = DEFAULT_DSH_PACKAGE,
-        environ: Mapping[str, str] | None = None,
     ) -> ToolingResult[BaseModel, BaseModel]:
         """Собрать генерацию клиента и подтвердить оба маршрута моста до запуска."""
 
@@ -250,7 +254,6 @@ class DshBridgeService:
             repository_root,
             profile=profile,
             dsh_package=dsh_package,
-            environ=environ,
         )
         generation = prepared.details
         if not prepared.ok or generation is None:
@@ -320,7 +323,12 @@ class DshBridgeService:
         environ: Mapping[str, str],
         root: Path,
     ) -> subprocess.Popen[bytes]:
-        """Запустить обычный Harness дочерним процессом под контролем запускателя."""
+        """Запустить обычный Harness дочерним процессом под контролем запускателя.
+
+        Сессия запускается отдельной группой процессов POSIX: между запускателем
+        и сессией стоит обёртка `npx`, поэтому остановка обязана снимать группу
+        целиком, а сигналы терминала группа больше не получает сама.
+        """
 
         try:
             return subprocess.Popen(
@@ -329,6 +337,7 @@ class DshBridgeService:
                 env=dict(environ),
                 cwd=str(root),
                 close_fds=True,
+                start_new_session=os.name == "posix",
             )
         except OSError as error:
             raise ToolingError(
@@ -337,26 +346,104 @@ class DshBridgeService:
             ) from error
 
     def _supervise(self, child: subprocess.Popen[bytes]) -> int:
-        """Дождаться завершения сессии Harness и вернуть её код возврата."""
+        """Дождаться завершения сессии Harness и вернуть её код возврата.
 
+        Сессия живёт в отдельной группе процессов, поэтому сигнал терминала
+        запускатель пересылает группе сам.
+        """
+
+        previous = self._forward_signals(child)
         try:
             return child.wait()
         except KeyboardInterrupt:  # pragma: no cover - зависит от сигнала терминала
-            # SIGINT получает вся группа процессов, поэтому сессия завершается сама;
-            # запускатель лишь дожидается её кода возврата.
+            self._signal_group(child, signal.SIGINT)
             return child.wait()
+        finally:
+            self._restore_signals(previous)
+
+    def _forward_signals(self, child: subprocess.Popen[bytes]) -> dict[int, Any]:
+        """Пересылать группе сессии сигналы, которые получил запускатель."""
+
+        if os.name != "posix":
+            return {}
+        forwarded: dict[int, Any] = {}
+        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            try:
+                forwarded[signum] = signal.signal(
+                    signum,
+                    lambda received, _frame, session=child: self._signal_group(
+                        session, received
+                    ),
+                )
+            except AttributeError, OSError, ValueError:  # pragma: no cover
+                continue
+        return forwarded
+
+    def _restore_signals(self, previous: Mapping[int, Any]) -> None:
+        for signum, handler in previous.items():
+            try:
+                signal.signal(signum, handler)
+            except OSError, ValueError:  # pragma: no cover - не главный поток
+                continue
 
     def _terminate(self, child: subprocess.Popen[bytes]) -> None:
-        """Остановить сессию, которая не подтвердила обязательную активацию."""
+        """Остановить сессию вместе с её группой процессов.
 
-        if child.poll() is not None:
+        Обёртка `npx` завершается раньше самой сессии, поэтому ожидание
+        ориентируется на группу процессов: участник, который не завершился по
+        мягкому сигналу, получает жёсткий — иначе сессия осталась бы сиротой с
+        соединением моста и токеном в окружении.
+        """
+
+        self._signal_group(child, signal.SIGTERM)
+        deadline = time.monotonic() + TERMINATION_TIMEOUT_SECONDS
+        while self._group_alive(child) and time.monotonic() < deadline:
+            try:
+                child.wait(timeout=_TERMINATION_POLL_SECONDS)
+            except subprocess.TimeoutExpired:  # pragma: no cover - зависит от сессии
+                continue
+        if self._group_alive(child):
+            kill = getattr(signal, "SIGKILL", None)
+            if kill is None:  # pragma: no cover - платформа без SIGKILL
+                child.kill()
+            else:
+                # Обёртка могла быть уже снята, но группа сессии — нет:
+                # жёсткий сигнал адресуется группе независимо от её лидера.
+                self._signal_group(child, kill, require_running=False)
+        child.wait()
+
+    def _signal_group(
+        self,
+        child: subprocess.Popen[bytes],
+        signum: int,
+        *,
+        require_running: bool = True,
+    ) -> None:
+        """Послать сигнал всей группе сессии, а не одной обёртке `npx`."""
+
+        if require_running and child.poll() is not None:
             return
-        child.terminate()
+        if os.name == "posix":
+            try:
+                os.killpg(child.pid, signum)
+            except OSError:  # pragma: no cover - группа или её лидер исчезли
+                pass
+            return
         try:
-            child.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:  # pragma: no cover - зависит от сессии
-            child.kill()
-            child.wait()
+            child.send_signal(signum)
+        except OSError:  # pragma: no cover - процесс уже исчез
+            pass
+
+    def _group_alive(self, child: subprocess.Popen[bytes]) -> bool:
+        """Остался ли в группе сессии хотя бы один участник."""
+
+        if os.name != "posix":
+            return child.poll() is None
+        try:
+            os.killpg(child.pid, 0)
+        except OSError:
+            return False
+        return True
 
     def verify(
         self,
@@ -672,6 +759,11 @@ class DshBridgeService:
         обязательным из профиля, поэтому запускатель сам проверяет, что
         собранный профиль содержит страж и оба клиента AzurPilot MCP ровно по
         одному разу и без изменений относительно overlay-файла.
+
+        `--dump-config` — верхняя аппроксимация: он перечисляет записи, которые
+        загрузчик вправе не активировать. Поэтому проверка только запрещает:
+        лишняя запись клиента или стража закрывает запуск, а отсутствие запрета
+        здесь не заменяет подтверждение активации стражем.
         """
 
         overlay = Path(generation.overlay_path)

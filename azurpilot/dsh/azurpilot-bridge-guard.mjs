@@ -12,8 +12,9 @@
  * `tools/pre-execute` и не может быть отменён другим policy-плагином
  * (`dsh-tools`: `no guard can force-allow a call another guard denies`).
  * Синхронный контракт guard соблюдается за счёт подготовки вердикта владельцем
- * проверки вне пути вызова: guard только читает уже принятое решение и никогда
- * не запускает проверку по вызову инструмента.
+ * проверки вне пути вызова: решение принимается по уже принятому состоянию, а
+ * запуск проверки при устаревшем состоянии не блокирует вызов и остаётся
+ * фоновым (единственный запрос, ограниченный по времени).
  *
  * Проверка живёт по времени жизни плагина: единственный запрос к владельцу
  * ограничен по времени, не накладывается на себя и снимается при остановке
@@ -231,11 +232,17 @@ class Generation {
     }
   }
 
-  /** Семейства, инструменты которых не опубликованы в каталоге текущей сессии. */
-  unregisteredFamilies() {
+  /**
+   * Семейства, инструменты которых опубликованы в каталоге текущей сессии.
+   *
+   * Каталог — независимое свидетельство регистрации: аттестация клиента несёт
+   * именно наблюдение, а не константу требований, поэтому запускатель сверяет
+   * подтверждение с собственным ожиданием, а не повторяет заявление стража.
+   */
+  observedFamilies() {
     const registry = this.ctx?.tools
     if (registry === undefined || typeof registry.schemas !== 'function') {
-      return FAMILIES.map((family) => family.server)
+      return []
     }
     let names
     try {
@@ -244,11 +251,19 @@ class Generation {
         ? schemas.map((schema) => String(schema?.name ?? ''))
         : []
     } catch {
-      return FAMILIES.map((family) => family.server)
+      return []
     }
-    return FAMILIES.filter(
-      (family) => !names.some((candidate) => candidate.startsWith(family.prefix)),
+    return FAMILIES.filter((family) =>
+      names.some((candidate) => candidate.startsWith(family.prefix)),
     ).map((family) => family.server)
+  }
+
+  /** Семейства, инструменты которых не опубликованы в каталоге текущей сессии. */
+  unregisteredFamilies() {
+    const observed = new Set(this.observedFamilies())
+    return FAMILIES.filter((family) => !observed.has(family.server)).map(
+      (family) => family.server,
+    )
   }
 
   /** Состояние одного семейства по последнему принятому вердикту владельца. */
@@ -417,12 +432,24 @@ class Generation {
     }
   }
 
-  /** Записать аттестацию готовности для запускателя `azurpilot-harness`. */
+  /**
+   * Записать аттестацию готовности для запускателя `azurpilot-harness`.
+   *
+   * Готовая аттестация требует уже подтверждённой активации: порядок проверок в
+   * `apply` не должен быть единственной защитой от ложного подтверждения.
+   */
   attestReady() {
+    if (!this.ready || this.stopped) {
+      throw new GuardError(
+        CLIENT_UNAVAILABLE_CODE,
+        'аттестация готовности запрошена без подтверждённой активации ' +
+          'обязательных клиентов AzurPilot MCP; запуск Harness остановлен.',
+      )
+    }
     this.attest({
       guard_installed: true,
       verification: this.verdictState(),
-      mcp_families: FAMILIES.map((family) => family.server),
+      mcp_families: this.observedFamilies(),
       source_revision: this.revision,
       checkout_root: this.checkoutRoot,
     })

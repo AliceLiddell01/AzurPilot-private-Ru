@@ -382,3 +382,187 @@ def test_composition_rejects_unknown_server_names() -> None:
         "azurpilot-dev",
         "azurpilot-game",
     }
+
+
+def _refusal(composed: list[CompositionEntry]) -> str:
+    with pytest.raises(ToolingError) as failure:
+        validate_composition(
+            overlay_composition(), composed, overlay_dir=BRIDGE_OVERLAY_PATH.parent
+        )
+    assert failure.value.code is ResultCode.TOOLING_PRECONDITION_FAILED
+    return str(failure.value)
+
+
+def test_nested_group_client_cannot_shadow_required_route() -> None:
+    """Дочерняя запись группы резервирует сервер в той же корневой области."""
+
+    for container in ("group: true", "name: cordis:group"):
+        composed = [
+            *_composed_from_overlay(),
+            *load_composition(
+                f"- id: extra-group\n"
+                f"  {container}\n"
+                f"  config:\n"
+                f"    - id: stale-dev\n"
+                f"      name: '{MCP_CLIENT}'\n"
+                f"      config:\n"
+                f"        serverName: azurpilot-dev\n"
+                f"        url: http://127.0.0.1:9999/dev/mcp\n"
+            ),
+        ]
+        assert "azurpilot-dev" in _refusal(composed)
+
+
+def test_group_with_unrelated_children_is_allowed() -> None:
+    """Контейнер сам по себе не конфликтует: значение имеет заявка сервера."""
+
+    composed = [
+        *_composed_from_overlay(),
+        *load_composition(
+            "- id: planning\n"
+            "  name: cordis:group\n"
+            "  group: true\n"
+            "  config:\n"
+            "    - id: plan-mode\n"
+            "      name: '@deepseek-ai/dsh-plan-mode'\n"
+            "      config:\n"
+            "        section: режим\n"
+        ),
+    ]
+
+    validate_composition(
+        overlay_composition(), composed, overlay_dir=BRIDGE_OVERLAY_PATH.parent
+    )
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        pytest.param(
+            "- id: js-dev\n"
+            f"  name: '{MCP_CLIENT}'\n"
+            "  config:\n"
+            "    serverName: !!js 'azurpilot-dev'\n",
+            id="выражение-вместо-имени-сервера",
+        ),
+        pytest.param(
+            "- id: nameless\n  config:\n    serverName: azurpilot-dev\n",
+            id="запись-без-имени-плагина",
+        ),
+        pytest.param(
+            f"- id: no-server-name\n  name: '{MCP_CLIENT}'\n"
+            "  config:\n    url: http://127.0.0.1:9999/dev/mcp\n",
+            id="клиент-без-объявленного-сервера",
+        ),
+        pytest.param(
+            "- id: expression-container\n"
+            "  name: !!js 'cordis:group'\n"
+            "  config:\n"
+            "    - id: nested\n"
+            f"      name: '{MCP_CLIENT}'\n",
+            id="неразбираемое-имя-со-списком-записей",
+        ),
+    ],
+)
+def test_unverifiable_claim_is_refused(row: str) -> None:
+    """Неизвестное состояние заявки — запрет, а не отсутствие заявки."""
+
+    with pytest.raises(ToolingError) as failure:
+        composed = [*_composed_from_overlay(), *load_composition(row)]
+        validate_composition(
+            overlay_composition(), composed, overlay_dir=BRIDGE_OVERLAY_PATH.parent
+        )
+
+    assert failure.value.code is ResultCode.TOOLING_PRECONDITION_FAILED
+
+
+def test_expression_disabled_duplicate_client_is_still_a_claim() -> None:
+    """`disabled` выражением не снимает запись статически, поэтому это заявка."""
+
+    template = (
+        "- id: off-dev\n"
+        f"  name: '{MCP_CLIENT}'\n"
+        "  config:\n"
+        "    serverName: azurpilot-dev\n"
+        "    url: http://127.0.0.1:9999/dev/mcp\n"
+        "  disabled: {disabled}\n"
+    )
+    expressed = load_composition(template.format(disabled="!!js 'false'"))
+    assert "azurpilot-dev" in _refusal([*_composed_from_overlay(), *expressed])
+
+    literal = load_composition(template.format(disabled="true"))
+    validate_composition(
+        overlay_composition(),
+        [*_composed_from_overlay(), *literal],
+        overlay_dir=BRIDGE_OVERLAY_PATH.parent,
+    )
+
+
+def test_include_file_is_walked_for_claims(tmp_path: Path) -> None:
+    """Смонтированный файл входит в ту же область и не может скрыть дубликат."""
+
+    duplicate = tmp_path / "extra.yml"
+    duplicate.write_text(
+        f"- id: stale-game\n  name: '{MCP_CLIENT}'\n"
+        "  config:\n    serverName: azurpilot-game\n",
+        encoding="utf-8",
+    )
+    unrelated = tmp_path / "other.yml"
+    unrelated.write_text(
+        f"- id: other\n  name: '{MCP_CLIENT}'\n  config:\n    serverName: other\n",
+        encoding="utf-8",
+    )
+    loop = tmp_path / "loop.yml"
+    loop.write_text(
+        "- id: loop\n  name: cordis:include\n  config:\n    path: loop.yml\n",
+        encoding="utf-8",
+    )
+
+    def composed(path: str) -> list[CompositionEntry]:
+        return [
+            *_composed_from_overlay(),
+            *load_composition(
+                f"- id: include\n  name: cordis:include\n  config:\n    path: {path}\n"
+            ),
+        ]
+
+    assert "azurpilot-game" in _refusal(composed(str(duplicate)))
+    validate_composition(
+        overlay_composition(),
+        composed(str(unrelated)),
+        overlay_dir=BRIDGE_OVERLAY_PATH.parent,
+    )
+    assert "не объявляет буквальный путь" in _refusal(
+        composed("!!js 'process.env.AZURPILOT_EXTRA_ENTRIES'")
+    )
+    assert "недоступен для проверки" in _refusal(
+        composed(str(tmp_path / "missing.yml"))
+    )
+    assert "образуют цикл" in _refusal(composed(str(loop)))
+
+
+def test_literal_disabled_subtree_is_not_a_claim(tmp_path: Path) -> None:
+    """Литеральное `disabled: true` снимает запись вместе с её составом."""
+
+    composed = [
+        *_composed_from_overlay(),
+        *load_composition(
+            "- id: off-group\n"
+            "  group: true\n"
+            "  disabled: true\n"
+            "  config:\n"
+            "    - id: stale-dev\n"
+            f"      name: '{MCP_CLIENT}'\n"
+            "      config:\n"
+            "        serverName: azurpilot-dev\n"
+            "- id: off-include\n"
+            "  name: cordis:include\n"
+            "  disabled: true\n"
+            "  config:\n"
+            f"    path: {tmp_path / 'missing.yml'}\n"
+        ),
+    ]
+
+    validate_composition(
+        overlay_composition(), composed, overlay_dir=BRIDGE_OVERLAY_PATH.parent
+    )

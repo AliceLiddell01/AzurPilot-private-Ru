@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import io
 import json
+import os
 import re
+import signal
+import subprocess
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -573,6 +578,8 @@ def test_readiness_attestation_refuses_damaged_document(tmp_path: Path) -> None:
 class _FakeHarness:
     """Подменить обычный процесс Harness, чтобы проверить контракт запускателя."""
 
+    pid = 999_999_999
+
     def __init__(
         self,
         *,
@@ -599,6 +606,12 @@ class _FakeHarness:
         self.terminated = True
         self.finished = True
         self.poll_code = 0
+
+    def send_signal(self, signum: int) -> None:
+        if signum == signal.SIGKILL:
+            self.kill()
+        else:
+            self.terminate()
 
     def kill(self) -> None:
         self.terminated = True
@@ -663,6 +676,19 @@ def _install_launcher(
         return child
 
     monkeypatch.setattr(dsh_tooling.subprocess, "Popen", _popen)
+    # Подставная сессия не является настоящей группой процессов: системный вызов
+    # группы подменяется, а решение запускателя о сигнале проверяется как есть.
+    def _killpg(pid: int, signum: int) -> None:
+        child = holder.get("child")
+        if child is None:
+            raise ProcessLookupError(pid)
+        if signum == 0:
+            if child.poll() is not None:
+                raise ProcessLookupError(pid)
+            return
+        child.send_signal(signum)
+
+    monkeypatch.setattr(dsh_tooling.os, "killpg", _killpg)
     stream = io.StringIO()
     return service, holder, stream
 
@@ -830,3 +856,76 @@ def test_launch_stops_session_that_exits_before_activation(
     assert failure.value.code is ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE
     assert "завершилась (код 1)" in failure.value.message
     assert holder["child"].terminated is False
+
+
+def _wait_for_file(path: Path, *, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists() and path.read_text(encoding="utf-8").strip():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _is_zombie(pid: int) -> bool:
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return state.rsplit(")", 1)[-1].split()[0] == "Z"
+
+
+def _process_alive(pid: int, *, timeout: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        if _is_zombie(pid):
+            return False
+        time.sleep(0.05)
+    return True
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="группа процессов POSIX: клиент DeepSeek Harness принадлежит Linux/WSL",
+)
+def test_stop_takes_the_whole_session_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Остановка снимает всю группу процессов, а не одну обёртку `npx`.
+
+    Подставная обёртка умирает по мягкому сигналу, как `npx`, а сессия внутри неё
+    мягкий сигнал игнорирует: именно такой участник остался бы сиротой.
+    """
+
+    monkeypatch.setattr(dsh_tooling, "TERMINATION_TIMEOUT_SECONDS", 1.0)
+    service = DshBridgeService(resolver=_FakeResolver(tmp_path))
+    grandchild_pid = tmp_path / "grandchild.pid"
+    script = tmp_path / "npx-stub.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        "sh -c \"trap '' TERM; while :; do sleep 0.3; done\" &\n"
+        f"echo $! > {grandchild_pid}\n"
+        "wait\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    child = service._start_harness(
+        [str(script)], str(script), dict(os.environ), tmp_path
+    )
+    try:
+        assert _wait_for_file(grandchild_pid)
+        session_tree = int(grandchild_pid.read_text(encoding="utf-8").strip())
+        service._terminate(child)
+
+        assert child.poll() is not None
+        assert not _process_alive(session_tree)
+    finally:
+        if child.poll() is None:
+            with contextlib.suppress(OSError):
+                os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
