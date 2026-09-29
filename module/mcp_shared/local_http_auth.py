@@ -1,8 +1,9 @@
-"""Безопасный project-local источник bearer credential для MCP HTTP."""
+"""Безопасный источник bearer-учётных данных MCP HTTP, привязанный к проекту."""
 
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import stat
 import sys
@@ -13,25 +14,25 @@ from module.application.errors import (
     StorageConfigurationError,
     StorageConfigurationUnknownError,
 )
+from module.mcp_shared.local_http_constants import LOCAL_HTTP_ENDPOINTS
+from module.mcp_shared.windows_mcp_bridge_contract import (
+    BRIDGE_CALLER_TOKEN_ENV_VAR,
+)
 from module.persistence.local_environment import read_local_environment_subset
 
 LOCAL_HTTP_TOKEN_ENV_VARS = {
     "azurpilot-dev": "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
     "azurpilot-game": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
 }
-LOCAL_HTTP_ENDPOINTS = {
-    "azurpilot-dev": "http://127.0.0.1:8775/mcp",
-    "azurpilot-game": "http://127.0.0.1:8776/mcp",
-}
 MAX_LOCAL_HTTP_TOKEN_BYTES = 4096
 
 
 class LocalHttpAuthError(RuntimeError):
-    """Project-local credential отсутствует или некорректен."""
+    """Учётные данные проекта отсутствуют или имеют неверный формат."""
 
 
 class LocalHttpAuthUnknownError(LocalHttpAuthError):
-    """Состояние project-local credential нельзя безопасно подтвердить."""
+    """Состояние учётных данных проекта нельзя безопасно подтвердить."""
 
 
 def _required_file_exists(path: Path) -> bool:
@@ -45,7 +46,7 @@ def _required_file_exists(path: Path) -> bool:
 
 
 def _repository_root_from_cwd() -> Path:
-    """Найти только текущий project root, не принимая путь от вызывающего клиента."""
+    """Найти только корень текущего проекта, не принимая путь от вызывающей стороны."""
 
     try:
         current = Path.cwd().absolute()
@@ -62,15 +63,38 @@ def _repository_root_from_cwd() -> Path:
 
 
 def read_local_mcp_token(repository_root: str | Path, server_name: str) -> str:
-    """Прочитать один MCP token из защищённого project-local ``.env``.
+    """Прочитать один токен MCP из защищённого файла ``.env`` проекта.
 
-    Функция намеренно не имеет ambient-environment fallback: credentials
-    принадлежат только exact repository root и закрытому server identity.
+    Функция намеренно не использует переменные окружения процесса как запасной
+    источник: учётные данные принадлежат только корню репозитория и заданной
+    идентичности сервера.
     """
 
     token_key = LOCAL_HTTP_TOKEN_ENV_VARS.get(server_name)
     if token_key is None:
         raise LocalHttpAuthError("LOCAL_MCP_AUTH_UNAVAILABLE")
+    return _read_project_local_token(repository_root, token_key)
+
+
+def read_local_mcp_bridge_caller_token(repository_root: str | Path) -> str:
+    """Прочитать отдельный токен клиента моста только из файла ``.env`` проекта."""
+
+    token = _read_project_local_token(repository_root, BRIDGE_CALLER_TOKEN_ENV_VAR)
+    for server_name in LOCAL_HTTP_TOKEN_ENV_VARS:
+        try:
+            internal_token = read_local_mcp_token(repository_root, server_name)
+        except LocalHttpAuthUnknownError:
+            raise
+        except LocalHttpAuthError:
+            continue
+        if hmac.compare_digest(token.encode("utf-8"), internal_token.encode("utf-8")):
+            raise LocalHttpAuthError("LOCAL_MCP_BRIDGE_CREDENTIAL_NOT_SEPARATE")
+    return token
+
+
+def _read_project_local_token(repository_root: str | Path, token_key: str) -> str:
+    """Прочитать один зарегистрированный токен без запасного источника."""
+
     try:
         root = Path(repository_root).absolute()
         env_path = root / ".env"
@@ -101,14 +125,14 @@ def read_local_mcp_token(repository_root: str | Path, server_name: str) -> str:
 
 
 def local_http_headers(repository_root: str | Path, server_name: str) -> dict[str, str]:
-    """Сформировать аутентифицированные HTTP-заголовки без записи credential в журнал."""
+    """Сформировать аутентифицированные HTTP-заголовки, не записывая учётные данные в журнал."""
 
     return {"Authorization": f"Bearer {read_local_mcp_token(repository_root, server_name)}"}
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="HTTP-заголовки MCP из project-local конфигурации AzurPilot"
+        description="HTTP-заголовки MCP из конфигурации проекта AzurPilot"
     )
     parser.add_argument(
         "--server",
@@ -119,7 +143,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Точка входа Codex ``http_headers_helper`` с JSON-only stdout."""
+    """Точка входа Codex ``http_headers_helper`` с выводом только JSON в stdout."""
 
     args = _parse_args(argv)
     try:
@@ -141,6 +165,7 @@ __all__ = (
     "LocalHttpAuthUnknownError",
     "local_http_headers",
     "main",
+    "read_local_mcp_bridge_caller_token",
     "read_local_mcp_token",
 )
 

@@ -31,6 +31,14 @@ def test_external_native_hooks_are_not_mistaken_for_operator_tooling():
     assert retained.disposition == "RETAIN"
 
 
+def test_codex_lifecycle_hooks_are_not_mistaken_for_operator_tooling():
+    retained = classify(".codex/hooks/codex_workflow_guards.ps1")
+    assert retained is not None
+    assert retained.category == "EXTERNAL_NATIVE_HOOK"
+    assert retained.owner == "codex"
+    assert retained.disposition == "RETAIN"
+
+
 def test_unlisted_observability_shell_is_not_auto_retained():
     candidate = classify("infrastructure/observability/example/operator.sh")
     assert candidate is not None

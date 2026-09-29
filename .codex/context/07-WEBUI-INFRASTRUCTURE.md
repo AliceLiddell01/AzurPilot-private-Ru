@@ -6,165 +6,191 @@
 
 - создание приложения;
 - страницы/виджеты;
-- конфигурацию deploy;
+- конфигурацию развертывания;
 - управление экземплярами и процессами;
-- lifecycle и restart;
-- API/streaming endpoints;
+- жизненный цикл и перезапуск;
+- конечные точки API и потоковой передачи данных;
 - локализацию интерфейса.
 
-При изменении определить, является ли состояние:
+При изменении выяснить, является ли состояние:
 
 - глобальным для WebUI;
 - привязанным к конфигурационному экземпляру;
 - принадлежащим дочернему процессу;
-- сериализуемым через multiprocessing;
-- вычисляемым из пользовательского config.
+- сериализуемым средствами `multiprocessing`;
+- вычисляемым из пользовательской конфигурации.
 
 ## Процессы
 
-Особенно проверять Windows spawn:
+Особенно проверять запуск Windows в режиме `spawn`:
 
-- импортируемость target-функции;
-- отсутствие несерилизуемого состояния;
-- защиту entry point;
-- закрытие process/manager/pipe;
+- возможность импорта целевой функции;
+- отсутствие несериализуемого состояния;
+- защиту точки входа;
+- закрытие процессов, менеджеров и каналов связи;
 - повторный запуск;
 - поведение при падении ребёнка;
-- отсутствие orphan processes.
+- отсутствие осиротевших процессов.
 
 ## MCP
 
-MCP-инструменты делятся на read-only и меняющие состояние. Для меняющих инструментов нужна строгая валидация.
+Инструменты MCP делятся на средства чтения и изменения состояния. Для
+инструментов, меняющих состояние, требуется строгая проверка входных данных.
 
 Не передавать наружу без необходимости:
 
-- полный локальный config;
+- полную локальную конфигурацию;
 - секреты уведомлений;
 - пути пользователя;
-- необработанные логи с identifiers;
-- screenshot с чувствительными данными.
+- необработанные журналы с идентификаторами;
+- снимки экрана с чувствительными данными.
 
-Dev MCP для локальной Codex-интеграции находится в `module.dev_mcp` и работает
-через принадлежащий supervisor authenticated loopback Streamable HTTP. Для ChatGPT есть отдельный `module.dev_mcp.remote` с HTTPS
-Streamable HTTP `/mcp`; оба entrypoint-а используют один тонкий adapter к
-существующим `DevSessionManager` и отдельным `RuntimeControlManager` с target,
-разрешённым каноническим registry (default policy применяется только при
-отсутствии marker). Remote backend
-bind-ится только на `127.0.0.1`, требует внешний OAuth/OIDC access token и не
-добавляет generic shell/config tools или управление production profiles.
-Game MCP и Dev MCP остаются независимыми продуктами и используют нейтральные
-общие компоненты `module.mcp_shared` только для authenticated Streamable HTTP.
-WebUI не монтирует MCP transport; игровые и development endpoints запускаются
-отдельными entrypoint-ами с собственными областями и границами runtime.
+Dev MCP для локальной интеграции с Codex находится в `module.dev_mcp` и работает
+по аутентифицированному Streamable HTTP через loopback; процессом управляет
+служба управления процессами MCP. Для ChatGPT предусмотрен отдельный `module.dev_mcp.remote`, который
+предоставляет Streamable HTTP по HTTPS на `/mcp`. Обе точки входа используют
+тонкий адаптер к существующим `DevSessionManager` и отдельным
+`RuntimeControlManager`. Целевой компонент разрешается через канонический
+реестр; политика по умолчанию применяется только при отсутствии маркера.
+Удалённая серверная часть привязывается только к `127.0.0.1` и требует токен
+доступа OAuth/OIDC; при этом не добавляет универсальные инструменты для командной
+оболочки, изменения конфигурации или управления рабочими профилями.
+Game MCP и Dev MCP остаются независимыми продуктами. Они используют нейтральные
+общие компоненты `module.mcp_shared` только для аутентифицированного транспорта
+Streamable HTTP. WebUI не подключает транспорт MCP; игровые конечные точки и
+конечные точки разработки запускаются через отдельные точки входа с
+собственными областями доступа и границами среды выполнения.
 
-Внешние developer integrations не являются ещё одним Dev/Game MCP transport.
-Текущий владелец — `azurpilot.integrations`. Точный каталог адаптеров берётся из
+Внешние интеграции для разработчиков не являются ещё одним транспортом Dev/Game
+MCP. Текущий владелец — `azurpilot.integrations`. Точный каталог адаптеров берётся из
 `IntegrationName`/`ADAPTER_ORDER`, а не дублируется в этом документе. Критический
-путь не должен возвращаться к Docker MCP Gateway/Toolkit или generic proxy.
-Credentials и локальная машинная маршрутизация остаются вне tracked source;
-граница read-only/mutation проверяется самим adapter и integration contract gate.
+путь не должен возвращаться к Docker MCP Gateway/Toolkit или универсальному
+прокси. Учётные данные и локальная маршрутизация машины остаются вне исходников
+репозитория; адаптер и проверка контракта интеграции самостоятельно ограничивают
+операции чтения и изменения.
 
-## Canonical Plugin AzurPilot
+## Канонический плагин AzurPilot
 
-`plugins/azurpilot/` — source-controlled package, сгенерированный текущим
-Plugin Creator. Его machine-readable ID — `azurpilot`, display name —
-`AzurPilot`; текущий пакет публикует три разделённых skill:
+`plugins/azurpilot/` — пакет с исходниками в репозитории, созданный текущим
+Plugin Creator. Его машиночитаемый ID — `azurpilot`, отображаемое имя —
+`AzurPilot`; текущий пакет публикует три отдельных навыка:
 `azurpilot-development`, `azurpilot-game-control` и
-`azurpilot-troubleshooting`. Плагин поставляет только skills и metadata: в
-пакете отсутствуют `.app.json`, `.mcp.json` и MCP registration source. Пакет не
-содержит ChatGPT app state, tunnel profile, credentials, screenshots, archives
-или runtime cache и не регистрирует второй MCP implementation.
+`azurpilot-troubleshooting`. Плагин поставляет только навыки и метаданные: в
+пакете отсутствуют `.app.json`, `.mcp.json` и исходник регистрации MCP. Пакет не
+содержит состояние приложения ChatGPT, профиль туннеля, учётные данные, снимки
+экрана, архивы или кэш среды выполнения и не регистрирует вторую реализацию MCP.
 
-Codex Desktop использует canonical `azurpilot-dev` и `azurpilot-game` через
-loopback HTTP `module.dev_mcp.local_http` и `module.game_mcp.local_http` с
-`http_headers_helper`, читающим project-local `.env`; protocol identities и
-registration keys совпадают. Standalone stdio entrypoints остаются только для
-compatibility/test сценариев и не являются Windows Codex route.
-Единственный repository-level источник регистрации — `.codex/config.toml`.
-ChatGPT использует
-явно выбранное подключённое приложение с
-authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy в
-Docker Compose profile `remote-ingress` и внешним OAuth/OIDC provider; Caddy
-обращается к host-side loopback backend через `host.docker.internal`, custom
-authorization server и Secure MCP Tunnel
-для этого пути не требуются. `module.dev_mcp.contract` публикует read-only границу с
-версиями API/Smoke schemas, required feature flags, capability families и
-result outcomes. Runtime status/control не раскрывают serial, package, пути или
-команды и хранят bounded operation state в ignored `config/state/`; control
-operation сохраняет target identity и fingerprint критической конфигурации и
-fail-closed при их изменении.
-Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls при
-любом несовпадении.
+Codex Desktop использует канонические `azurpilot-dev` и `azurpilot-game` через
+HTTP через loopback: `module.dev_mcp.local_http` и
+`module.game_mcp.local_http` используют `http_headers_helper`, который читает
+проектный `.env`; идентификаторы протокола и ключи регистрации совпадают.
+Автономные точки входа stdio остаются только для совместимости и тестирования и
+не являются маршрутом Codex в Windows. Единственный источник регистрации на
+уровне репозитория — `.codex/config.toml`.
+Для отдельного будущего Linux/WSL-клиента Windows предоставляет узкий
+`module.mcp_shared.windows_mcp_bridge`, привязанный только к loopback. Он
+маршрутизирует запросы только по фиксированным путям Dev/Game MCP и использует
+отдельные учётные данные клиента из `.env` проекта; внутренние учётные данные
+Dev/Game остаются на стороне Windows-моста и серверной части. Перед каждой
+пересылкой мост сравнивает ожидаемую идентичность набора исходников, переданную
+клиентом, с идентичностью фактически работающей серверной части из `/ready`,
+принадлежность которой подтверждена службой управления процессами MCP. Неизвестную
+или несовпадающую идентичность мост отклоняет до вызова MCP-приложения. Реализация
+моста для Windows сама по себе не подтверждает состояние рабочей копии Linux,
+настройку DSH, сеть WSL
+или сквозную приёмку через WSL: это область отдельной последующей задачи по
+интеграции и приёмке Linux/WSL.
 
-Developer-only capability `Game` публикуется через односторонний bridge,
-привязанный к target, к нейтральному `module.application`: `GameReadService` и
-persistence-backed morale projection. Dev MCP, Smoke, Evidence и диагностика
-базы данных остаются developer-only; обратная зависимость application от Dev
-Runtime запрещена. Диагностика базы данных использует фиксированный read-only
-catalog поверх отдельного process-local lazy PostgreSQL engine/UoW, собранного
-из canonical marker и app passfile без production bootstrap/provider и
-`os.environ` mutation; arbitrary SQL, dump, secrets и Alembic mutation не
-выдаются. Пустой repair catalog является допустимым честным результатом.
+ChatGPT использует явно выбранное подключённое приложение с аутентифицированным
+общедоступным URL `https://<public-host>/mcp`, обратным прокси Caddy в профиле
+Docker Compose `remote-ingress` и внешним поставщиком OAuth/OIDC. Caddy
+обращается к серверной части на loopback со стороны узла через `host.docker.internal`;
+для этого маршрута не требуются собственный сервер авторизации и Secure MCP
+Tunnel. `module.dev_mcp.contract` предоставляет интерфейс только для чтения с
+версиями API и схем Smoke, обязательными `feature flags`, группами возможностей
+и вариантами результата. Средства просмотра состояния и управления средой
+выполнения не раскрывают `serial`, `package`, пути или команды и хранят
+ограниченные данные операций в игнорируемом `config/state/`. Операция управления
+сохраняет идентичность цели и отпечаток критической конфигурации и прекращается без
+побочных действий, если они изменились.
+Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до вызовов, меняющих
+состояние, при любом несовпадении.
 
-Standalone Game MCP находится в `module.game_mcp` и не является режимом Dev
-MCP. Его stateless read/control tools используют canonical `profile` в каждом
-target-dependent запросе, нейтральные application services и отдельные
-authenticated Game scopes `azurpilot:game.read` и `azurpilot:game.control`.
-Общий Streamable HTTP/auth transport code находится в `module.mcp_shared`; Game
-MCP не импортирует Dev MCP или Dev Runtime. Lifecycle, config/scheduler
-mutation, emulator/ADB control, DB internals, Smoke/Evidence и Git state
-остаются отдельными границами, а mutation scope проверяется до side effect.
+Возможность `Game`, доступная только разработчикам, предоставляется через
+односторонний мост, который публикует её для выбранной цели в нейтральном
+`module.application`:
+`GameReadService` и проекция морали с хранением через persistence. Dev MCP,
+Smoke, Evidence и диагностика базы данных остаются доступны только
+разработчикам; зависимость `module.application` от Dev Runtime в обратном
+направлении запрещена. Диагностика базы использует фиксированный каталог только
+для чтения и отдельный лениво создаваемый процессный экземпляр PostgreSQL
+Engine/UoW на основе канонического маркера и файла паролей приложения, не запуская
+производственную инициализацию провайдера и не изменяя `os.environ`. Произвольный
+SQL, дампы, секреты и операции изменения Alembic недоступны. Пустой каталог
+исправлений — допустимый и честный результат.
+
+Самостоятельный Game MCP находится в `module.game_mcp` и не является режимом Dev
+MCP. Его инструменты чтения и управления без сохранения состояния используют
+канонический `profile` в каждом запросе, зависящем от цели, нейтральные службы
+приложения и отдельные аутентифицированные области Game `azurpilot:game.read` и
+`azurpilot:game.control`. Общий код транспорта Streamable HTTP и
+аутентификации находится в `module.mcp_shared`; Game MCP не импортирует Dev MCP
+или Dev Runtime. Жизненный цикл, изменение конфигурации и расписания,
+управление эмулятором/ADB, внутренние данные БД, Smoke/Evidence и состояние Git
+остаются отдельными границами; область изменения проверяется до выполнения
+побочного действия.
 
 ## Статистика
 
-Статистика schema v1 хранится только в production PostgreSQL через
-`module.application`; SQLite доступен только offline migration adapter. CSV
-является явным export, а не canonical cache. File-owned config/scheduler/event
-state остаётся вне PostgreSQL. При изменении границы выяснить:
+Статистика схемы v1 хранится только в рабочей PostgreSQL через
+`module.application`; SQLite доступен только адаптеру автономной миграции. CSV
+служит явным экспортом, а не каноническим кэшем. Конфигурация, расписание,
+события и состояние файлов остаются вне PostgreSQL. При изменении этой границы выяснить:
 
 - владельца схемы;
 - ключ экземпляра/устройства;
-- thread safety;
+- потокобезопасность;
 - миграцию старых данных;
-- retention;
-- формат времени и timezone;
+- срок хранения;
+- формат времени и часовой пояс;
 - кто читает данные в WebUI;
 - можно ли отключить сбор.
 
-Direct `.db` upload через WebUI запрещён. Storage failure не превращать в
-нулевую или пустую статистику. После первого PostgreSQL write допускается только
-forward-fix, автоматический rollback на SQLite запрещён.
+Загрузка файла `.db` через WebUI запрещена. Сбой хранилища не превращать в
+нулевую или пустую статистику. После первой записи в PostgreSQL допускается
+только `forward-fix`; автоматический откат на SQLite запрещён.
 
 ## Уведомления и внешние API
 
 Проверять:
 
-- отсутствие токенов в log;
-- timeout и retry policy;
+- отсутствие токенов в журнале;
+- тайм-ауты и политика повторных попыток;
 - отключаемость;
-- поведение без сети;
-- sanitization payload;
-- различие warning и fatal error;
+- поведение при отсутствии сети;
+- очистка содержимого запроса;
+- различие предупреждений и критических ошибок;
 - отсутствие блокировки главного игрового цикла.
 
-Notification handover использует существующий process-local PostgreSQL
-Engine. Headless Bot Runtime собирает notifier из полной Agent configuration,
-поэтому публикация событий и работа dispatcher доступны при выключенном WebUI.
-Для состояния `DELIVERED` требуется проверенный durable Agent ACK через
-UI-facing WebUI API; при недоступности API bounded ожидание завершается с
-отказом закрытого типа. WebUI отдельно обслуживает Agent API и `DesktopAgentClientRuntime`;
-его process/restart lifecycle не является владельцем Bot Runtime workers.
+Передача уведомления использует существующий процессный PostgreSQL Engine.
+Фоновый процесс Bot собирает notifier из полной конфигурации Agent, поэтому
+публикация событий и работа диспетчера доступны при выключенном WebUI.
+Для состояния `DELIVERED` требуется проверенный сохраняемый ACK от Agent через
+API WebUI; при недоступности API ограниченное ожидание завершается типизированным
+отказом. WebUI отдельно обслуживает Agent API и `DesktopAgentClientRuntime`;
+его процессы и перезапуск не управляют рабочими процессами Bot Runtime.
 `State.init()` подключает
-`DesktopAgentNotificationRuntime` только при полной Agent configuration;
-`GET /api/notification-agent/stream` является durable profile-scoped SSE
-projection, а `POST /api/notification-agent/ack` — отдельной authenticated
-mutation. Outbound-only Agent не открывает inbound listener. Queue acceptance,
-`PROVIDER_ACCEPTED` и HTTP success не дают `DELIVERED`: это состояние возможно
-только после проверенного durable Agent ACK с текущей delivery/lease identity.
-При изменении этой границы отдельно проверять Migration
-`0010_notification_agent_ack` и `0011_agent_session_identity`, cursor
-gap-fill/reconnect, stale ACK rejection, Caddy flush/timeout и bounded handover
-waiter.
+`DesktopAgentNotificationRuntime` только при полной конфигурации Agent;
+`GET /api/notification-agent/stream` является сохраняемым SSE-представлением,
+ограниченным профилем, а `POST /api/notification-agent/ack` — отдельной
+аутентифицированной операцией изменения. Agent, устанавливающий только исходящие
+соединения, не открывает входящий порт. Принятие очередью,
+`PROVIDER_ACCEPTED` и успешный ответ HTTP не дают `DELIVERED`: это состояние возможно
+только после проверенного сохраняемого ACK от Agent с текущей идентичностью доставки
+и аренды. При изменении этой границы отдельно проверять миграции
+`0010_notification_agent_ack` и `0011_agent_session_identity`, дозаполнение
+пропусков и повторное подключение cursor, отклонение устаревшего ACK,
+сброс буфера/тайм-аут Caddy и ограниченное ожидание передачи.
 
 ## Персональный эксплуатационный контур
 
@@ -172,9 +198,9 @@ waiter.
 
 ```text
 Start  — запуск подготовленной установки
-Update — безопасное fast-forward обновление
+Update — безопасное обновление с перемоткой вперёд
 Repair — диагностика и транзакционное восстановление
-Build  — подготовка уже полученного checkout
+Build  — подготовка уже полученной рабочей копии
 ```
 
-Изменения в `deploy/`, `.venv`, Python executable, `uv.lock` или этих скриптах относятся к расширенному режиму и требуют проверки сквозного пользовательского пути.
+Изменения в `deploy/`, `.venv`, исполняемом файле Python, `uv.lock` или этих скриптах относятся к расширенному режиму и требуют проверки сквозного пользовательского пути.

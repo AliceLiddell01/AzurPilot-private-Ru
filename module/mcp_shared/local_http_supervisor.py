@@ -1,8 +1,8 @@
-"""Владелец локальных Game/Dev MCP Streamable HTTP процессов.
+"""Владелец локальных процессов Streamable HTTP для MCP Game/Dev.
 
-Supervisor запускает ровно по одному loopback-процессу для каждого MCP,
-проверяет readiness и завершает принадлежащие ему процессы при остановке.
-Состояние и lock находятся в игнорируемом ``config/state`` и не содержат
+Супервизор запускает ровно по одному loopback-процессу для каждого MCP,
+проверяет готовность и завершает при остановке только принадлежащие ему процессы.
+Состояние и блокировка хранятся в игнорируемом ``config/state`` и не содержат
 bearer-токены.
 """
 
@@ -23,7 +23,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import psutil
 
@@ -40,9 +40,15 @@ from azurpilot.tooling.process_core import (
 from module.mcp_shared.local_http_auth import (
     LocalHttpAuthError,
     LocalHttpAuthUnknownError,
+    read_local_mcp_bridge_caller_token,
     read_local_mcp_token,
 )
 from module.mcp_shared.versioning import SOURCE_REVISION_ENV
+from module.mcp_shared.windows_mcp_bridge_contract import (
+    BRIDGE_CALLER_TOKEN_ENV_VAR,
+    BRIDGE_NAME,
+    BRIDGE_PORT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +68,15 @@ LOCAL_HTTP_SOURCE_SET_DIGEST_ENV_VARS = {
 
 @dataclass(frozen=True, slots=True)
 class LocalHttpService:
-    """Описание одного принадлежащего supervisor MCP процесса."""
+    """Описание одного процесса локальной HTTP-службы MCP, принадлежащего супервизору."""
 
     name: str
     module: str
     port: int
     token_env_var: str
+    transport: str = "local_http"
+    credential_kind: Literal["mcp_server", "bridge_caller"] = "mcp_server"
+    expose_token_to_child: bool = True
 
 
 LOCAL_HTTP_SERVICES = (
@@ -86,12 +95,26 @@ LOCAL_HTTP_SERVICES = (
 )
 
 
+WINDOWS_MCP_BRIDGE_SERVICE = LocalHttpService(
+    name=BRIDGE_NAME,
+    module="module.mcp_shared.windows_mcp_bridge",
+    port=BRIDGE_PORT,
+    token_env_var=BRIDGE_CALLER_TOKEN_ENV_VAR,
+    transport="windows_mcp_bridge",
+    credential_kind="bridge_caller",
+    expose_token_to_child=False,
+)
+
 class LocalHttpSupervisorError(RuntimeError):
-    """Supervisor не может безопасно подтвердить владение и readiness."""
+    """Супервизор не может безопасно подтвердить владение процессом и его готовность."""
+
+
+def _supports_windows_mcp_bridge() -> bool:
+    return os.name == "nt"
 
 
 class LocalHttpSupervisorStopOutcome(StrEnum):
-    """Закрытые результаты bounded stop/recovery операции supervisor."""
+    """Закрытые результаты ограниченной операции остановки или восстановления."""
 
     EXACT_LIVE_OWNER_STOPPED = "exact_live_owner_stopped"
     ALREADY_STOPPED = "already_stopped"
@@ -107,7 +130,7 @@ class LocalHttpSupervisorStopOutcome(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class LocalHttpSupervisorStopResult:
-    """Доказательный результат остановки без неоднозначного bool contract."""
+    """Типизированный результат остановки без неоднозначного логического значения."""
 
     outcome: LocalHttpSupervisorStopOutcome
     marker_present: bool
@@ -139,7 +162,7 @@ def _is_reparse_point(path: Path) -> bool:
         return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
     except OSError as exc:
         raise LocalHttpSupervisorError(
-            "Нельзя проверить путь local MCP supervisor"
+            "Не удалось проверить путь службы управления процессами MCP."
         ) from exc
 
 
@@ -148,19 +171,19 @@ def _ensure_state_directory(repository_root: Path) -> Path:
     for candidate in (repository_root, repository_root / "config", state_root):
         if os.path.lexists(candidate) and _is_reparse_point(candidate):
             raise LocalHttpSupervisorError(
-                "Путь local MCP supervisor не должен проходить через ссылку или junction"
+                "Путь службы управления процессами MCP не должен проходить через ссылку или точку повторной обработки."
             )
     state_directory = repository_root / _STATE_DIRECTORY
     state_directory.mkdir(parents=True, exist_ok=True)
     if _is_reparse_point(state_directory):
         raise LocalHttpSupervisorError(
-            "Каталог local MCP supervisor не должен быть ссылкой или junction"
+            "Каталог службы управления процессами MCP не должен быть ссылкой или точкой повторной обработки."
         )
     return state_directory
 
 
 def _observe_state_directory(repository_root: Path) -> Path:
-    """Разрешить путь состояния для чтения, не создавая каталоги."""
+    """Определить путь состояния для чтения, не создавая каталоги."""
 
     state_directory = repository_root / _STATE_DIRECTORY
     for candidate in (
@@ -171,7 +194,7 @@ def _observe_state_directory(repository_root: Path) -> Path:
     ):
         if os.path.lexists(candidate) and _is_reparse_point(candidate):
             raise LocalHttpSupervisorError(
-                "Путь local MCP supervisor не должен проходить через ссылку или junction"
+                "Путь службы управления процессами MCP не должен проходить через ссылку или точку повторной обработки."
             )
     return state_directory
 
@@ -186,7 +209,7 @@ def _bounded_token_present(name: str) -> bool:
 
 
 def _identity_to_marker(identity: ProcessIdentity) -> dict[str, object]:
-    """Сериализовать canonical ProcessIdentity в совместимый marker DTO."""
+    """Сериализовать канонический ProcessIdentity в совместимый DTO маркера."""
 
     marker: dict[str, object] = {
         "pid": identity.pid,
@@ -201,7 +224,7 @@ def _identity_to_marker(identity: ProcessIdentity) -> dict[str, object]:
 
 
 def _identity_from_marker(value: object) -> ProcessIdentity | None:
-    """Прочитать marker DTO без повторения identity/ownership алгоритма."""
+    """Прочитать DTO маркера, не дублируя алгоритм проверки владельца."""
 
     if not isinstance(value, dict):
         return None
@@ -242,7 +265,7 @@ def _identity_from_marker(value: object) -> ProcessIdentity | None:
 
 
 def _valid_recorded_identity(identity: ProcessIdentity) -> bool:
-    """Проверить bounded поля identity до любой операции с процессом."""
+    """Проверить поля идентичности до любой операции с процессом."""
 
     return bool(
         identity.pid > 0
@@ -254,7 +277,7 @@ def _valid_recorded_identity(identity: ProcessIdentity) -> bool:
 
 
 class LocalHttpSupervisor:
-    """Запустить и удерживать exact-owned Game/Dev local HTTP processes."""
+    """Запустить и контролировать HTTP-процессы Game/Dev с подтверждённым владельцем проекта."""
 
     def __init__(
         self,
@@ -270,6 +293,12 @@ class LocalHttpSupervisor:
     ) -> None:
         self.repository_root = Path(repository_root).absolute()
         self.services = tuple(services)
+        if any(service.name == BRIDGE_NAME for service in self.services) and not (
+            _supports_windows_mcp_bridge()
+        ):
+            raise LocalHttpSupervisorError(
+                "Мост Windows MCP можно запускать только в Windows."
+            )
         self.startup_timeout_seconds = startup_timeout_seconds
         self.python_executable = (
             Path(python_executable).absolute()
@@ -284,14 +313,14 @@ class LocalHttpSupervisor:
         if state_namespace is not None:
             if re.fullmatch(r"[a-z][a-z0-9-]{0,63}", state_namespace) is None:
                 raise LocalHttpSupervisorError(
-                    "Namespace local MCP supervisor имеет неверный формат"
+                    "Пространство имён процесса управления локальным MCP имеет неверный формат"
                 )
             state_directory = state_directory / state_namespace
             if create_state_directory:
                 state_directory.mkdir(parents=True, exist_ok=True)
             if _is_reparse_point(state_directory):
                 raise LocalHttpSupervisorError(
-                    "Namespace local MCP supervisor не должен быть ссылкой или junction"
+                    "Каталог процесса управления локальным MCP не должен быть ссылкой или точкой соединения"
                 )
         self.state_directory = state_directory
         self.lock_path = self.state_directory / _LOCK_NAME
@@ -314,47 +343,49 @@ class LocalHttpSupervisor:
     def _validate(self) -> None:
         if not (self.repository_root / "pyproject.toml").is_file():
             raise LocalHttpSupervisorError(
-                "Корень local MCP supervisor не содержит pyproject.toml"
+                "Корень процесса управления локальным MCP не содержит pyproject.toml"
             )
         if not self.python_executable.is_file():
             raise LocalHttpSupervisorError(
-                "Интерпретатор Python проекта для local MCP supervisor не найден"
+                "Интерпретатор Python проекта для управления локальным MCP не найден"
             )
         if not 1 <= len(self.services) <= 8:
             raise LocalHttpSupervisorError(
-                "Каталог local MCP services имеет неверный размер"
+                "Набор служб локального MCP имеет неверный размер"
             )
         seen_ports: set[int] = set()
         seen_names: set[str] = set()
         for service in self.services:
             if service.name in seen_names or service.port in seen_ports:
                 raise LocalHttpSupervisorError(
-                    "Каталог local MCP services содержит дубликат"
+                    "Набор служб локального MCP содержит дубликат"
                 )
             if not service.name or not service.module or not service.token_env_var:
-                raise LocalHttpSupervisorError("Каталог local MCP service неполон")
+                raise LocalHttpSupervisorError("Описание службы локального MCP неполно")
             if not 1 <= service.port <= 65535:
-                raise LocalHttpSupervisorError("Порт local MCP service вне диапазона")
+                raise LocalHttpSupervisorError("Порт службы локального MCP вне диапазона")
             self._read_token(service)
             seen_names.add(service.name)
             seen_ports.add(service.port)
         if not 1 <= self.startup_timeout_seconds <= 120:
             raise LocalHttpSupervisorError(
-                "Тайм-аут запуска local MCP supervisor вне допустимого диапазона"
+                "Тайм-аут запуска процесса управления локальным MCP вне допустимого диапазона"
             )
 
     def _read_token(self, service: LocalHttpService) -> str:
-        """Прочитать token из точного project-local источника.
+        """Прочитать токен из локального источника проекта.
 
-        Ambient environment разрешён только для явно помеченных test runners;
-        production supervisor получает credential из защищённого ``.env``.
+        Переменные окружения процесса разрешены только для явно обозначенных тестовых запусков;
+        супервизор рабочей среды читает учётные данные из защищённого файла ``.env``.
         """
 
         try:
+            if service.credential_kind == "bridge_caller":
+                return read_local_mcp_bridge_caller_token(self.repository_root)
             return read_local_mcp_token(self.repository_root, service.name)
         except LocalHttpAuthUnknownError as exc:
             raise LocalHttpSupervisorError(
-                "Состояние project-local credential для local MCP service "
+                "Состояние учётных данных локальной службы MCP проекта "
                 f"{service.name} ({service.token_env_var}) нельзя подтвердить"
             ) from exc
         except LocalHttpAuthError as exc:
@@ -363,7 +394,7 @@ class LocalHttpSupervisor:
                 if _bounded_token_present(service.token_env_var):
                     return token
             raise LocalHttpSupervisorError(
-                "Project-local credential для local MCP service "
+                "Учётные данные локальной службы MCP проекта "
                 f"{service.name} ({service.token_env_var}) недоступен"
             ) from exc
 
@@ -379,10 +410,9 @@ class LocalHttpSupervisor:
         command = self._command(service)
         try:
             token = self._read_token(service)
-            explicit_env = {
-                service.token_env_var: token,
-                "PYTHONUNBUFFERED": "1",
-            }
+            explicit_env = {"PYTHONUNBUFFERED": "1"}
+            if service.expose_token_to_child:
+                explicit_env[service.token_env_var] = token
             revision = os.environ.get(SOURCE_REVISION_ENV, "").strip().lower()
             if _SOURCE_REVISION_RE.fullmatch(revision):
                 explicit_env[SOURCE_REVISION_ENV] = revision
@@ -411,19 +441,19 @@ class LocalHttpSupervisor:
             )
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             raise LocalHttpSupervisorError(
-                f"Не удалось запустить owned local MCP service {service.name}"
+                f"Не удалось запустить принадлежащую проекту службу MCP {service.name}"
             ) from exc
         return running
 
     def _runtime_is_alive(self, service: LocalHttpService) -> bool:
-        """Проверить жизнь exact-owned runtime без zombie false-positive."""
+        """Проверить, работает ли процесс проекта, не считая процесс-зомби ошибкой."""
 
         if os.name != "nt":
             launcher = self._children.get(service.name)
             if launcher is not None:
-                # На POSIX завершившийся child может оставаться zombie, пока
-                # родитель не вызвал wait(). Popen.poll() видит это состояние
-                # точно для процесса, запущенного этим supervisor.
+                # В POSIX завершившийся дочерний процесс может оставаться в состоянии «зомби», пока
+                # родитель не вызовет wait(). Popen.poll() точно определяет это состояние
+                # для процесса, запущенного супервизором.
                 return launcher.poll() is None
         try:
             return self._runtime_processes[service.name].matches()
@@ -445,18 +475,21 @@ class LocalHttpSupervisor:
             response = connection.getresponse()
             body = response.read(16 * 1024)
             payload = json.loads(body.decode("utf-8"))
+            if not isinstance(payload, dict):
+                return None
             if not (
                 response.status == 200
                 and payload.get("ok") is True
                 and payload.get("code") == "LOCAL_MCP_READY"
                 and payload.get("server_name") == service.name
-                and payload.get("transport") == "local_http"
+                and payload.get("transport") == service.transport
             ):
                 return None
             return {
                 key: payload[key]
                 for key in (
                     "server_name",
+                    "transport",
                     "server_version",
                     "source_revision",
                     "source_set_digest",
@@ -483,14 +516,14 @@ class LocalHttpSupervisor:
             for name, service in tuple(pending.items()):
                 if not self._runtime_is_alive(service):
                     raise LocalHttpSupervisorError(
-                        f"Локальный MCP service {name} завершился до readiness"
+                        f"Локальная служба MCP {name} завершилась до подтверждения готовности"
                     )
                 if self._ready(service):
                     del pending[name]
             if pending and time.monotonic() >= deadline:
                 names = ", ".join(sorted(pending))
                 raise LocalHttpSupervisorError(
-                    f"Локальные MCP services не достигли readiness: {names}"
+                    f"Локальные службы MCP не подтвердили готовность: {names}"
                 )
             if pending:
                 time.sleep(POLL_INTERVAL_SECONDS)
@@ -511,7 +544,7 @@ class LocalHttpSupervisor:
                 connection.close()
 
     def port_conflicts(self) -> tuple[str, ...]:
-        """Вернуть first-party services, чьи loopback-порты уже заняты."""
+        """Вернуть службы проекта, чьи loopback-порты уже заняты."""
 
         return tuple(
             service.name
@@ -524,7 +557,7 @@ class LocalHttpSupervisor:
             identity = ProcessIdentity.capture(os.getpid())
         except (OSError, psutil.Error) as exc:
             raise LocalHttpSupervisorError(
-                "Нельзя подтвердить identity local MCP supervisor"
+                "Нельзя подтвердить идентичность супервизора локального MCP"
             ) from exc
         marker = _identity_to_marker(identity)
         if os.name == "nt":
@@ -558,7 +591,7 @@ class LocalHttpSupervisor:
                 launcher = self._children[service.name].identity
             except KeyError as exc:
                 raise LocalHttpSupervisorError(
-                    f"Нельзя подтвердить identity local MCP service {service.name}"
+                    f"Нельзя подтвердить идентичность службы локального MCP {service.name}"
                 ) from exc
             service_processes.append(
                 (service, _identity_to_marker(process), _identity_to_marker(launcher))
@@ -605,7 +638,7 @@ class LocalHttpSupervisor:
         dict[str, object] | None,
         LocalHttpSupervisorStopOutcome | None,
     ]:
-        """Прочитать marker с различением absent, invalid и unknown."""
+        """Прочитать маркер и различить его отсутствие, ошибку чтения и неизвестное состояние."""
 
         try:
             payload = json.loads(self.marker_path.read_text(encoding="utf-8"))
@@ -624,7 +657,7 @@ class LocalHttpSupervisor:
     def _validated_marker_identities(
         self, payload: dict[str, object]
     ) -> tuple[ProcessIdentity, tuple[ProcessIdentity, ...]] | LocalHttpSupervisorStopOutcome:
-        """Проверить marker schema и вернуть supervisor/recorded identities."""
+        """Проверить схему маркера и вернуть идентичности супервизора и процессов."""
 
         if payload.get("schema_version") != 1:
             return LocalHttpSupervisorStopOutcome.INVALID_MARKER
@@ -684,8 +717,8 @@ class LocalHttpSupervisor:
                 or not _valid_recorded_identity(launcher)
             ):
                 return LocalHttpSupervisorStopOutcome.INVALID_MARKER
-            # Сначала останавливать родительские launchers; ProcessController
-            # повторно проверяет exact identity и descendants перед каждой
+            # Сначала останавливать родительские процессы запуска; ProcessController
+            # повторно проверяет идентичность и дочерние процессы перед каждой
             # остановкой.
             identities.extend((launcher, process))
 
@@ -706,7 +739,7 @@ class LocalHttpSupervisor:
         return supervisor, tuple(unique)
 
     def _try_recovery_lock(self) -> FileLock | None:
-        """Захватить coordination lock или вернуть unknown без ожидания."""
+        """Захватить блокировку синхронизации или сразу вернуть unknown."""
 
         lock = FileLock(self.lock_path)
         try:
@@ -717,7 +750,7 @@ class LocalHttpSupervisor:
         return None
 
     def _remove_recorded_marker(self, payload: object) -> bool:
-        """Удалить marker только при полном unchanged payload."""
+        """Удалить маркер, только если его содержимое полностью совпадает с прочитанным."""
 
         if not isinstance(payload, dict):
             return False
@@ -739,7 +772,7 @@ class LocalHttpSupervisor:
 
     @staticmethod
     def _safe_identity_matches(identity: ProcessIdentity) -> bool:
-        """Не превращать ошибку liveness в разрешение на recovery."""
+        """Не считать ошибку проверки процесса разрешением на восстановление."""
 
         try:
             return identity.matches()
@@ -757,7 +790,7 @@ class LocalHttpSupervisor:
 
     @staticmethod
     def _terminate_exact_identity(identity: ProcessIdentity) -> bool:
-        """Остановить identity только после typed liveness проверки."""
+        """Остановить процесс только после типизированной проверки его активности."""
 
         state = LocalHttpSupervisor._safe_inspect_state(identity)
         if state == "unknown":
@@ -773,7 +806,7 @@ class LocalHttpSupervisor:
     def _stopped_postcondition(
         self, *, port_conflicts: tuple[str, ...] | None = None
     ) -> bool:
-        """Подтвердить marker absent/stopped и отсутствие port conflict."""
+        """Подтвердить отсутствие маркера или состояние STOPPED при отсутствии конфликта порта."""
 
         return (
             self.status().get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED"
@@ -785,28 +818,28 @@ class LocalHttpSupervisor:
         )
 
     def stop_result(self) -> LocalHttpSupervisorStopResult:
-        """Остановить owner или bounded-recover stale marker с typed evidence."""
+        """Остановить владельца или ограниченно восстановить устаревший маркер с типизированными данными."""
 
         payload, read_outcome = self._read_marker_payload()
         if read_outcome is not None:
             return LocalHttpSupervisorStopResult(
                 outcome=read_outcome,
                 marker_present=True,
-                detail="Marker нельзя безопасно прочитать или классифицировать.",
+                    detail="Маркер нельзя безопасно прочитать или классифицировать.",
             )
         if payload is None:
             if self.port_conflicts():
                 return LocalHttpSupervisorStopResult(
                     outcome=LocalHttpSupervisorStopOutcome.PORT_CONFLICT,
                     marker_present=False,
-                    detail="Marker отсутствует, но owned port занят.",
+                    detail="Маркер отсутствует, но порт занят неизвестным процессом.",
                 )
             return LocalHttpSupervisorStopResult(
                 outcome=LocalHttpSupervisorStopOutcome.ALREADY_STOPPED,
                 marker_present=False,
                 marker_removed=False,
                 postcondition_confirmed=True,
-                detail="Marker отсутствует; runtime уже остановлен.",
+                detail="Маркер отсутствует; среда выполнения уже остановлена.",
             )
 
         validated = self._validated_marker_identities(payload)
@@ -814,7 +847,7 @@ class LocalHttpSupervisor:
             return LocalHttpSupervisorStopResult(
                 outcome=validated,
                 marker_present=True,
-                detail="Владение и схема Marker не подтверждены.",
+                detail="Владение и схема маркера не подтверждены.",
             )
         supervisor_identity, identities = validated
         exact_live_owner = self._safe_identity_matches(supervisor_identity)
@@ -822,20 +855,20 @@ class LocalHttpSupervisor:
             return LocalHttpSupervisorStopResult(
                 outcome=LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY,
                 marker_present=True,
-                detail="Жизнеспособность записанного supervisor нельзя безопасно подтвердить.",
+                detail="Нельзя безопасно подтвердить, что записанный процесс управления ещё работает.",
             )
 
         lock: FileLock | None = None
         if not exact_live_owner:
-            # Stale marker можно очищать только пока новый supervisor не может
-            # заменить его параллельно. Второе чтение закрывает race между
-            # status() и cleanup.
+            # Устаревший маркер можно удалять, только пока новый супервизор не может
+            # заменить его параллельно. Повторное чтение закрывает гонку между
+            # вызовами status() и очисткой.
             lock = self._try_recovery_lock()
             if lock is None:
                 return LocalHttpSupervisorStopResult(
                     outcome=LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY,
                     marker_present=True,
-                    detail="Coordination lock занят или недоступен.",
+                    detail="Блокировка координации занята или недоступна.",
                 )
             current, current_outcome = self._read_marker_payload()
             if current_outcome is not None:
@@ -843,14 +876,14 @@ class LocalHttpSupervisor:
                 return LocalHttpSupervisorStopResult(
                     outcome=current_outcome,
                     marker_present=True,
-                    detail="Marker изменился или стал нечитаемым до очистки.",
+                    detail="Маркер изменился или стал нечитаемым до очистки.",
                 )
             if current is None or current != payload:
                 lock.release()
                 return LocalHttpSupervisorStopResult(
                     outcome=LocalHttpSupervisorStopOutcome.MARKER_CHANGED,
                     marker_present=True,
-                    detail="Marker изменился между чтением и очисткой.",
+                    detail="Маркер изменился между чтением и очисткой.",
                 )
             current_validated = self._validated_marker_identities(current)
             if isinstance(current_validated, LocalHttpSupervisorStopOutcome):
@@ -858,7 +891,7 @@ class LocalHttpSupervisor:
                 return LocalHttpSupervisorStopResult(
                     outcome=current_validated,
                     marker_present=True,
-                    detail="Marker стал недействительным или чужим до очистки.",
+                    detail="Маркер стал недействительным или чужим до очистки.",
                 )
             supervisor_identity, identities = current_validated
             if self._safe_identity_matches(supervisor_identity):
@@ -866,25 +899,25 @@ class LocalHttpSupervisor:
                 return LocalHttpSupervisorStopResult(
                     outcome=LocalHttpSupervisorStopOutcome.UNKNOWN_RECOVERY,
                     marker_present=True,
-                    detail="Записанный supervisor стал точным активным владельцем до очистки.",
+                    detail="Записанный процесс управления стал подтверждённым владельцем до очистки.",
                 )
 
         try:
             for identity in identities:
                 if identity == supervisor_identity and not exact_live_owner:
-                    # Первичная проверка stale классифицировала identity как
-                    # отсутствующую или несовпадающую; нельзя останавливать её
-                    # только по предположению на основе PID.
+                    # Первичная проверка устаревшего маркера показала, что идентичность
+                    # отсутствует или не совпадает; останавливать процесс
+                    # только по предположению на основе PID нельзя.
                     continue
                 if not self._terminate_exact_identity(identity):
                     return LocalHttpSupervisorStopResult(
                         outcome=LocalHttpSupervisorStopOutcome.TERMINATION_FAILED,
                         marker_present=True,
                         ownership_confirmed=exact_live_owner,
-                        detail="Остановка записанного точного процесса или postcondition не подтверждена.",
+                        detail="Остановка записанного процесса или итоговое состояние не подтверждены.",
                     )
-            # При foreign listener marker нужно сохранить и заблокировать
-            # recovery; нельзя удалять evidence ownership при port conflict.
+            # При постороннем слушателе маркер нужно сохранить и запретить
+            # восстановление; нельзя удалять сведения о владельце при конфликте порта.
             if self.port_conflicts():
                 return LocalHttpSupervisorStopResult(
                     outcome=LocalHttpSupervisorStopOutcome.PORT_CONFLICT,
@@ -897,7 +930,7 @@ class LocalHttpSupervisor:
                     outcome=LocalHttpSupervisorStopOutcome.MARKER_CHANGED,
                     marker_present=True,
                     ownership_confirmed=exact_live_owner,
-                    detail="Marker изменился или не может быть безопасно удалён.",
+                    detail="Маркер изменился или не может быть безопасно удалён.",
                 )
             port_conflicts = self.port_conflicts()
             if not self._stopped_postcondition(port_conflicts=port_conflicts):
@@ -911,7 +944,7 @@ class LocalHttpSupervisor:
                     marker_present=True,
                     marker_removed=True,
                     ownership_confirmed=exact_live_owner,
-                    detail="Postcondition STOPPED/no-conflict не подтверждён.",
+                    detail="Не подтверждено итоговое состояние STOPPED без конфликта.",
                 )
             return LocalHttpSupervisorStopResult(
                 outcome=(
@@ -942,7 +975,7 @@ class LocalHttpSupervisor:
                 launcher.identity, timeout_seconds=STOP_TIMEOUT_SECONDS
             ):
                 stopped_pids.add(launcher.pid)
-        # Runtime identity сохраняется для marker и fallback, если процесс
+        # Идентичность среды сохраняется в маркере и для восстановления, если процесс
         # завершился между двумя наблюдениями.
         for identity in tuple(self._runtime_processes.values()):
             if identity.pid in stopped_pids:
@@ -955,10 +988,10 @@ class LocalHttpSupervisor:
         self._runtime_processes.clear()
 
     def serve(self) -> bool:
-        """Запустить services и удерживать lock до штатной остановки.
+        """Запустить службы и удерживать блокировку до штатной остановки.
 
-        Возвращает ``False``, если другой exact-scoped supervisor уже владеет
-        lock; это штатный результат повторного запуска из Desktop shortcut.
+        Возвращает ``False``, если блокировкой уже владеет другой супервизор,
+        привязанный к этому проекту. Это штатный результат повторного запуска из ярлыка на рабочем столе.
         """
 
         _ensure_state_directory(self.repository_root)
@@ -984,7 +1017,7 @@ class LocalHttpSupervisor:
             for service in self.services:
                 if self._port_is_in_use(service):
                     raise LocalHttpSupervisorError(
-                        f"Порт local MCP service {service.name} уже занят"
+                        f"Порт службы локального MCP {service.name} уже занят"
                     )
                 launcher = self._spawn(service)
                 self._children[service.name] = launcher
@@ -995,7 +1028,7 @@ class LocalHttpSupervisor:
                 for service in self.services:
                     if not self._runtime_is_alive(service):
                         raise LocalHttpSupervisorError(
-                            f"Local MCP service {service.name} неожиданно завершился"
+                            f"Служба локального MCP {service.name} неожиданно завершился"
                         )
                 time.sleep(POLL_INTERVAL_SECONDS)
             return True
@@ -1012,7 +1045,7 @@ class LocalHttpSupervisor:
             self._lock_handle = None
 
     def status(self) -> dict[str, object]:
-        """Вернуть bounded состояние marker/process/readiness без token данных."""
+        """Вернуть ограниченное состояние маркера, процессов и готовности без токенов."""
 
         payload, read_outcome = self._read_marker_payload()
         if read_outcome is not None:
@@ -1090,6 +1123,8 @@ class LocalHttpSupervisor:
                     "server_name": expected_service.name,
                     "port": expected_service.port,
                     "alive": alive,
+                    "process_pid": child_identity.pid if alive else None,
+                    "ownership_confirmed": alive,
                     "ready": ready_payload is not None,
                     **(ready_payload or {}),
                 }
@@ -1108,7 +1143,7 @@ class LocalHttpSupervisor:
         }
 
     def stop(self) -> bool:
-        """Остановить только supervisor с exact recorded identity."""
+        """Остановить только супервизор с точно записанной идентичностью."""
         return self.stop_result().ok
 
 
@@ -1117,20 +1152,21 @@ def _default_repository_root() -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Локальный HTTP supervisor MCP AzurPilot")
+    parser = argparse.ArgumentParser(description="Локальный диспетчер HTTP-служб MCP AzurPilot")
     parser.add_argument(
         "command", choices=("serve", "status", "stop"), nargs="?", default="serve"
     )
     parser.add_argument("--root", type=Path, default=_default_repository_root())
     parser.add_argument(
         "--service",
-        choices=tuple(service.name for service in LOCAL_HTTP_SERVICES),
+        choices=tuple(service.name for service in (*LOCAL_HTTP_SERVICES, WINDOWS_MCP_BRIDGE_SERVICE)),
         action="append",
     )
     args = parser.parse_args()
     selected_names = tuple(dict.fromkeys(args.service or ()))
+    known_services = (*LOCAL_HTTP_SERVICES, WINDOWS_MCP_BRIDGE_SERVICE)
     selected_services = tuple(
-        service for service in LOCAL_HTTP_SERVICES if service.name in selected_names
+        service for service in known_services if service.name in selected_names
     )
     supervisor = LocalHttpSupervisor(
         args.root,
@@ -1153,9 +1189,9 @@ def main() -> None:
             )
             return
         if not supervisor.serve():
-            logger.info("Локальный MCP supervisor уже запущен другим владельцем")
+            logger.info("Диспетчер локального MCP уже запущен другим владельцем")
     except LocalHttpSupervisorError as exc:
-        logger.error("Локальный MCP supervisor остановлен: %s", exc)
+        logger.error("Диспетчер локального MCP остановлен: %s", exc)
         raise SystemExit(2) from None
 
 
@@ -1163,6 +1199,7 @@ __all__ = (
     "DEFAULT_STARTUP_TIMEOUT_SECONDS",
     "LOCAL_HTTP_SERVICES",
     "LOCAL_HTTP_SOURCE_SET_DIGEST_ENV_VARS",
+    "WINDOWS_MCP_BRIDGE_SERVICE",
     "LocalHttpService",
     "LocalHttpSupervisor",
     "LocalHttpSupervisorError",

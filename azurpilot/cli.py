@@ -23,6 +23,8 @@ from .tooling.contracts import (
     AnalysisScope,
     CapabilityStatus,
     GitRange,
+    McpBridgeAcceptanceDetails,
+    McpBridgeStatusDetails,
     McpImpactDetails,
     McpLifecycleDetails,
     McpStatusDetails,
@@ -327,12 +329,35 @@ def build_parser() -> argparse.ArgumentParser:
                 "status": "прочитать состояние исходников, среды выполнения, плагина и сессии",
                 "versions": "прочитать версии и хеши канонического комплекта MCP",
                 "accept": "проверить MCP новой независимой клиентской сессией только для чтения",
-                "start": "запустить принадлежащий проекту MCP supervisor на loopback",
-                "stop": "остановить принадлежащий проекту MCP supervisor на loopback",
-                "restart": "перезапустить принадлежащий проекту MCP supervisor на loopback",
+                "start": "запустить принадлежащую проекту службу управления MCP на loopback",
+                "stop": "остановить принадлежащую проекту службу управления MCP на loopback",
+                "restart": "перезапустить принадлежащую проекту службу управления MCP на loopback",
             }[action],
         )
         _add_common_options(command, suppress_defaults=True)
+    bridge = mcp_subparsers.add_parser(
+        "bridge", help="управлять отдельным мостом Windows MCP для Dev/Game"
+    )
+    bridge_subparsers = bridge.add_subparsers(
+        dest="mcp_bridge_command", required=True, metavar="ACTION"
+    )
+    for action, action_help in (
+        ("status", "прочитать состояние моста Windows MCP и целевых служб"),
+        ("configure", "безопасно задать отдельный токен клиента через stdin"),
+        ("start", "запустить только принадлежащий проекту мост Windows MCP"),
+        ("stop", "остановить только принадлежащий проекту мост Windows MCP"),
+        ("restart", "перезапустить только мост Windows MCP без перезапуска Dev/Game"),
+        ("accept", "проверить оба маршрута моста новой сессией MCP только для чтения"),
+    ):
+        command = bridge_subparsers.add_parser(action, help=action_help)
+        _add_common_options(command, suppress_defaults=True)
+        if action == "configure":
+            command.add_argument(
+                "--stdin-token",
+                action="store_true",
+                required=True,
+                help="прочитать одну строку токена из stdin, не выводя его значение",
+            )
     impact = mcp_subparsers.add_parser(
         "impact", help="определить влияние итогового набора изменений на MCP"
     )
@@ -428,7 +453,7 @@ def build_parser() -> argparse.ArgumentParser:
                 "--staged", action="store_true", help="взять только пути из индекса Git"
             )
             scope_group.add_argument(
-                "--changed", action="store_true", help="взять пути из base..HEAD"
+                "--changed", action="store_true", help="взять пути из диапазона Git base..HEAD"
             )
             scan.add_argument(
                 "--base",
@@ -441,7 +466,7 @@ def build_parser() -> argparse.ArgumentParser:
                 action="append",
                 default=[],
                 metavar="PATH",
-                help="явный repository-relative файл; параметр можно повторять",
+                help="явный путь относительно корня репозитория; параметр можно повторять",
             )
 
     return parser
@@ -660,7 +685,7 @@ def _render_human(
         elif checks is not None:
             from rich.table import Table
 
-            table = Table(title="AzurPilot Doctor", expand=True)
+            table = Table(title="Диагностика AzurPilot", expand=True)
             table.add_column("Проверка", no_wrap=True)
             table.add_column("Состояние", no_wrap=True)
             table.add_column("Результат", overflow="fold")
@@ -682,6 +707,70 @@ def _render_human(
                 f"{'✓' if result.ok else '✗'} {result.message}"
             )
         else:
+            if isinstance(result.details, McpBridgeStatusDetails):
+                from rich.table import Table
+
+                details = result.details
+                console.print(
+                    f"Мост Windows MCP: {details.state}; {details.endpoint}; "
+                    f"аутентификация клиента={details.caller_authentication}"
+                )
+                process = details.process
+                console.print(
+                    "Владение: "
+                    + (
+                        "подтверждено"
+                        if process.ownership_confirmed
+                        else "не подтверждено"
+                    )
+                    + f"; PID процесса управления={process.supervisor_pid or '—'}"
+                    + f"; PID моста={process.process_pid or '—'}"
+                )
+                table = Table(title="Серверы MCP", expand=True)
+                table.add_column("Маршрут", no_wrap=True)
+                table.add_column("Сервер", no_wrap=True)
+                table.add_column("Состояние", no_wrap=True)
+                table.add_column("Ревизия", no_wrap=True)
+                table.add_column("Причина", overflow="fold")
+                for upstream in details.upstreams:
+                    table.add_row(
+                        upstream.route,
+                        upstream.server_name,
+                        upstream.status,
+                        _short_sha(
+                            upstream.identity.source_revision
+                            if upstream.identity is not None
+                            else None
+                        ),
+                        upstream.reason_code,
+                    )
+                console.print(table)
+                console.print(f"{'✓' if result.ok else '✗'} {result.message}")
+            elif isinstance(result.details, McpBridgeAcceptanceDetails):
+                from rich.table import Table
+
+                table = Table(title="Приёмка моста Windows MCP", expand=True)
+                table.add_column("Режим", no_wrap=True)
+                table.add_column("Сервер", no_wrap=True)
+                table.add_column("Протокол", no_wrap=True)
+                table.add_column("Состояние", no_wrap=True)
+                table.add_column("Вызовы только для чтения", overflow="fold")
+                table.add_column("Причина", overflow="fold")
+                for mode, routes in (
+                    ("Совместимость", result.details.routes),
+                    ("Современный (auto)", result.details.modern_routes),
+                ):
+                    for route in routes:
+                        table.add_row(
+                            mode,
+                            route.server_name or "не определён",
+                            route.protocol_version or "не определён",
+                            route.acceptance_state,
+                            ", ".join(route.called_tools) or "—",
+                            route.reason_code,
+                        )
+                console.print(table)
+                console.print(f"{'✓' if result.ok else '✗'} {result.message}")
             if isinstance(result.details, McpImpactDetails):
                 from rich.table import Table
 
@@ -850,6 +939,23 @@ def _dispatch(
             readiness_timeout_seconds=args.readiness_timeout,
         )
     if command == "mcp":
+        if args.mcp_command == "bridge":
+            if args.mcp_bridge_command == "configure":
+                if sys.stdin.isatty():
+                    raise CliInvocationError(
+                        "Передайте токен клиента через канал stdin с --stdin-token; не указывайте его в argv."
+                    )
+                token = sys.stdin.readline(4098).removesuffix("\n").removesuffix("\r")
+                if len(token.encode("utf-8")) > 4096 or sys.stdin.readline(1):
+                    raise CliInvocationError(
+                        "stdin должен содержать ровно одну ограниченную строку токена вызывающего клиента."
+                    )
+                return services.mcp.bridge(
+                    args.mcp_bridge_command,
+                    root,
+                    caller_token=token,
+                )
+            return services.mcp.bridge(args.mcp_bridge_command, root)
         if args.mcp_command == "impact":
             return services.mcp.impact(root, base_commit=args.base)
         if args.mcp_command == "sync":
@@ -902,11 +1008,11 @@ def _dispatch(
             scope_count = sum((bool(args.changed), bool(args.staged), bool(paths)))
             if scope_count == 0:
                 raise CliInvocationError(
-                    "Semgrep scan требует --staged, --changed или --paths."
+                    "Сканирование Semgrep требует --staged, --changed или --paths."
                 )
             if scope_count > 1:
                 raise CliInvocationError(
-                    "Semgrep scan принимает только одну область изменений: --staged, --changed или --paths."
+                    "Сканирование Semgrep принимает только одну область изменений: --staged, --changed или --paths."
                 )
             if args.scan_base and not args.changed:
                 raise CliInvocationError("--base разрешён только вместе с --changed.")
@@ -939,7 +1045,7 @@ def main(
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
-    """Выполнить CLI и вернуть exit code вместо немедленного `sys.exit`."""
+    """Выполнить CLI и вернуть код завершения вместо немедленного вызова `sys.exit`."""
 
     args_list = list(argv) if argv is not None else sys.argv[1:]
     stdout = stdout or sys.stdout

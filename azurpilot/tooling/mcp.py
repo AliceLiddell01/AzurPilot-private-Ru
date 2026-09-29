@@ -1,10 +1,11 @@
-"""Совместимый MCP bundle, согласование исходников и локальная служба runtime."""
+"""Совместимый комплект MCP, согласование исходников и локальная среда выполнения."""
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import json
+import os
 import re
 import time
 import tomllib
@@ -44,6 +45,10 @@ from module.mcp_shared.versioning import (
 from .config import project_python
 from .contracts import (
     McpAcceptanceDetails,
+    McpBridgeAcceptanceDetails,
+    McpBridgeProcessStatus,
+    McpBridgeStatusDetails,
+    McpBridgeUpstreamStatus,
     McpDigest,
     McpImpactDetails,
     McpImpactPath,
@@ -88,13 +93,17 @@ MCP_GENERATED_ARTIFACTS = (
     PLUGIN_MANIFEST_PATH,
     PLUGIN_COMPATIBILITY_PATH,
 )
+
+
+def _supports_windows_mcp_bridge() -> bool:
+    return os.name == "nt"
 _MCP_IMPACT_SAMPLE_LIMIT = 256
 
 SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
-    # Эти пути отражают реальные import/lazy-import границы backend-ов. Здесь
-    # намеренно нет всего `module/application`: это предотвращает bump от
-    # несвязанных product domains, сохраняя application и domain providers,
-    # которые вызываются MCP adapter-ами.
+    # Эти пути отражают реальные границы обычного и отложенного импорта серверов.
+    # Здесь намеренно не включён весь `module/application`: это предотвращает
+    # повышение версии из-за несвязанных частей продукта и сохраняет модули
+    # приложения и предметной области, которые вызывают адаптеры MCP.
     "DEV_MCP_SOURCE_SET": (
         Path("module/dev_mcp"),
         Path("module/dev_runtime"),
@@ -217,7 +226,7 @@ _REVISION_RE = re.compile(r"^[0-9a-f]{40,64}$")
 
 @dataclass(frozen=True, slots=True)
 class SourceChangeClassification:
-    """Результат сопоставления изменённых файлов с explicit source sets."""
+    """Результат сопоставления изменённых файлов с явно заданными наборами исходников."""
 
     changed_components: tuple[str, ...]
     affected_servers: tuple[str, ...]
@@ -242,7 +251,7 @@ class _BundleBuild:
 
 @dataclass(frozen=True, slots=True)
 class McpBaseCompatibility:
-    """Результат независимой проверки base-to-head MCP политики."""
+    """Результат независимой проверки изменений MCP от базы до текущей ревизии."""
 
     base_commit: str
     changed_components: tuple[str, ...]
@@ -267,7 +276,7 @@ class _McpStartOutcome:
 
 
 class McpSourceDriftDetails(BaseModel):
-    """Ограниченное evidence одного расхождения сгенерированного MCP-артефакта."""
+    """Ограниченные сведения об одном расхождении производного файла MCP."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -284,7 +293,7 @@ def _source_drift_details(
     build: _BundleBuild,
     current: McpBundle,
 ) -> McpSourceDriftDetails:
-    """Сформировать bounded evidence без diff, путей окружения и секретов."""
+    """Сформировать ограниченные сведения без сравнения изменений, путей окружения и секретов."""
 
     changed = tuple(
         name
@@ -316,12 +325,12 @@ def _files_for_source_set(root: Path, source_paths: Iterable[Path]) -> tuple[Pat
         if not candidate.exists():
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                f"Source set указывает на отсутствующий путь: {relative.as_posix()}.",
+                f"Набор исходников указывает на отсутствующий путь: {relative.as_posix()}.",
             )
         if is_unsafe_path(candidate):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                f"Source set содержит symlink/reparse point: {relative.as_posix()}.",
+                f"Набор исходников содержит символическую ссылку или точку повторной обработки: {relative.as_posix()}.",
             )
         if candidate.is_file():
             files.append(candidate)
@@ -329,14 +338,14 @@ def _files_for_source_set(root: Path, source_paths: Iterable[Path]) -> tuple[Pat
         if not candidate.is_dir():
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                f"Source set содержит объект неизвестного типа: {relative.as_posix()}.",
+                f"Набор исходников содержит объект неизвестного типа: {relative.as_posix()}.",
             )
         try:
             children = sorted(candidate.rglob("*"), key=lambda item: item.as_posix())
         except OSError as exc:
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                f"Не удалось перечислить source set: {relative.as_posix()}.",
+                f"Не удалось перечислить файлы набора исходников: {relative.as_posix()}.",
             ) from exc
         for child in children:
             if child.name in {"__pycache__", ".pytest_cache"}:
@@ -348,12 +357,12 @@ def _files_for_source_set(root: Path, source_paths: Iterable[Path]) -> tuple[Pat
             if is_unsafe_path(child):
                 raise ToolingError(
                     ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                    f"Source set содержит symlink/reparse point: {child.relative_to(root).as_posix()}.",
+                    f"Набор исходников содержит символическую ссылку или точку повторной обработки: {child.relative_to(root).as_posix()}.",
                 )
             if not child.is_file():
                 raise ToolingError(
                     ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                    "Source set содержит объект неизвестного типа.",
+                    "Набор исходников содержит объект неизвестного типа.",
                 )
             files.append(child)
     unique = {item.resolve(strict=False): item for item in files}
@@ -369,26 +378,26 @@ def _source_file_bytes(root: Path, path: Path) -> bytes:
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Plugin manifest не является корректным JSON.",
+                "Манифест плагина не является корректным JSON.",
             ) from exc
         if not isinstance(payload, dict):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Корень plugin manifest должен быть object.",
+                "Корень манифеста плагина должен быть объектом.",
             )
         payload = dict(payload)
         payload.pop("version", None)
         return canonical_json(payload).encode("utf-8")
-    # Git может выдавать один и тот же blob с разными line endings из-за
-    # core.autocrlf. Дайджест source set должен описывать содержимое Git,
-    # а не локальную нормализацию checkout; бинарные файлы не преобразуем.
+    # Git может выдавать один и тот же blob с разными окончаниями строк из-за
+    # core.autocrlf. Дайджест набора исходников должен описывать содержимое Git,
+    # а не локальную нормализацию рабочей копии; бинарные файлы не преобразуем.
     if b"\x00" not in raw:
         return raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     return raw
 
 
 def source_set_digest(root: Path | str, source_set: str) -> str:
-    """Вычислить content-derived digest одного explicit source set."""
+    """Вычислить дайджест содержимого одного явно заданного набора исходников."""
 
     root_path = Path(root).resolve()
     try:
@@ -396,7 +405,7 @@ def source_set_digest(root: Path | str, source_set: str) -> str:
     except KeyError as exc:
         raise ToolingError(
             ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-            f"Неизвестный MCP source set: {source_set}.",
+            f"Неизвестный набор исходников MCP: {source_set}.",
         ) from exc
     entries: list[str] = []
     for path in _files_for_source_set(root_path, paths):
@@ -410,7 +419,7 @@ def source_set_digest(root: Path | str, source_set: str) -> str:
 
 
 def source_set_digests(root: Path | str) -> dict[str, str]:
-    """Вычислить все source-set digests в стабильном порядке."""
+    """Вычислить дайджесты всех наборов исходников в стабильном порядке."""
 
     root_path = Path(root).resolve()
     return {
@@ -420,7 +429,7 @@ def source_set_digests(root: Path | str) -> dict[str, str]:
 
 
 def classify_source_changes(paths: Iterable[str | Path]) -> SourceChangeClassification:
-    """Определить обязательные artifacts и affected server families."""
+    """Определить обязательные производные файлы и затронутые семейства серверов."""
 
     normalized = tuple(
         sorted(
@@ -458,7 +467,7 @@ def classify_source_changes(paths: Iterable[str | Path]) -> SourceChangeClassifi
 
 
 def _working_tree_paths(git: GitClient) -> tuple[str, ...]:
-    """Получить staged/unstaged/untracked paths без потери rename preimage."""
+    """Получить пути изменений в индексе, рабочей копии и неотслеживаемых файлов, сохранив исходное имя при переименовании."""
 
     tokens = [token for token in git.status_z().split("\x00") if token]
     paths: set[str] = set()
@@ -468,7 +477,7 @@ def _working_tree_paths(git: GitClient) -> tuple[str, ...]:
         if len(record) < 4 or record[2] != " ":
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Git status вернул неподдерживаемую porcelain-запись.",
+                "Команда Git status вернула запись в неподдерживаемом формате.",
             )
         status = record[:2]
         path = record[3:]
@@ -479,7 +488,7 @@ def _working_tree_paths(git: GitClient) -> tuple[str, ...]:
             if index >= len(tokens) or not tokens[index]:
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Git status не содержит второй путь rename/copy.",
+                    "Команда Git status не содержит исходный путь переименованного или скопированного файла.",
                 )
             paths.add(tokens[index])
             index += 1
@@ -489,19 +498,19 @@ def _working_tree_paths(git: GitClient) -> tuple[str, ...]:
 def _candidate_mcp_impact(
     root: Path, *, base_commit: str
 ) -> McpImpactDetails:
-    """Классифицировать committed и working-tree candidate относительно exact base."""
+    """Классифицировать зафиксированные изменения и рабочую копию относительно точной базы."""
 
     if _REVISION_RE.fullmatch(base_commit) is None:
         raise ToolingError(
             ResultCode.TOOLING_INVALID_INVOCATION,
-            "MCP impact base должен быть полным SHA.",
+            "База проверки влияния MCP должна быть указана полным SHA.",
         )
     git = GitClient(root)
     head = git.head()
     if not git.is_ancestor(base_commit, head):
         raise ToolingError(
             ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-            "MCP impact base не является предком текущего HEAD.",
+            "База проверки влияния MCP не является предком текущего HEAD.",
         )
     committed_paths = git.changed_paths(base_commit, head)
     working_tree_paths = _working_tree_paths(git)
@@ -548,8 +557,8 @@ def _contract_and_tools(name: str) -> tuple[dict[str, object], list[object]]:
     elif name == "azurpilot-game":
         from module.game_mcp.contract import contract_payload
         from module.game_mcp.server import tool_definitions
-    else:  # pragma: no cover - all callers use the closed server catalog.
-        raise ToolingError(ResultCode.MCP_SOURCE_BUNDLE_INVALID, "Неизвестный MCP server.")
+    else:  # pragma: no cover - все вызовы используют закрытый каталог серверов.
+        raise ToolingError(ResultCode.MCP_SOURCE_BUNDLE_INVALID, "Неизвестный MCP-сервер.")
     tools = tool_definitions()
     return dict(contract_payload()), tools
 
@@ -645,7 +654,7 @@ def _server_model(
 
 def _required_int(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ToolingError(ResultCode.MCP_SOURCE_BUNDLE_INVALID, f"{label} имеет неверный int.")
+        raise ToolingError(ResultCode.MCP_SOURCE_BUNDLE_INVALID, f"{label} должно быть целым числом.")
     return value
 
 
@@ -665,7 +674,7 @@ def _required_flags(value: object, label: str) -> Mapping[str, bool]:
         not isinstance(key, str) or not isinstance(item, bool)
         for key, item in value.items()
     ):
-        raise ToolingError(ResultCode.MCP_SOURCE_BUNDLE_INVALID, f"{label} имеет неверный mapping.")
+        raise ToolingError(ResultCode.MCP_SOURCE_BUNDLE_INVALID, f"{label} должно быть словарём.")
     return dict(value)
 
 
@@ -684,7 +693,7 @@ def _public_change_kind(
         return "none"
     if old.version != new.version:
         # Сама версия уже выражает намерение разработчика; не вычисляем
-        # дополнительный bump при проверке ранее согласованных исходников.
+        # дополнительное повышение версии при проверке уже согласованных исходников.
         return "none"
     if (
         old.tool_catalog_sha256 == new.tool_catalog_sha256
@@ -716,9 +725,9 @@ def _public_change_kind(
         and old.smoke_spec_schema_version == new.smoke_spec_schema_version
         and old.smoke_result_schema_version == new.smoke_result_schema_version
     )
-    # Изменённый hash descriptor при тех же именах может означать
-    # несовместимую input/output schema. Без semantic diff безопаснее потребовать
-    # явный major, чем делать предположение.
+    # Изменённый хеш описания при тех же именах может означать
+    # несовместимость входной или выходной схемы. Без семантического сравнения
+    # безопаснее потребовать явное повышение версии major, чем делать предположения.
     existing_descriptors_unchanged = (
         set(old.tool_descriptor_hashes) == old_names
         and set(new.tool_descriptor_hashes) == new_names
@@ -736,7 +745,7 @@ def _public_change_kind(
 def _base_public_contract_equal(
     old: McpServerVersion, new: McpServerVersion
 ) -> bool:
-    """Сравнить публичный контракт, не считая derived revision от версии."""
+    """Сравнить публичный контракт, не учитывая производную ревизию версии."""
 
     return all(
         left == right
@@ -762,7 +771,7 @@ def _base_public_change_kind(
     *,
     source_changed: bool,
 ) -> Literal["none", "patch", "minor", "major"]:
-    """Классифицировать base-to-head change без доверия к ручной версии."""
+    """Классифицировать изменения от базы до текущей ревизии независимо от версии, указанной вручную."""
 
     if old is None:
         return "major"
@@ -802,7 +811,7 @@ def _base_public_change_kind(
 def _version_bump_kind(
     old: str, new: str
 ) -> Literal["none", "patch", "minor", "major", "invalid"]:
-    """Определить фактический SemVer bump без учёта build metadata."""
+    """Определить фактическое повышение SemVer без учёта метаданных сборки."""
 
     previous = SemVer.parse(old)
     current = SemVer.parse(new)
@@ -820,7 +829,7 @@ def _version_bump_kind(
 
 
 def _legacy_baseline_versions(content: bytes) -> dict[str, str] | None:
-    """Прочитать только версии старого schema v1 для base compatibility gate."""
+    """Прочитать только версии старой схемы v1 для проверки совместимости с базой."""
 
     try:
         payload = tomllib.loads(content.decode("utf-8"))
@@ -882,7 +891,7 @@ def _server_status_from_model(
 
 
 def _safe_source_revision(value: object) -> str | None:
-    """Вернуть только bounded Git revision из runtime metadata."""
+    """Вернуть только ограниченную ревизию Git из метаданных среды выполнения."""
 
     if not isinstance(value, str):
         return None
@@ -1057,10 +1066,10 @@ def _read_plugin_manifest(root: Path) -> dict[str, object]:
     except (ToolingError, json.JSONDecodeError, UnicodeError) as exc:
         raise ToolingError(
             ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-            "Plugin manifest имеет неверный формат.",
+            "Манифест плагина имеет неверный формат.",
         ) from exc
     if not isinstance(payload, dict):
-        raise ToolingError(ResultCode.MCP_SOURCE_BUNDLE_INVALID, "Plugin manifest должен быть object.")
+        raise ToolingError(ResultCode.MCP_SOURCE_BUNDLE_INVALID, "Манифест плагина должен быть объектом.")
     return payload
 
 
@@ -1076,7 +1085,7 @@ def _build_bundle(
     if current_bundle is None:
         raise ToolingError(
             ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-            "Canonical MCP bundle отсутствует или имеет неверную схему.",
+            "Канонический комплект MCP отсутствует или имеет неверную схему.",
         )
     old_bundle = baseline.bundle if baseline and baseline.bundle else current_bundle
     old_servers = old_bundle.servers
@@ -1124,9 +1133,10 @@ def _build_bundle(
                 source_changed=source_changed,
             )
         else:
-            # В базе Schema v1 нет отпечатков публичного контракта. Сохраняем
-            # установленную консервативную политику: изменения исходников backend
-            # требуют patch, а повторная синхронизация снова начинается с exact base.
+            # Базовая схема v1 не содержит отпечатков публичного контракта.
+            # Сохраняем консервативное правило: изменение исходников сервера
+            # требует повышения patch, а повторная синхронизация снова начинается
+            # с той же точной базовой ревизии.
             kinds[name] = "patch" if name in legacy_changed_servers else "none"
     required_major = tuple(name for name, kind in kinds.items() if kind == "major")
     requested = requested_bump or "auto"
@@ -1151,7 +1161,7 @@ def _build_bundle(
                         ResultCode.MCP_VERSION_BUMP_REQUIRED,
                         f"Изменение требует как минимум --bump {kind}.",
                     )
-                # Явное намерение может выбрать более высокий совместимый bump.
+                # Явно заданная политика может выбрать более высокое совместимое повышение.
                 bump = requested
         final_version = _server_version(raw_models[name], bump=bump)
         final_models[name] = _server_model(
@@ -1204,8 +1214,8 @@ def _build_bundle(
         compatibility=compatibility,
         source_digests=digests,
     )
-    # Набор изменений определяется сравнением digest, а не предполагаемым Git
-    # range. Поэтому reconciler работает и в disposable clone.
+    # Набор изменений определяется сравнением дайджестов, а не предполагаемым
+    # диапазоном Git. Поэтому согласование работает и во временной копии.
     changed_components = tuple(
         name
         for name in SOURCE_SET_NAMES
@@ -1253,7 +1263,7 @@ def _server_bundle_payload(server: McpServerVersion) -> dict[str, object]:
 
 
 class McpSourceReconciler:
-    """Генератор и fail-closed проверка производных MCP artifacts."""
+    """Генератор и строгая проверка производных файлов MCP с отказом при сомнении."""
 
     def build(
         self,
@@ -1264,7 +1274,7 @@ class McpSourceReconciler:
     ) -> _BundleBuild:
         resolved = Path(root).resolve()
         if requested_bump not in {None, "auto", "patch", "minor", "major"}:
-            raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "Неизвестная политика MCP bump.")
+            raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "Неизвестная политика повышения версии MCP.")
         baseline = self._baseline(resolved, base_commit) if base_commit else None
         return _build_bundle(
             resolved,
@@ -1282,7 +1292,7 @@ class McpSourceReconciler:
         except VersioningError as exc:
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Canonical MCP bundle имеет неверный формат.",
+                "Канонический комплект MCP имеет неверный формат.",
             ) from exc
         build = build or self.build(resolved, requested_bump="auto")
         expected_plugin = _render_plugin_compatibility(build.bundle)
@@ -1297,7 +1307,7 @@ class McpSourceReconciler:
             except OSError as exc:
                 raise ToolingError(
                     ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
-                    "Производный MCP artifact отсутствует.",
+                    "Отсутствует производный файл MCP.",
                     details=_source_drift_details(resolved, path, build, current),
                 ) from exc
             if actual != expected:
@@ -1308,13 +1318,13 @@ class McpSourceReconciler:
                 )
                 raise ToolingError(
                     code,
-                    "Производный MCP artifact устарел.",
+                    "Производный файл MCP устарел.",
                     details=_source_drift_details(resolved, path, build, current),
                 )
         if current.bundle_revision != build.bundle.bundle_revision:
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
-                "Bundle revision не совпадает с содержимым исходников.",
+                "Ревизия комплекта не совпадает с содержимым исходников.",
                 details=_source_drift_details(
                     resolved,
                     PLUGIN_COMPATIBILITY_PATH,
@@ -1331,13 +1341,13 @@ class McpSourceReconciler:
         selected_paths: Iterable[str | Path],
         candidate_paths: Iterable[str | Path],
     ) -> tuple[str, ...]:
-        """Закрыть MCP delivery scope всеми зависимыми source/artifact paths.
+        """Дополнить область изменений MCP всеми зависимыми исходниками и производными файлами.
 
-        Generated metadata описывают весь MCP candidate. Если explicit scope
-        затрагивает MCP source set или generated artifact, сначала проверяем,
-        что bundle соответствует полному working-tree candidate, затем включаем
-        его изменённые MCP sources и производные artifacts в тот же commit.
-        Обычный non-MCP scope не расширяется.
+        Производные метаданные описывают весь вариант MCP. Если явная область
+        затрагивает набор исходников MCP или производный файл, сначала проверяем,
+        что комплект соответствует всем изменениям рабочей копии, затем включаем
+        изменённые исходники MCP и производные файлы в тот же коммит.
+        Обычная область без MCP не расширяется.
         """
 
         def normalize(paths: Iterable[str | Path]) -> set[str]:
@@ -1368,20 +1378,20 @@ class McpSourceReconciler:
         if _REVISION_RE.fullmatch(base_commit) is None:
             raise ToolingError(
                 ResultCode.TOOLING_INVALID_INVOCATION,
-                "Base commit MCP gate должен быть полным SHA.",
+                "Базовый коммит для проверки MCP должен быть указан полным SHA.",
             )
         git = GitClient(root)
         head = git.head()
         if not git.is_ancestor(base_commit, head):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Base commit не является предком текущего MCP HEAD.",
+                "Базовый коммит не является предком текущего HEAD MCP.",
             )
         manifest_ref = f"{base_commit}:config/mcp-versions.toml"
         if not git.object_exists(manifest_ref):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Base commit не содержит canonical MCP version manifest.",
+                "Базовый коммит не содержит канонический манифест версий MCP.",
             )
         content = git.object_bytes(manifest_ref)
         try:
@@ -1391,7 +1401,7 @@ class McpSourceReconciler:
             if versions is None:
                 raise ToolingError(
                     ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                    "Base MCP version manifest имеет неизвестную схему.",
+                    "Манифест версий MCP базового коммита имеет неизвестную схему.",
                 ) from None
             plugin_version: str | None = None
             bundle_revision: str | None = None
@@ -1445,7 +1455,7 @@ class McpSourceReconciler:
         base_commit: str,
         build: _BundleBuild | None = None,
     ) -> McpBaseCompatibility:
-        """Проверить policy bump и generated bundle от конкретного base SHA."""
+        """Проверить политику повышения версии и комплект от конкретной базовой ревизии."""
 
         resolved = Path(root).resolve()
         head = build or self.check(resolved)
@@ -1461,7 +1471,7 @@ class McpSourceReconciler:
             if old_version is None:
                 raise ToolingError(
                     ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                    f"Base MCP manifest не содержит server {name}.",
+                    f"Манифест MCP базового коммита не содержит сервер {name}.",
                 )
             source_changed = name in classification.affected_servers
             if baseline.bundle is not None:
@@ -1475,15 +1485,15 @@ class McpSourceReconciler:
                     source_changed=source_changed,
                 )
             else:
-                # Schema v1 не содержит fingerprints. Для него безопасно
-                # требовать patch при любом tracked backend change, но не
-                # придумывать breaking contract без исходного fingerprint.
+                # Схема v1 не содержит отпечатков. Для неё безопасно требовать
+                # повышение patch при любом изменении исходников сервера, но не
+                # предполагать несовместимость контракта без исходного отпечатка.
                 kind = "patch" if source_changed else "none"
             actual_bump = _version_bump_kind(old_version, current_server.version)
             if actual_bump == "invalid":
                 raise ToolingError(
                     ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
-                    f"Версия MCP server {name} уменьшилась относительно base.",
+                    f"Версия сервера MCP {name} уменьшилась относительно базового коммита.",
                 )
             rank = {"none": 0, "patch": 1, "minor": 2, "major": 3}
             if rank[actual_bump] < rank[kind]:
@@ -1510,7 +1520,7 @@ class McpSourceReconciler:
         ):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
-                "Изменение plugin source не обновило plugin и bundle revision.",
+                "Изменение исходников плагина не обновило его версию и ревизию комплекта.",
             )
         if skill_changed and (
             baseline.skill_bundle_revision == head.bundle.skill_bundle_revision
@@ -1519,7 +1529,7 @@ class McpSourceReconciler:
         ):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
-                "Изменение skill source не обновило skill и bundle revision.",
+                "Изменение исходников навыка не обновило его версию и ревизию комплекта.",
             )
 
         if required:
@@ -1550,7 +1560,7 @@ class McpSourceReconciler:
         if source_set_digests(resolved) != dict(build.bundle.source_digests):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
-                "MCP source-set изменился во время финализации candidate; повторите sync.",
+                "Набор исходников MCP изменился при финализации варианта; повторите синхронизацию.",
             )
         scoped = ScopedPath(resolved)
         scoped.atomic_write_text("config/mcp-versions.toml", build.manifest_text)
@@ -1559,13 +1569,13 @@ class McpSourceReconciler:
         if source_set_digests(resolved) != dict(build.bundle.source_digests):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
-                "MCP source-set изменился во время записи generated artifacts; повторите sync.",
+                "Набор исходников MCP изменился при записи производных файлов; повторите синхронизацию.",
             )
         return build
 
 
 class McpService:
-    """CLI-сервис для source bundle и owned loopback supervisor."""
+    """CLI-сервис для комплекта исходников и локального процесса управления MCP."""
 
     def __init__(
         self,
@@ -1586,7 +1596,7 @@ class McpService:
         except VersioningError as exc:
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Canonical MCP bundle имеет неверный формат.",
+                "Канонический комплект MCP имеет неверный формат.",
             ) from exc
 
     @staticmethod
@@ -1600,7 +1610,7 @@ class McpService:
             (item for item in LOCAL_HTTP_SERVICES if item.name == server_name),
             None,
         )
-        if service is None:  # pragma: no cover - closed MCP server catalog
+        if service is None:  # pragma: no cover - закрытый каталог MCP-серверов
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
                 "Неизвестный первичный MCP-сервер.",
@@ -1616,7 +1626,7 @@ class McpService:
     def _registration_state(
         root: Path,
     ) -> Literal["ready", "invalid", "unknown"]:
-        """Проверить tracked route source без claims об effective session."""
+        """Проверить исходник зарегистрированного маршрута без утверждений об активной сессии."""
 
         try:
             from dev_tools.mcp_status import first_party_source_registration
@@ -1633,7 +1643,7 @@ class McpService:
         *,
         changed_paths: Iterable[str | Path] = (),
     ) -> Literal["not_observable", "reload_required"]:
-        """Классифицировать plugin snapshot без claims об effective session."""
+        """Классифицировать снимок плагина без утверждений об активной сессии."""
 
         requested_paths = tuple(changed_paths)
         if requested_paths:
@@ -1747,7 +1757,7 @@ class McpService:
     def _plugin_source_state(
         current: McpBundle, build: _BundleBuild
     ) -> Literal["ready", "drift", "unknown"]:
-        """Проверить plugin/skill source отдельно от backend runtime."""
+        """Проверить исходники плагина и навыка отдельно от среды серверов MCP."""
 
         if getattr(build, "failure_code", None) is not None:
             return "unknown"
@@ -1953,7 +1963,7 @@ class McpService:
                 ok=False,
                 code=ResultCode.MCP_PLUGIN_RUNTIME_INCOMPATIBLE,
                 state=OperationState.FAILED,
-                message="MCP source registration не соответствует canonical route.",
+                message="Регистрация источника MCP не соответствует каноническому маршруту.",
                 details=details,
             )
         if details.source_state == "unknown":
@@ -1974,14 +1984,14 @@ class McpService:
             code = ResultCode.OK
         if code is ResultCode.MCP_RUNTIME_UNAVAILABLE and details.source_reconciled:
             message = (
-                "MCP source reconciled, но live runtime не готов; обязательная "
-                "live-проверка не завершена."
+                "Исходники MCP синхронизированы, но локальная среда выполнения не готова; "
+                "обязательная проверка этой среды не завершена."
             )
         else:
             message = (
-                "MCP source, routes и bounded runtime status прочитаны."
+                "Состояние исходников MCP, маршрутов и среды выполнения прочитано."
                 if code is ResultCode.OK
-                else "MCP source, runtime или derived metadata требуют reconciliation."
+                else "Исходники MCP, среда выполнения или производные метаданные требуют синхронизации."
             )
         return ToolingResult(
             ok=code is ResultCode.OK,
@@ -1999,7 +2009,7 @@ class McpService:
         *,
         allow_dirty: bool = False,
     ) -> ToolingResult[McpAcceptanceDetails, McpLifecycleDetails]:
-        """Проверить canonical local HTTP через новую SDK-сессию."""
+        """Проверить канонические локальные HTTP-маршруты в новой сессии SDK."""
 
         root = self._root(repository_root)
         from dev_tools.mcp_acceptance import accept as accept_fresh_mcp_client
@@ -2060,7 +2070,7 @@ class McpService:
             servers=statuses,
             component_digests=_digest_models(bundle.source_digests),
         )
-        return ToolingResult(ok=True, code=ResultCode.OK, state=OperationState.READY, message="Canonical MCP versions и revisions подтверждены.", details=details)
+        return ToolingResult(ok=True, code=ResultCode.OK, state=OperationState.READY, message="Канонические версии и ревизии MCP подтверждены.", details=details)
 
     def impact(
         self,
@@ -2068,7 +2078,7 @@ class McpService:
         *,
         base_commit: str,
     ) -> ToolingResult[McpImpactDetails, McpLifecycleDetails]:
-        """Прочитать MCP impact effective candidate diff относительно exact base."""
+        """Прочитать влияние изменений MCP относительно точной базовой ревизии."""
 
         root = self._root(repository_root)
         details = _candidate_mcp_impact(root, base_commit=base_commit)
@@ -2077,9 +2087,9 @@ class McpService:
             code=ResultCode.OK,
             state=OperationState.READY,
             message=(
-                "MCP source reconciliation требуется для effective candidate diff."
+                "Для текущих изменений требуется синхронизация исходников MCP."
                 if details.reconciliation_required
-                else "Effective candidate diff не затрагивает MCP source sets."
+                else "Текущие изменения не затрагивают наборы исходников MCP."
             ),
             details=details,
         )
@@ -2090,19 +2100,19 @@ class McpService:
         *,
         base_commit: str,
     ) -> ToolingResult[McpSyncDetails, McpLifecycleDetails]:
-        """Завершить MCP source, owned runtime и fresh-client acceptance одним вызовом."""
+        """Синхронизировать исходники MCP и принадлежащую проекту среду выполнения, затем проверить их новым клиентом."""
 
         root = self._root(repository_root)
         impact = _candidate_mcp_impact(root, base_commit=base_commit)
         if not impact.reconciliation_required:
-            # Изменения только в generated artifacts нельзя считать NO_CHANGES,
-            # если они нарушили согласованность canonical source bundle.
+            # Изменения только в производных файлах нельзя считать NO_CHANGES,
+            # если они нарушили согласованность канонического комплекта исходников.
             self.source.check(root)
             return ToolingResult(
                 ok=True,
                 code=ResultCode.OK,
                 state=OperationState.READY,
-                message="MCP impact отсутствует; синхронизация завершена без изменений.",
+                message="Изменений MCP нет; синхронизация завершена без изменений.",
                 details=McpSyncDetails(
                     terminal="NO_CHANGES",
                     base_sha=base_commit,
@@ -2165,14 +2175,14 @@ class McpService:
         if source_set_digests(root) != dict(build.bundle.source_digests):
             raise ToolingError(
                 ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
-                "MCP source-set изменился во время sync; acceptance не подтверждает текущий candidate.",
+                "Набор исходников MCP изменился во время синхронизации; приёмка не подтверждает текущий вариант.",
             )
         self.source.check(root, build=build)
         return ToolingResult(
             ok=True,
             code=ResultCode.OK,
             state=OperationState.READY,
-            message="MCP source, owned runtime и fresh-client acceptance подтверждены.",
+            message="Исходники MCP и принадлежащая проекту среда выполнения синхронизированы; новый клиент прошёл приёмку.",
             details=McpSyncDetails(
                 terminal="SYNCED",
                 base_sha=base_commit,
@@ -2448,7 +2458,7 @@ class McpService:
     def _stop_owned_supervisor(
         self, root: Path, server_name: str
     ) -> LocalHttpSupervisorStopResult:
-        """Остановить supervisor по typed exact/stale recovery result."""
+        """Остановить процесс управления по типизированному результату проверки состояния и владения."""
 
         from module.mcp_shared.local_http_supervisor import (
             LocalHttpSupervisorStopOutcome,
@@ -2509,9 +2519,9 @@ class McpService:
             code=ResultCode.OK,
             state=OperationState.READY,
             message=(
-                "Принадлежащий локальный MCP supervisor готов."
+                "Принадлежащая проекту служба управления процессами MCP готова."
                 if outcome.changed
-                else "Принадлежащий локальный MCP supervisor уже готов; запуск не требовался."
+                else "Принадлежащая проекту служба управления процессами MCP уже готова; запуск не требовался."
             ),
             details=details,
         )
@@ -2544,7 +2554,7 @@ class McpService:
             ok=True,
             code=ResultCode.OK,
             state=OperationState.STOPPED,
-            message="Принадлежащий локальный MCP supervisor остановлен.",
+            message="Локальный процесс управления MCP, принадлежащий проекту, остановлен.",
             details=details,
         )
 
@@ -2645,7 +2655,7 @@ class McpService:
             ok=True,
             code=ResultCode.OK,
             state=OperationState.READY,
-            message="Принадлежащий локальный MCP supervisor перезапущен и готов.",
+            message="Локальный процесс управления MCP, принадлежащий проекту, перезапущен и готов.",
             details=details,
         )
 
@@ -2679,8 +2689,7 @@ class McpService:
                     code=ResultCode.MCP_RELOAD_REQUIRED,
                     state=OperationState.FAILED,
                     message=(
-                        "Canonical MCP bundle согласован, но загруженная plugin/skill "
-                        "session требует reload; hot reload не выполнялся."
+                        "Канонический комплект MCP согласован, но активная сессия плагина или навыка требует перезагрузки; автоматическая перезагрузка не выполнялась."
                     ),
                     details=details,
                 )
@@ -2688,14 +2697,14 @@ class McpService:
                 ok=True,
                 code=ResultCode.OK,
                 state=OperationState.READY,
-                message="Canonical MCP bundle и производные plugin metadata согласованы.",
+                message="Канонический комплект MCP и производные метаданные плагина согласованы.",
                 details=details,
             )
         self.source.check(root)
         if not project_python(root).is_file():
             raise ToolingError(
                 ResultCode.MCP_ENVIRONMENT_STALE,
-                "Интерпретатор Python проекта отсутствует; согласование MCP runtime остановлено.",
+                "Интерпретатор Python проекта отсутствует; синхронизация среды MCP остановлена.",
             )
         bundle = self._bundle(root)
         runtime_state, runtime = self._runtime_status(root, bundle)
@@ -2713,7 +2722,7 @@ class McpService:
         if runtime_state == "unknown":
             raise ToolingError(
                 ResultCode.MCP_RUNTIME_STALE,
-                "Состояние local MCP runtime нельзя безопасно классифицировать.",
+                "Состояние локальной среды выполнения MCP нельзя безопасно определить.",
             )
         authentication_states = self._authentication_states(root)
         auth_unavailable = set(
@@ -2749,7 +2758,7 @@ class McpService:
             if not repair_names:
                 raise ToolingError(
                     ResultCode.MCP_RUNTIME_STALE,
-                    "Остановленный или устаревший local MCP runtime не имеет безопасного exact owner.",
+                    "Для остановленной или устаревшей локальной среды MCP не подтверждён точный владелец.",
                 )
             repairable: list[str] = []
             for name in repair_names:
@@ -2836,7 +2845,7 @@ class McpService:
                 ok=False,
                 code=ResultCode.MCP_RELOAD_REQUIRED,
                 state=OperationState.FAILED,
-                message="MCP runtime согласован, но effective plugin session требует reload.",
+                message="Среда выполнения MCP согласована, но активная сессия плагина требует перезагрузки.",
                 details=details,
             )
         return ToolingResult(
@@ -2844,10 +2853,553 @@ class McpService:
             code=ResultCode.OK,
             state=OperationState.READY,
             message=(
-                "MCP runtime уже согласован; mutation не потребовалась."
+                "Среда выполнения MCP уже согласована; изменений не потребовалось."
                 if not restarted
-                else "Остановленный или устаревший принадлежащий MCP runtime запущен/перезапущен; readiness подтверждён."
+                else "Остановленная или устаревшая принадлежащая проекту среда выполнения MCP запущена или перезапущена; готовность подтверждена."
             ),
+            details=details,
+        )
+
+    @staticmethod
+    def _bridge_supervisor(root: Path, *, create_state_directory: bool = True):
+        from module.mcp_shared.local_http_supervisor import (
+            WINDOWS_MCP_BRIDGE_SERVICE,
+            LocalHttpSupervisor,
+        )
+        from module.mcp_shared.windows_mcp_bridge_contract import BRIDGE_NAME
+
+        return LocalHttpSupervisor(
+            root,
+            python_executable=project_python(root),
+            services=(WINDOWS_MCP_BRIDGE_SERVICE,),
+            state_namespace=BRIDGE_NAME,
+            create_state_directory=create_state_directory,
+        )
+
+    def _bridge_status_result(
+        self,
+        root: Path,
+        *,
+        action: Literal["status", "start", "stop", "restart"] = "status",
+    ) -> ToolingResult[McpBridgeStatusDetails, McpLifecycleDetails]:
+        from module.mcp_shared.local_http_auth import (
+            read_local_mcp_bridge_caller_token,
+        )
+        from module.mcp_shared.local_http_supervisor import LocalHttpSupervisorError
+        from module.mcp_shared.windows_mcp_bridge import _bridge_route_status
+        from module.mcp_shared.windows_mcp_bridge_contract import (
+            BRIDGE_ROUTES,
+            bridge_endpoint,
+        )
+
+        service: dict[str, object] | None = None
+        observed: dict[str, object] = {}
+        try:
+            supervisor = self._bridge_supervisor(root, create_state_directory=False)
+            observed = supervisor.status()
+            code = observed.get("code")
+            if code == "LOCAL_MCP_SUPERVISOR_STOPPED":
+                state = "conflict" if supervisor.port_conflicts() else "stopped"
+                reason_code = (
+                    "BRIDGE_PORT_CONFLICT" if state == "conflict" else "BRIDGE_STOPPED"
+                )
+            elif code == "LOCAL_MCP_SUPERVISOR_READY":
+                services = observed.get("services")
+                service = (
+                    next(
+                        (
+                            item
+                            for item in services
+                            if isinstance(item, dict)
+                            and item.get("server_name") == "windows-mcp-bridge"
+                        ),
+                        None,
+                    )
+                    if isinstance(services, list)
+                    else None
+                )
+                if (
+                    service is not None
+                    and service.get("alive") is True
+                    and service.get("ready") is True
+                    and service.get("transport") == "windows_mcp_bridge"
+                ):
+                    state = "ready"
+                    reason_code = "BRIDGE_READY"
+                else:
+                    state = "stale"
+                    reason_code = "BRIDGE_READINESS_MISMATCH"
+            elif code in {
+                "LOCAL_MCP_SUPERVISOR_OWNERSHIP_MISMATCH",
+                "TOOLING_PORT_CONFLICT",
+            }:
+                state = "conflict"
+                reason_code = "BRIDGE_OWNERSHIP_CONFLICT"
+            elif code == "LOCAL_MCP_SUPERVISOR_UNKNOWN":
+                state = "unknown"
+                reason_code = "BRIDGE_OWNERSHIP_UNKNOWN"
+            elif code in {
+                "LOCAL_MCP_SUPERVISOR_STALE",
+                "LOCAL_MCP_SUPERVISOR_DEGRADED",
+                "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
+            }:
+                state = "stale"
+                reason_code = "BRIDGE_RUNTIME_STALE"
+            else:
+                state = "unknown"
+                reason_code = "BRIDGE_OWNERSHIP_UNKNOWN"
+        except LocalHttpSupervisorError, OSError, ValueError, TypeError:
+            state = "unknown"
+            reason_code = "BRIDGE_OWNERSHIP_UNKNOWN"
+
+        try:
+            read_local_mcp_bridge_caller_token(root)
+        except LocalHttpAuthUnknownError:
+            caller_authentication = "unknown"
+        except LocalHttpAuthError, OSError:
+            caller_authentication = "unavailable"
+        else:
+            caller_authentication = "configured"
+
+        upstreams: list[McpBridgeUpstreamStatus] = []
+        for family, route in BRIDGE_ROUTES.items():
+            try:
+                upstream = _bridge_route_status(route, root)
+                upstreams.append(
+                    McpBridgeUpstreamStatus(
+                        route=family,
+                        server_name=route.server_name,
+                        status=upstream.status,
+                        identity=upstream.identity,
+                        reason_code=upstream.reason_code,
+                    )
+                )
+            except OSError, TypeError, ValueError:
+                upstreams.append(
+                    McpBridgeUpstreamStatus(
+                        route=family,
+                        server_name=route.server_name,
+                        status="unknown",
+                        reason_code="BRIDGE_UPSTREAM_UNKNOWN",
+                    )
+                )
+
+        process = McpBridgeProcessStatus(
+            supervisor_pid=(
+                observed.get("supervisor_pid")
+                if isinstance(observed.get("supervisor_pid"), int)
+                else None
+            ),
+            process_pid=(
+                service.get("process_pid")
+                if isinstance(service, dict)
+                and isinstance(service.get("process_pid"), int)
+                else None
+            ),
+            ownership_confirmed=(
+                isinstance(service, dict)
+                and service.get("alive") is True
+                and service.get("ownership_confirmed") is True
+            ),
+        )
+        details = McpBridgeStatusDetails(
+            action=action,
+            state=state,
+            endpoint=bridge_endpoint(),
+            routes=tuple(route.path for route in BRIDGE_ROUTES.values()),
+            caller_authentication=caller_authentication,
+            process=process,
+            upstreams=tuple(upstreams),
+            reason_code=reason_code,
+        )
+        if state == "ready" and caller_authentication == "configured":
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="Мост Windows MCP принадлежит проекту и готов принимать проверенные запросы.",
+                details=details,
+            )
+        if state == "conflict":
+            code = ResultCode.TOOLING_PORT_CONFLICT
+            operation_state = OperationState.CONFLICT
+            message = "Владение мостом Windows MCP или его локальный порт конфликтует с другим процессом."
+        elif state == "stale":
+            code = ResultCode.MCP_BRIDGE_RUNTIME_STALE
+            operation_state = OperationState.FAILED
+            message = (
+                "Состояние моста Windows MCP устарело или его готовность не подтверждена."
+            )
+        elif caller_authentication == "unavailable":
+            code = ResultCode.MCP_BRIDGE_AUTH_NOT_CONFIGURED
+            operation_state = OperationState.NOT_CONFIGURED
+            message = "Учётные данные вызывающего клиента для локального моста Windows MCP не настроены."
+        elif caller_authentication == "unknown" or state == "unknown":
+            code = ResultCode.TOOLING_VERIFICATION_UNKNOWN
+            operation_state = OperationState.UNKNOWN
+            message = "Не удалось безопасно подтвердить мост Windows MCP или учётные данные его вызывающего клиента."
+        else:
+            code = ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE
+            operation_state = OperationState.STOPPED
+            message = "Мост Windows MCP остановлен."
+        return ToolingResult(
+            ok=False,
+            code=code,
+            state=operation_state,
+            message=message,
+            details=details,
+        )
+
+    def bridge(
+        self,
+        action: str,
+        repository_root: str | Path | None = None,
+        *,
+        caller_token: str | None = None,
+    ) -> ToolingResult[BaseModel, McpLifecycleDetails]:
+        """Управлять отдельным мостом под контролем проекта, не перезапуская Dev/Game."""
+
+        if not _supports_windows_mcp_bridge():
+            raise ToolingError(
+                ResultCode.TOOLING_CAPABILITY_UNSUPPORTED,
+                "Мост Windows MCP доступен только в Windows.",
+            )
+        root = self._root(repository_root)
+        if action == "configure":
+            if caller_token is None:
+                raise ToolingError(
+                    ResultCode.TOOLING_INVALID_INVOCATION,
+                    "Для настройки учётных данных вызывающего клиента передайте одно значение через stdin.",
+                )
+            from module.application.errors import (
+                StorageConfigurationError,
+                StorageConfigurationUnknownError,
+            )
+            from module.persistence.local_environment import (
+                write_local_mcp_bridge_caller_token,
+            )
+
+            try:
+                write_local_mcp_bridge_caller_token(root, caller_token)
+                details = self._bridge_status_result(root).details
+            except StorageConfigurationUnknownError as error:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Состояние защищённого локального окружения проекта неизвестно.",
+                ) from error
+            except StorageConfigurationError as error:
+                raise ToolingError(
+                    ResultCode.MCP_BRIDGE_AUTH_NOT_CONFIGURED,
+                    "Учётные данные вызывающего клиента не записаны: локальное окружение проекта или формат значения не прошли проверку.",
+                ) from error
+            return ToolingResult(
+                ok=details.caller_authentication == "configured",
+                code=(
+                    ResultCode.OK
+                    if details.caller_authentication == "configured"
+                    else ResultCode.TOOLING_VERIFICATION_UNKNOWN
+                ),
+                state=(
+                    OperationState.READY
+                    if details.caller_authentication == "configured"
+                    else OperationState.UNKNOWN
+                ),
+                message=(
+                    "Отдельные учётные данные вызывающего клиента моста сохранены; значение не выводилось."
+                    if details.caller_authentication == "configured"
+                    else "Учётные данные записаны, но безопасно прочитать их не удалось."
+                ),
+                details=details,
+            )
+        if action == "status":
+            return self._bridge_status_result(root)
+        if action == "accept":
+            return self._bridge_accept(root)
+        if action not in {"start", "stop", "restart"}:
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "Это действие для моста Windows MCP не поддерживается.",
+            )
+
+        supervisor = self._bridge_supervisor(root)
+        if action == "stop":
+            stopped = supervisor.stop_result()
+            if not stopped.ok:
+                current = self._bridge_status_result(root, action="stop")
+                if stopped.outcome.value == "port_conflict":
+                    raise ToolingError(
+                        ResultCode.TOOLING_PORT_CONFLICT,
+                        "Локальный порт моста Windows MCP занят процессом без подтверждённого владельца.",
+                        details=current.details,
+                    )
+                raise ToolingError(
+                    ResultCode.MCP_BRIDGE_RUNTIME_STALE,
+                    "Владение мостом Windows MCP не подтверждено; процесс не остановлен.",
+                    details=current.details,
+                )
+            current = self._bridge_status_result(root, action="stop")
+            details = current.details.model_copy(update={"action": "stop"})
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.STOPPED,
+                message="Принадлежащий проекту мост Windows MCP остановлен.",
+                details=details,
+            )
+
+        if action == "restart":
+            stopped = supervisor.stop_result()
+            if not stopped.ok:
+                current = self._bridge_status_result(root, action="restart")
+                if stopped.outcome.value == "port_conflict":
+                    raise ToolingError(
+                        ResultCode.TOOLING_PORT_CONFLICT,
+                        "Локальный порт моста Windows MCP занят процессом без подтверждённого владельца.",
+                        details=current.details,
+                    )
+                raise ToolingError(
+                    ResultCode.MCP_BRIDGE_RUNTIME_STALE,
+                    "Владение мостом Windows MCP не подтверждено; перезапуск остановлен.",
+                    details=current.details,
+                )
+
+        before = self._bridge_status_result(root, action=action)
+        if before.details.state == "ready" and action == "start":
+            return before
+        if before.details.state != "stopped":
+            return before
+        if before.details.caller_authentication != "configured":
+            return before
+        python = project_python(root)
+        if not python.is_file():
+            raise ToolingError(
+                ResultCode.MCP_ENVIRONMENT_STALE,
+                "Интерпретатор Python проекта для моста Windows MCP отсутствует.",
+                details=before.details,
+            )
+        from module.mcp_shared.windows_mcp_bridge_contract import BRIDGE_NAME
+
+        try:
+            process = self.runner.start(
+                ProcessSpec(
+                    executable=python,
+                    argv=(
+                        "-u",
+                        "-m",
+                        "module.mcp_shared.local_http_supervisor",
+                        "serve",
+                        "--service",
+                        BRIDGE_NAME,
+                        "--root",
+                        str(root),
+                    ),
+                    cwd=root,
+                    timeout_seconds=30,
+                )
+            )
+        except ProcessStartError as error:
+            if (
+                error.spawn_state in {"not_spawned", "absent_after_cleanup"}
+                and error.cleanup_state == "absent"
+            ):
+                return self._bridge_status_result(root, action=action)
+            raise ToolingError(
+                ResultCode.TOOLING_CLEANUP_UNKNOWN,
+                "Не удалось подтвердить результат запуска моста Windows MCP.",
+                details=self._bridge_status_result(root, action=action).details,
+            ) from error
+
+        deadline = time.monotonic() + 30.0
+        last = self._bridge_status_result(root, action=action)
+        while time.monotonic() < deadline:
+            last = self._bridge_status_result(root, action=action)
+            if last.details.state == "ready":
+                return last
+            if process.poll() is not None:
+                break
+            if last.details.state in {"conflict", "unknown"}:
+                # Владелец может открыть порт раньше, чем запишет маркер готовности.
+                # Пока запущенный нами процесс управления работает, ограниченно ждём маркер.
+                time.sleep(0.25)
+                continue
+            time.sleep(0.25)
+
+        # Сначала используем восстановление по маркеру точного владельца. Если
+        # проверка готовности не создала маркер, останавливаем только процесс,
+        # точную идентичность которого вернул исполнитель.
+        try:
+            cleanup = supervisor.stop_result()
+        except OSError, ValueError, TypeError:
+            cleanup = None
+        if (cleanup is None or not cleanup.ok) and process.poll() is None:
+            ProcessController.terminate(process.identity, timeout_seconds=8.0)
+        final = self._bridge_status_result(root, action=action)
+        if final.details.state == "conflict":
+            return final
+        if action == "restart":
+            final = final.model_copy(
+                update={
+                    "ok": False,
+                    "code": ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                    "state": OperationState.FAILED,
+                    "message": "Мост Windows MCP не подтвердил готовность после перезапуска.",
+                }
+            )
+        return final
+
+    def _bridge_accept(
+        self, root: Path
+    ) -> ToolingResult[McpBridgeAcceptanceDetails, McpLifecycleDetails]:
+        from azurpilot.integrations.mcp_client import (
+            HttpTransportPolicy,
+            accept_fresh_http,
+            accept_fresh_http_modern,
+        )
+        from dev_tools.mcp_acceptance import build_plan
+        from dev_tools.mcp_status import git_source_snapshot
+        from module.mcp_shared.local_http_auth import (
+            read_local_mcp_bridge_caller_token,
+        )
+        from module.mcp_shared.windows_mcp_bridge_contract import (
+            BRIDGE_EXPECTED_IDENTITY_HEADER,
+            BRIDGE_IDENTITY_PROTOCOL,
+            BRIDGE_ROUTES,
+            BridgeSourceIdentity,
+            serialize_identity,
+        )
+
+        revision, working_tree = git_source_snapshot(root)
+        if working_tree != "clean":
+            raise ToolingError(
+                ResultCode.MCP_PLUGIN_RUNTIME_INCOMPATIBLE
+                if working_tree == "modified"
+                else ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Приёмка моста Windows MCP требует чистой рабочей копии с зафиксированным вариантом.",
+            )
+
+        status = self._bridge_status_result(root)
+        if not status.ok:
+            raise ToolingError(status.code, status.message, details=status.details)
+        try:
+            caller_token = read_local_mcp_bridge_caller_token(root)
+        except LocalHttpAuthUnknownError as error:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Состояние учётных данных клиента локального моста Windows MCP неизвестно.",
+                details=status.details,
+            ) from error
+        except (LocalHttpAuthError, OSError) as error:
+            raise ToolingError(
+                ResultCode.MCP_BRIDGE_AUTH_NOT_CONFIGURED,
+                "Учётные данные клиента локального моста Windows MCP не настроены.",
+                details=status.details,
+            ) from error
+
+        bundle = self._bundle(root)
+        legacy_results: list[McpAcceptanceDetails] = []
+        modern_results: list[McpAcceptanceDetails] = []
+        for family, route in BRIDGE_ROUTES.items():
+            server_name = route.server_name
+            server = bundle.servers[server_name]
+            expected = BridgeSourceIdentity(
+                identity_protocol=BRIDGE_IDENTITY_PROTOCOL,
+                server_name=server_name,
+                server_version=str(server.version),
+                source_revision=revision,
+                source_set_digest=server.source_set_digest,
+                contract_revision=server.contract_revision,
+                tool_catalog_sha256=server.tool_catalog_sha256,
+                capability_catalog_sha256=server.capability_catalog_sha256,
+            )
+            for accept_client, target_results in (
+                (accept_fresh_http, legacy_results),
+                (accept_fresh_http_modern, modern_results),
+            ):
+                try:
+                    result = asyncio.run(
+                        accept_client(
+                            endpoint=route.bridge_url,
+                            headers={
+                                "Authorization": f"Bearer {caller_token}",
+                                BRIDGE_EXPECTED_IDENTITY_HEADER: serialize_identity(
+                                    expected
+                                ),
+                            },
+                            plan=build_plan(revision, server_name),
+                            timeout_seconds=20.0,
+                            transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,
+                        )
+                    )
+                except RuntimeError as error:
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "Не удалось создать независимую сессию приёмки моста.",
+                        details=status.details,
+                    ) from error
+                target_results.append(
+                    McpAcceptanceDetails(
+                        acceptance_state=result.state.value,
+                        reason_code=result.reason_code,
+                        initialized=result.initialized,
+                        protocol_version=result.protocol_version,
+                        server_name=result.server_name,
+                        server_version=result.server_version,
+                        source_revision=result.source_revision,
+                        tool_count=result.tool_count,
+                        tool_catalog_sha256=result.tool_catalog_sha256,
+                        capability_catalog_sha256=result.capability_catalog_sha256,
+                        contract_revision=result.contract_revision,
+                        called_tools=result.called_tools,
+                        diagnostics=result.diagnostics,
+                    )
+                )
+
+        all_results = (*legacy_results, *modern_results)
+        all_ready = all(item.acceptance_state == "READY" for item in all_results)
+        first_failure = next(
+            (item for item in all_results if item.acceptance_state != "READY"), None
+        )
+        reason_code = (
+            "WINDOWS_MCP_BRIDGE_ACCEPTANCE_READY"
+            if all_ready
+            else first_failure.reason_code
+            if first_failure is not None
+            else "WINDOWS_MCP_BRIDGE_ACCEPTANCE_UNKNOWN"
+        )
+        details = McpBridgeAcceptanceDetails(
+            acceptance_state=(
+                "READY"
+                if all_ready
+                else "INCOMPATIBLE"
+                if any(item.acceptance_state == "INCOMPATIBLE" for item in all_results)
+                else "UNKNOWN"
+                if any(item.acceptance_state == "UNKNOWN" for item in all_results)
+                else "UNAVAILABLE"
+            ),
+            reason_code=reason_code,
+            routes=tuple(legacy_results),
+            modern_routes=tuple(modern_results),
+        )
+        if all_ready:
+            return ToolingResult(
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="Сеансы в режиме совместимости и современном режиме MCP 2026-07-28 подтвердили оба маршрута моста Windows MCP вызовами только для чтения.",
+                details=details,
+            )
+        code = (
+            ResultCode.MCP_PLUGIN_RUNTIME_INCOMPATIBLE
+            if details.acceptance_state == "INCOMPATIBLE"
+            else ResultCode.MCP_RUNTIME_UNAVAILABLE
+            if details.acceptance_state == "UNAVAILABLE"
+            else ResultCode.TOOLING_VERIFICATION_UNKNOWN
+        )
+        return ToolingResult(
+            ok=False,
+            code=code,
+            state=OperationState.FAILED,
+            message="Одна или несколько новых клиентских сессий для приёмки моста не прошли проверку.",
             details=details,
         )
 

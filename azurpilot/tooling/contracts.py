@@ -1,4 +1,4 @@
-"""Закрытые DTO и стабильные коды Python tooling.
+"""Закрытые DTO и стабильные коды инструментов Python.
 
 Эти модели являются границей между сервисами, CLI и будущими транспортными адаптерами.
 Свободные словари намеренно не используются в данных операции: добавление
@@ -13,6 +13,8 @@ from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from module.mcp_shared.windows_mcp_bridge_contract import BridgeSourceIdentity
 
 from .mcp_contracts import ProcessEvidence
 from .result import ExitCode, OperationState, ResultCode, exit_code_for
@@ -291,7 +293,7 @@ class McpDigest(ClosedModel):
 
 
 class McpImpactPath(ClosedModel):
-    """Связь одного пути итогового diff с набором исходников."""
+    """Связь одного пути в итоговом сравнении изменений с набором исходников."""
 
     path: str = Field(min_length=1, max_length=512)
     source_sets: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
@@ -299,7 +301,7 @@ class McpImpactPath(ClosedModel):
 
 
 class McpImpactDetails(ClosedModel):
-    """Классификация влияния на MCP до публикации кандидата, только для чтения."""
+    """Классификация влияния на MCP до публикации варианта, только для чтения."""
 
     action: Literal["impact"] = "impact"
     base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
@@ -353,7 +355,7 @@ class McpServerStatus(ClosedModel):
 
 
 class McpStatusDetails(ClosedModel):
-    """Сводка исходников, среды выполнения, плагина и сессии слоёв MCP."""
+    """Сводка по исходникам, среде выполнения, плагину и клиентской сессии MCP."""
 
     action: Literal["status", "reconcile", "start", "stop", "restart"]
     source_state: Literal["ready", "drift", "invalid", "unknown"]
@@ -386,7 +388,7 @@ class McpVersionDetails(ClosedModel):
 
 
 class McpLifecycleDetails(ClosedModel):
-    """Ограниченные сведения об операции жизненного цикла локального supervisor."""
+    """Ограниченные сведения об операции жизненного цикла локального процесса управления MCP."""
 
     action: Literal["start", "stop", "restart"]
     supervisor_code: str = Field(min_length=1, max_length=128)
@@ -429,6 +431,117 @@ class McpAcceptanceDetails(ClosedModel):
         if any(len(item) > 240 or any(ord(char) < 32 for char in item) for item in value):
             raise ValueError("diagnostics содержит слишком длинный или управляющий текст")
         return value
+
+
+class McpBridgeProcessStatus(ClosedModel):
+    """Сведения о подтверждённом владении процессом моста для Windows без путей."""
+
+    supervisor_pid: int | None = Field(default=None, ge=1)
+    process_pid: int | None = Field(default=None, ge=1)
+    ownership_confirmed: bool = False
+
+
+class McpBridgeUpstreamStatus(ClosedModel):
+    """Ограниченные сведения о готовности и идентичности целевого сервера."""
+
+    route: str = Field(min_length=1, max_length=32)
+    server_name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")
+    status: Literal["ready", "stale", "stopped", "unavailable", "unknown", "conflict"]
+    identity: BridgeSourceIdentity | None = None
+    reason_code: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_canonical_route(self) -> McpBridgeUpstreamStatus:
+        from module.mcp_shared import windows_mcp_bridge_contract
+
+        canonical_route = windows_mcp_bridge_contract.BRIDGE_ROUTES.get(self.route)
+        if (
+            canonical_route is None
+            or canonical_route.server_name != self.server_name
+            or (
+                self.identity is not None
+                and self.identity.server_name != self.server_name
+            )
+        ):
+            raise ValueError("route и server_name должны соответствовать каноническому маршруту моста")
+        return self
+
+
+class McpBridgeStatusDetails(ClosedModel):
+    """Типизированное состояние отдельной возможности моста для Windows."""
+
+    action: Literal["status", "start", "stop", "restart"]
+    state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
+    endpoint: str = Field(min_length=1, max_length=512)
+    routes: tuple[str, ...] = Field(min_length=1, max_length=16)
+    caller_authentication: Literal["configured", "unavailable", "unknown"]
+    process: McpBridgeProcessStatus
+    upstreams: tuple[McpBridgeUpstreamStatus, ...] = Field(min_length=1, max_length=16)
+    reason_code: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_canonical_bridge_contract(self) -> McpBridgeStatusDetails:
+        from module.mcp_shared import windows_mcp_bridge_contract
+
+        routes = windows_mcp_bridge_contract.BRIDGE_ROUTES
+        canonical_paths = tuple(route.path for route in routes.values())
+        canonical_upstreams = tuple(
+            (family, route.server_name) for family, route in routes.items()
+        )
+        actual_upstreams = tuple(
+            (upstream.route, upstream.server_name) for upstream in self.upstreams
+        )
+        if (
+            self.endpoint != windows_mcp_bridge_contract.bridge_endpoint()
+            or self.routes != canonical_paths
+            or actual_upstreams != canonical_upstreams
+        ):
+            raise ValueError("Сведения должны соответствовать каноническому контракту моста")
+        return self
+
+
+class McpBridgeAcceptanceDetails(ClosedModel):
+    """Результат новой клиентской приёмки через оба фиксированных маршрута моста Windows."""
+
+    action: Literal["accept"] = "accept"
+    acceptance_state: Literal["READY", "INCOMPATIBLE", "UNAVAILABLE", "UNKNOWN"]
+    reason_code: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
+    routes: tuple[McpAcceptanceDetails, ...] = Field(min_length=1, max_length=16)
+    modern_routes: tuple[McpAcceptanceDetails, ...] = Field(min_length=1, max_length=16)
+
+    @model_validator(mode="after")
+    def validate_route_acceptance(self) -> McpBridgeAcceptanceDetails:
+        from module.mcp_shared import windows_mcp_bridge_contract
+
+        expected_server_names = tuple(
+            route.server_name
+            for route in windows_mcp_bridge_contract.BRIDGE_ROUTES.values()
+        )
+        for mode_results in (self.routes, self.modern_routes):
+            actual_server_names = tuple(
+                result.server_name for result in mode_results
+            )
+            if len(actual_server_names) != len(expected_server_names) or any(
+                actual is not None and actual != expected
+                for actual, expected in zip(
+                    actual_server_names, expected_server_names, strict=True
+                )
+            ):
+                raise ValueError("Результаты должны соответствовать каноническим маршрутам моста")
+
+        results = (*self.routes, *self.modern_routes)
+        expected_state = (
+            "READY"
+            if all(item.acceptance_state == "READY" for item in results)
+            else "INCOMPATIBLE"
+            if any(item.acceptance_state == "INCOMPATIBLE" for item in results)
+            else "UNKNOWN"
+            if any(item.acceptance_state == "UNKNOWN" for item in results)
+            else "UNAVAILABLE"
+        )
+        if self.acceptance_state != expected_state:
+            raise ValueError("Состояние приёмки должно соответствовать результатам маршрутов")
+        return self
 
 
 class CommissionRecoveryProjection(ClosedModel):
@@ -547,6 +660,10 @@ __all__ = [
     "LifecycleEvidence",
     "LifecycleRecord",
     "McpAcceptanceDetails",
+    "McpBridgeAcceptanceDetails",
+    "McpBridgeProcessStatus",
+    "McpBridgeStatusDetails",
+    "McpBridgeUpstreamStatus",
     "McpDigest",
     "McpImpactDetails",
     "McpImpactPath",

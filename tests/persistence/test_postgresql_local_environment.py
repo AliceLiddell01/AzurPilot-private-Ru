@@ -251,7 +251,7 @@ def test_local_env_requires_distinct_secrets_and_full_contract(tmp_path: Path):
         path,
         _document().replace("AZURPILOT_POSTGRES_PORT=5432\n", "", 1),
     )
-    with pytest.raises(StorageConfigurationError, match="полный"):
+    with pytest.raises(StorageConfigurationError, match="полного производственного контракта"):
         load_local_postgres_environment(path, environment={})
 
 
@@ -303,14 +303,14 @@ def test_missing_local_env_is_a_noop(tmp_path: Path):
 
 
 def test_direct_local_environment_rejects_incomplete_contract(tmp_path: Path):
-    with pytest.raises(StorageConfigurationError, match="полный"):
+    with pytest.raises(StorageConfigurationError, match="полного производственного контракта"):
         LocalPostgresEnvironment(path=tmp_path / ".env", values={})
 
 
 def test_direct_local_environment_rejects_extra_contract_key(tmp_path: Path):
     values = dict(line.split("=", 1) for line in _document().splitlines() if line)
     values["UNEXPECTED"] = "value"
-    with pytest.raises(StorageConfigurationError, match="полный"):
+    with pytest.raises(StorageConfigurationError, match="полного производственного контракта"):
         LocalPostgresEnvironment(path=tmp_path / ".env", values=values)
 
 
@@ -323,7 +323,10 @@ def test_local_env_requires_matching_app_and_migrator_endpoint(tmp_path: Path):
             "AZURPILOT_POSTGRES_MIGRATOR_DATABASE=other",
         ),
     )
-    with pytest.raises(StorageConfigurationError, match="endpoints"):
+    with pytest.raises(
+        StorageConfigurationError,
+        match="параметры подключения PostgreSQL.*должны совпадать",
+    ):
         load_local_postgres_environment(path, environment={})
 
 
@@ -374,7 +377,7 @@ def test_local_env_read_race_is_an_unknown_state(
 
     monkeypatch.setattr(Path, "read_text", read_and_change)
 
-    with pytest.raises(StorageConfigurationUnknownError, match="изменился во время чтения"):
+    with pytest.raises(StorageConfigurationUnknownError, match="изменилось во время чтения"):
         read_local_environment_subset(path, keys=("AZURPILOT_POSTGRES_HOST",))
 
 
@@ -424,13 +427,13 @@ def test_windows_acl_probe_does_not_inherit_registered_secrets(
     assert {key: os.environ[key] for key in original_values} == original_values
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows ACL gate")
+@pytest.mark.skipif(os.name != "nt", reason="проверка ACL Windows")
 def test_local_env_reports_unavailable_acl_inspection(tmp_path: Path, monkeypatch):
     path = tmp_path / ".env"
     _write_env(path, _document())
     monkeypatch.setattr(local_environment_module.shutil, "which", lambda _name: None)
 
-    with pytest.raises(StorageConfigurationUnknownError, match="невозможно подтвердить"):
+    with pytest.raises(StorageConfigurationUnknownError, match="Не удалось подтвердить ACL"):
         load_local_postgres_environment(path, environment={})
 
 
@@ -445,5 +448,5 @@ def test_missing_local_env_rejects_broken_symlink_alias(tmp_path: Path, monkeypa
 
     monkeypatch.setattr(Path, "lstat", lstat)
 
-    with pytest.raises(StorageConfigurationError, match="небезопасен"):
+    with pytest.raises(StorageConfigurationError, match="небезопасно"):
         load_local_postgres_environment(path, environment={})
