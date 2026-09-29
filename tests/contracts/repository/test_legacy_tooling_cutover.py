@@ -32,7 +32,7 @@ def test_external_native_hooks_are_not_mistaken_for_operator_tooling():
 
 
 def test_codex_lifecycle_hooks_are_not_mistaken_for_operator_tooling():
-    retained = classify(".codex/hooks/codex_workflow_guards.bat")
+    retained = classify(".codex/hooks/codex_workflow_guards.ps1")
     assert retained is not None
     assert retained.category == "EXTERNAL_NATIVE_HOOK"
     assert retained.owner == "codex"

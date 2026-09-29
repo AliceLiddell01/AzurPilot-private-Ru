@@ -164,17 +164,25 @@ def test_main_returns_json_for_invalid_event() -> None:
     assert json.loads(completed.stdout) == {}
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows-хук запускается через batch-файл")
-@pytest.mark.parametrize("working_directory", ["root", "subdirectory"])
-def test_windows_hook_launcher_runs_through_cmd(tmp_path: Path, working_directory: str) -> None:
+@pytest.mark.skipif(os.name != "nt", reason="Windows-хук запускается через PowerShell")
+@pytest.mark.parametrize(
+    ("working_directory", "active_publication"),
+    [("root", False), ("subdirectory", False), ("subdirectory", True)],
+)
+def test_windows_hook_launcher_runs_through_powershell(
+    guards: ModuleType,
+    tmp_path: Path,
+    working_directory: str,
+    active_publication: bool,
+) -> None:
     source_root = Path(__file__).parents[2]
     root = tmp_path / "repository with spaces"
     hooks_directory = root / ".codex" / "hooks"
     hooks_directory.mkdir(parents=True)
     shutil.copy2(source_root / ".codex" / "hooks.json", root / ".codex" / "hooks.json")
     shutil.copy2(
-        source_root / ".codex" / "hooks" / "codex_workflow_guards.bat",
-        hooks_directory / "codex_workflow_guards.bat",
+        source_root / ".codex" / "hooks" / "codex_workflow_guards.ps1",
+        hooks_directory / "codex_workflow_guards.ps1",
     )
     shutil.copy2(
         source_root / ".codex" / "hooks" / "codex_workflow_guards.py",
@@ -191,13 +199,22 @@ def test_windows_hook_launcher_runs_through_cmd(tmp_path: Path, working_director
 
     config = json.loads((root / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     command = config["hooks"]["Stop"][0]["hooks"][0]["commandWindows"]
-    assert "codex_workflow_guards.bat" in command
+    assert "codex_workflow_guards.ps1" in command
 
     cwd = root if working_directory == "root" else root / "tests" / "hooks"
     cwd.mkdir(parents=True, exist_ok=True)
+    if active_publication:
+        _write_publication_marker(
+            guards,
+            root,
+            workflow="azurpilot-git-workflow",
+        )
     event = {"hook_event_name": "Stop", "cwd": str(cwd)}
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if powershell is None:
+        pytest.skip("PowerShell недоступен.")
     completed = subprocess.run(
-        f'cmd.exe /d /c "{command}"',
+        [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
         input=json.dumps(event),
         text=True,
         capture_output=True,
@@ -208,7 +225,12 @@ def test_windows_hook_launcher_runs_through_cmd(tmp_path: Path, working_director
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stderr == ""
-    assert json.loads(completed.stdout) == {}
+    result = json.loads(completed.stdout)
+    if active_publication:
+        assert result["decision"] == "block"
+        assert "azurpilot-git-workflow" in result["reason"]
+    else:
+        assert result == {}
 
 
 @pytest.mark.parametrize("operation", ["push", "pr-create", "pr-edit", "pr-ready", "pr-draft", "pr-merge"])
