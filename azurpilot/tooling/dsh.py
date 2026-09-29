@@ -12,9 +12,14 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import shutil
+import subprocess
 import sys
+import tempfile
+import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn, TextIO
 
@@ -28,6 +33,10 @@ from azurpilot.dsh import (
     DSH_PACKAGE_ENV_VAR,
     DSH_PROFILE_ENV_VAR,
     IDENTITY_ENV_VARS,
+    READINESS_FILE_ENV_VAR,
+    READINESS_NONCE_ENV_VAR,
+    READINESS_SCHEMA_VERSION,
+    READINESS_TIMEOUT_ENV_VAR,
     SOURCE_REVISION_ENV_VAR,
 )
 from module.mcp_shared.local_http_auth import (
@@ -46,6 +55,7 @@ from module.mcp_shared.windows_mcp_bridge_contract import (
     parse_expected_identity,
     serialize_identity,
 )
+from module.persistence.local_environment_schema import SECRET_ENVIRONMENT_KEYS
 
 from .contracts import (
     DshBridgeFamilyCheck,
@@ -55,6 +65,11 @@ from .contracts import (
     OperationState,
     ResultCode,
     ToolingResult,
+)
+from .dsh_composition import (
+    load_composition,
+    overlay_composition,
+    validate_composition,
 )
 from .errors import ToolingError
 from .mcp import McpSourceReconciler
@@ -67,6 +82,7 @@ from .mcp_source_identity import (
     load_bridge_bundle,
     source_snapshot,
 )
+from .process_core import MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS
 from .repository import RepositoryResolver
 
 __all__ = (
@@ -81,7 +97,22 @@ DEFAULT_DSH_PACKAGE = "@deepseek-ai/dsh@0.1.7-rc.2"
 AZUR_COMMAND = "azur"
 NPX_COMMAND = "npx"
 BRIDGE_PROBE_TIMEOUT_SECONDS = 20.0
+COMPOSITION_PREFLIGHT_TIMEOUT_SECONDS = 120.0
+READINESS_TIMEOUT_SECONDS = 60.0
+READINESS_GUARD_LEAD_SECONDS = 10.0
+READINESS_POLL_SECONDS = 0.1
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
+
+# Префикс переменных, которыми запускатель владеет сам: унаследованные значения
+# из ambient environment не должны выдавать себя за подготовленную генерацию.
+GENERATION_ENVIRONMENT_PREFIX = "AZURPILOT_DSH_"
+
+# Внутренние учётные данные проектных сервисов не пересекают границу процесса
+# Harness даже если они есть в ambient environment. Список берётся у владельцев
+# локального окружения и токенов MCP, а не дублируется здесь.
+INTERNAL_CREDENTIAL_ENVIRONMENT_KEYS: frozenset[str] = frozenset(
+    set(SECRET_ENVIRONMENT_KEYS) | set(MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS.values())
+)
 
 
 def load_generation(path: str | Path) -> DshBridgeGeneration:
@@ -108,6 +139,32 @@ def load_generation(path: str | Path) -> DshBridgeGeneration:
             ResultCode.TOOLING_PRECONDITION_FAILED,
             "Конверт генерации клиента DeepSeek Harness повреждён.",
         ) from error
+
+
+@dataclass(frozen=True)
+class _ReadinessChannel:
+    """Канал подтверждения готовности, которым владеет один запуск Harness.
+
+    Каталог создаётся закрытым, документ пишет страж клиента, а запускатель
+    принимает только аттестацию с одноразовым значением этого запуска.
+    """
+
+    directory: Path
+    document: Path
+    nonce: str
+
+
+def _bounded_detail(payload: Mapping[str, object], limit: int = 240) -> str:
+    """Собрать короткий диагностический текст из полей аттестации или вывода команды."""
+
+    code = payload.get("reason_code")
+    message = payload.get("message")
+    parts = [
+        " ".join(value.split())
+        for value in (code, message)
+        if isinstance(value, str) and value.strip()
+    ]
+    return (": ".join(parts)[:limit]) if parts else "причина не указана."
 
 
 def _bridge_route(server_name: str) -> BridgeRoute:
@@ -181,7 +238,13 @@ class DshBridgeService:
         environ: Mapping[str, str] | None = None,
         progress_stream: TextIO | None = None,
     ) -> NoReturn:
-        """Подготовить генерацию и заменить процесс запуска обычным вызовом Harness."""
+        """Запустить обычный Harness и подтвердить обязательную активацию клиента.
+
+        Запуск считается успешным только после аттестации стража клиента: она
+        подтверждает, что страж установлен, оба клиента AzurPilot MCP
+        зарегистрировали свои инструменты и владелец проверки считает checkout
+        соответствующим генерации. Без аттестации сессия останавливается.
+        """
 
         prepared = self.prepare(
             repository_root,
@@ -194,45 +257,106 @@ class DshBridgeService:
             raise ToolingError(prepared.code, prepared.message)
 
         root = Path(generation.checkout_root)
-        environment = self._generation_environment(
-            root,
-            generation,
-            self._caller_token(root),
-            os.environ if environ is None else environ,
-        )
-        executable = shutil.which(NPX_COMMAND)
-        if executable is None:
-            raise ToolingError(
-                ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
-                "Команда `npx` недоступна в PATH; запуск DeepSeek Harness невозможен.",
-            )
         stream = progress_stream or sys.stderr
-        stream.write(
-            "[azurpilot-harness] мост Windows MCP подтверждён для "
-            f"{', '.join(item.server_name for item in generation.families)} "
-            f"на ревизии {generation.source_revision[:12]}\n"
-        )
-        stream.flush()
-
-        arguments = [
-            NPX_COMMAND,
-            "--yes",
-            dsh_package,
-            "--profile",
-            profile,
-            "--patch",
-            str(BRIDGE_OVERLAY_PATH),
-        ]
-        if not dsh_arguments:
-            arguments.append("--no-open")
-        arguments.extend(dsh_arguments)
+        channel = self._readiness_channel()
+        child: subprocess.Popen[bytes] | None = None
         try:
-            os.execvpe(executable, arguments, environment)
-        except OSError as error:  # pragma: no cover - зависит от состояния процесса
+            environment = self._generation_environment(
+                root,
+                generation,
+                self._caller_token(root),
+                os.environ if environ is None else environ,
+                channel,
+            )
+            executable = shutil.which(NPX_COMMAND)
+            if executable is None:
+                raise ToolingError(
+                    ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
+                    "Команда `npx` недоступна в PATH; запуск DeepSeek Harness невозможен.",
+                )
+            self._require_effective_composition(
+                executable, root, generation, environment
+            )
+            stream.write(
+                "[azurpilot-harness] мост Windows MCP подтверждён для "
+                f"{', '.join(item.server_name for item in generation.families)} "
+                f"на ревизии {generation.source_revision[:12]}\n"
+            )
+            stream.flush()
+
+            arguments = [
+                NPX_COMMAND,
+                "--yes",
+                dsh_package,
+                "--profile",
+                profile,
+                "--patch",
+                str(BRIDGE_OVERLAY_PATH),
+            ]
+            if not dsh_arguments:
+                arguments.append("--no-open")
+            arguments.extend(dsh_arguments)
+            child = self._start_harness(arguments, executable, environment, root)
+            self._await_readiness(channel, generation, child)
+            stream.write(
+                "[azurpilot-harness] страж AzurPilot подтвердил активацию клиентов "
+                f"{', '.join(BRIDGE_MCP_SERVER_NAMES)} и соответствие checkout "
+                "генерации\n"
+            )
+            stream.flush()
+            returncode = self._supervise(child)
+        except BaseException:
+            if child is not None:
+                self._terminate(child)
+            raise
+        finally:
+            shutil.rmtree(channel.directory, ignore_errors=True)
+        raise SystemExit(returncode)
+
+    def _start_harness(
+        self,
+        arguments: Sequence[str],
+        executable: str,
+        environ: Mapping[str, str],
+        root: Path,
+    ) -> subprocess.Popen[bytes]:
+        """Запустить обычный Harness дочерним процессом под контролем запускателя."""
+
+        try:
+            return subprocess.Popen(
+                list(arguments),
+                executable=executable,
+                env=dict(environ),
+                cwd=str(root),
+                close_fds=True,
+            )
+        except OSError as error:
             raise ToolingError(
                 ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
-                "Не удалось заменить процесс запуска DeepSeek Harness.",
+                "Не удалось запустить DeepSeek Harness обычным клиентом.",
             ) from error
+
+    def _supervise(self, child: subprocess.Popen[bytes]) -> int:
+        """Дождаться завершения сессии Harness и вернуть её код возврата."""
+
+        try:
+            return child.wait()
+        except KeyboardInterrupt:  # pragma: no cover - зависит от сигнала терминала
+            # SIGINT получает вся группа процессов, поэтому сессия завершается сама;
+            # запускатель лишь дожидается её кода возврата.
+            return child.wait()
+
+    def _terminate(self, child: subprocess.Popen[bytes]) -> None:
+        """Остановить сессию, которая не подтвердила обязательную активацию."""
+
+        if child.poll() is not None:
+            return
+        child.terminate()
+        try:
+            child.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:  # pragma: no cover - зависит от сессии
+            child.kill()
+            child.wait()
 
     def verify(
         self,
@@ -257,7 +381,9 @@ class DshBridgeService:
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Генерация клиента не подготовлена: нет подтверждённой ревизии источника.",
             )
-        recorded = expected if expected is not None else self._recorded_identities(environment)
+        recorded = (
+            expected if expected is not None else self._recorded_identities(environment)
+        )
 
         current_revision, _ = source_snapshot(root)
         fresh = McpSourceReconciler().build(root, requested_bump=None)
@@ -384,8 +510,24 @@ class DshBridgeService:
         generation: DshBridgeGeneration,
         caller_token: str,
         environ: Mapping[str, str],
+        readiness: _ReadinessChannel | None = None,
     ) -> dict[str, str]:
-        child = dict(environ)
+        """Собрать ограниченное окружение процесса Harness.
+
+        Из унаследованного окружения убираются внутренние учётные данные
+        проектных сервисов и значения генерации: ambient environment не является
+        доверенным источником для этой границы. Значения, которые определяют
+        клиента AzurPilot, задаются здесь явно, а обычные значения времени выполнения
+        пользовательской сессии (`PATH`, `HOME`, локаль, прокси, настройки Node)
+        сохраняются.
+        """
+
+        child = {
+            key: value
+            for key, value in environ.items()
+            if key not in INTERNAL_CREDENTIAL_ENVIRONMENT_KEYS
+            and not key.startswith(GENERATION_ENVIRONMENT_PREFIX)
+        }
         child[CHECKOUT_ROOT_ENV_VAR] = str(root)
         child[SOURCE_REVISION_ENV_VAR] = generation.source_revision
         child[AZUR_EXECUTABLE_ENV_VAR] = self._azur_executable()
@@ -396,7 +538,184 @@ class DshBridgeService:
             child[IDENTITY_ENV_VARS[record.server_name]] = serialize_identity(
                 record.identity
             )
+        if readiness is not None:
+            child[READINESS_FILE_ENV_VAR] = str(readiness.document)
+            child[READINESS_NONCE_ENV_VAR] = readiness.nonce
+            # Страж обязан сообщить об отказе активации раньше, чем запускатель
+            # остановит сессию по собственному сроку ожидания.
+            guard_seconds = max(
+                READINESS_TIMEOUT_SECONDS - READINESS_GUARD_LEAD_SECONDS, 1.0
+            )
+            child[READINESS_TIMEOUT_ENV_VAR] = str(int(guard_seconds * 1000))
         return child
+
+    def _readiness_channel(self) -> _ReadinessChannel:
+        """Создать закрытый канал подтверждения готовности для одного запуска."""
+
+        directory = Path(tempfile.mkdtemp(prefix="azurpilot-harness-"))
+        try:
+            directory.chmod(0o700)
+        except OSError:  # pragma: no cover - зависит от файловой системы
+            pass
+        return _ReadinessChannel(
+            directory=directory,
+            document=directory / "ready.json",
+            nonce=secrets.token_hex(16),
+        )
+
+    def _await_readiness(
+        self,
+        channel: _ReadinessChannel,
+        generation: DshBridgeGeneration,
+        child: subprocess.Popen[bytes],
+    ) -> None:
+        """Дождаться аттестации готовности стража или остановить запуск."""
+
+        deadline = time.monotonic() + READINESS_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            returncode = child.poll()
+            if returncode is not None:
+                raise ToolingError(
+                    ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                    "Сессия DeepSeek Harness завершилась (код "
+                    f"{returncode}) до подтверждения активации обязательных "
+                    "клиентов AzurPilot.",
+                )
+            try:
+                document = channel.document.read_text(encoding="utf-8")
+            except OSError:
+                time.sleep(READINESS_POLL_SECONDS)
+                continue
+            self._require_readiness(channel, generation, document)
+            return
+        raise ToolingError(
+            ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+            "Страж AzurPilot не подтвердил активацию клиентов "
+            f"{', '.join(BRIDGE_MCP_SERVER_NAMES)} за "
+            f"{READINESS_TIMEOUT_SECONDS:.0f} с; запуск Harness остановлен.",
+        )
+
+    def _require_readiness(
+        self,
+        channel: _ReadinessChannel,
+        generation: DshBridgeGeneration,
+        document: str,
+    ) -> None:
+        """Проверить аттестацию готовности стража клиента.
+
+        Подтверждением считается только документ текущего запуска, в котором
+        страж установлен, оба семейства AzurPilot MCP зарегистрировали
+        инструменты, владелец проверки подтвердил соответствие checkout, а
+        ревизия совпадает с генерацией.
+        """
+
+        try:
+            payload = json.loads(document)
+        except ValueError as error:
+            raise ToolingError(
+                ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                "Аттестация готовности стража AzurPilot повреждена.",
+            ) from error
+        if not isinstance(payload, dict):
+            raise ToolingError(
+                ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                "Аттестация готовности стража AzurPilot повреждена.",
+            )
+        if payload.get("schema_version") != READINESS_SCHEMA_VERSION:
+            raise ToolingError(
+                ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                "Аттестация готовности стража AzurPilot имеет неизвестную версию "
+                "документа.",
+            )
+        if payload.get("nonce") != channel.nonce:
+            raise ToolingError(
+                ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                "Аттестация готовности не принадлежит текущему запуску Harness.",
+            )
+        if payload.get("guard_installed") is not True:
+            raise ToolingError(
+                ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                "Страж AzurPilot не активировался: " + _bounded_detail(payload),
+            )
+        if payload.get("verification") != "ready":
+            raise ToolingError(
+                ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                "Владелец проверки не подтвердил соответствие checkout генерации "
+                f"клиента AzurPilot (состояние {payload.get('verification')!r}).",
+            )
+        families = payload.get("mcp_families")
+        if not isinstance(families, list) or set(families) != set(
+            BRIDGE_MCP_SERVER_NAMES
+        ):
+            raise ToolingError(
+                ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                "Не подтверждена активация обоих клиентов AzurPilot MCP: "
+                f"{families!r}.",
+            )
+        if payload.get("source_revision") != generation.source_revision:
+            raise ToolingError(
+                ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE,
+                "Аттестация готовности относится к другой ревизии источника, чем "
+                "подготовленная генерация клиента AzurPilot.",
+            )
+
+    def _require_effective_composition(
+        self,
+        executable: str,
+        root: Path,
+        generation: DshBridgeGeneration,
+        environ: Mapping[str, str],
+    ) -> None:
+        """Подтвердить эффективную композицию продуктового профиля перед запуском.
+
+        Точный pin DeepSeek Harness `0.1.7-rc.2` не позволяет объявить entry
+        обязательным из профиля, поэтому запускатель сам проверяет, что
+        собранный профиль содержит страж и оба клиента AzurPilot MCP ровно по
+        одному разу и без изменений относительно overlay-файла.
+        """
+
+        overlay = Path(generation.overlay_path)
+        arguments = [
+            NPX_COMMAND,
+            "--yes",
+            generation.dsh_package,
+            "--profile",
+            generation.profile,
+            "--patch",
+            str(overlay),
+            "--dump-config",
+        ]
+        try:
+            completed = subprocess.run(
+                arguments,
+                executable=executable,
+                env=dict(environ),
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=COMPOSITION_PREFLIGHT_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Не удалось получить эффективную композицию профиля "
+                f"DeepSeek Harness {generation.profile!r}.",
+            ) from error
+        if completed.returncode != 0:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "DeepSeek Harness не собрал эффективную композицию профиля "
+                f"{generation.profile!r} (код {completed.returncode}): "
+                + _bounded_detail({"message": completed.stderr or completed.stdout}),
+            )
+        validate_composition(
+            overlay_composition(overlay),
+            load_composition(completed.stdout),
+            overlay_dir=overlay.parent,
+        )
 
     def _azur_executable(self) -> str:
         executable = shutil.which(AZUR_COMMAND)
@@ -453,9 +772,7 @@ class DshBridgeService:
                 f"{current_revision[:12]}."
             )
         else:
-            message = (
-                "Изменились исходники MCP семейства: " + ", ".join(drift) + "."
-            )
+            message = "Изменились исходники MCP семейства: " + ", ".join(drift) + "."
         return DshBridgeFamilyCheck(
             server_name=server_name,
             endpoint=_bridge_route(server_name).bridge_url,
@@ -544,9 +861,7 @@ class DshBridgeService:
                         "Независимая сессия только для чтения подтвердила маршрут моста."
                         if failure is None
                         else "Независимая сессия только для чтения не подтвердила "
-                        "маршрут моста ("
-                        + ", ".join(failure[1])
-                        + ")."
+                        "маршрут моста (" + ", ".join(failure[1]) + ")."
                     ),
                     server_version=identity.server_version,
                     source_revision=identity.source_revision,
