@@ -42,10 +42,19 @@ from module.mcp_shared.windows_mcp_bridge_contract import (
     bridge_endpoint,
 )
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None,
-    reason="node недоступен: контракт стража проверяется только при наличии runtime",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        shutil.which("node") is None,
+        reason="node недоступен: контракт стража проверяется только при наличии runtime",
+    ),
+    pytest.mark.skipif(
+        os.name != "posix",
+        reason=(
+            "подставной владелец проверки — сценарий POSIX-оболочки; клиент "
+            "DeepSeek Harness принадлежит рабочей копии Linux/WSL"
+        ),
+    ),
+]
 
 REVISION = "3" * 40
 HARNESS = """

@@ -24,7 +24,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import yaml
 
@@ -167,7 +168,7 @@ def resolve_plugin_asset(entry: CompositionEntry, anchor: Path) -> Path | None:
     """
 
     if entry.plugin.startswith("file://"):
-        return Path(unquote(urlparse(entry.plugin).path)).resolve()
+        return Path(url2pathname(urlparse(entry.plugin).path)).resolve()
     if entry.plugin.startswith((".", "/")):
         return (anchor / entry.plugin).resolve()
     return None
