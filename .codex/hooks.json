@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; [ -n \"$root\" ] || exit 0; if command -v python3 >/dev/null 2>&1; then exec python3 \"$root/.codex/hooks/codex_workflow_guards.py\"; elif command -v python >/dev/null 2>&1; then exec python \"$root/.codex/hooks/codex_workflow_guards.py\"; else echo \"AzurPilot hook: Python interpreter недоступен\" >&2; exit 2; fi",
-            "commandWindows": ".codex\\hooks\\codex_workflow_guards.bat",
+            "commandWindows": "@echo off & for /f \"tokens=*\" %I in ('cmd /d /c git rev-parse --show-toplevel') do if exist \"%I\\.codex\\hooks\\codex_workflow_guards.bat\" call \"%I\\.codex\\hooks\\codex_workflow_guards.bat\"",
             "timeout": 10,
             "statusMessage": "Проверка незавершённой публикации"
           }

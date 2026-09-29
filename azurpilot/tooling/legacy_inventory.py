@@ -31,6 +31,13 @@ def classify(path: str) -> LegacySurface | None:
     suffix = Path(normalized).suffix.casefold()
     if suffix not in {".ps1", ".psm1", ".sh", ".bat", ".cmd"}:
         return None
+    if normalized.startswith(".codex/hooks/"):
+        return LegacySurface(
+            normalized,
+            "EXTERNAL_NATIVE_HOOK",
+            "codex",
+            "RETAIN",
+        )
     if normalized in {
         "infrastructure/observability/postgres/bootstrap/01-bootstrap.sh",
         "infrastructure/observability/postgres/init/01-bootstrap.sh",

@@ -9,11 +9,17 @@ if not errorlevel 1 (
 )
 if not defined AZUR_PY (
     where python >nul 2>&1
-    if not errorlevel 1 set "AZUR_PY=python"
+    if not errorlevel 1 (
+        python -c "import sys" >nul 2>&1
+        if not errorlevel 1 set "AZUR_PY=python"
+    )
 )
 if not defined AZUR_PY (
     where python3 >nul 2>&1
-    if not errorlevel 1 set "AZUR_PY=python3"
+    if not errorlevel 1 (
+        python3 -c "import sys" >nul 2>&1
+        if not errorlevel 1 set "AZUR_PY=python3"
+    )
 )
 if not defined AZUR_PY (
     echo AzurPilot hook: Python interpreter недоступен 1>&2
