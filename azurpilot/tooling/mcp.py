@@ -70,6 +70,11 @@ from .filesystem import (
     is_unsafe_path,
 )
 from .git import GitClient
+from .mcp_source_identity import (
+    expected_bridge_headers,
+    expected_bridge_identities,
+    load_bridge_bundle,
+)
 from .process import (
     MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS,
     ProcessController,
@@ -1591,13 +1596,7 @@ class McpService:
 
     @staticmethod
     def _bundle(root: Path) -> McpBundle:
-        try:
-            return load_mcp_bundle(root)
-        except VersioningError as exc:
-            raise ToolingError(
-                ResultCode.MCP_SOURCE_BUNDLE_INVALID,
-                "Канонический комплект MCP имеет неверный формат.",
-            ) from exc
+        return load_bridge_bundle(root)
 
     @staticmethod
     def _supervisor(root: Path, server_name: str):
@@ -3260,13 +3259,7 @@ class McpService:
         from module.mcp_shared.local_http_auth import (
             read_local_mcp_bridge_caller_token,
         )
-        from module.mcp_shared.windows_mcp_bridge_contract import (
-            BRIDGE_EXPECTED_IDENTITY_HEADER,
-            BRIDGE_IDENTITY_PROTOCOL,
-            BRIDGE_ROUTES,
-            BridgeSourceIdentity,
-            serialize_identity,
-        )
+        from module.mcp_shared.windows_mcp_bridge_contract import BRIDGE_ROUTES
 
         revision, working_tree = git_source_snapshot(root)
         if working_tree != "clean":
@@ -3296,21 +3289,12 @@ class McpService:
             ) from error
 
         bundle = self._bundle(root)
+        expected_identities = expected_bridge_identities(bundle, revision)
         legacy_results: list[McpAcceptanceDetails] = []
         modern_results: list[McpAcceptanceDetails] = []
-        for family, route in BRIDGE_ROUTES.items():
+        for route in BRIDGE_ROUTES.values():
             server_name = route.server_name
-            server = bundle.servers[server_name]
-            expected = BridgeSourceIdentity(
-                identity_protocol=BRIDGE_IDENTITY_PROTOCOL,
-                server_name=server_name,
-                server_version=str(server.version),
-                source_revision=revision,
-                source_set_digest=server.source_set_digest,
-                contract_revision=server.contract_revision,
-                tool_catalog_sha256=server.tool_catalog_sha256,
-                capability_catalog_sha256=server.capability_catalog_sha256,
-            )
+            expected = expected_identities[server_name]
             for accept_client, target_results in (
                 (accept_fresh_http, legacy_results),
                 (accept_fresh_http_modern, modern_results),
@@ -3319,12 +3303,7 @@ class McpService:
                     result = asyncio.run(
                         accept_client(
                             endpoint=route.bridge_url,
-                            headers={
-                                "Authorization": f"Bearer {caller_token}",
-                                BRIDGE_EXPECTED_IDENTITY_HEADER: serialize_identity(
-                                    expected
-                                ),
-                            },
+                            headers=expected_bridge_headers(caller_token, expected),
                             plan=build_plan(revision, server_name),
                             timeout_seconds=20.0,
                             transport_policy=HttpTransportPolicy.ISOLATED_LOOPBACK,

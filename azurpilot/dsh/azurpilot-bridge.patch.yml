@@ -1,0 +1,38 @@
+# Overlay DeepSeek Harness для клиента AzurPilot Dev/Game MCP через мост Windows MCP.
+#
+# Файл принадлежит репозиторию AzurPilot и подключается владельцем
+# `azurpilot.tooling.dsh` явным `--patch`. Здесь нет ни literal-учётных данных, ни
+# изменяемой идентичности: и токен клиента моста, и обе ожидаемые идентичности
+# приходят только из окружения, которое готовит запускатель `azurpilot-harness`.
+# Регистраций AzurPilot MCP здесь ровно две, и обе проходят через мост Windows MCP.
+#
+# Модуль-страж обязан лежать рядом с этим файлом: относительное имя плагина
+# разрешается относительно каталога overlay-файла, а не профиля Harness. Страж
+# читает генерацию сессии из тех же переменных окружения и не хранит её у себя.
+- insert:
+    - id: azurpilot-bridge-guard
+      name: ./azurpilot-bridge-guard.mjs
+
+    - id: mcp-azurpilot-dev
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: azurpilot-dev
+        transport: streamable-http
+        url: 'http://127.0.0.1:8780/dev/mcp'
+        toolCallTimeoutMs: 180000
+        failOnStartupError: true
+        headers:
+          Authorization: !!js '`Bearer ${process.env.AZURPILOT_MCP_BRIDGE_CALLER_TOKEN}`'
+          x-azurpilot-expected-source-identity: !!js '`${process.env.AZURPILOT_DSH_DEV_SOURCE_IDENTITY}`'
+
+    - id: mcp-azurpilot-game
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: azurpilot-game
+        transport: streamable-http
+        url: 'http://127.0.0.1:8780/game/mcp'
+        toolCallTimeoutMs: 180000
+        failOnStartupError: true
+        headers:
+          Authorization: !!js '`Bearer ${process.env.AZURPILOT_MCP_BRIDGE_CALLER_TOKEN}`'
+          x-azurpilot-expected-source-identity: !!js '`${process.env.AZURPILOT_DSH_GAME_SOURCE_IDENTITY}`'
