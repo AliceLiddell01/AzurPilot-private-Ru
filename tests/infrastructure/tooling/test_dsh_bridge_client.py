@@ -594,6 +594,7 @@ class _FakeHarness:
         self.arguments: list[str] = []
         self.terminated = False
         self.finished = False
+        self.signals: list[int] = []
 
     def poll(self) -> int | None:
         return self.poll_code
@@ -608,7 +609,10 @@ class _FakeHarness:
         self.poll_code = 0
 
     def send_signal(self, signum: int) -> None:
-        if signum == signal.SIGKILL:
+        self.signals.append(signum)
+        # `SIGKILL` есть не на каждой платформе: подставная сессия завершается
+        # жёстко только тем сигналом, который платформа действительно знает.
+        if signum == getattr(signal, "SIGKILL", None):
             self.kill()
         else:
             self.terminate()
@@ -676,19 +680,23 @@ def _install_launcher(
         return child
 
     monkeypatch.setattr(dsh_tooling.subprocess, "Popen", _popen)
-    # Подставная сессия не является настоящей группой процессов: системный вызов
-    # группы подменяется, а решение запускателя о сигнале проверяется как есть.
-    def _killpg(pid: int, signum: int) -> None:
-        child = holder.get("child")
-        if child is None:
-            raise ProcessLookupError(pid)
-        if signum == 0:
-            if child.poll() is not None:
-                raise ProcessLookupError(pid)
-            return
-        child.send_signal(signum)
+    # Подставная сессия не является настоящей группой процессов: на POSIX
+    # системный вызов группы подменяется, а решение запускателя о сигнале
+    # проверяется как есть. На Windows группы процессов нет, и остановка идёт
+    # веткой процесса — она проверяется теми же тестами через записанные сигналы.
+    if os.name == "posix":
 
-    monkeypatch.setattr(dsh_tooling.os, "killpg", _killpg)
+        def _killpg(pid: int, signum: int) -> None:
+            child = holder.get("child")
+            if child is None:
+                raise ProcessLookupError(pid)
+            if signum == 0:
+                if child.poll() is not None:
+                    raise ProcessLookupError(pid)
+                return
+            child.send_signal(signum)
+
+        monkeypatch.setattr(dsh_tooling.os, "killpg", _killpg)
     stream = io.StringIO()
     return service, holder, stream
 
@@ -811,6 +819,9 @@ def test_launch_stops_session_without_mandatory_activation(
 
     assert failure.value.code is ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE
     assert holder["child"].terminated is True
+    # Остановка сессии — один мягкий сигнал: сессия, завершившаяся по нему,
+    # не получает жёсткого ни через группу процессов, ни через процесс.
+    assert holder["child"].signals == [signal.SIGTERM]
     assert "подтвердил активацию" not in stream.getvalue()
 
 
@@ -841,6 +852,7 @@ def test_launch_stops_session_when_guard_reports_failure(
     assert failure.value.code is ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE
     assert "AZURPILOT_DSH_MCP_CLIENT_UNAVAILABLE" in failure.value.message
     assert holder["child"].terminated is True
+    assert holder["child"].signals == [signal.SIGTERM]
 
 
 def test_launch_stops_session_that_exits_before_activation(
@@ -856,6 +868,7 @@ def test_launch_stops_session_that_exits_before_activation(
     assert failure.value.code is ResultCode.MCP_BRIDGE_RUNTIME_UNAVAILABLE
     assert "завершилась (код 1)" in failure.value.message
     assert holder["child"].terminated is False
+    assert holder["child"].signals == []
 
 
 def _wait_for_file(path: Path, *, timeout: float = 10.0) -> bool:
