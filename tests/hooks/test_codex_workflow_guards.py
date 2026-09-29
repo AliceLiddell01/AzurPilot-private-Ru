@@ -147,6 +147,46 @@ def test_main_works_without_project_imports(tmp_path: Path) -> None:
     assert json.loads(completed.stdout) == {}
 
 
+def test_main_returns_json_for_invalid_event() -> None:
+    hook_path = Path(__file__).parents[2] / ".codex" / "hooks" / "codex_workflow_guards.py"
+    completed = subprocess.run(
+        [sys.executable, str(hook_path)],
+        input="not-json",
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == ""
+    assert json.loads(completed.stdout) == {}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-хук запускается через batch-файл")
+def test_windows_hook_launcher_runs_through_cmd(tmp_path: Path) -> None:
+    root = Path(__file__).parents[2]
+    config = json.loads((root / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    command = config["hooks"]["Stop"][0]["hooks"][0]["commandWindows"]
+    assert command == r".codex\hooks\codex_workflow_guards.bat"
+    assert '"' not in command
+
+    event = {"hook_event_name": "Stop", "cwd": str(tmp_path)}
+    completed = subprocess.run(
+        f'cmd.exe /d /c "{command}"',
+        input=json.dumps(event),
+        text=True,
+        capture_output=True,
+        cwd=root,
+        check=False,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == ""
+    assert json.loads(completed.stdout) == {}
+
+
 @pytest.mark.parametrize("operation", ["push", "pr-create", "pr-edit", "pr-ready", "pr-draft", "pr-merge"])
 def test_marker_blocks_each_native_publication_operation(guards, tmp_path, monkeypatch, operation):
     root, _ = _project(tmp_path, monkeypatch)

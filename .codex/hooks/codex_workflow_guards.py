@@ -111,10 +111,11 @@ def _read_event() -> dict[str, Any] | None:
 def main() -> None:
     try:
         result = process_event(_read_event())
-        if result is not None:
-            sys.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
     except Exception:  # noqa: BLE001 - hook не должен выдавать traceback в UI.
-        return
+        result = None
+    sys.stdout.write(
+        json.dumps(result if result is not None else {}, ensure_ascii=False, separators=(",", ":"))
+    )
 
 
 if __name__ == "__main__":
