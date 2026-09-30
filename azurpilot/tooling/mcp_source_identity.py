@@ -14,7 +14,6 @@ from pathlib import Path
 
 from module.mcp_shared.versioning import McpBundle, VersioningError, load_mcp_bundle
 from module.mcp_shared.windows_mcp_bridge_contract import (
-    BRIDGE_CALLER_TOKEN_ENV_VAR,
     BRIDGE_EXPECTED_IDENTITY_HEADER,
     BRIDGE_IDENTITY_PROTOCOL,
     BRIDGE_ROUTES,
@@ -36,7 +35,6 @@ __all__ = (
     "identity_header_value",
     "load_bridge_bundle",
     "source_snapshot",
-    "working_tree_paths",
 )
 
 BRIDGE_MCP_SERVER_NAMES: tuple[str, ...] = tuple(
@@ -55,31 +53,6 @@ def source_snapshot(root: Path | str) -> tuple[str, str]:
     revision = client.head()
     porcelain = client.status_porcelain()
     return revision, ("clean" if not porcelain.strip() else "modified")
-
-
-def working_tree_paths(root: Path | str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Вернуть пути рабочей копии, различая индекс и незакоммиченные файлы.
-
-    Первый кортеж — путь относительно корня checkout для каждого изменённого
-    файла, второй — статус каждого пути в форме ``git status --porcelain``.
-    Разбор нужен только для классификации влияния на семейства MCP: файлы,
-    не входящие в наборы исходников, не блокируют клиент.
-    """
-
-    client = GitClient(Path(root))
-    output = client.status_porcelain()
-    paths: list[str] = []
-    states: list[str] = []
-    for line in output.splitlines():
-        if len(line) < 4:
-            continue
-        state = line[:2]
-        raw_path = line[3:]
-        if " -> " in raw_path:
-            raw_path = raw_path.split(" -> ", 1)[1]
-        paths.append(raw_path.strip().strip('"'))
-        states.append(state)
-    return tuple(paths), tuple(states)
 
 
 def load_bridge_bundle(root: Path | str) -> McpBundle:
@@ -157,9 +130,3 @@ def identity_drift_fields(
     """Вернуть поля идентичности, различающиеся между генерацией и checkout."""
 
     return identity_mismatch_fields(recorded, current)
-
-
-def caller_token_environment_variable() -> str:
-    """Вернуть имя канонической переменной окружения токена клиента моста."""
-
-    return BRIDGE_CALLER_TOKEN_ENV_VAR

@@ -349,12 +349,17 @@ class DshBridgeService:
         """Дождаться завершения сессии Harness и вернуть её код возврата.
 
         Сессия живёт в отдельной группе процессов, поэтому сигнал терминала
-        запускатель пересылает группе сам.
+        запускатель пересылает группе сам. Обёртка `npx` завершается раньше самой
+        сессии, поэтому после её выхода группа проверяется ещё раз: участник,
+        оставшийся в живых, удержал бы соединение моста и токен в окружении.
         """
 
         previous = self._forward_signals(child)
         try:
-            return child.wait()
+            returncode = child.wait()
+            if self._group_alive(child):
+                self._terminate(child)
+            return returncode
         except KeyboardInterrupt:  # pragma: no cover - зависит от сигнала терминала
             self._signal_group(child, signal.SIGINT)
             return child.wait()
@@ -395,13 +400,23 @@ class DshBridgeService:
         соединением моста и токеном в окружении.
         """
 
-        self._signal_group(child, signal.SIGTERM)
+        if not self._group_alive(child):
+            child.wait()
+            return
+        # Обёртка могла быть уже снята, но группа сессии — нет: мягкий сигнал
+        # адресуется группе независимо от состояния её лидера.
+        self._signal_group(child, signal.SIGTERM, require_running=False)
         deadline = time.monotonic() + TERMINATION_TIMEOUT_SECONDS
         while self._group_alive(child) and time.monotonic() < deadline:
-            try:
-                child.wait(timeout=_TERMINATION_POLL_SECONDS)
-            except subprocess.TimeoutExpired:  # pragma: no cover - зависит от сессии
-                continue
+            if child.poll() is None:
+                try:
+                    child.wait(timeout=_TERMINATION_POLL_SECONDS)
+                except subprocess.TimeoutExpired:  # pragma: no cover - зависит от сессии
+                    continue
+            else:
+                # Лидер уже снят: ожидание группы не может опираться на его код
+                # возврата, поэтому пауза выдерживается явно.
+                time.sleep(_TERMINATION_POLL_SECONDS)
         if self._group_alive(child):
             kill = getattr(signal, "SIGKILL", None)
             if kill is None:  # pragma: no cover - платформа без SIGKILL
@@ -952,8 +967,10 @@ class DshBridgeService:
                     message=(
                         "Независимая сессия только для чтения подтвердила маршрут моста."
                         if failure is None
-                        else "Независимая сессия только для чтения не подтвердила "
-                        "маршрут моста (" + ", ".join(failure[1]) + ")."
+                        else (
+                            "Независимая сессия только для чтения не подтвердила "
+                            "маршрут моста (" + ", ".join(failure[1]) + ")."
+                        )[:300]
                     ),
                     server_version=identity.server_version,
                     source_revision=identity.source_revision,

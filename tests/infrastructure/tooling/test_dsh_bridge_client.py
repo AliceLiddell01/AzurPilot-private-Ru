@@ -601,7 +601,10 @@ class _FakeHarness:
 
     def wait(self, timeout: float | None = None) -> int:
         self.finished = True
-        return self.exit_code or 0
+        # Снятый процесс не может оставаться живым участником группы: `poll`
+        # обязан отражать завершение так же, как настоящий `subprocess.Popen`.
+        self.poll_code = self.exit_code or 0
+        return self.poll_code
 
     def terminate(self) -> None:
         self.terminated = True
@@ -899,6 +902,48 @@ def _process_alive(pid: int, *, timeout: float = 3.0) -> bool:
             return False
         time.sleep(0.05)
     return True
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="группа процессов POSIX: клиент DeepSeek Harness принадлежит Linux/WSL",
+)
+def test_completed_session_does_not_keep_group_member(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Обычное завершение сессии снимает оставшегося участника группы.
+
+    Подставная обёртка завершается сразу, как `npx` раньше самой сессии, а её
+    потомок мягкий сигнал игнорирует: без повторной проверки группы после выхода
+    обёртки такой участник остался бы сиротой с соединением моста и токеном.
+    """
+
+    monkeypatch.setattr(dsh_tooling, "TERMINATION_TIMEOUT_SECONDS", 1.0)
+    service = DshBridgeService(resolver=_FakeResolver(tmp_path))
+    orphan_pid = tmp_path / "orphan.pid"
+    script = tmp_path / "npx-stub.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        "sh -c \"trap '' TERM; while :; do sleep 0.3; done\" &\n"
+        f"echo $! > {orphan_pid}\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    child = service._start_harness(
+        [str(script)], str(script), dict(os.environ), tmp_path
+    )
+    try:
+        assert service._supervise(child) == 0
+        assert _wait_for_file(orphan_pid)
+        orphan = int(orphan_pid.read_text(encoding="utf-8").strip())
+        assert not _process_alive(orphan)
+    finally:
+        with contextlib.suppress(OSError):
+            os.killpg(child.pid, signal.SIGKILL)
+        with contextlib.suppress(OSError):
+            child.wait()
 
 
 @pytest.mark.skipif(

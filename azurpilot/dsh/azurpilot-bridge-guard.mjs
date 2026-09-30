@@ -344,7 +344,7 @@ class Generation {
         return
       }
       this.child = child
-      let stdout = ''
+      const chunks = []
       let size = 0
       const timer = setTimeout(() => {
         child.kill()
@@ -352,8 +352,11 @@ class Generation {
       }, VERIFY_TIMEOUT_MS)
       const collect = (chunk) => {
         if (size >= VERIFY_MAX_OUTPUT_BYTES) return
-        size += chunk.length
-        stdout += chunk
+        // Поток читается байтами: граница чтения может разрезать многобайтовый
+        // символ, поэтому декодирование выполняется один раз по всем частям.
+        const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        size += part.length
+        chunks.push(part)
       }
       child.stdout?.on('data', collect)
       child.stderr?.on('data', () => undefined)
@@ -368,7 +371,7 @@ class Generation {
         // ненулевой код возврата сам по себе означает запрет. Поэтому разбор
         // выполняется всегда: недоступным состояние считается только тогда,
         // когда документ JSON получить не удалось.
-        finish(this.readVerdict(stdout))
+        finish(this.readVerdict(Buffer.concat(chunks).toString('utf8')))
       })
     })
   }
