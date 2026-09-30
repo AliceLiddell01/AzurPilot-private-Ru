@@ -442,7 +442,10 @@ def build_parser() -> argparse.ArgumentParser:
                 action="append",
                 default=[],
                 metavar="ARG",
-                help="дополнительный аргумент обычного запуска DeepSeek Harness",
+                help=(
+                    "дополнительный аргумент обычного запуска DeepSeek Harness; "
+                    "аргументы композиции сессии отклоняются"
+                ),
             )
 
     app = subparsers.add_parser(

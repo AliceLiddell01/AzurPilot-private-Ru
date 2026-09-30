@@ -188,6 +188,68 @@ def test_cli_exposes_dsh_prepare_launch_and_verify_routes() -> None:
     assert verify.generation == "/tmp/ent.json"
 
 
+@pytest.mark.parametrize(
+    "argument",
+    (
+        "--profile",
+        "--profile=чужой-профиль",
+        "--patch",
+        "--patch=./extra.yml",
+        "--from-default-profile",
+    ),
+)
+def test_launch_rejects_composition_arguments_of_the_operator(
+    tmp_path: Path, argument: str
+) -> None:
+    """Композицию сессии задаёт запускатель, а не дополнительный аргумент.
+
+    Проверка эффективной композиции относится к профилю и overlay-файлу
+    запускателя: принятый аргумент запустил бы сессию с другой композицией.
+    """
+
+    service = DshBridgeService(resolver=_FakeResolver(tmp_path))
+
+    with pytest.raises(ToolingError) as failure:
+        service.launch(
+            tmp_path, dsh_arguments=(argument,), environ={"PATH": "/usr/bin"}
+        )
+
+    assert failure.value.code is ResultCode.TOOLING_PRECONDITION_FAILED
+
+
+def test_launch_accepts_application_arguments_of_the_operator() -> None:
+    """Аргументы приложения проходят дальше: композицию они не задают."""
+
+    service = DshBridgeService()
+
+    service._require_launch_arguments(("headless", "--no-open", "задача"))
+
+
+def test_readiness_budget_covers_the_guard_verdict_path() -> None:
+    """Срок запускателя покрывает путь стража целиком, а не только активацию.
+
+    Границы проверки владельца принадлежат стражу: если они вырастут, срок
+    запускателя обязан вырасти вместе с ними, иначе сессия будет остановлена
+    раньше, чем страж успеет аттестовать готовность.
+    """
+
+    source = BRIDGE_GUARD_PATH.read_text(encoding="utf-8")
+    attempts = re.search(r"const ATTEST_ATTEMPTS = (\d+)", source)
+    timeout = re.search(r"const VERIFY_TIMEOUT_MS = (\d+)", source)
+    assert attempts is not None
+    assert timeout is not None
+    assert int(attempts.group(1)) == dsh_tooling.GUARD_VERIFY_ATTEMPTS
+    assert int(timeout.group(1)) == int(dsh_tooling.GUARD_VERIFY_TIMEOUT_SECONDS * 1000)
+    assert dsh_tooling.READINESS_TIMEOUT_SECONDS >= (
+        dsh_tooling.GUARD_ACTIVATION_TIMEOUT_SECONDS
+        + dsh_tooling.GUARD_VERIFY_TIMEOUT_SECONDS * dsh_tooling.GUARD_VERIFY_ATTEMPTS
+        + dsh_tooling.READINESS_GUARD_LEAD_SECONDS
+    )
+    assert dsh_tooling.GUARD_ACTIVATION_TIMEOUT_SECONDS < (
+        dsh_tooling.READINESS_TIMEOUT_SECONDS - dsh_tooling.READINESS_GUARD_LEAD_SECONDS
+    )
+
+
 def test_tracked_overlay_registers_exactly_two_bridge_routes() -> None:
     text = BRIDGE_OVERLAY_PATH.read_text(encoding="utf-8")
     overlay = yaml.load(text, Loader=_JavascriptLoader)

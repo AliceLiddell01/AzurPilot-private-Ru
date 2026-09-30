@@ -103,9 +103,31 @@ TERMINATION_TIMEOUT_SECONDS = 5.0
 #: Шаг ожидания группы процессов при остановке сессии.
 _TERMINATION_POLL_SECONDS = 0.2
 COMPOSITION_PREFLIGHT_TIMEOUT_SECONDS = 120.0
-READINESS_TIMEOUT_SECONDS = 60.0
+#: Окно подтверждения активации клиентов, которое запускатель даёт стражу.
+GUARD_ACTIVATION_TIMEOUT_SECONDS = 50.0
+#: Верхняя граница одной проверки владельца у стража и число его попыток.
+#: Значения принадлежат стражу `azurpilot-bridge-guard.mjs` (`VERIFY_TIMEOUT_MS`
+#: и `ATTEST_ATTEMPTS`); здесь они зеркалятся, потому что срок запускателя
+#: обязан покрывать весь путь стража до аттестации готовности.
+GUARD_VERIFY_TIMEOUT_SECONDS = 20.0
+GUARD_VERIFY_ATTEMPTS = 3
+#: Запас, с которым отказ стража обязан прийти раньше срока запускателя.
 READINESS_GUARD_LEAD_SECONDS = 10.0
+#: Сколько запускатель ждёт аттестацию стража целиком: окно активации, все
+#: попытки проверки владельца и запас на сообщение об отказе.
+READINESS_TIMEOUT_SECONDS = (
+    GUARD_ACTIVATION_TIMEOUT_SECONDS
+    + GUARD_VERIFY_TIMEOUT_SECONDS * GUARD_VERIFY_ATTEMPTS
+    + READINESS_GUARD_LEAD_SECONDS
+)
 READINESS_POLL_SECONDS = 0.1
+#: Аргументы обычного запуска, которые задают композицию сессии. Их принимает
+#: только сам запускатель: проверка эффективной композиции относится к его
+#: профилю и overlay-файлу, поэтому такой аргумент из `--dsh-arg` запустил бы
+#: сессию с другой композицией, чем подтверждённая.
+COMPOSITION_ARGUMENTS: frozenset[str] = frozenset(
+    {"--profile", "--from-default-profile", "--patch"}
+)
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
 
 # Префикс переменных, которыми запускатель владеет сам: унаследованные значения
@@ -250,6 +272,7 @@ class DshBridgeService:
         соответствующим генерации. Без аттестации сессия останавливается.
         """
 
+        self._require_launch_arguments(dsh_arguments)
         prepared = self.prepare(
             repository_root,
             profile=profile,
@@ -315,6 +338,23 @@ class DshBridgeService:
         finally:
             shutil.rmtree(channel.directory, ignore_errors=True)
         raise SystemExit(returncode)
+
+    def _require_launch_arguments(self, arguments: Sequence[str]) -> None:
+        """Запретить дополнительным аргументам задавать композицию сессии.
+
+        Запускатель подтверждает эффективную композицию своего профиля и
+        overlay-файла, поэтому аргумент, меняющий эту композицию, обязан быть
+        отклонён до старта сессии, а не после проверки.
+        """
+
+        for argument in arguments:
+            name = argument.split("=", 1)[0]
+            if name in COMPOSITION_ARGUMENTS:
+                raise ToolingError(
+                    ResultCode.TOOLING_PRECONDITION_FAILED,
+                    f"Аргумент `{name}` принадлежит запускателю: он задаёт "
+                    "проверяемую композицию сессии.",
+                )
 
     def _start_harness(
         self,
@@ -644,11 +684,12 @@ class DshBridgeService:
             child[READINESS_FILE_ENV_VAR] = str(readiness.document)
             child[READINESS_NONCE_ENV_VAR] = readiness.nonce
             # Страж обязан сообщить об отказе активации раньше, чем запускатель
-            # остановит сессию по собственному сроку ожидания.
-            guard_seconds = max(
-                READINESS_TIMEOUT_SECONDS - READINESS_GUARD_LEAD_SECONDS, 1.0
+            # остановит сессию по собственному сроку ожидания. Окно активации —
+            # отдельная граница стража, а не остаток срока запускателя: после
+            # него страж ещё выполняет проверку владельца.
+            child[READINESS_TIMEOUT_ENV_VAR] = str(
+                int(GUARD_ACTIVATION_TIMEOUT_SECONDS * 1000)
             )
-            child[READINESS_TIMEOUT_ENV_VAR] = str(int(guard_seconds * 1000))
         return child
 
     def _readiness_channel(self) -> _ReadinessChannel:
