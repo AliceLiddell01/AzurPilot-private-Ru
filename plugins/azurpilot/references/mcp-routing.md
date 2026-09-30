@@ -136,9 +136,10 @@ azur mcp sync --base <exact-base-sha>
 
 ## Клиент DeepSeek Harness
 
-Обычная команда оператора — `azurpilot-harness`; она остаётся операторским входом
-и выполняет буквальный `azur dsh launch --profile azurpilot-web`. Всей клиентской
-границей владеет `azurpilot.tooling.dsh`:
+Обычная команда оператора — буквальный `azur dsh launch --profile azurpilot-web`.
+Локальный псевдоним `azurpilot-harness` остаётся необязательным удобством и
+выполняет ту же команду. Всей клиентской границей владеет
+`azurpilot.tooling.dsh`:
 
 | Команда | Назначение |
 | --- | --- |
