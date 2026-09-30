@@ -38,6 +38,12 @@ from .tooling.contracts import (
 )
 from .tooling.docker import DockerDeploymentService
 from .tooling.doctor import DoctorService
+from .tooling.dsh import (
+    DEFAULT_DSH_PACKAGE,
+    DEFAULT_DSH_PROFILE,
+    DshBridgeService,
+    load_generation,
+)
 from .tooling.errors import ToolingError
 from .tooling.lifecycle import LifecycleService
 from .tooling.mcp import McpService
@@ -66,6 +72,7 @@ class ServiceContainer:
     application_state: ApplicationStateService
     integrations: IntegrationService
     bot_runtime: BotRuntimeService
+    dsh: DshBridgeService
 
     @classmethod
     def create(cls) -> ServiceContainer:
@@ -81,6 +88,7 @@ class ServiceContainer:
             application_state=ApplicationStateService(),
             integrations=integrations,
             bot_runtime=BotRuntimeService(),
+            dsh=DshBridgeService(),
         )
 
 
@@ -383,6 +391,62 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="явная политика SemVer сервера для подтверждённого изменения контракта",
     )
+
+    dsh = subparsers.add_parser(
+        "dsh",
+        help="запустить DeepSeek Harness обычным Linux-клиентом моста Windows MCP",
+    )
+    dsh_subparsers = dsh.add_subparsers(
+        dest="dsh_command", required=True, metavar="ACTION"
+    )
+    for action, action_help in (
+        (
+            "prepare",
+            "собрать генерацию клиента и подтвердить оба маршрута моста новой сессией",
+        ),
+        (
+            "launch",
+            "подготовить генерацию и запустить обычный DeepSeek Harness",
+        ),
+        (
+            "verify",
+            "сверить текущий checkout с генерацией запущенной сессии клиента",
+        ),
+    ):
+        command = dsh_subparsers.add_parser(action, help=action_help)
+        _add_common_options(command, suppress_defaults=True)
+        if action == "verify":
+            command.add_argument(
+                "--generation",
+                metavar="PATH",
+                default=None,
+                help="конверт `azur dsh prepare --json` вместо переменных окружения",
+            )
+            continue
+        command.add_argument(
+            "--profile",
+            default=DEFAULT_DSH_PROFILE,
+            metavar="NAME",
+            help="профиль DeepSeek Harness для запуска клиента",
+        )
+        command.add_argument(
+            "--package",
+            default=DEFAULT_DSH_PACKAGE,
+            metavar="SPEC",
+            help="точная спецификация пакета DeepSeek Harness",
+        )
+        if action == "launch":
+            command.add_argument(
+                "--dsh-arg",
+                dest="dsh_arguments",
+                action="append",
+                default=[],
+                metavar="ARG",
+                help=(
+                    "дополнительный аргумент обычного запуска DeepSeek Harness; "
+                    "аргументы композиции сессии отклоняются"
+                ),
+            )
 
     app = subparsers.add_parser(
         "app", help="запросить типизированное состояние приложения без запуска WebUI"
@@ -984,6 +1048,27 @@ def _dispatch(
             return services.mcp.stop(root)
         if args.mcp_command == "restart":
             return services.mcp.restart(root)
+    if command == "dsh":
+        if args.dsh_command == "prepare":
+            return services.dsh.prepare(
+                root,
+                profile=args.profile,
+                dsh_package=args.package,
+            )
+        if args.dsh_command == "launch":
+            return services.dsh.launch(
+                root,
+                profile=args.profile,
+                dsh_package=args.package,
+                dsh_arguments=tuple(args.dsh_arguments),
+                progress_stream=progress_stream,
+            )
+        if args.dsh_command == "verify":
+            if args.generation:
+                return services.dsh.verify_generation(
+                    load_generation(args.generation), root
+                )
+            return services.dsh.verify(root)
     if command == "app" and args.app_command == "state":
         return services.application_state.read(args.state_id, args.profile)
     if command == "integrations":

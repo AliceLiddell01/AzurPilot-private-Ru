@@ -626,6 +626,91 @@ class TransactionJournal(ClosedModel):
     ownership_confirmed: bool = False
 
 
+class DshBridgeFamilyRecord(ClosedModel):
+    """Зафиксированная идентичность одного семейства AzurPilot MCP."""
+
+    server_name: Literal["azurpilot-dev", "azurpilot-game"]
+    endpoint: str = Field(min_length=1, max_length=512)
+    identity: BridgeSourceIdentity
+
+    @model_validator(mode="after")
+    def validate_canonical_route(self) -> DshBridgeFamilyRecord:
+        from module.mcp_shared import windows_mcp_bridge_contract
+
+        route = next(
+            (
+                item
+                for item in windows_mcp_bridge_contract.BRIDGE_ROUTES.values()
+                if item.server_name == self.server_name
+            ),
+            None,
+        )
+        if (
+            route is None
+            or route.bridge_url != self.endpoint
+            or self.identity.server_name != self.server_name
+        ):
+            raise ValueError(
+                "Семейство должно соответствовать каноническому маршруту моста"
+            )
+        return self
+
+
+class DshBridgeGeneration(ClosedModel):
+    """Неизменяемая запись генерации сессии клиента DeepSeek Harness."""
+
+    schema_version: int = Field(default=1, ge=1, le=1)
+    checkout_root: str = Field(min_length=1, max_length=512)
+    source_revision: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    source_state: Literal["clean", "modified"]
+    profile: str = Field(min_length=1, max_length=64)
+    dsh_package: str = Field(min_length=1, max_length=128)
+    overlay_path: str = Field(min_length=1, max_length=512)
+    guard_path: str = Field(min_length=1, max_length=512)
+    bridge_endpoint: str = Field(min_length=1, max_length=512)
+    families: tuple[DshBridgeFamilyRecord, ...] = Field(min_length=2, max_length=2)
+
+    @model_validator(mode="after")
+    def validate_canonical_bridge(self) -> DshBridgeGeneration:
+        from module.mcp_shared import windows_mcp_bridge_contract
+
+        canonical = tuple(
+            route.server_name
+            for route in windows_mcp_bridge_contract.BRIDGE_ROUTES.values()
+        )
+        if (
+            self.bridge_endpoint != windows_mcp_bridge_contract.bridge_endpoint()
+            or tuple(item.server_name for item in self.families) != canonical
+        ):
+            raise ValueError(
+                "Генерация должна соответствовать каноническому контракту моста"
+            )
+        return self
+
+
+class DshBridgeFamilyCheck(ClosedModel):
+    """Состояние одного семейства AzurPilot MCP на момент проверки генерации."""
+
+    server_name: Literal["azurpilot-dev", "azurpilot-game"]
+    endpoint: str = Field(min_length=1, max_length=512)
+    status: Literal["ready", "drift", "unavailable", "unknown"]
+    reason_code: str = Field(min_length=1, max_length=128)
+    message: str = Field(min_length=1, max_length=300)
+    server_version: str | None = Field(default=None, min_length=1, max_length=128)
+    source_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+    mismatched_fields: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+
+
+class DshVerificationDetails(ClosedModel):
+    """Результат проверки соответствия checkout генерации клиента."""
+
+    checkout_root: str = Field(min_length=1, max_length=512)
+    recorded_revision: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    current_revision: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    bridge_endpoint: str = Field(min_length=1, max_length=512)
+    families: tuple[DshBridgeFamilyCheck, ...] = Field(min_length=2, max_length=2)
+
+
 class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
     """Общий закрытый конверт результата для человекочитаемых и машинных адаптеров."""
 
@@ -653,6 +738,10 @@ __all__ = [
     "CommissionRecoveryProjection",
     "DoctorDetails",
     "DoctorEvidence",
+    "DshBridgeFamilyCheck",
+    "DshBridgeFamilyRecord",
+    "DshBridgeGeneration",
+    "DshVerificationDetails",
     "ExitCode",
     "GitRange",
     "IntegrationSummary",
